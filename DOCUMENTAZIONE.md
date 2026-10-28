@@ -26,6 +26,7 @@ orchestra/
 ├── .cargo/config.toml      the `cargo xtask` alias
 ├── .gitattributes          LF line endings everywhere, binary assets untouched
 ├── .gitignore              build output, generated PDFs, editor files, secrets
+├── .github/workflows/      CI: cargo xtask check on 3 OS, guides as artifacts
 ├── .githooks/commit-msg    enforces the `User-visible: yes|no` trailer
 ├── .claude/settings.json   Claude Code: sandbox network, rustfmt and documentation hooks
 ├── scripts/                helper scripts used by the hooks
@@ -360,6 +361,29 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 Git non versiona `.git/config`, quindi ogni clone deve eseguire `cargo xtask setup` una volta per
 attivare l'hook.
+
+### Integrazione continua
+
+`.github/workflows/ci.yml` parte a ogni push su qualunque branch:
+
+- **check**, su `ubuntu-latest`, `windows-latest` e `macos-latest`: installa Rust 1.99.1 (la stessa
+  versione di `rust-version`), ripristina la cache di compilazione, installa `cargo-nextest` e
+  `cargo-deny` già compilati ed esegue `cargo xtask check`. Le tre piattaforme girano in modo
+  indipendente (`fail-fast: false`), così un errore su Windows non nasconde quello su macOS;
+- **guides**, su Linux: installa Typst 0.15.1, esegue `cargo xtask guides` e carica `GUIDA.pdf` e
+  `GUIDE.pdf` come artefatto `user-guides`, conservato per 30 giorni.
+
+Usiamo solo i runner standard ospitati da GitHub: sono gratuiti per i repository pubblici, mentre
+quelli più grandi si pagano anche lì. Ogni action di terzi è fissata con l'hash completo del commit,
+con il tag in un commento, perché un tag può essere spostato da chi controlla il repository
+dell'action:
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+```
+
+Il workflow ha solo accesso in lettura al repository, e un push più recente sullo stesso branch
+annulla l'esecuzione precedente.
 
 ## Le guide per l'utente
 
