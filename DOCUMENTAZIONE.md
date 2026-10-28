@@ -435,6 +435,13 @@ Cose non ovvie che fanno perdere tempo la prima volta che le si incontra:
   scaricano con `cargo fetch` (eseguito da solo, perché è in `sandbox.excludedCommands`; dopo,
   le compilazioni funzionano con `--offline`), gli aggiornamenti della toolchain li fa il proprietario con
   `rustup update stable`, e `cargo xtask setup` si esegue fuori dal sandbox.
+- La CI mette in cache `target/` con rust-cache, che elimina i file che non riconosce come
+  prodotti della compilazione: il database di cargo-deny che teniamo in `target/advisory-dbs` è
+  tornato vuoto alla seconda esecuzione e `cargo deny` è fallito con "failed to load any
+  advisories". Il workflow ora cancella quella cartella prima di `cargo xtask check`.
+- `gh` dentro una pipeline (`gh … | grep`) gira nel sandbox, senza il suo token: GitHub allora
+  risponde come a un utente anonimo (60 richieste l'ora, niente accesso ai log dei job). Esegui
+  `gh` da solo.
 - I trailer dei commit devono stare nell'ultimo paragrafo del messaggio (vedi l'hook commit-msg).
 - `rustfmt` su un singolo file fallisce se quel file dichiara un `mod` il cui file non esiste
   ancora, quindi l'hook di formattazione lo salta in silenzio: scrivi i file dei moduli prima

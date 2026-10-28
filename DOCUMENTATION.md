@@ -418,6 +418,12 @@ Things that are not obvious and cost time when you meet them for the first time:
   builds work with `--offline`),
   toolchain updates are done by the owner with `rustup update stable`, and `cargo xtask setup` runs
   outside the sandbox.
+- CI caches `target/` with rust-cache, which prunes files it does not recognise as build output:
+  the cargo-deny database we keep in `target/advisory-dbs` came back empty on the second run and
+  `cargo deny` failed with "failed to load any advisories". The workflow now deletes that folder
+  before `cargo xtask check`.
+- `gh` inside a pipeline (`gh … | grep`) runs inside the sandbox, without its token: GitHub then
+  answers as an anonymous user (60 requests per hour, no access to job logs). Run `gh` on its own.
 - Commit trailers must be in the last paragraph of the message (see the commit-msg hook).
 - `rustfmt` on a single file fails if that file declares a `mod` whose file does not exist yet,
   so the formatting hook silently skips it: write module files before the `mod` line that uses

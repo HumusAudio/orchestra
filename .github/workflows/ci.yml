@@ -60,6 +60,15 @@ jobs:
         with:
           tool: cargo-nextest,cargo-deny
 
+      # deny.toml keeps the RustSec database in target/advisory-dbs (CARGO_HOME is read-only in
+      # the Claude Code sandbox). rust-cache saves and restores target/ but prunes files it does
+      # not recognise as build output, which left an EMPTY database behind on the second run
+      # ("failed to load any advisories"). Deleting it makes cargo-deny fetch a fresh copy, which
+      # is what a security check should use anyway.
+      - name: Remove cached advisory database
+        shell: bash
+        run: rm -rf target/advisory-dbs
+
       - name: cargo xtask check
         run: cargo xtask check
 
