@@ -59,6 +59,13 @@ orchestra-i18n = { path = "crates/i18n" }
 orchestra-ui = { path = "crates/ui" }
 orchestra-video = { path = "crates/video" }
 
+# External crates. Every entry was checked on crates.io (version, license, maintenance) and is
+# justified in an ADR; versions are pinned to the minor release we verified.
+# Fluent (ADR-0008, verified 2026-10-28): official Project Fluent crates, Apache-2.0 OR MIT.
+fluent-bundle = "0.16.0"
+fluent-syntax = "0.12.0"
+unic-langid = "0.9.6"
+
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a
 # developer tool, not library code, and declares its own relaxed table.
