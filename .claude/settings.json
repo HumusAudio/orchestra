@@ -1,6 +1,9 @@
 {
   "sandbox": {
-    "excludedCommands": ["git push *", "git fetch *", "git pull *", "git ls-remote *", "gh *"],
+    "excludedCommands": [
+      "git push *", "git fetch *", "git pull *", "git ls-remote *", "gh *",
+      "cargo fetch", "cargo fetch *"
+    ],
     "network": {
       "allowedDomains": [
         "github.com", "*.github.com", "*.githubusercontent.com",
@@ -9,6 +12,13 @@
     }
   },
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/turn-start.sh\"" }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -23,7 +33,7 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "bash scripts/check-docs-updated.sh" }
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/check-docs-updated.sh\"" }
         ]
       }
     ]

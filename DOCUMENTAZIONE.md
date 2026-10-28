@@ -432,8 +432,8 @@ Cose non ovvie che fanno perdere tempo la prima volta che le si incontra:
   `sandbox.excludedCommands`. Vale solo per un comando eseguito *da solo*: `cd … && git push` resta
   nel sandbox e fallisce.
 - Nel sandbox `~/.cargo`, `~/.rustup` e `.git/config` sono in sola lettura. Le nuove dipendenze si
-  scaricano con un solo `cargo fetch` fuori dal sandbox (poi le compilazioni funzionano con
-  `--offline`), gli aggiornamenti della toolchain li fa il proprietario con
+  scaricano con `cargo fetch` (eseguito da solo, perché è in `sandbox.excludedCommands`; dopo,
+  le compilazioni funzionano con `--offline`), gli aggiornamenti della toolchain li fa il proprietario con
   `rustup update stable`, e `cargo xtask setup` si esegue fuori dal sandbox.
 - I trailer dei commit devono stare nell'ultimo paragrafo del messaggio (vedi l'hook commit-msg).
 - `rustfmt` su un singolo file fallisce se quel file dichiara un `mod` il cui file non esiste

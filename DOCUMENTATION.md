@@ -414,7 +414,8 @@ Things that are not obvious and cost time when you meet them for the first time:
   `sandbox.excludedCommands`. That applies only to a command run *on its own*: `cd … && git push`
   stays sandboxed and fails.
 - Inside the sandbox `~/.cargo`, `~/.rustup` and `.git/config` are read-only. New dependencies are
-  downloaded with a single `cargo fetch` outside the sandbox (then builds work with `--offline`),
+  downloaded with `cargo fetch` (run on its own, it is in `sandbox.excludedCommands`; after it,
+  builds work with `--offline`),
   toolchain updates are done by the owner with `rustup update stable`, and `cargo xtask setup` runs
   outside the sandbox.
 - Commit trailers must be in the last paragraph of the message (see the commit-msg hook).

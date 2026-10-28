@@ -33,6 +33,9 @@ branch protection and CI configuration get tangled.
    sandbox. Trade-off accepted by the owner: those commands run unsandboxed (still subject to
    Claude Code's permission checks); everything else stays sandboxed. Note: compound commands
    (`cd … && git push`) stay sandboxed, so these commands must be run on their own.
+   `cargo fetch` is excluded too (owner's decision, 2026-10-28): `~/.cargo` is read-only inside
+   the sandbox, and `cargo fetch` only downloads the crates pinned in `Cargo.lock` from crates.io
+   (the only source `deny.toml` allows); builds and tests stay sandboxed.
 
 ## Alternatives rejected
 
