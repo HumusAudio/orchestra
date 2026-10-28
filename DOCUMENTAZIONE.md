@@ -315,7 +315,7 @@ nessuno li scambia per passaggi funzionanti.
 
 ### Gli hook di Claude Code
 
-Il file `.claude/settings.json` del progetto configura due hook (e il sandbox, vedi l'ultima
+Il file `.claude/settings.json` del progetto configura tre hook (e il sandbox, vedi l'ultima
 sezione):
 
 - **PostToolUse su Edit/Write**: quando Claude scrive un file `.rs`, `rustfmt` lo formatta subito.
@@ -325,12 +325,20 @@ sezione):
 FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$FILE" 2>/dev/null ;; esac; exit 0
 ```
 
-- **Stop**: quando Claude sta per chiudere il turno, `scripts/check-docs-updated.sh` guarda ogni
-  file cambiato sul branch (commit, modifiche in stage, fuori stage e file non tracciati). Se è
-  cambiato un sorgente (`.rs`, `.toml`, `.ftl` sotto `crates/` o `xtask/`) e `DOCUMENTAZIONE.md` o
-  `DOCUMENTATION.md` non sono stati toccati, oppure hanno strutture diverse, risponde
-  `{"decision": "block", "reason": …}` e Claude deve sistemare prima di finire. Un indicatore
-  `stop_hook_active` evita un ciclo infinito.
+- **UserPromptSubmit**: quando inizia un nuovo turno, `scripts/turn-start.sh` fotografa il
+  working tree e salva l'identificativo dell'albero git in `.git/claude-turn-start-<sessione>`.
+  La foto la scatta `scripts/worktree-snapshot.sh` con una copia temporanea dell'indice
+  (`git add -A` dentro la copia, poi `git write-tree`), così HEAD, branch, indice vero e stash non
+  vengono mai toccati.
+- **Stop**: quando Claude sta per chiudere il turno, `scripts/check-docs-updated.sh` scatta una
+  nuova foto e la confronta con quella di inizio turno, così vede esattamente i file cambiati *in
+  questo turno*, compresi quelli committati durante il turno. Se è cambiato un sorgente (`.rs`,
+  `.toml`, `.ftl` sotto `crates/` o `xtask/`) e `DOCUMENTAZIONE.md` o `DOCUMENTATION.md` non sono
+  stati toccati, oppure hanno strutture diverse, risponde `{"decision": "block", "reason": …}` e
+  Claude deve sistemare prima di finire. Un indicatore `stop_hook_active` evita un ciclo infinito.
+  Senza foto ripiega su tutte le modifiche del branch rispetto a `origin/main`: era il progetto
+  originale, e le prove della Fase 0 ne hanno mostrato il difetto: una volta toccati i documenti
+  in un punto qualsiasi del branch, non bloccava più nulla.
 
 ### L'hook commit-msg
 
@@ -404,6 +412,10 @@ Cose non ovvie che fanno perdere tempo la prima volta che le si incontra:
   `--offline`), gli aggiornamenti della toolchain li fa il proprietario con
   `rustup update stable`, e `cargo xtask setup` si esegue fuori dal sandbox.
 - I trailer dei commit devono stare nell'ultimo paragrafo del messaggio (vedi l'hook commit-msg).
+- `rustfmt` su un singolo file fallisce se quel file dichiara un `mod` il cui file non esiste
+  ancora, quindi l'hook di formattazione lo salta in silenzio: scrivi i file dei moduli prima
+  della riga `mod` che li usa, oppure esegui `cargo fmt --all` dopo (`cargo xtask check` se ne
+  accorge comunque).
 - I collegamenti interlingua di Wikipedia sono un buon punto di partenza per la terminologia, ma
   possono trarre in inganno: l'inglese "Bar (music)" punta allo spagnolo "Barra de compás", che è
   la *stanghetta*; la battuta è *compás*. I cataloghi di traduzione dei programmi (MuseScore,

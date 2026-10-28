@@ -2,6 +2,12 @@
 # Stop hook: blocks the end of the turn when source files changed but the two documentation
 # files (Italian and English) were not both updated, or when their structure diverges.
 # Requires: jq, git, awk, sha256sum.
+#
+# Which changes count: those made DURING THIS TURN (CLAUDE.md §8: "in the same step"). The
+# UserPromptSubmit hook (turn-start.sh) stores a snapshot of the working tree when the turn
+# starts; here we compare it with a snapshot of the working tree now, so files committed during
+# the turn are seen too. If no snapshot exists (hook not installed, first run), we fall back to
+# everything changed on the branch since it diverged from origin/main.
 
 input=$(cat)
 
@@ -10,16 +16,25 @@ if [ "$(echo "$input" | jq -r '.stop_hook_active')" = "true" ]; then exit 0; fi
 
 cd "$(echo "$input" | jq -r '.cwd')" || exit 0
 
-# Reference point: where this branch diverged from origin/main (or the first commit).
-base=$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
+session=$(echo "$input" | jq -r '.session_id // "default"' | tr -cd 'A-Za-z0-9_-')
+git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit 0
+start_file="$git_dir/claude-turn-start-$session"
 
-# Everything touched since then: commits, staged, unstaged and untracked files.
-changed=$( {
-  git diff --name-only "$base" HEAD
-  git diff --name-only
-  git diff --name-only --cached
-  git ls-files --others --exclude-standard
-} 2>/dev/null | sort -u )
+if [ -s "$start_file" ]; then
+  # Turn-scoped: tree at turn start vs tree now.
+  now=$(bash "$(dirname "$0")/worktree-snapshot.sh" 2>/dev/null) || exit 0
+  changed=$(git diff --name-only "$(cat "$start_file")" "$now" 2>/dev/null | sort -u)
+else
+  # Fallback, branch-scoped: where this branch diverged from origin/main (or the first commit).
+  base=$(git merge-base HEAD origin/main 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)
+  # Everything touched since then: commits, staged, unstaged and untracked files.
+  changed=$( {
+    git diff --name-only "$base" HEAD
+    git diff --name-only
+    git diff --name-only --cached
+    git ls-files --others --exclude-standard
+  } 2>/dev/null | sort -u )
+fi
 
 # Only real sources count: Rust code, manifests, translation catalogs.
 src=$(echo "$changed" | grep -E '^(crates|xtask|app)/.*\.(rs|toml|ftl)$')

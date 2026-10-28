@@ -301,7 +301,7 @@ nobody mistakes them for working steps.
 
 ### Claude Code hooks
 
-The project's `.claude/settings.json` configures two hooks (and the sandbox, see the last section):
+The project's `.claude/settings.json` configures three hooks (and the sandbox, see the last section):
 
 - **PostToolUse on Edit/Write**: when Claude writes a `.rs` file, `rustfmt` formats it at once.
   The hook reads the file path from the JSON on its standard input:
@@ -310,12 +310,20 @@ The project's `.claude/settings.json` configures two hooks (and the sandbox, see
 FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$FILE" 2>/dev/null ;; esac; exit 0
 ```
 
-- **Stop**: when Claude is about to end its turn, `scripts/check-docs-updated.sh` looks at every
-  file changed on the branch (commits, staged, unstaged and untracked). If any source changed
+- **UserPromptSubmit**: when a new turn starts, `scripts/turn-start.sh` takes a snapshot of the
+  working tree and stores its git tree id in `.git/claude-turn-start-<session>`. The snapshot is
+  made by `scripts/worktree-snapshot.sh` with a temporary copy of the index (`git add -A` into
+  it, then `git write-tree`), so HEAD, branches, the real index and the stash are never touched.
+- **Stop**: when Claude is about to end its turn, `scripts/check-docs-updated.sh` takes a new
+  snapshot and compares it with the one from the start of the turn, so it sees exactly the files
+  changed *in this turn*, including files committed during the turn. If any source changed
   (`.rs`, `.toml`, `.ftl` under `crates/` or `xtask/`) and `DOCUMENTAZIONE.md` or
   `DOCUMENTATION.md` was not touched, or the two have different structures, it answers
   `{"decision": "block", "reason": …}` and Claude has to fix it before finishing. A
-  `stop_hook_active` flag prevents an endless loop.
+  `stop_hook_active` flag prevents an endless loop. Without a snapshot it falls back to every
+  change on the branch since `origin/main`; that was the original design, and the Phase 0 tests
+  showed its flaw: once the documents had been touched anywhere on the branch, it never blocked
+  again.
 
 ### The commit-msg hook
 
@@ -387,6 +395,9 @@ Things that are not obvious and cost time when you meet them for the first time:
   toolchain updates are done by the owner with `rustup update stable`, and `cargo xtask setup` runs
   outside the sandbox.
 - Commit trailers must be in the last paragraph of the message (see the commit-msg hook).
+- `rustfmt` on a single file fails if that file declares a `mod` whose file does not exist yet,
+  so the formatting hook silently skips it: write module files before the `mod` line that uses
+  them, or run `cargo fmt --all` afterwards (`cargo xtask check` catches it anyway).
 - Wikipedia's interlanguage links are a good start for terminology, but they can mislead: English
   "Bar (music)" links to Spanish "Barra de compás", which is the *barline*; the measure is
   *compás*. Software UI catalogs (MuseScore, Ardour) are better evidence of what users actually
