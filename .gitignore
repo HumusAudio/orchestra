@@ -1,0 +1,21 @@
+# Build output of cargo (workspace and spikes).
+/target/
+/spikes/**/target/
+# Generated deliverables: the user guides (GUIDA.pdf, GUIDE.pdf) and anything else produced by
+# `cargo xtask guides`/`screenshots`. CI publishes them as artifacts; they are never committed.
+/dist/
+# Benchmark reports and profiling data.
+/target/criterion/
+*.profraw
+perf.data*
+# Editors and OS clutter.
+.idea
+.vscode
+*.swp
+.DS_Store
+Thumbs.db
+# Local environment files may contain secrets: never commit them.
+.env
+.env.*
+# Claude Code: the project settings ARE shared, local overrides are not.
+/.claude/settings.local.json

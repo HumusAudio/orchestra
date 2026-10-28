@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! # orchestra-core-model — the single source of truth
+//!
+//! ## Purpose
+//! Hold **the one and only project document** (ADR-0003). The notation view, the DAW view and the
+//! video view are projections of these data: they read them and change them only through commands.
+//! There are no parallel copies to keep "in sync".
+//!
+//! ## Responsibilities (planned for Phase 1)
+//! - Project structure: tracks (instrument, audio, video), staves, voices, measures, the form of
+//!   the piece (repeats, voltas, jumps such as D.S. al Coda).
+//! - Notes with their **two layers** (ADR-0004): the *written intent* (pitch with its spelling,
+//!   rational duration, voice, articulations, dynamics) and the explicit *performance offsets*
+//!   (microtiming, velocity, length changes) applied on top of what `orchestra-playback` derives.
+//! - The **command** system: every change, from any view, is a reversible command; one unified
+//!   undo/redo history for the whole document.
+//! - Stable identifiers for every element, so that views, caches and the unrolled timeline can
+//!   refer to model elements without holding copies of them.
+//! - Change notifications precise enough to drive *incremental* layout and rendering (which notes,
+//!   which measures changed), so no consumer ever has to recompute the whole score.
+//!
+//! ## What this crate must NOT do
+//! - Lay out notation, render anything, play audio or touch files: those are separate crates that
+//!   depend on this one, never the other way around.
+//! - Contain view-specific state (scroll position, zoom, selection colours…): that belongs to `ui`.
+//! - Duplicate data for the convenience of one view: derive it, cache it outside, or add it here
+//!   once for everybody.
+//!
+//! ## Allowed dependencies
+//! `orchestra-core-time` only.
+
+#![forbid(unsafe_code)]

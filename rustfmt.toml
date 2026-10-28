@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# rustfmt configuration. The edition MUST be repeated here: the PostToolUse hook runs `rustfmt` on
+# single files, outside of cargo, and without this line rustfmt would fall back to edition 2015
+# rules (and reject `async`, `let … else`, etc.). Keep it in sync with Cargo.toml.
+edition = "2024"
+style_edition = "2024"
+# Wider than the default 100? No: 100 columns keeps side-by-side diffs readable on a 1080p screen.
+max_width = 100

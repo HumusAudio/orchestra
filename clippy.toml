@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Clippy configuration. The workspace denies `unwrap_used`, `expect_used` and `panic` in library
+# code (Cargo.toml, [workspace.lints.clippy]); inside `#[test]` functions and `#[cfg(test)]`
+# modules a failed assertion IS the error reporting mechanism, so those lints are relaxed there.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+# `dbg!` in tests is still a leftover: keep it flagged everywhere.
+allow-dbg-in-tests = false
+# Proper nouns of our domain that `clippy::doc_markdown` (pedantic) would otherwise want in
+# backticks. ".." keeps clippy's built-in list (GitHub, macOS, …) and appends ours.
+doc-valid-idents = ["..", "SMuFL", "MusicXML", "PipeWire", "CoreAudio", "XEmbed", "XWayland", "WASAPI", "ALSA", "JACK"]

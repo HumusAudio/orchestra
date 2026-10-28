@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-playback"
+description = "Derives the performance (what is actually played) from the written intent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
+[dependencies]
+orchestra-core-time.workspace = true
+orchestra-core-model.workspace = true
+
+[lints]
+workspace = true

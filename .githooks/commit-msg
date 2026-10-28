@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# commit-msg hook: every commit must declare whether it changes anything visible to the user.
+# With "User-visible: yes" the sources of BOTH user guides must be part of the same commit.
+
+msg_file="$1"
+
+# Merge, revert and fixup commits are exempt.
+if grep -qE '^(Merge|Revert|fixup!|squash!)' "$msg_file"; then exit 0; fi
+
+value=$(git interpret-trailers --parse "$msg_file" | grep -E '^User-visible:' | tail -1 | sed 's/^User-visible:[[:space:]]*//')
+
+case "$value" in
+  yes|no) ;;
+  *)
+    echo "ERROR: add a trailer 'User-visible: yes' or 'User-visible: no' to the commit message." >&2
+    exit 1 ;;
+esac
+
+if [ "$value" = "yes" ]; then
+  staged=$(git diff --cached --name-only)
+  for dir in docs/guide/it/ docs/guide/en/; do
+    echo "$staged" | grep -q "^$dir" || {
+      echo "ERROR: 'User-visible: yes' requires updated guide sources in $dir (both languages)." >&2
+      exit 1
+    }
+  done
+fi
+exit 0

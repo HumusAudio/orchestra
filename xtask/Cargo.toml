@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "xtask"
+description = "Project automation: cargo xtask check | guides | screenshots | bench | setup"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Deliberately dependency-free (std only): xtask is compiled on every `cargo xtask` invocation and
+# on every CI runner, so each dependency would cost compile time on all three platforms.
+[dependencies]
+
+# xtask is a developer tool, not library code: it may print and exit with an error code, so it
+# does not inherit the workspace table (which denies `panic` etc.). It still requires full docs.
+[lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+
+[lints.clippy]
+missing_docs_in_private_items = "deny"
+pedantic = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
