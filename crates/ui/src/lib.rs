@@ -6,10 +6,14 @@
 //! Present the single model through its views — **notation**, **DAW** (always the unrolled
 //! timeline, linked to the score) and **video** — and turn user input into model commands.
 //!
-//! ## Responsibilities (planned; toolkit chosen in ADR-0012)
+//! ## Responsibilities (planned; no GUI toolkit, see ADR-0012)
 //! - Draw the geometry produced by `orchestra-notation-layout` and the DAW timeline, incrementally,
 //!   with a software rendering fallback when no GPU is available.
-//! - Our own drawn widgets and bundled fonts: same look and behaviour on every platform, while
+//! - Our own widgets, layout, focus, text editing and menus (ADR-0012: no GUI toolkit), built on
+//!   low-level blocks behind our traits: `winit` (windows, input, IME), `softbuffer`/`wgpu`
+//!   (presenting), `tiny-skia`/`vello` (drawing), our text shaping, `accesskit` (every widget
+//!   publishes an accessibility node from day one), `rfd` (native file dialogs).
+//! - Bundled fonts: same look and behaviour on every platform, while
 //!   respecting system conventions (primary modifier Ctrl/Cmd, global menu bar on macOS, native
 //!   file dialogs) through `platform/` modules behind traits.
 //! - Headless rendering to PNG, used by `cargo xtask screenshots` for the user guides.

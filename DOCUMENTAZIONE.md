@@ -34,6 +34,7 @@ orchestra/
 ├── xtask/                  project automation (`cargo xtask …`)
 ├── assets/fonts/           bundled OFL fonts (text, code, SMuFL music font)
 ├── docs/                   ADRs, architecture, i18n process, user guide sources
+├── spikes/                 Phase 0 evaluation prototypes (separate workspace, never shipped)
 ├── CLAUDE.md               permanent rules for every development session
 ├── ROADMAP.md              status, next steps, open decisions
 ├── DOCUMENTAZIONE.md       this document, in Italian
@@ -203,14 +204,14 @@ si può testare senza display. Modificare una nota reimpagina solo ciò che ne �
 ### orchestra-plugin-host e orchestra-audio-engine
 
 L'host dei plugin espone la nostra interfaccia `PluginHost` sopra CLAP, VST3, LV2 (e AU), con ogni
-plugin nel suo processo (ADR-0011, ancora Proposed). Il motore audio esegue il grafo in tempo
+plugin nel suo processo e uno strato di host scritto da noi per ogni formato (ADR-0011). Il motore audio esegue il grafo in tempo
 reale con le regole severe dell'ADR-0007 e offre un backend nullo/offline per i test. Entrambi
 possono contenere codice `unsafe`, sempre con un commento `// SAFETY:`.
 
 ### orchestra-io, orchestra-ui, orchestra-video, orchestra-app
 
 `io` gestisce il file di progetto versionato con migrazioni (ADR-0010), MIDI e MusicXML. `ui`
-disegna le viste e trasforma l'input in comandi (toolkit nell'ADR-0012). `video` è vuoto di
+disegna le viste e trasforma l'input in comandi (senza toolkit grafico: widget e disegno sono nostri, ADR-0012). `video` è vuoto di
 proposito fino all'ultima fase. `app` produce l'eseguibile `orchestra` e si limita a collegare
 gli altri.
 
@@ -297,7 +298,7 @@ evidenti; una stringa solo per sviluppatori si può esentare con un commento
 cargo xtask setup        # use the versioned git hooks (once per clone)
 cargo xtask check        # everything CI checks
 cargo xtask guides       # build dist/GUIDA.pdf and dist/GUIDE.pdf
-cargo xtask screenshots  # not implemented yet (needs the GUI toolkit)
+cargo xtask screenshots  # not implemented yet (needs the UI layer, ADR-0012)
 cargo xtask bench        # not implemented yet (no hot paths yet)
 ```
 
@@ -406,7 +407,7 @@ un'immagine e aggiunge la didascalia. Le due guide si limitano a importarlo:
 
 `docs/guide/it/` e `docs/guide/en/` contengono gli stessi file con gli stessi capitoli. Gli
 screenshot saranno generati senza display dall'applicazione, sempre in inglese, e condivisi dalle
-due guide; finché il toolkit grafico non è scelto, i capitoli usano `screenshot-placeholder`, che
+due guide; finché il nostro strato di interfaccia non esiste, i capitoli usano `screenshot-placeholder`, che
 ha la stessa cornice e la stessa didascalia di uno screenshot vero. Le parole di Typst ("Figura",
 "Indice") seguono l'impostazione `lang`, quindi il template non contiene testo in nessuna lingua.
 
@@ -421,6 +422,60 @@ tramite l'API di GitHub e annotata con versioni e fonti in `assets/fonts/README.
 4 per il testo, Inter per i titoli, JetBrains Mono per il codice e Bravura (con Bravura Text), il
 font di riferimento dello standard SMuFL per i font musicali, che userà anche il motore di
 notazione.
+
+## Prototipi di valutazione
+
+`spikes/` è un workspace Cargo separato con i prototipi a tempo limitato della Fase 0, Passo 13. È
+escluso dal workspace principale (`exclude = ["spikes"]` nel `Cargo.toml` della radice), non viene
+mai compilato da `cargo xtask check` né dalla CI e non viene mai distribuito: il suo compito era
+misurare e decidere. Le decisioni e tutti i numeri sono negli ADR-0011 e ADR-0012; questa sezione
+spiega come rieseguire i prototipi.
+
+### Il prototipo dell'interfaccia grafica
+
+`spikes/scene` è la scena di prova comune: esattamente 2000 glifi SMuFL di Bravura su 10 righi,
+una barra dei menu, una frase per ogni lingua dell'interfaccia in Inter e un percorso
+deterministico di 120 viste che scorrono e cambiano zoom. Ogni candidato (`gui-own`, `gui-iced`,
+`gui-egui`, `gui-slint`) la disegna in modalità `headless` (PNG senza alcuna finestra) e `bench`
+(tempi dei fotogrammi sulla CPU):
+
+```sh
+cd spikes
+cargo build --release
+./target/release/gui-own headless out/own.png
+./target/release/gui-own bench
+ICED_TEST_BACKEND=tiny-skia ICED_GLYPHS=paths ./target/release/gui-iced bench
+```
+
+Due lezioni vanno conservate. Primo, i glifi musicali vanno disegnati come contorni messi in
+cache, mai come "testo" ricomposto a ogni fotogramma: in iced questo da solo ha portato i
+fotogrammi da 243 ms a 29 ms. Secondo, ogni toolkit aveva comunque bisogno di un nostro renderer
+per la partitura (egui non sa riempire forme concave, Slint non ha una tela), ed è uno dei motivi
+per cui l'ADR-0012 ha scelto di non usare alcun toolkit. `gui-own/src/render.rs` è il renderer
+tiny-skia su cui si basa la decisione: i contorni dei glifi vengono letti una volta sola con
+ttf-parser, messi in cache per carattere, e al momento del disegno vengono solo trasformati e
+riempiti.
+
+### Il prototipo dell'hosting dei plugin
+
+`spikes/plugin-host` è un unico eseguibile con tre ruoli: `scan`, `host` e `bridge`. L'host avvia
+un processo bridge per ogni plugin, condivide con lui un file mappato in memoria per l'audio e fa
+partire ogni blocco con un byte sullo stdin del bridge; il bridge risponde con un byte su una
+copia privata del suo stdout (i plugin stampano su stdout, quindi il descrittore 1 viene deviato
+su stderr). L'host misura l'andata e ritorno, uccide il bridge a metà del flusso, verifica di
+sopravvivere e lo riavvia. Una modalità `gui` apre l'editor del plugin in una finestra X11 separata
+che appartiene al bridge.
+
+```sh
+cd spikes
+./target/release/plugin-host scan
+./target/release/plugin-host host lv2 "Compressor Stereo"
+./target/release/plugin-host gui vst3 "ZL Equalizer 2" 60
+```
+
+Il prototipo usava truce-rack dentro il bridge; l'ADR-0011 ha deciso invece di scrivere un nostro
+strato di host sugli stessi binding di basso livello, mantenendo l'architettura a bridge che le
+misure hanno confermato.
 
 ## Lezioni della Fase 0
 

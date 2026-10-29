@@ -11,7 +11,7 @@
 //! | `setup` | Points git at the versioned hooks (`git config core.hooksPath .githooks`). |
 //! | `check` | Everything CI checks: fmt, clippy, tests (nextest), cargo-deny, documentation parity, guide parity. Translation parity runs inside the tests. |
 //! | `guides` | Builds `dist/GUIDA.pdf` (it) and `dist/GUIDE.pdf` (en-US) with Typst. |
-//! | `screenshots` | Placeholder until the GUI toolkit is chosen (ADR-0012). |
+//! | `screenshots` | Placeholder until our UI layer exists (ADR-0012: no toolkit, headless rendering to a pixmap). |
 //! | `bench` | Placeholder until the first hot paths exist (ADR-0007). |
 //!
 //! Every command prints what it runs, stops at the first failure and exits with a non-zero code,
@@ -49,7 +49,7 @@ commands:
   setup        configure git to use the versioned hooks in .githooks/
   check        fmt, clippy, tests, cargo-deny, documentation and guide parity
   guides       build dist/GUIDA.pdf and dist/GUIDE.pdf with Typst
-  screenshots  (not implemented yet: needs the GUI toolkit, ADR-0012)
+  screenshots  (not implemented yet: needs our UI layer, ADR-0012)
   bench        (not implemented yet: no hot paths yet, ADR-0007)";
 
 /// Program entry point: dispatches the first argument to a task.
@@ -205,11 +205,12 @@ fn guides() -> TaskResult {
 /// `cargo xtask screenshots`: not implemented yet.
 ///
 /// Screenshots for the guides are rendered headless by the application itself, always in en-US
-/// (ADR-0009). That needs the GUI toolkit, which is chosen after the Phase 0 spikes (ADR-0012).
+/// (ADR-0009). That needs our own UI layer (ADR-0012: no toolkit), which will render the interface
+/// into an off-screen pixmap with the same renderer it uses on screen.
 /// It fails rather than silently succeeding, so nobody mistakes it for a working step.
 fn screenshots() -> TaskResult {
     Err(TaskError(
-        "screenshots: not implemented yet — headless rendering arrives with the GUI toolkit \
+        "screenshots: not implemented yet — headless rendering arrives with our UI layer \
          (ADR-0012); guides use screenshot placeholders until then"
             .to_owned(),
     ))

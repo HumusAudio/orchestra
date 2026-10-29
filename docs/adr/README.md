@@ -18,6 +18,6 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0008](0008-internationalisation.md) | Internationalisation: six languages, Fluent, glossary, parity | Accepted |
 | [0009](0009-documentation-system.md) | Documentation system: four documents, parity, trailers, Typst | Accepted |
 | [0010](0010-project-file-format.md) | Project file format: versioned with migrations | Accepted (policy) / Proposed (format) |
-| [0011](0011-plugin-hosting.md) | Plugin hosting | Proposed |
-| [0012](0012-gui-toolkit.md) | GUI toolkit | Proposed |
+| [0011](0011-plugin-hosting.md) | Plugin hosting: own host layer, one process per plugin | Accepted |
+| [0012](0012-gui-toolkit.md) | GUI: no toolkit, own interface on low-level building blocks | Accepted |
 | [0013](0013-github-hosting-and-workflow.md) | GitHub hosting, protected `main`, PR workflow | Accepted |
