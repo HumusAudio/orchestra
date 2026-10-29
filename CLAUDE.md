@@ -128,9 +128,9 @@ Regole:
 
 Lingue: **en-US** (sorgente), **en-GB**, **it**, **fr**, **de**, **es**. en-US e en-GB sono cataloghi SEPARATI (es. *quarter note*/*crotchet*, *measure*/*bar*, *staff*/*stave*).
 
-- Mai testo visibile all'utente scritto nel codice: solo chiavi in cataloghi Fluent (`i18n/`).
+- Mai testo visibile all'utente scritto nel codice: solo chiavi in cataloghi Fluent (`crates/i18n/locales/<lingua>/`).
 
-- Per OGNI testo nuovo o modificato: prima controlla `i18n/glossary.toml`. Se il termine non c'è, **fai una ricerca** (dizionari musicali, manuali localizzati di software di notazione e DAW, glossari accademici) per trovare il termine corretto in ciascuna lingua: i termini musicali NON si traducono alla lettera. Aggiungi la voce al glossario con fonti e motivazione.
+- Per OGNI testo nuovo o modificato: prima controlla `crates/i18n/glossary.toml` (procedura: `docs/i18n-process.md`). Se il termine non c'è, **fai una ricerca** (dizionari musicali, manuali localizzati di software di notazione e DAW, glossari accademici) per trovare il termine corretto in ciascuna lingua: i termini musicali NON si traducono alla lettera. Aggiungi la voce al glossario con fonti e motivazione.
 
 - Plurali, genere e accordi si gestiscono con Fluent, mai concatenando stringhe.
 

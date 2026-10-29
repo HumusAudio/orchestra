@@ -6,12 +6,12 @@ same timeline.
 
 Written in Rust. Linux first; Windows and macOS will follow.
 
-**Status:** early foundations (phase 0). Nothing usable yet.
+**Status:** foundations complete (phase 0); core time and document model next. Nothing usable yet.
 
 ## License
 
 Orchestra is free software, released under the GNU General Public License, version 3 or (at your
 option) any later version. See [LICENSE](LICENSE).
 
-The Orchestra **logo** (`assets/logo/`) is **not** covered by the GPL: all rights reserved. See
+The Orchestra **logo** (`assets/logo/`) is **not** covered by the GPL: © 2026 Emanuele Rainoldi, all rights reserved. See
 [assets/logo/README.md](assets/logo/README.md).

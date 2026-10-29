@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Prints the git tree id of the CURRENT working tree (tracked + untracked, honouring .gitignore),
 # without touching HEAD, branches, the real index or the stash.
 #

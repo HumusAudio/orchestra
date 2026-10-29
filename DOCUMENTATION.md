@@ -273,7 +273,8 @@ category.
 `crates/i18n/tests/no_hardcoded_strings.rs` scans the `ui` and `app` crates for string literals
 that look like interface text (a capital letter and at least two words). It is a heuristic for the
 obvious cases; a developer-only string can be exempted with a `// i18n-ignore: <reason>` comment
-on the same line.
+on the same line. When our own widgets exist (ADR-0012), the plan is a stronger, type-level
+guarantee: their label APIs will accept only message keys, not arbitrary strings.
 
 ## Automation
 
@@ -320,7 +321,9 @@ FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$
 - **Stop**: when Claude is about to end its turn, `scripts/check-docs-updated.sh` takes a new
   snapshot and compares it with the one from the start of the turn, so it sees exactly the files
   changed *in this turn*, including files committed during the turn. If any source changed
-  (`.rs`, `.toml`, `.ftl` under `crates/` or `xtask/`) and `DOCUMENTAZIONE.md` or
+  (`.rs`, `.toml`, `.ftl` under `crates/` or `xtask/`; the root `Cargo.toml`, `deny.toml`,
+  `clippy.toml`, `rustfmt.toml`, `.cargo/config.toml`; the CI workflows, `scripts/*.sh` and
+  `.githooks/` — everything these documents explain, except `Cargo.lock` and `spikes/`) and `DOCUMENTAZIONE.md` or
   `DOCUMENTATION.md` was not touched, or the two have different structures, it answers
   `{"decision": "block", "reason": …}` and Claude has to fix it before finishing. A
   `stop_hook_active` flag prevents an endless loop. Without a snapshot it falls back to every

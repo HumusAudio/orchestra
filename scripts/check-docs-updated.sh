@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Stop hook: blocks the end of the turn when source files changed but the two documentation
 # files (Italian and English) were not both updated, or when their structure diverges.
 # Requires: jq, git, awk, sha256sum.
@@ -36,8 +37,18 @@ else
   } 2>/dev/null | sort -u )
 fi
 
-# Only real sources count: Rust code, manifests, translation catalogs.
-src=$(echo "$changed" | grep -E '^(crates|xtask|app)/.*\.(rs|toml|ftl)$')
+# What counts as a source (owner's decision, 2026-10-29): everything the two documents explain.
+#   - Rust code, manifests and translation catalogs of the program and of xtask;
+#   - the workspace configuration: root Cargo.toml, deny.toml, clippy.toml, rustfmt.toml,
+#     .cargo/config.toml;
+#   - automation: CI workflows, hook scripts, the commit-msg hook.
+# Not counted: Cargo.lock (changes by itself) and spikes/ (throw-away prototypes).
+src=$(echo "$changed" | grep -E \
+  -e '^(crates|xtask|app)/.*\.(rs|toml|ftl)$' \
+  -e '^(Cargo\.toml|deny\.toml|clippy\.toml|rustfmt\.toml|\.cargo/config\.toml)$' \
+  -e '^\.github/workflows/.*\.ya?ml$' \
+  -e '^scripts/.*\.sh$' \
+  -e '^\.githooks/')
 [ -z "$src" ] && exit 0
 
 block() {

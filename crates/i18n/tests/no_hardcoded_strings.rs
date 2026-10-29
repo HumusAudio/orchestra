@@ -9,16 +9,17 @@
 //! key resolved through `orchestra-i18n` instead.
 //!
 //! # Why a heuristic
-//! Proving that a string is never shown to users would need the GUI toolkit's type information
-//! (not chosen yet, ADR-0012). The heuristic catches the *obvious* cases, which is what the rule
-//! asks for, and has an explicit escape hatch: a line containing the marker `i18n-ignore`
+//! Proving that a string is never shown to users would need the type information of our UI layer,
+//! which does not exist yet (ADR-0012: no toolkit, our own widgets). The heuristic catches the
+//! *obvious* cases, which is what the rule asks for, and has an explicit escape hatch: a line
+//! containing the marker `i18n-ignore`
 //! (e.g. `// i18n-ignore: log message`) is skipped. Developer-facing texts (logs, panics in
 //! tests, error `Display` impls) that trigger it must carry that marker and a reason.
 //!
 //! # Known limits
 //! Single-word labels (`"Undo"`) and lower-case text are not detected; raw strings `r"…"` and
-//! multi-line literals are not parsed. When the toolkit is chosen, this test should be
-//! complemented by a check on the toolkit's label APIs.
+//! multi-line literals are not parsed. When our widgets exist, this test should be
+//! complemented by making their label APIs accept only message keys (a type-level guarantee).
 
 use std::fs;
 use std::path::{Path, PathBuf};

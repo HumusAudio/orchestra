@@ -21,7 +21,7 @@ interface ours, so theming is entirely our responsibility.
 2. Its **shape never changes**; only its colour may. The file has one fill colour (`#000000`) and
    is recoloured by replacing that value (see `assets/logo/README.md`). The wordmark is stored as
    outlines, so it does not depend on any installed font.
-3. **License: all rights reserved** (owner's decision). The logo is not covered by the GPL of
+3. **License: © 2026 Emanuele Rainoldi, all rights reserved** (owner's decision). The logo is not covered by the GPL of
    the source code (ADR-0002 covers code, not the project's brand). Forks may reuse the code but
    must not use this logo when distributed as a different project. This is the usual
    arrangement for free software brands (e.g. Firefox, Thunderbird).

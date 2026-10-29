@@ -287,7 +287,9 @@ raggiungono ogni categoria di plurale.
 `crates/i18n/tests/no_hardcoded_strings.rs` cerca nei crate `ui` e `app` le stringhe letterali che
 sembrano testo dell'interfaccia (lettera maiuscola e almeno due parole). È un'euristica per i casi
 evidenti; una stringa solo per sviluppatori si può esentare con un commento
-`// i18n-ignore: <motivo>` sulla stessa riga.
+`// i18n-ignore: <motivo>` sulla stessa riga. Quando esisteranno i nostri widget (ADR-0012), il
+piano è una garanzia più forte, a livello di tipi: le loro API per le etichette accetteranno solo
+chiavi di messaggio, non stringhe qualsiasi.
 
 ## Automazione
 
@@ -336,7 +338,10 @@ FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$
 - **Stop**: quando Claude sta per chiudere il turno, `scripts/check-docs-updated.sh` scatta una
   nuova foto e la confronta con quella di inizio turno, così vede esattamente i file cambiati *in
   questo turno*, compresi quelli committati durante il turno. Se è cambiato un sorgente (`.rs`,
-  `.toml`, `.ftl` sotto `crates/` o `xtask/`) e `DOCUMENTAZIONE.md` o `DOCUMENTATION.md` non sono
+  `.toml`, `.ftl` sotto `crates/` o `xtask/`; il `Cargo.toml` della radice, `deny.toml`,
+  `clippy.toml`, `rustfmt.toml`, `.cargo/config.toml`; i workflow della CI, `scripts/*.sh` e
+  `.githooks/`, cioè tutto ciò che questi documenti spiegano, tranne `Cargo.lock` e `spikes/`) e
+  `DOCUMENTAZIONE.md` o `DOCUMENTATION.md` non sono
   stati toccati, oppure hanno strutture diverse, risponde `{"decision": "block", "reason": …}` e
   Claude deve sistemare prima di finire. Un indicatore `stop_hook_active` evita un ciclo infinito.
   Senza foto ripiega su tutte le modifiche del branch rispetto a `origin/main`: era il progetto

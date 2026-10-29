@@ -13,7 +13,7 @@ the repository. Rules (ADR-0014):
 
 ## Provenance
 
-Designed by the project owner in Inkscape 1.4.4 (`Orchestra.svg`, exported as `Orchestra.pdf`,
+Designed by Emanuele Rainoldi, the project owner, in Inkscape 1.4.4 (`Orchestra.svg`, exported as `Orchestra.pdf`,
 `Orchestra.png`, 2026-10-22). In the original SVG the wordmark "ORCHESTRA" was live text in the
 *Alte Haas Grotesk Bold* font, which would render with a different font wherever that font is not
 installed (including our guides, built with `--ignore-system-fonts`). This file was therefore
@@ -25,8 +25,7 @@ Verified on 2026-10-29: rendered at 1000 × 1000 px with `rsvg-convert`, this fi
 
 ## License — all rights reserved
 
-Copyright © 2026 the author of the Orchestra logo (owner of the `HumusAudio/orchestra`
-repository). **All rights reserved** (owner's decision, 2026-10-29, ADR-0014).
+Copyright © 2026 Emanuele Rainoldi. **All rights reserved** (owner's decision, 2026-10-29, ADR-0014).
 
 The logo is **not** covered by the GNU GPL that applies to Orchestra's source code. You may not
 copy, modify or use it outside the Orchestra project without written permission. The code
