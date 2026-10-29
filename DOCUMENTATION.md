@@ -32,6 +32,7 @@ orchestra/
 ├── crates/                 the program, one crate per responsibility
 ├── xtask/                  project automation (`cargo xtask …`)
 ├── assets/fonts/           bundled OFL fonts (text, code, SMuFL music font)
+├── assets/logo/            the only Orchestra logo (outlined SVG, single colour)
 ├── docs/                   ADRs, architecture, i18n process, user guide sources
 ├── spikes/                 Phase 0 evaluation prototypes (separate workspace, never shipped)
 ├── CLAUDE.md               permanent rules for every development session
@@ -373,7 +374,7 @@ the older run.
 ## The user guides
 
 The user guides are written in Typst. `docs/guide/template.typ` defines the whole look once: an
-ink-blue cover with a staff drawn in the Bravura music font, running headers, chapter openings
+ink-blue cover with the Orchestra logo in white, running headers, chapter openings
 with a large brass number, code blocks, "note"/"tip"/"warning" boxes and a `screenshot` helper
 that frames an image and adds a caption. The two guides only import it:
 
@@ -397,6 +398,27 @@ setting, so the template contains no text in any language.
 `cargo xtask guides` compiles both PDFs into `dist/` with `--ignore-system-fonts`, so only the
 fonts in `assets/fonts/` are used and the output is identical on every machine. The PDFs are never
 committed; CI publishes them as artifacts.
+
+### The logo and the themes
+
+`assets/logo/orchestra-logo.svg` is the only logo of Orchestra (ADR-0014): its shape never
+changes, only its colour. The owner's original drawing kept the wordmark as live text in the
+Alte Haas Grotesk font, which would be replaced by another font on any machine without it, so the
+repository version was made from the owner's own PDF export with `pdftocairo -svg`, which turns
+the glyphs into outlines; rendered at 1000 × 1000 px it differs from the original in 0 pixels.
+Everything in the file is filled with one colour, `#000000`, and recolouring means replacing that
+string before rendering. The guide template does exactly this:
+
+```typ
+#let logo(colour, width: 100%) = {
+  let svg = read("/assets/logo/orchestra-logo.svg").replace("#000000", colour.to-hex())
+  image(bytes(svg), format: "svg", width: width)
+}
+```
+
+The same ADR fixes that the program has a light and a dark theme from its first widget: widgets
+and renderers never use literal colours, only semantic tokens of the active theme; the default
+follows the operating system, and the score can either follow the theme or stay on white paper.
 
 ### Bundled fonts
 

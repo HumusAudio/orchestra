@@ -21,3 +21,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0011](0011-plugin-hosting.md) | Plugin hosting: own host layer, one process per plugin | Accepted |
 | [0012](0012-gui-toolkit.md) | GUI: no toolkit, own interface on low-level building blocks | Accepted |
 | [0013](0013-github-hosting-and-workflow.md) | GitHub hosting, protected `main`, PR workflow | Accepted |
+| [0014](0014-visual-identity-logo-and-themes.md) | Visual identity: one logo, light and dark themes | Accepted |

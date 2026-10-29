@@ -35,6 +35,12 @@ view are two ways of looking at the same notes.
   is written. You decide how strict that tolerance is.
 ]
 
+== Light and dark appearance
+
+Orchestra will have a light and a dark appearance. By default it follows the setting of your
+operating system and changes with it; you can also choose light or dark yourself. The score can
+follow the dark appearance or always stay on white paper, as you prefer.
+
 == Status of this guide
 
 Orchestra is at a very early stage of development. This preview edition explains the ideas

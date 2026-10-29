@@ -16,6 +16,10 @@
 //! - Bundled fonts: same look and behaviour on every platform, while
 //!   respecting system conventions (primary modifier Ctrl/Cmd, global menu bar on macOS, native
 //!   file dialogs) through `platform/` modules behind traits.
+//! - Light and dark themes from the first widget (ADR-0014): widgets and renderers read only
+//!   semantic colour tokens of the active theme, never literal colours; the default follows the
+//!   operating system (detected in `platform/` modules), the user can force light or dark.
+//! - The only logo is `assets/logo/orchestra-logo.svg`, recoloured per theme, never reshaped.
 //! - Headless rendering to PNG, used by `cargo xtask screenshots` for the user guides.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
 //!
