@@ -41,6 +41,7 @@ systems spread through a codebase quickly.
 ## Consequences
 
 - Some platform conventions need explicit work (macOS global menu with a custom-drawn UI); the
-  GUI toolkit evaluation (ADR-0012) scores this.
+  GUI toolkit evaluation (ADR-0012) scores this. *Resolved by ADR-0012 (no toolkit): our own
+  menu bar on Linux/Windows, `muda` for the macOS global menu.*
 - CI minutes on three systems are free only for public repositories on standard runners
   (ADR-0013).

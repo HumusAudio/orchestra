@@ -48,6 +48,12 @@ part of the code is written with AI assistance, which raises an open legal quest
 
 ## Consequences
 
-- Some useful crates (GPL-2.0-only, proprietary SDKs) are unavailable. The VST3 SDK has been
-  dual-licensed MIT since 2025 (verify again when ADR-0011 is finalised).
+- Some useful crates (GPL-2.0-only, proprietary SDKs) are unavailable. Verified 2026-10-29: the
+  **VST3 SDK is MIT-licensed since version 3.8** (released 2025-10-20, press release 2025-10-29;
+  previously proprietary or GPLv3), GitHub reports `MIT` for `steinbergmedia/vst3sdk`; VST2 is not
+  covered. The **ASIO SDK is now available under GPLv3**, which makes an ASIO backend on Windows
+  possible for a GPL program. Bindings chosen in ADR-0011: `vst3` (MIT OR Apache-2.0),
+  `clap-sys` (MIT/Apache-2.0), `lilv-sys` (MIT). Sources:
+  <https://steinbergmedia.github.io/vst3_dev_portal/pages/VST+3+Licensing/VST3+License>,
+  <https://sonicstate.com/news/2025/10/30/vst-3-now-available-under-mit-license>.
 - `cargo deny` runs locally and in CI, so a non-compliant dependency cannot be merged silently.

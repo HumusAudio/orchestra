@@ -273,7 +273,8 @@ category.
 `crates/i18n/tests/no_hardcoded_strings.rs` scans the `ui` and `app` crates for string literals
 that look like interface text (a capital letter and at least two words). It is a heuristic for the
 obvious cases; a developer-only string can be exempted with a `// i18n-ignore: <reason>` comment
-on the same line.
+on the same line. When our own widgets exist (ADR-0012), the plan is a stronger, type-level
+guarantee: their label APIs will accept only message keys, not arbitrary strings.
 
 ## Automation
 

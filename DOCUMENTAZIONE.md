@@ -287,7 +287,9 @@ raggiungono ogni categoria di plurale.
 `crates/i18n/tests/no_hardcoded_strings.rs` cerca nei crate `ui` e `app` le stringhe letterali che
 sembrano testo dell'interfaccia (lettera maiuscola e almeno due parole). È un'euristica per i casi
 evidenti; una stringa solo per sviluppatori si può esentare con un commento
-`// i18n-ignore: <motivo>` sulla stessa riga.
+`// i18n-ignore: <motivo>` sulla stessa riga. Quando esisteranno i nostri widget (ADR-0012), il
+piano è una garanzia più forte, a livello di tipi: le loro API per le etichette accetteranno solo
+chiavi di messaggio, non stringhe qualsiasi.
 
 ## Automazione
 

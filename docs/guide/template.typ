@@ -92,7 +92,7 @@
   kind: image,
 )
 
-/// A placeholder used until real screenshots exist (the GUI toolkit is not chosen yet,
+/// A placeholder used until real screenshots exist (our UI layer does not exist yet,
 /// ADR-0012): same frame and caption as a real screenshot, so the layout stays representative.
 #let screenshot-placeholder(label, caption, height: 6cm) = figure(
   block(

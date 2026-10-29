@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # commit-msg hook: every commit must declare whether it changes anything visible to the user.
 # With "User-visible: yes" the sources of BOTH user guides must be part of the same commit.
 

@@ -24,7 +24,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 | `crates/audio-engine` | `orchestra-audio-engine` | Real-time graph, mixing, device backends behind traits, null/offline backend |
 | `crates/io` | `orchestra-io` | Project file (versioned + migrations), MIDI, MusicXML |
 | `crates/i18n` | `orchestra-i18n` | Fluent catalogs for 6 languages, parity tests |
-| `crates/ui` | `orchestra-ui` | Notation/DAW/video views, input → commands, headless screenshots |
+| `crates/ui` | `orchestra-ui` | Our own UI layer (ADR-0012), light/dark themes (ADR-0014), notation/DAW/video views, input → commands, headless screenshots |
 | `crates/video` | `orchestra-video` | Video tracks (last phase; empty for now) |
 | `crates/app` | `orchestra-app` (binary `orchestra`) | Wiring only |
 | `xtask` | `xtask` | Automation: `cargo xtask check/guides/screenshots/bench/setup` |

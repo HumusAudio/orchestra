@@ -18,12 +18,16 @@ branch protection and CI configuration get tangled.
    default branch.
 3. **`main` is protected** by a repository ruleset (created 2026-10-28, targeting the default
    branch, enforcement *active*, no bypass actors): pull request required, force pushes blocked,
-   deletion blocked, required status checks (CI jobs added once the workflow exists).
+   deletion blocked, required status checks: `check (ubuntu-latest)`, `check (windows-latest)`,
+   `check (macos-latest)`, `guides (PDF)` (added 2026-10-29, verified through the GitHub API).
 4. **Workflow:** all work happens on branches (`feature/…`, `fix/…`), pushed after every
    significant commit (backup), merged through a pull request when CI is green on all three
    systems. Never force-push; never `git reset --hard` / `git clean -fd` without explicit owner
    confirmation. Snapshot tag before large refactorings (`pre-refactor-YYYY-MM-DD`).
 5. **Commits** are atomic, descriptive, and carry the `User-visible: yes|no` trailer (ADR-0009).
+   Known exception: the very first commit (`b289f2a`, before the hook existed) has the trailer in
+   a separate paragraph, so git does not parse it; fixing it would require rewriting `main`,
+   which this ADR forbids.
 6. **Transport:** SSH for git (`git@github.com:HumusAudio/orchestra.git`). GitHub's host key
    fingerprints were verified against <https://api.github.com/meta> on 2026-10-28
    (ED25519 `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`).

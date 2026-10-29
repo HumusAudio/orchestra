@@ -40,5 +40,6 @@ sessions, so the language must catch as many mistakes as possible at compile tim
 - Strong compile-time guarantees (ownership, `Send`/`Sync`) make the lock-free audio rules
   enforceable rather than aspirational.
 - Some ecosystems (plugin hosting, GUI) are younger than their C++ counterparts: the spikes of
-  Phase 0, Step 13 measure that risk before we commit (ADR-0011, ADR-0012).
+  Phase 0, Step 13 measure that risk before we commit (ADR-0011, ADR-0012). *Done: both ADRs
+  chose to own these layers on low-level crates.*
 - Each native dependency complicates cross-platform builds; the registry keeps that cost visible.

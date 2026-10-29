@@ -6,7 +6,7 @@ same timeline.
 
 Written in Rust. Linux first; Windows and macOS will follow.
 
-**Status:** early foundations (phase 0). Nothing usable yet.
+**Status:** foundations complete (phase 0); core time and document model next. Nothing usable yet.
 
 ## License
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # UserPromptSubmit hook: remembers the state of the working tree at the start of each turn, so
 # that the Stop hook (check-docs-updated.sh) can look at the changes made IN THIS TURN only —
 # "update the documentation in the same step" (CLAUDE.md §8), including commits made during the

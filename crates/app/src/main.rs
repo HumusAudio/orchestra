@@ -18,5 +18,5 @@
 /// Program entry point.
 ///
 /// Intentionally empty during Phase 0: the workspace skeleton only has to compile. Wiring arrives
-/// once the UI toolkit (ADR-0012) and the audio engine exist.
+/// once our UI layer (ADR-0012: no toolkit) and the audio engine exist.
 fn main() {}

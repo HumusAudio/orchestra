@@ -50,3 +50,5 @@ by contributors in English, and give end users good manuals — without drifting
 
 - Every source change costs a documentation update in two languages; that is deliberate.
 - Guide screenshots depend on the GUI toolkit supporting headless rendering (ADR-0012 criterion).
+  *Resolved by ADR-0012: our own renderer draws into an off-screen pixmap; ADR-0014 fixes the
+  light theme for screenshots.*

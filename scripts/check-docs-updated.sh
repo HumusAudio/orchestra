@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Stop hook: blocks the end of the turn when source files changed but the two documentation
 # files (Italian and English) were not both updated, or when their structure diverges.
 # Requires: jq, git, awk, sha256sum.
