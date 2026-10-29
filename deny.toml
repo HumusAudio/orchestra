@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# cargo-deny configuration (schema of cargo-deny 0.20, generated with `cargo deny init` on
+# 2026-10-28 and then tightened). Run by `cargo xtask check` and by CI. Policy: ADR-0002.
+
+[graph]
+# Check the dependency graph for every platform we ship on, not only the host: a Windows-only or
+# macOS-only dependency with a bad license must be caught on a Linux machine too.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+all-features = true
+
+[advisories]
+# Keep the RustSec database inside `target/` (git-ignored, per checkout) instead of the default
+# `$CARGO_HOME/advisory-dbs`: it works even where CARGO_HOME is read-only (sandboxed sessions) and
+# `cargo clean` refreshes it. Relative paths are resolved against this file's directory.
+db-path = "target/advisory-dbs"
+# Known vulnerabilities and unmaintained/yanked crates (RustSec database) are errors by default in
+# this schema version. Exceptions go here, each with a comment and an expiry plan.
+ignore = []
+
+[licenses]
+# Only licenses compatible with distributing the whole program under GPL-3.0-or-later.
+# Sources: FSF list of GPL-compatible licenses (https://www.gnu.org/licenses/license-list.html)
+# and the Apache Software Foundation note on GPLv3 compatibility
+# (https://www.apache.org/licenses/GPL-compatibility.html). Rationale per entry in ADR-0002.
+allow = [
+    "GPL-3.0-or-later",   # our own license
+    "GPL-3.0-only",       # compatible: we distribute under GPLv3
+    "GPL-2.0-or-later",   # "or later" lets us take it under GPLv3
+    "LGPL-2.1-or-later",
+    "LGPL-3.0-or-later",
+    "LGPL-3.0-only",
+    "MPL-2.0",            # compatible through its §3.3 "Secondary License" clause
+    "Apache-2.0",         # compatible with GPLv3 (not with GPLv2-only)
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",        # data tables of ICU4X/unicode-* crates
+    "CC0-1.0",
+    "Unlicense",
+]
+confidence-threshold = 0.9
+# The allow list is a policy, not an inventory: entries no dependency uses yet are fine.
+unused-allowed-license = "allow"
+exceptions = []
+
+[licenses.private]
+# Our own workspace crates are `publish = false`: skip them (they are GPL-3.0-or-later anyway).
+ignore = true
+
+[bans]
+# Two versions of the same crate cost compile time and binary size (CLAUDE.md §5). Denied by
+# default; unavoidable duplicates are listed in `skip` with a comment explaining why.
+multiple-versions = "deny"
+# `version = "*"` makes builds unreproducible.
+wildcards = "deny"
+# Path dependencies inside the workspace have no version: allow them.
+allow-wildcard-paths = true
+highlight = "all"
+skip = []
+skip-tree = []
+deny = []
+
+[sources]
+# Only crates.io. Git dependencies or other registries need an explicit, documented exception.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

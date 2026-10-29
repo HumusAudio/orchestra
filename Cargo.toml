@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Root manifest of the Orchestra Cargo workspace.
+#
+# Every crate lives in `crates/<name>/` (directory name = responsibility, as listed in CLAUDE.md
+# §2), except the automation tool, which lives in `xtask/` by the usual cargo-xtask convention.
+# Package names carry an `orchestra-` prefix (e.g. `crates/io` is the package `orchestra-io`, lib
+# name `orchestra_io`): bare names like `io`, `ui` or `app` would be confusing next to `std::io`
+# and would collide with existing crates.io names if we ever publish anything.
+#
+# The dependency rules between crates ("only downwards") are documented in docs/ARCHITECTURE.md.
+# `spikes/` is deliberately NOT a member: prototypes live in their own workspace and never end up
+# in release builds.
+
+[workspace]
+# Resolver "3" is the default for edition 2024; we state it explicitly so that nobody has to know
+# that rule. It makes dependency resolution MSRV-aware (it prefers versions compatible with our
+# `rust-version`).
+resolver = "3"
+members = [
+    "crates/core-time",
+    "crates/core-model",
+    "crates/playback",
+    "crates/notation-layout",
+    "crates/audio-engine",
+    "crates/plugin-host",
+    "crates/io",
+    "crates/i18n",
+    "crates/ui",
+    "crates/video",
+    "crates/app",
+    "xtask",
+]
+# Evaluation prototypes have their own workspace (spikes/Cargo.toml) and must never be picked up
+# by this one, not even by accident through a path dependency.
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.0.0"
+# Edition 2024 is the newest stable edition as of rustc 1.99.1 (checked 2026-10-28 with
+# `rustc --edition 2027`, which is rejected). Also mirrored in rustfmt.toml.
+edition = "2024"
+# Minimum supported Rust version = the toolchain we develop and test with. We bump it deliberately
+# (together with the toolchain pinned in CI) instead of letting it drift.
+rust-version = "1.99"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/HumusAudio/orchestra"
+# Nothing is published to crates.io for now: this prevents an accidental `cargo publish`.
+publish = false
+
+# Internal crates, referenced by members with `orchestra-xyz.workspace = true`. Keeping the paths
+# here means a crate can be moved by changing a single line.
+[workspace.dependencies]
+orchestra-core-time = { path = "crates/core-time" }
+orchestra-core-model = { path = "crates/core-model" }
+orchestra-playback = { path = "crates/playback" }
+orchestra-notation-layout = { path = "crates/notation-layout" }
+orchestra-audio-engine = { path = "crates/audio-engine" }
+orchestra-plugin-host = { path = "crates/plugin-host" }
+orchestra-io = { path = "crates/io" }
+orchestra-i18n = { path = "crates/i18n" }
+orchestra-ui = { path = "crates/ui" }
+orchestra-video = { path = "crates/video" }
+
+# External crates. Every entry was checked on crates.io (version, license, maintenance) and is
+# justified in an ADR; versions are pinned to the minor release we verified.
+# Fluent (ADR-0008, verified 2026-10-28): official Project Fluent crates, Apache-2.0 OR MIT.
+fluent-bundle = "0.16.0"
+fluent-syntax = "0.12.0"
+unic-langid = "0.9.6"
+
+# ------------------------------------------------------------------------------------------------
+# Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a
+# developer tool, not library code, and declares its own relaxed table.
+# `cargo xtask check` runs clippy with `-D warnings`, so every "warn" below is an error in CI; the
+# distinction only keeps local iteration pleasant (code still compiles while you fix lints).
+# ------------------------------------------------------------------------------------------------
+[workspace.lints.rust]
+# CLAUDE.md §4: every public item has a doc comment. Private items are covered by the clippy lint
+# `missing_docs_in_private_items` below, because rustc's lint only looks at the public API.
+missing_docs = "deny"
+# Inside an `unsafe fn`, each unsafe operation still needs its own `unsafe {}` block (and thus its
+# own `// SAFETY:` comment). Already warn-by-default in edition 2024; we make it an error.
+unsafe_op_in_unsafe_fn = "deny"
+# `unsafe_code` is NOT set here: it is forbidden with `#![forbid(unsafe_code)]` in each crate's
+# root, so that the three FFI crates (audio-engine, plugin-host, io) can opt out explicitly and
+# visibly. A workspace-level setting cannot be overridden per crate.
+
+[workspace.lints.clippy]
+# --- Hard rules from CLAUDE.md §4 -----------------------------------------------------------------
+missing_docs_in_private_items = "deny"
+undocumented_unsafe_blocks = "deny"
+# No panicking shortcuts in library code: errors are typed and propagated. Tests are exempt
+# through clippy.toml (allow-unwrap-in-tests & co.).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+# Leftover debugging aids: warn locally, error in CI.
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+# --- Pedantic group: PROPOSAL, to be reviewed with the user ---------------------------------------
+# We enable the whole `pedantic` group at low priority (so the individual entries below win) and
+# silence only the lints whose noise outweighs their value for this codebase. Rationale per lint:
+pedantic = { level = "warn", priority = -1 }
+# Kept on purpose (listed here so the choice is visible, not accidental):
+#   - cast_possible_truncation / cast_sign_loss / cast_precision_loss / cast_lossless: audio and
+#     time code converts between sample counts, frame counts and floats all the time; every lossy
+#     conversion must be explicit and justified. This is exactly the bug class we want to see.
+#   - missing_errors_doc / missing_panics_doc: consistent with our "document everything" rule.
+#   - float_cmp is in `correctness`/`pedantic` territory and stays on: exact comparisons of floats
+#     are almost always wrong (and musical time is rational anyway, ADR-0005).
+# Silenced:
+#   - module_name_repetitions: types like `tempo::TempoMap` are clearer than `tempo::Map` in
+#     documentation and error messages; the lint fights that naming style.
+module_name_repetitions = "allow"
+#   - must_use_candidate: fires on nearly every getter. We add `#[must_use]` deliberately where
+#     ignoring a result is a real bug (builders, pure computations returning new values).
+must_use_candidate = "allow"
+#   - similar_names: DSP code legitimately uses pairs like `left`/`lefts`, `in_l`/`in_r`.
+similar_names = "allow"

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# `cargo xtask <command>` runs our automation tool (xtask/). This is the standard cargo-xtask
+# pattern: no extra tool to install, it works identically on Linux, Windows and macOS because the
+# automation is written in Rust instead of shell scripts.
+[alias]
+xtask = "run --quiet --package xtask --"

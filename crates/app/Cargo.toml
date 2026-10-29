@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-app"
+description = "The Orchestra executable: wires every crate together"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
+[dependencies]
+orchestra-core-time.workspace = true
+orchestra-core-model.workspace = true
+orchestra-playback.workspace = true
+orchestra-notation-layout.workspace = true
+orchestra-audio-engine.workspace = true
+orchestra-plugin-host.workspace = true
+orchestra-io.workspace = true
+orchestra-i18n.workspace = true
+orchestra-ui.workspace = true
+orchestra-video.workspace = true
+
+[lints]
+workspace = true
+
+# The executable is called `orchestra` (not `orchestra-app`): that is the name users type and the
+# name packagers expect.
+[[bin]]
+name = "orchestra"
+path = "src/main.rs"

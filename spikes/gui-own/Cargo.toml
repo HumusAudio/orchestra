@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "gui-own"
+description = "Spike: own renderer (tiny-skia on the CPU) + winit/softbuffer window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+scene = { path = "../scene" }
+tiny-skia = "0.12.0"
+ttf-parser = "0.25.1"
+winit = "0.30.13"
+softbuffer = "0.4.8"

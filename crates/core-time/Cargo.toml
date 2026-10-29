@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-core-time"
+description = "Exact rational musical time, the tempo map and conversions to samples and video frames"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
+[dependencies]
+
+[lints]
+workspace = true

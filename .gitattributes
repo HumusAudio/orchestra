@@ -1,0 +1,21 @@
+# Normalise line endings: text files are stored with LF in the repository and checked out with LF
+# on every platform (Windows included). rustfmt, the Fluent catalogs, the shell hooks and the
+# documentation parity checks all assume LF; a CRLF checkout on Windows would break the hooks and
+# make the parity hash differ between machines.
+* text=auto eol=lf
+
+# Shell scripts must be LF or bash refuses them ("\r: command not found").
+*.sh   text eol=lf
+.githooks/* text eol=lf
+
+# Binary assets: never touch them.
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.otf  binary
+*.ttf  binary
+*.woff binary
+*.woff2 binary
+*.wav  binary
+*.flac binary
+*.mid  binary

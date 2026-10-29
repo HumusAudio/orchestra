@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-audio-engine"
+description = "Real-time audio graph, mixing and device output behind platform traits"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
+[dependencies]
+orchestra-core-time.workspace = true
+orchestra-playback.workspace = true
+orchestra-plugin-host.workspace = true
+
+[lints]
+workspace = true

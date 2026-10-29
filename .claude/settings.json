@@ -1,0 +1,41 @@
+{
+  "sandbox": {
+    "excludedCommands": [
+      "git push *", "git fetch *", "git pull *", "git ls-remote *", "gh *",
+      "cargo fetch", "cargo fetch *"
+    ],
+    "network": {
+      "allowedDomains": [
+        "github.com", "*.github.com", "*.githubusercontent.com",
+        "crates.io", "index.crates.io", "static.crates.io", "static.rust-lang.org"
+      ]
+    }
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/turn-start.sh\"" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE=$(jq -r '.tool_input.file_path // empty'); case \"$FILE\" in *.rs) rustfmt \"$FILE\" 2>/dev/null ;; esac; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/check-docs-updated.sh\"" }
+        ]
+      }
+    ]
+  }
+}

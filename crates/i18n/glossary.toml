@@ -1,0 +1,686 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Orchestra terminology glossary (ADR-0008, docs/i18n-process.md).
+#
+# ONE entry per musical or technical term used in the interface. Before writing or changing any
+# user-visible string, look the term up here; if it is missing, research it (music dictionaries,
+# localised manuals and UI catalogues of notation/DAW software, academic glossaries) and add it.
+# Musical terms are NOT translated literally: a "quarter note" is a "crotchet" in en-GB, a
+# "semiminima" in Italian, a "noire" in French.
+#
+# Fields of each [[term]]:
+#   id         stable identifier (snake_case, en-US based)
+#   category   "notation" | "daw" | "general"
+#   en-US, en-GB, it, fr, de, es   the chosen term (singular, lower case unless it is a noun that
+#                                  is always capitalised, as in German)
+#   plural     optional table with irregular/notable plurals per language
+#   sources    ids from [sources] below (every entry cites at least one)
+#   note       why this is the choice, especially where it is not the literal translation or
+#              where sources disagree
+#   review     true when sources disagree and a native-speaking musician should confirm
+#
+# Research performed 2026-10-28. Evidence collection method:
+#   - "musescore-ui": the shipped MuseScore Studio UI translation catalogues
+#     (share/locale/musescore_<lang>.ts, branch main), counting only finished translations of the
+#     exact English source string. This is what musicians actually see in a notation program.
+#   - "ardour-ui": Ardour DAW UI catalogues (gtk2_ardour/po/<lang>.po, branch master), non-fuzzy
+#     entries only. Ardour's en_GB catalogue only overrides strings that differ from en-US
+#     ("Quantise", "Colour"): evidence that the other DAW terms are identical in British English.
+#   - "logic-guide": the same page id of Apple's "Logic Pro for iPad User Guide" fetched in
+#     en-us/en-gb/fr-fr/de-de/es-es (the it-it pages are not translated and fall back to English).
+#   - "wikipedia": interlanguage links of the English Wikipedia article (API prop=langlinks) and,
+#     for British usage, the article text itself.
+#   - "musescore-handbook-it", "cubase-it": Italian handbook/manual pages found by web search.
+
+[sources]
+musescore-ui = "https://github.com/musescore/MuseScore/tree/main/share/locale"
+ardour-ui = "https://github.com/Ardour/ardour/tree/master/gtk2_ardour/po"
+logic-guide = "https://support.apple.com/guide/logicpro-ipad/welcome/ipados (pages lpipf0998b33, lpip1093bde1, lpipd72a60da, lpipfc8ea6fc, lpip806df382, lpip9b35f249 in each locale)"
+wikipedia = "https://en.wikipedia.org/w/api.php?action=query&prop=langlinks (article titles as cited in each note)"
+wikipedia-staff = "https://en.wikipedia.org/wiki/Staff_(music) — 'staff (UK usually stave)', 'grand staff (American English) or great stave (British English)'"
+wikipedia-note-value = "https://en.wikipedia.org/wiki/Note_value — American vs British note names"
+musescore-handbook-en-gb = "https://handbook.musescore.org/en_gb/appendix/glossary — 'Staff (AE) / Stave (BE)', 'Bar (BE)', 'crotchet (BE)'"
+musescore-handbook-it = "https://musescore.org/it/handbook/2/glossario — legatura di valore / legatura di portamento"
+musescore-glossary-es = "https://musescore.org/es/manual/glosario — ligadura de prolongación / ligadura de expresión"
+dorico-fr = "https://archive.steinberg.help/dorico_first_steps/v4/fr/Dorico_First_Steps_4_Premiers_pas_fr.pdf — 'liaison d'expression', 'chiffrage de mesure'"
+cubase-it = "https://archive.steinberg.help/cubase_le/v12/it/Cubase_LE_12_Manuale_operativo_it.pdf — 'valori di trasposizione e velocity nella linea info'"
+breitkopf-lexikon = "https://www.breitkopf.com/assets/pdf/BV395_70_Lexikon.pdf — Haltebogen vs Bindebogen"
+
+# ================================================================================================
+# Notation
+# ================================================================================================
+
+[[term]]
+id = "staff"
+category = "notation"
+en-US = "staff"
+en-GB = "stave"
+it = "rigo"
+fr = "portée"
+de = "Notenzeile"
+es = "pentagrama"
+plural = { en-US = "staves", en-GB = "staves", it = "righi", fr = "portées", de = "Notenzeilen", es = "pentagramas" }
+sources = ["musescore-ui", "wikipedia", "wikipedia-staff", "musescore-handbook-en-gb"]
+note = """en-GB: 'stave' per Wikipedia ('UK usually stave') and the MuseScore en_GB UI ('Staff' → 'Stave'); \
+plural 'staves' is shared. it: the MuseScore UI uses 'rigo' (Wikipedia's article is 'Pentagramma'); \
+in software 'rigo' is the usual word because a staff may have 1–5 lines (percussion), while \
+'pentagramma' literally means five lines. de: MuseScore uses 'Notenzeile'; Wikipedia's 'Notensystem' \
+is ambiguous with 'System' (a line of staves), so we avoid it."""
+review = false
+
+[[term]]
+id = "grand_staff"
+category = "notation"
+en-US = "grand staff"
+en-GB = "great stave"
+it = "doppio rigo"
+fr = "système de deux portées"
+de = "Akkolade"
+es = "sistema de pentagramas"
+sources = ["wikipedia-staff"]
+note = """en-GB 'great stave' per Wikipedia ('grand staff (American English) or great stave (British \
+English)'). The other languages have no single universal term; the choices are the common \
+descriptive forms and need a native musician's confirmation."""
+review = true
+
+[[term]]
+id = "measure"
+category = "notation"
+en-US = "measure"
+en-GB = "bar"
+it = "battuta"
+fr = "mesure"
+de = "Takt"
+es = "compás"
+plural = { en-US = "measures", en-GB = "bars", it = "battute", fr = "mesures", de = "Takte", es = "compases" }
+sources = ["musescore-ui", "wikipedia", "musescore-handbook-en-gb"]
+note = """en-GB 'bar' (MuseScore en_GB translates 'Measure' → 'Bar' in all 3 occurrences). Beware: \
+Wikipedia links en 'Bar (music)' to es 'Barra de compás', which is the BARLINE; the measure is \
+'compás' (MuseScore es UI). it: 'battuta' is the UI term (also 'misura' in theory books)."""
+review = false
+
+[[term]]
+id = "barline"
+category = "notation"
+en-US = "barline"
+en-GB = "barline"
+it = "stanghetta"
+fr = "barre de mesure"
+de = "Taktstrich"
+es = "barra de compás"
+sources = ["musescore-ui"]
+note = "Same word in en-GB. Not to be confused with 'measure' (see above)."
+review = false
+
+[[term]]
+id = "clef"
+category = "notation"
+en-US = "clef"
+en-GB = "clef"
+it = "chiave"
+fr = "clé"
+de = "Schlüssel"
+es = "clave"
+sources = ["musescore-ui", "wikipedia"]
+note = """fr: both spellings 'clé' and 'clef' are correct (MuseScore uses 'Clef', Wikipedia 'Clef (musique)'); \
+we use the modern 'clé' for consistency with general French UI conventions. de: 'Schlüssel' (UI) — \
+'Notenschlüssel' where ambiguity with other keys is possible."""
+review = true
+
+[[term]]
+id = "key_signature"
+category = "notation"
+en-US = "key signature"
+en-GB = "key signature"
+it = "armatura di chiave"
+fr = "armure"
+de = "Tonart"
+es = "armadura"
+sources = ["musescore-ui", "wikipedia"]
+note = """de: MuseScore's UI uses 'Tonart' (literally 'key'); Wikipedia uses 'Vorzeichen (Musik)'. 'Tonart' \
+is understood by every musician in a palette/menu context, but in sentences where 'key' and \
+'key signature' must be distinguished use 'Tonartvorzeichnung'. it: 'armatura di chiave' (UI); \
+'armatura' alone is also common."""
+review = true
+
+[[term]]
+id = "time_signature"
+category = "notation"
+en-US = "time signature"
+en-GB = "time signature"
+it = "indicazione metrica"
+fr = "indication de mesure"
+de = "Taktart"
+es = "indicación de compás"
+sources = ["musescore-ui", "wikipedia", "dorico-fr"]
+note = """fr: MuseScore uses 'indication de mesure', Dorico's French manual 'chiffrage de mesure'; both \
+correct, we follow the more widespread UI term. es: Wikipedia's article is 'Compás (música)', but \
+'compás' is our 'measure'; the UI term 'indicación de compás' avoids the clash."""
+review = false
+
+[[term]]
+id = "whole_note"
+category = "notation"
+en-US = "whole note"
+en-GB = "semibreve"
+it = "semibreve"
+fr = "ronde"
+de = "ganze Note"
+es = "redonda"
+sources = ["musescore-ui", "wikipedia", "wikipedia-note-value"]
+note = "British names come from mensural notation (Wikipedia 'Note value'). MuseScore en_GB shows 'Semibreve (whole) note'."
+review = false
+
+[[term]]
+id = "half_note"
+category = "notation"
+en-US = "half note"
+en-GB = "minim"
+it = "minima"
+fr = "blanche"
+de = "halbe Note"
+es = "blanca"
+sources = ["musescore-ui", "wikipedia", "wikipedia-note-value"]
+note = "Romance languages name note values by colour/shape, not by fraction: never translate 'half' literally."
+review = false
+
+[[term]]
+id = "quarter_note"
+category = "notation"
+en-US = "quarter note"
+en-GB = "crotchet"
+it = "semiminima"
+fr = "noire"
+de = "Viertelnote"
+es = "negra"
+sources = ["musescore-ui", "wikipedia", "wikipedia-note-value", "musescore-handbook-en-gb"]
+note = "The textbook example of non-literal translation (ADR-0008)."
+review = false
+
+[[term]]
+id = "eighth_note"
+category = "notation"
+en-US = "eighth note"
+en-GB = "quaver"
+it = "croma"
+fr = "croche"
+de = "Achtelnote"
+es = "corchea"
+sources = ["musescore-ui", "wikipedia"]
+note = "Consistent across all sources."
+review = false
+
+[[term]]
+id = "sixteenth_note"
+category = "notation"
+en-US = "sixteenth note"
+en-GB = "semiquaver"
+it = "semicroma"
+fr = "double croche"
+de = "Sechzehntelnote"
+es = "semicorchea"
+sources = ["musescore-ui", "wikipedia"]
+note = """it: MuseScore abbreviates to '16esimo' in a toolbar; the proper term is 'semicroma' (Wikipedia). \
+fr: Wikipedia 'Double croche' (MuseScore hyphenates 'double-croche'; both are attested)."""
+review = false
+
+[[term]]
+id = "rest"
+category = "notation"
+en-US = "rest"
+en-GB = "rest"
+it = "pausa"
+fr = "silence"
+de = "Pause"
+es = "silencio"
+sources = ["musescore-ui", "wikipedia"]
+note = "fr 'silence' is the generic term ('pause' in French is specifically the whole rest)."
+review = false
+
+[[term]]
+id = "tie"
+category = "notation"
+en-US = "tie"
+en-GB = "tie"
+it = "legatura di valore"
+fr = "liaison de prolongation"
+de = "Haltebogen"
+es = "ligadura de prolongación"
+sources = ["musescore-ui", "wikipedia", "musescore-handbook-it", "musescore-glossary-es", "breitkopf-lexikon"]
+note = """Every language except English uses the same base word for tie and slur and disambiguates with a \
+qualifier: never shorten to 'legatura'/'liaison'/'Bogen'/'ligadura' when both exist in the UI."""
+review = false
+
+[[term]]
+id = "slur"
+category = "notation"
+en-US = "slur"
+en-GB = "slur"
+it = "legatura di portamento"
+fr = "liaison d'expression"
+de = "Bindebogen"
+es = "ligadura de expresión"
+sources = ["musescore-ui", "wikipedia", "musescore-handbook-it", "musescore-glossary-es", "dorico-fr", "breitkopf-lexikon"]
+note = """fr: MuseScore uses 'liaison de phrasé', Dorico 'liaison d'expression'; we follow Dorico (pairs \
+naturally with 'liaison de prolongation'). es: MuseScore's UI says just 'Ligadura', but its glossary \
+defines 'ligadura de expresión' vs 'de prolongación'; we always qualify."""
+review = true
+
+[[term]]
+id = "dynamics"
+category = "notation"
+en-US = "dynamics"
+en-GB = "dynamics"
+it = "dinamiche"
+fr = "nuances"
+de = "Dynamik"
+es = "dinámicas"
+sources = ["musescore-ui", "wikipedia"]
+note = """fr: 'nuances', not 'dynamiques' (Wikipedia 'Nuance (musique)', MuseScore UI). de: 'Dynamik' for \
+the concept; MuseScore's palette says 'Dynamikbezeichnungen' (dynamic markings)."""
+review = false
+
+[[term]]
+id = "hairpin"
+category = "notation"
+en-US = "hairpin"
+en-GB = "hairpin"
+it = "forcella"
+fr = "soufflet"
+de = "Gabel"
+es = "regulador"
+sources = ["musescore-ui"]
+note = """MuseScore fr says 'Crescendo / Decrescendo' and de 'Cresc./Dim.-Gabel' (descriptive); 'soufflet' \
+is the French engraver's term and 'Gabel' the German one. Needs confirmation."""
+review = true
+
+[[term]]
+id = "tempo"
+category = "notation"
+en-US = "tempo"
+en-GB = "tempo"
+it = "tempo"
+fr = "tempo"
+de = "Tempo"
+es = "tempo"
+sources = ["musescore-ui", "wikipedia"]
+note = "Identical everywhere. Careful in Italian: 'tempo' also means 'time/beat'; use 'movimento' never."
+review = false
+
+[[term]]
+id = "voice"
+category = "notation"
+en-US = "voice"
+en-GB = "voice"
+it = "voce"
+fr = "voix"
+de = "Stimme"
+es = "voz"
+sources = ["musescore-ui"]
+note = "Notation sense (independent rhythmic layer on a staff; MuseScore 'Voice 1'). de 'Stimme' also means 'part'; see 'part'."
+review = false
+
+[[term]]
+id = "part"
+category = "notation"
+en-US = "part"
+en-GB = "part"
+it = "parte"
+fr = "partie"
+de = "Stimme"
+es = "particella"
+sources = ["musescore-ui", "wikipedia"]
+note = """The extracted part of one player. de: MuseScore uses 'Auszüge' for the parts *feature* (part \
+extraction); 'Stimme' for a single part. es: 'particella' (Wikipedia 'Particella'); MuseScore uses \
+'Parte'. Needs confirmation for es."""
+review = true
+
+[[term]]
+id = "score"
+category = "notation"
+en-US = "score"
+en-GB = "score"
+it = "partitura"
+fr = "partition"
+de = "Partitur"
+es = "partitura"
+sources = ["musescore-ui"]
+note = "Consistent across sources."
+review = false
+
+[[term]]
+id = "tuplet"
+category = "notation"
+en-US = "tuplet"
+en-GB = "tuplet"
+it = "gruppo irregolare"
+fr = "division irrégulière"
+de = "N-tole"
+es = "grupillo"
+sources = ["musescore-ui", "wikipedia"]
+note = """No literal equivalents. it 'gruppo irregolare' (UI + Wikipedia). es: MuseScore 'grupillo', \
+Wikipedia 'grupos de valoración especial' (theory term); we use the UI term. Specific tuplets: \
+triplet = terzina / triolet / Triole / tresillo."""
+review = false
+
+[[term]]
+id = "grace_note"
+category = "notation"
+en-US = "grace note"
+en-GB = "grace note"
+it = "nota di abbellimento"
+fr = "petite note"
+de = "Vorschlagsnote"
+es = "nota de adorno"
+sources = ["musescore-ui"]
+note = """MuseScore: it 'Note di abbellimento', es 'Notas de adorno', de 'Vor-/Nachschlagsnoten', fr \
+'Fioritures'. fr 'petite note' is the engraving term used by French editors; 'fioritures' means \
+ornaments in general. Needs confirmation."""
+review = true
+
+[[term]]
+id = "accidental"
+category = "notation"
+en-US = "accidental"
+en-GB = "accidental"
+it = "alterazione"
+fr = "altération"
+de = "Versetzungszeichen"
+es = "alteración"
+sources = ["musescore-ui", "wikipedia"]
+note = "de: 'Versetzungszeichen' (UI); Wikipedia uses the learned 'Akzidentien'."
+review = false
+
+[[term]]
+id = "sharp"
+category = "notation"
+en-US = "sharp"
+en-GB = "sharp"
+it = "diesis"
+fr = "dièse"
+de = "Kreuz"
+es = "sostenido"
+sources = ["musescore-ui", "wikipedia"]
+note = "Consistent. Flat: bemolle / bémol / Be (UI) / bemol. Natural: bequadro / bécarre / Auflösungszeichen / becuadro."
+review = false
+
+[[term]]
+id = "articulation"
+category = "notation"
+en-US = "articulation"
+en-GB = "articulation"
+it = "articolazione"
+fr = "articulation"
+de = "Artikulation"
+es = "articulación"
+sources = ["musescore-ui", "wikipedia"]
+note = "Consistent. Individual articulations (staccato, legato, tenuto…) are Italian words used unchanged in every language."
+review = false
+
+[[term]]
+id = "beam"
+category = "notation"
+en-US = "beam"
+en-GB = "beam"
+it = "travatura"
+fr = "ligature"
+de = "Balken"
+es = "barra de agrupación"
+sources = ["musescore-ui"]
+note = "fr 'ligature' here is the beam, unrelated to 'liaison' (tie/slur)."
+review = false
+
+[[term]]
+id = "volta"
+category = "notation"
+en-US = "ending"
+en-GB = "volta"
+it = "casella di volta"
+fr = "alternative de reprise"
+de = "Volta"
+es = "casilla de repetición"
+sources = ["musescore-ui"]
+note = """en-US engravers say 'first/second ending', en-GB 'first/second-time bar' or 'volta' (MuseScore keeps \
+'Volta' in both). it: MuseScore 'Volta'; 'casella di volta' is the established Italian term. Needs \
+confirmation."""
+review = true
+
+[[term]]
+id = "concert_pitch"
+category = "notation"
+en-US = "concert pitch"
+en-GB = "concert pitch"
+it = "suoni reali"
+fr = "tonalité réelle"
+de = "klingende Notation"
+es = "afinación de concierto"
+sources = ["musescore-ui"]
+note = "The toggle between transposed and sounding pitch (ADR-0004). No language uses the literal translation."
+review = false
+
+[[term]]
+id = "transposing_instrument"
+category = "notation"
+en-US = "transposing instrument"
+en-GB = "transposing instrument"
+it = "strumento traspositore"
+fr = "instrument transpositeur"
+de = "transponierendes Instrument"
+es = "instrumento transpositor"
+sources = ["wikipedia"]
+note = "Wikipedia article titles in all four languages."
+review = false
+
+# ================================================================================================
+# DAW
+# ================================================================================================
+
+[[term]]
+id = "track"
+category = "daw"
+en-US = "track"
+en-GB = "track"
+it = "traccia"
+fr = "piste"
+de = "Spur"
+es = "pista"
+plural = { it = "tracce", fr = "pistes", de = "Spuren", es = "pistas" }
+sources = ["ardour-ui", "logic-guide"]
+note = "Consistent across Ardour and Logic (fr 'Pistes', de 'Spuren', es 'pistas')."
+review = false
+
+[[term]]
+id = "region"
+category = "daw"
+en-US = "region"
+en-GB = "region"
+it = "regione"
+fr = "région"
+de = "Region"
+es = "región"
+sources = ["ardour-ui", "logic-guide"]
+note = """A block of audio/MIDI/video material on a track. Logic es uses 'pasaje'; Ardour es 'región'; we \
+prefer the transparent 'región'. Whether Orchestra calls this concept 'region' or 'clip' is still \
+open (ROADMAP); this entry fixes the translations if 'region' is chosen."""
+review = true
+
+[[term]]
+id = "mixer"
+category = "daw"
+en-US = "mixer"
+en-GB = "mixer"
+it = "mixer"
+fr = "table de mixage"
+de = "Mixer"
+es = "mezclador"
+sources = ["ardour-ui", "logic-guide", "musescore-ui"]
+note = """fr: Logic 'table de mixage', Ardour 'console de mixage', MuseScore 'mélangeur' (literal, avoided). \
+de: Ardour/Logic 'Mixer', MuseScore 'Mischpult'; DAW users say 'Mixer'."""
+review = false
+
+[[term]]
+id = "bus"
+category = "daw"
+en-US = "bus"
+en-GB = "bus"
+it = "bus"
+fr = "bus"
+de = "Bus"
+es = "bus"
+plural = { en-US = "buses", en-GB = "buses", it = "bus", fr = "bus", de = "Busse", es = "buses" }
+sources = ["ardour-ui", "logic-guide"]
+note = "Loanword everywhere. en: we use 'buses' (Ardour writes 'busses'; both attested)."
+review = false
+
+[[term]]
+id = "send"
+category = "daw"
+en-US = "send"
+en-GB = "send"
+it = "mandata"
+fr = "départ"
+de = "Send"
+es = "envío"
+sources = ["ardour-ui", "logic-guide"]
+note = "fr: Ardour 'Départ', Logic 'Envois' (both used; 'départ' is the studio term). de keeps the loanword (Logic 'Sends-Ansicht')."
+review = true
+
+[[term]]
+id = "plugin"
+category = "daw"
+en-US = "plug-in"
+en-GB = "plug-in"
+it = "plug-in"
+fr = "module"
+de = "Plug-in"
+es = "módulo"
+sources = ["logic-guide", "ardour-ui", "musescore-ui"]
+note = """Apple localises it as fr 'module' and es 'módulo' (Logic guide); Ardour fr 'greffons', es 'plugins'; \
+MuseScore es 'complementos'. We follow Apple, the most widely read professional localisation. de: \
+Logic/Ardour 'Plug-in(s)'."""
+review = true
+
+[[term]]
+id = "velocity"
+category = "daw"
+en-US = "velocity"
+en-GB = "velocity"
+it = "velocity"
+fr = "vélocité"
+de = "Velocity"
+es = "velocidad"
+sources = ["logic-guide", "ardour-ui", "musescore-ui", "cubase-it"]
+note = """MIDI note-on velocity. it: sources disagree — MuseScore 'Intensità', Ardour 'Dinamica', Cubase's \
+Italian manual keeps 'velocity'. 'Dinamica' clashes with our 'dynamics' term, so we keep the loanword \
+like Cubase. de: Logic/Ardour 'Velocity', MuseScore 'Anschlagsdynamik'. fr/es: Logic 'vélocité'/'velocidad'."""
+review = true
+
+[[term]]
+id = "automation"
+category = "daw"
+en-US = "automation"
+en-GB = "automation"
+it = "automazione"
+fr = "automation"
+de = "Automation"
+es = "automatización"
+sources = ["ardour-ui"]
+note = "fr keeps 'automation' (Ardour); 'automatisation' is the general-language word but not the studio term."
+review = false
+
+[[term]]
+id = "quantize"
+category = "daw"
+en-US = "quantize"
+en-GB = "quantise"
+it = "quantizza"
+fr = "quantifier"
+de = "quantisieren"
+es = "cuantificar"
+sources = ["ardour-ui"]
+note = "en-GB spelling -ise (Ardour's en_GB catalogue overrides exactly this string). Verb form as used in menus."
+review = false
+
+[[term]]
+id = "mute"
+category = "daw"
+en-US = "mute"
+en-GB = "mute"
+it = "muto"
+fr = "muet"
+de = "Mute"
+es = "silenciar"
+sources = ["ardour-ui", "musescore-ui"]
+note = """Track mute button. it: MuseScore's 'Sordina' is the instrument mute (a different concept!); Ardour \
+'Muto' is the mixer sense. es: 'silenciar' (MuseScore) vs 'mudo' (Ardour)."""
+review = true
+
+# ================================================================================================
+# General interface (menus). Source: MuseScore UI catalogues (exact source strings, accelerator
+# markers removed). They follow each platform's usual wording.
+# ================================================================================================
+
+[[term]]
+id = "menu_file"
+category = "general"
+en-US = "File"
+en-GB = "File"
+it = "File"
+fr = "Fichier"
+de = "Datei"
+es = "Archivo"
+sources = ["musescore-ui"]
+note = "Menu title. Italian keeps the English loanword."
+review = false
+
+[[term]]
+id = "menu_edit"
+category = "general"
+en-US = "Edit"
+en-GB = "Edit"
+it = "Modifica"
+fr = "Éditer"
+de = "Bearbeiten"
+es = "Editar"
+sources = ["musescore-ui"]
+note = "Menu title. fr: MuseScore 'Éditer'; macOS and many French apps use 'Édition' — to decide with ADR-0006 conventions."
+review = true
+
+[[term]]
+id = "menu_view"
+category = "general"
+en-US = "View"
+en-GB = "View"
+it = "Vista"
+fr = "Affichage"
+de = "Ansicht"
+es = "Vista"
+sources = ["musescore-ui"]
+note = "Menu title. it 'Vista' (MuseScore); 'Visualizza' is also common in Italian software."
+review = false
+
+[[term]]
+id = "undo"
+category = "general"
+en-US = "Undo"
+en-GB = "Undo"
+it = "Annulla"
+fr = "Annuler"
+de = "Rückgängig"
+es = "Deshacer"
+sources = ["musescore-ui"]
+note = "Edit menu command (ADR-0003 single undo history)."
+review = false
+
+[[term]]
+id = "redo"
+category = "general"
+en-US = "Redo"
+en-GB = "Redo"
+it = "Ripristina"
+fr = "Rétablir"
+de = "Wiederherstellen"
+es = "Rehacer"
+sources = ["musescore-ui"]
+note = "Edit menu command."
+review = false

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-i18n"
+description = "Fluent message catalogs for the six interface languages and their parity tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
+[dependencies]
+# Runtime formatting of Fluent messages (bundles, plural rules, number formatting).
+fluent-bundle.workspace = true
+# Language identifiers (`en-US`, `it`, …) as `fluent-bundle` expects them.
+unic-langid.workspace = true
+
+[dev-dependencies]
+# The Fluent parser, used only by the parity tests to list message ids and variables. It is
+# already a transitive dependency of `fluent-bundle`, so it costs nothing extra.
+fluent-syntax.workspace = true
+
+[lints]
+workspace = true
