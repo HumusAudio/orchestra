@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "gui-egui"
+description = "Spike: egui (immediate mode); CPU rendering through the experimental egui_software_backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+scene = { path = "../scene" }
+# egui_software_backend 0.0.3 only supports egui 0.34 (current egui is 0.37): pinned accordingly.
+egui = "0.34"
+egui_software_backend = "0.0.3"
+ttf-parser = "0.25.1"
+png = "0.18.1"

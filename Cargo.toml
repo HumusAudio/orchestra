@@ -31,6 +31,9 @@ members = [
     "crates/app",
     "xtask",
 ]
+# Evaluation prototypes have their own workspace (spikes/Cargo.toml) and must never be picked up
+# by this one, not even by accident through a path dependency.
+exclude = ["spikes"]
 
 [workspace.package]
 version = "0.0.0"

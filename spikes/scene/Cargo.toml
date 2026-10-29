@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "scene"
+description = "The common test scene of the GUI spikes: 2000 music glyphs, staves, 6-language text"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true

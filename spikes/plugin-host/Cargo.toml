@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "plugin-host"
+description = "Spike B: out-of-process plugin hosting (CLAP, VST3, LV2) with shared-memory audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+truce-rack = { version = "1.1.5", features = ["clap", "vst3", "lv2"] }
+memmap2 = "0.9.12"
+libc = "0.2"
+winit = "0.30.13"
