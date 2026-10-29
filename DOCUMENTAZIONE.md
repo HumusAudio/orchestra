@@ -33,6 +33,7 @@ orchestra/
 ├── crates/                 the program, one crate per responsibility
 ├── xtask/                  project automation (`cargo xtask …`)
 ├── assets/fonts/           bundled OFL fonts (text, code, SMuFL music font)
+├── assets/logo/            the only Orchestra logo (outlined SVG, single colour)
 ├── docs/                   ADRs, architecture, i18n process, user guide sources
 ├── spikes/                 Phase 0 evaluation prototypes (separate workspace, never shipped)
 ├── CLAUDE.md               permanent rules for every development session
@@ -389,8 +390,8 @@ annulla l'esecuzione precedente.
 ## Le guide per l'utente
 
 Le guide per l'utente sono scritte in Typst. `docs/guide/template.typ` definisce tutto l'aspetto
-una volta sola: una copertina blu inchiostro con un pentagramma disegnato con il font musicale
-Bravura, intestazioni correnti, aperture di capitolo con un grande numero color ottone, blocchi di
+una volta sola: una copertina blu inchiostro con il logo di Orchestra in bianco, intestazioni
+correnti, aperture di capitolo con un grande numero color ottone, blocchi di
 codice, riquadri "nota"/"suggerimento"/"attenzione" e una funzione `screenshot` che incornicia
 un'immagine e aggiunge la didascalia. Le due guide si limitano a importarlo:
 
@@ -414,6 +415,32 @@ ha la stessa cornice e la stessa didascalia di uno screenshot vero. Le parole di
 `cargo xtask guides` compila entrambi i PDF in `dist/` con `--ignore-system-fonts`, così vengono
 usati solo i font di `assets/fonts/` e il risultato è identico su ogni macchina. I PDF non si
 committano mai: la CI li pubblica come artefatti.
+
+### Il logo e i temi
+
+`assets/logo/orchestra-logo.svg` è l'unico logo di Orchestra (ADR-0014): la sua forma non cambia
+mai, solo il colore. Nel disegno originale la scritta era ancora testo nel font Alte Haas Grotesk,
+che su qualunque computer senza quel font verrebbe sostituito da un altro; per questo la versione
+nel repository è stata ricavata dall'esportazione PDF fatta dall'autore con `pdftocairo -svg`, che
+trasforma i caratteri in tracciati: resa a 1000 × 1000 px, differisce dall'originale in 0 pixel.
+Tutto il file è riempito con un solo colore, `#000000`, e ricolorarlo significa sostituire quella
+stringa prima del disegno. Il template delle guide fa esattamente questo:
+
+```typ
+#let logo(colour, width: 100%) = {
+  let svg = read("/assets/logo/orchestra-logo.svg").replace("#000000", colour.to-hex())
+  image(bytes(svg), format: "svg", width: width)
+}
+```
+
+Lo stesso ADR stabilisce che il programma ha un tema chiaro e uno scuro fin dal primo widget:
+widget e renderer non usano mai colori scritti nel codice, solo i token semantici del tema attivo;
+in modo predefinito si segue il sistema operativo, e la partitura può seguire il tema oppure
+restare su carta bianca.
+
+A differenza del codice, il logo **non** è sotto GPL: tutti i diritti riservati (decisione del
+proprietario). Lo dice il README del repository, e il logo sta solo in `assets/logo/`, così una
+distribuzione che richiede grafica interamente libera può sostituirlo senza toccare il codice.
 
 ### I font inclusi
 

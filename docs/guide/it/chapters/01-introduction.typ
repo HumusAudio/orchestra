@@ -36,6 +36,12 @@ di notazione e la vista DAW sono due modi di guardare le stesse note.
   cambia il punto in cui la nota è scritta. Sei tu a decidere quanto è severa questa tolleranza.
 ]
 
+== Aspetto chiaro e scuro
+
+Orchestra avrà un aspetto chiaro e uno scuro. In modo predefinito segue l'impostazione del tuo
+sistema operativo e cambia insieme a lei; puoi anche scegliere tu chiaro o scuro. La partitura può
+seguire l'aspetto scuro oppure restare sempre su carta bianca, come preferisci.
+
 == Stato di questa guida
 
 Orchestra è in una fase di sviluppo molto iniziale. Questa edizione di anteprima spiega le idee

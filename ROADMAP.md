@@ -3,10 +3,11 @@
 Read this first at the start of every session (CLAUDE.md §0). It records **where we are**, **what
 comes next** and **which decisions are still open**. Decisions themselves live in `docs/adr/`.
 
-## Current status — Phase 0 (foundations) complete, pull request open
+## Current status — Phase 0 complete and merged; visual identity added
 
-Branch: `feature/fase-0-fondamenta` → pull request to `main`. Phase 0 prepared rules, automation,
-decisions and evaluation prototypes; it contains no program functionality.
+Phase 0 was merged into `main` (PR #1, 2026-10-29). Then, on `feature/logo-e-temi`: the owner's
+logo became the only project logo (outlined SVG in `assets/logo/`, used on the guide covers) and
+ADR-0014 fixed light and dark themes from the start. Next: Phase 1 on a new branch.
 
 | Step | What | Status |
 |---|---|---|
@@ -23,7 +24,7 @@ decisions and evaluation prototypes; it contains no program functionality.
 | 11 | Every automation verified for real (found and fixed a flaw in the Stop hook) | ✅ |
 | 12 | CI on Linux/Windows/macOS + guide PDFs as artifacts | ✅ (see open items: macOS run) |
 | 13 | Spikes → ADR-0012 *no GUI toolkit* and ADR-0011 *own plugin host layer*, both Accepted | ✅ |
-| 14 | Closing: docs, roadmap, PR, green CI | ⏳ PR open, waiting for CI |
+| 14 | Closing: docs, roadmap, PR, green CI, merge | ✅ merged (PR #1) |
 
 ## Next phases
 
@@ -33,7 +34,8 @@ decisions and evaluation prototypes; it contains no program functionality.
    voltas, jumps), commands and unified undo/redo; concrete project file format with version 1
    and its first golden file (ADR-0010).
 2. **Phase 2 — UI foundation and basic notation:** because ADR-0012 chose no toolkit, this phase
-   starts with our own UI layer: window + input (winit), renderer (tiny-skia, then a measured GPU
+   starts with our own UI layer, and that starts with the **theme system** of ADR-0014 (semantic
+   colour tokens, light and dark themes, WCAG contrast test, system light/dark detection): window + input (winit), renderer (tiny-skia, then a measured GPU
    path with wgpu/vello), text shaping and glyph cache, widgets with **AccessKit nodes from day
    one**, focus, text fields with IME, menus (our menu bar on Linux/Windows, muda on macOS),
    native dialogs (rfd), headless rendering → `cargo xtask screenshots`. Then incremental
@@ -55,8 +57,6 @@ decisions and evaluation prototypes; it contains no program functionality.
   hairpin, part es, grace note, volta, region, send, plug-in, velocity, mute, menu Edit fr): to
   be confirmed by native-speaking musicians.
 - **GPU rendering not measured yet** (the development sandbox has no GPU): first item of Phase 2.
-- **CI macOS:** the job of run 40699580252 was cancelled (likely queued too long) and re-run;
-  check it is green before merging.
 - **Spike findings to keep in mind for Phase 4:** LSP Plugins' CLAP and VST3 crashed when loaded
   through truce-rack; VST3 output was silent through truce-rack (cause not investigated); plugin
   round trip p99 1–2 ms with pipes and normal priority must be brought down with RT signalling.

@@ -111,50 +111,36 @@
 // Cover page
 // ------------------------------------------------------------------------------------------------
 
-/// Draws five staff lines across the page with a G clef and a few notes, in Bravura.
-/// Pure decoration: positions are in points from the top-left of the cover.
-#let cover-staff() = {
-  let gap = 9pt // distance between staff lines (one "staff space")
-  // SMuFL glyphs are designed so that 1 em = 4 staff spaces, with the glyph origin (baseline) on
-  // the staff position it refers to. Setting both text edges to the baseline makes the placed
-  // box start exactly at the baseline, so `dy` below is simply the staff position.
-  let glyph(g) = text(
-    font: fonts.music,
-    size: 4 * gap,
-    fill: palette.accent,
-    top-edge: "baseline",
-    bottom-edge: "baseline",
-    g,
-  )
-  block(height: 5 * gap, width: 100%, {
-    for i in range(5) {
-      place(dy: i * gap, line(length: 100%, stroke: 0.8pt + palette.accent.lighten(25%)))
-    }
-    // The G clef's origin is on the G line, the second line from the bottom (4th from the top).
-    place(dx: 6pt, dy: 3 * gap, glyph(smufl.g-clef))
-    // A short melody. Positions are in staff spaces below the top line, which is F5 in treble
-    // clef: 3.5 = F4, 3 = G4, 2.5 = A4, 2 = B4, 1.5 = C5, 1 = D5. Notes: F G A B C A D.
-    for (k, pos) in ((0, 3.5), (1, 3), (2, 2.5), (3, 2), (4, 1.5), (5, 2.5), (6, 1)) {
-      place(dx: 64pt + k * 38pt, dy: pos * gap, glyph(smufl.quarter-note))
-    }
-  })
+/// The Orchestra logo (assets/logo/orchestra-logo.svg) in any colour.
+///
+/// The logo is the ONLY one allowed and its shape must never change (ADR-0014): the SVG has a
+/// single fill colour, `#000000`, and recolouring replaces exactly that string in the file text
+/// before Typst decodes it. Paths, proportions and the outlined wordmark are untouched.
+#let logo(colour, width: 100%) = {
+  let svg = read("/assets/logo/orchestra-logo.svg").replace("#000000", colour.to-hex())
+  image(bytes(svg), format: "svg", width: width)
 }
 
-/// The cover: dark full-bleed page, title, subtitle, decorative staff, edition line.
-#let cover(title, subtitle, edition) = page(
+/// The cover: dark full-bleed page with the logo in white, the subtitle and the edition line.
+/// The guide title is not repeated as text: the logo already contains the wordmark.
+#let cover(subtitle, edition) = page(
   margin: 0pt,
   fill: palette.ink,
   header: none,
   footer: none,
 )[
-  #place(top + left, dx: 2.2cm, dy: 7cm, block(width: 100% - 4.4cm)[
-    #text(font: fonts.heading, size: 11pt, weight: "semibold", fill: palette.accent, tracking: 2pt, upper(subtitle))
-    #v(10pt)
-    #text(font: fonts.heading, size: 54pt, weight: "bold", fill: white, title)
-    #v(30pt)
-    #cover-staff()
-  ])
-  #place(bottom + left, dx: 2.2cm, dy: -2.2cm, text(font: fonts.heading, size: 9pt, fill: white.darken(25%), edition))
+  // The logo artwork sits inside a square canvas with generous margins (as drawn by its author),
+  // so it is placed as a square and centred horizontally.
+  #place(top + center, dy: 4.2cm, logo(white, width: 13cm))
+  #place(top + center, dy: 17.6cm, text(
+    font: fonts.heading,
+    size: 13pt,
+    weight: "semibold",
+    fill: palette.accent,
+    tracking: 3pt,
+    upper(subtitle),
+  ))
+  #place(bottom + center, dy: -2.2cm, text(font: fonts.heading, size: 9pt, fill: white.darken(25%), edition))
 ]
 
 // ------------------------------------------------------------------------------------------------
@@ -165,13 +151,14 @@
 ///
 /// - `lang`, `region`: drive hyphenation, quotes and Typst's own localised words ("Figure",
 ///   "Contents"…), so the template has no hard-coded language.
-/// - `title`, `subtitle`, `edition`: cover texts, passed by each guide in its language.
+/// - `title`: document metadata and running header (the cover shows the logo instead).
+/// - `subtitle`, `edition`: cover texts, passed by each guide in its language.
 #let guide(title: "", subtitle: "", edition: "", lang: "en", region: none, body) = {
   set document(title: title + " — " + subtitle)
   set text(font: fonts.body, size: 10.5pt, lang: lang, region: region, fill: palette.ink.darken(20%))
   set par(justify: true, leading: 0.68em, spacing: 1.1em)
 
-  cover(title, subtitle, edition)
+  cover(subtitle, edition)
 
   set page(
     paper: "a4",
