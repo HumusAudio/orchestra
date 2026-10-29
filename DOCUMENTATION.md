@@ -420,6 +420,10 @@ The same ADR fixes that the program has a light and a dark theme from its first 
 and renderers never use literal colours, only semantic tokens of the active theme; the default
 follows the operating system, and the score can either follow the theme or stay on white paper.
 
+Unlike the code, the logo is **not** under the GPL: all rights reserved (owner's decision). The
+repository README says so, and the logo lives only in `assets/logo/` so that a distribution that
+requires fully free artwork can replace it without touching the code.
+
 ### Bundled fonts
 
 `assets/fonts/` holds four families, all under the SIL Open Font License 1.1 (verified through the

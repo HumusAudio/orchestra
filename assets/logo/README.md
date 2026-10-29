@@ -23,8 +23,12 @@ into outlines, and then normalised to the single colour `#000000`.
 Verified on 2026-10-29: rendered at 1000 × 1000 px with `rsvg-convert`, this file differs in
 **0 pixels** (fuzz 25 %) from both the author's PNG export and the author's original SVG.
 
-## License
+## License — all rights reserved
 
-The logo is the owner's artwork; its license (e.g. GPL like the code, a trademark-style "all
-rights reserved", or a Creative Commons license) is an **open decision** recorded in `ROADMAP.md`.
-Until it is decided, do not assume the GPL applies to it.
+Copyright © 2026 the author of the Orchestra logo (owner of the `HumusAudio/orchestra`
+repository). **All rights reserved** (owner's decision, 2026-10-29, ADR-0014).
+
+The logo is **not** covered by the GNU GPL that applies to Orchestra's source code. You may not
+copy, modify or use it outside the Orchestra project without written permission. The code
+remains free software: forks are welcome, but a fork distributed as a different project must not
+use this logo.

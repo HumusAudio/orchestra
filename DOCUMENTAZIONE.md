@@ -438,6 +438,10 @@ widget e renderer non usano mai colori scritti nel codice, solo i token semantic
 in modo predefinito si segue il sistema operativo, e la partitura può seguire il tema oppure
 restare su carta bianca.
 
+A differenza del codice, il logo **non** è sotto GPL: tutti i diritti riservati (decisione del
+proprietario). Lo dice il README del repository, e il logo sta solo in `assets/logo/`, così una
+distribuzione che richiede grafica interamente libera può sostituirlo senza toccare il codice.
+
 ### I font inclusi
 
 `assets/fonts/` contiene quattro famiglie, tutte con licenza SIL Open Font License 1.1 (verificata

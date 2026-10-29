@@ -49,8 +49,6 @@ ADR-0014 fixed light and dark themes from the start. Next: Phase 1 on a new bran
 
 ## Open decisions and open items
 
-- **License of the logo** (`assets/logo/README.md`): GPL like the code, "all rights reserved"
-  (trademark-style) or a Creative Commons license — the owner's decision.
 - **Pedantic lint selection** (`Cargo.toml`): proposal in place, awaiting the owner's review.
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
 - **Concrete project file format** (ADR-0010, Phase 1).

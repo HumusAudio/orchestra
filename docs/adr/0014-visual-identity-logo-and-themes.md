@@ -21,7 +21,11 @@ interface ours, so theming is entirely our responsibility.
 2. Its **shape never changes**; only its colour may. The file has one fill colour (`#000000`) and
    is recoloured by replacing that value (see `assets/logo/README.md`). The wordmark is stored as
    outlines, so it does not depend on any installed font.
-3. Platform icon files (`.ico`, `.icns`, PNG sizes, freedesktop SVG) are **generated** from this
+3. **License: all rights reserved** (owner's decision). The logo is not covered by the GPL of
+   the source code (ADR-0002 covers code, not the project's brand). Forks may reuse the code but
+   must not use this logo when distributed as a different project. This is the usual
+   arrangement for free software brands (e.g. Firefox, Thunderbird).
+4. Platform icon files (`.ico`, `.icns`, PNG sizes, freedesktop SVG) are **generated** from this
    file by automation when packaging arrives, never drawn by hand.
 
 ### Light and dark themes
@@ -65,3 +69,7 @@ interface ours, so theming is entirely our responsibility.
   contrast test, system detection), before the first widget.
 - The renderer (and the notation layer) receives colours only through the theme.
 - `cargo xtask screenshots`, when it exists, renders in the light theme.
+- Because the logo is not free, distributions with strict free-software policies (e.g. Debian
+  main) may need to package Orchestra with the logo replaced; the build must therefore keep the
+  logo in `assets/logo/` only, loaded from one place, so a packager can swap it without patching
+  code. The repository README states that the logo is excluded from the GPL.

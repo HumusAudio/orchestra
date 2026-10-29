@@ -12,3 +12,6 @@ Written in Rust. Linux first; Windows and macOS will follow.
 
 Orchestra is free software, released under the GNU General Public License, version 3 or (at your
 option) any later version. See [LICENSE](LICENSE).
+
+The Orchestra **logo** (`assets/logo/`) is **not** covered by the GPL: all rights reserved. See
+[assets/logo/README.md](assets/logo/README.md).

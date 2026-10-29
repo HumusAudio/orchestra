@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Orchestra logo. The ONLY logo of the project: never change its shape (assets/logo/README.md).
+<!-- Copyright (c) 2026 the author of the Orchestra logo. All rights reserved: NOT covered by the GPL
+     of Orchestra's source code (assets/logo/README.md).
+     Orchestra logo. The ONLY logo of the project: never change its shape (assets/logo/README.md).
      Derived from the author's Inkscape export (Orchestra.pdf) with the wordmark converted to outlines,
      so it renders identically everywhere without the Alte Haas Grotesk font. Single colour #000000:
      recolour by replacing that value, never by editing the paths. -->
