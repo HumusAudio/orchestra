@@ -24,7 +24,10 @@ by contributors in English, and give end users good manuals — without drifting
      current turn*: a `UserPromptSubmit` hook (`scripts/turn-start.sh`) snapshots the working tree
      at the start of each turn (amended 2026-10-28 after the Step 11 tests showed that a
      branch-wide comparison stops blocking once the documents were touched anywhere on the
-     branch);
+     branch). "Sources" are everything the documents explain: Rust code, manifests and
+     catalogs under `crates/` and `xtask/`, the root `Cargo.toml`, `deny.toml`, `clippy.toml`,
+     `rustfmt.toml`, `.cargo/config.toml`, CI workflows, `scripts/*.sh` and `.githooks/`
+     (extended 2026-10-29, owner's decision; `Cargo.lock` and `spikes/` excluded);
    - `cargo xtask check` repeats the developer-docs parity check and checks that the two guide
      source trees have the same files and heading structure (so CI catches it too).
 3. **Commit trailer `User-visible: yes|no`** on every commit, enforced by `.githooks/commit-msg`.
