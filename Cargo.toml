@@ -82,6 +82,15 @@ missing_docs = "deny"
 # Inside an `unsafe fn`, each unsafe operation still needs its own `unsafe {}` block (and thus its
 # own `// SAFETY:` comment). Already warn-by-default in edition 2024; we make it an error.
 unsafe_op_in_unsafe_fn = "deny"
+# The lints below were approved by the owner on 2026-10-30 (SCALETTA F0.16, decision D01).
+# `pub` on an item that is not reachable from the crate root is misleading: it looks like public
+# API (which we change only deliberately, CLAUDE.md §9) but is not. Use `pub(crate)` instead.
+unreachable_pub = "warn"
+# `std::fmt::Display` where `fmt::Display` is already imported: needless noise.
+unused_qualifications = "warn"
+# Every public type implements `Debug`, so that it can appear in error messages, test failures and
+# logs. A type that must not print its contents (e.g. a secret) implements it by hand.
+missing_debug_implementations = "warn"
 # `unsafe_code` is NOT set here: it is forbidden with `#![forbid(unsafe_code)]` in each crate's
 # root, so that the three FFI crates (audio-engine, plugin-host, io) can opt out explicitly and
 # visibly. A workspace-level setting cannot be overridden per crate.
@@ -100,7 +109,7 @@ dbg_macro = "warn"
 todo = "warn"
 unimplemented = "warn"
 
-# --- Pedantic group: PROPOSAL, to be reviewed with the user ---------------------------------------
+# --- Pedantic group: approved by the owner on 2026-10-30 (SCALETTA F0.16, decision D01) ----------
 # We enable the whole `pedantic` group at low priority (so the individual entries below win) and
 # silence only the lints whose noise outweighs their value for this codebase. Rationale per lint:
 pedantic = { level = "warn", priority = -1 }
@@ -109,7 +118,7 @@ pedantic = { level = "warn", priority = -1 }
 #     time code converts between sample counts, frame counts and floats all the time; every lossy
 #     conversion must be explicit and justified. This is exactly the bug class we want to see.
 #   - missing_errors_doc / missing_panics_doc: consistent with our "document everything" rule.
-#   - float_cmp is in `correctness`/`pedantic` territory and stays on: exact comparisons of floats
+#   - float_cmp (a `pedantic` lint) stays on: exact comparisons of floats
 #     are almost always wrong (and musical time is rational anyway, ADR-0005).
 # Silenced:
 #   - module_name_repetitions: types like `tempo::TempoMap` are clearer than `tempo::Map` in
@@ -120,3 +129,35 @@ module_name_repetitions = "allow"
 must_use_candidate = "allow"
 #   - similar_names: DSP code legitimately uses pairs like `left`/`lefts`, `in_l`/`in_r`.
 similar_names = "allow"
+
+# --- Selected `restriction` lints: approved by the owner on 2026-10-30 (SCALETTA F0.16, D01) ------
+# `restriction` is never enabled as a group (its lints contradict each other by design); each lint
+# below is opted into individually, with the reason next to it.
+#
+# Hidden panics. They complete the "no unwrap/expect/panic! in library code" rule above, so they
+# share its level ("deny"): slicing a `str` at a byte index that is not a char boundary panics,
+# `v.get(i).unwrap()` is an unwrap in disguise, `unreachable!()` is a panic with another name.
+string_slice = "deny"
+get_unwrap = "deny"
+unreachable = "deny"
+# Every `#[allow(...)]` must say why (`#[allow(lint, reason = "...")]`): consistent with the rule
+# "comment every choice" (CLAUDE.md §4). A silenced lint without a reason is an unexplained choice.
+allow_attributes_without_reason = "warn"
+# Libraries never print: output belongs to the caller (the `app` binary, a log, the UI). This also
+# matters for plugin bridges, whose stdout must stay free of stray text (ADR-0011 §7). The `app`
+# crate lifts these two lints explicitly in its root; `xtask` does not inherit this table.
+print_stdout = "warn"
+print_stderr = "warn"
+# A library never ends the process (`std::process::exit` skips destructors and hides the error
+# from the caller) and never leaks on purpose (`mem::forget` skips destructors too).
+exit = "warn"
+mem_forget = "warn"
+# Two further lints are enabled only where they pay off, with crate-level attributes, because
+# `[lints] workspace = true` cannot be combined with per-crate tables:
+#   - indexing_slicing (`v[i]` may panic) in core-time and core-model, the crates every other
+#     crate trusts; elsewhere it would be noise. Tests are exempt (clippy.toml).
+#   - arithmetic_side_effects (`+ - *` may overflow) in core-time only: there every operation on
+#     the rational type must follow the overflow policy of ADR-0005 §6 (designed in step F1.01).
+# Rejected: the `nursery` group (lints still in development, they change between Rust releases and
+# would break CI on toolchain bumps) and `as_conversions` (the pedantic `cast_*` lints already flag
+# the dangerous conversions).

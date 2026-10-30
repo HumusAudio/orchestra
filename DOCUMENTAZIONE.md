@@ -112,11 +112,61 @@ panic = "deny"
 - `dbg_macro`, `todo` e `unimplemented` sono avvisi in locale, ma `cargo xtask check` esegue
   clippy con `-D warnings`, quindi nella CI diventano anch'essi errori.
 
-Il gruppo **pedantic** è attivo come proposta, con tre lint disattivati (`module_name_repetitions`,
-`must_use_candidate`, `similar_names`) e un commento in `Cargo.toml` che spiega ogni scelta; la
-selezione è ancora una decisione aperta in `ROADMAP.md`. I lint sulle conversioni numeriche
-(cast) restano attivi di proposito: il codice audio e del tempo converte di continuo tra numero di
-campioni, fotogrammi e numeri decimali, e ogni conversione con perdita deve essere visibile.
+Il gruppo **pedantic** è attivo, con tre lint disattivati (`module_name_repetitions`,
+`must_use_candidate`, `similar_names`) e un commento in `Cargo.toml` che spiega ogni scelta; il
+proprietario ha approvato questa selezione il 2026-10-30 (passo F0.16 della SCALETTA, decisione
+D01). I lint sulle conversioni numeriche (cast) restano attivi di proposito: il codice audio e del
+tempo converte di continuo tra numero di campioni, fotogrammi e numeri decimali, e ogni
+conversione con perdita deve essere visibile.
+
+Oltre a pedantic, alcuni lint sono scelti uno per uno dal gruppo `restriction` di clippy (mai
+attivato per intero: i suoi lint si contraddicono a vicenda per costruzione) e da rustc:
+
+```toml
+string_slice = "deny"                     # slicing a str off a char boundary panics
+get_unwrap = "deny"                       # v.get(i).unwrap() is an unwrap in disguise
+unreachable = "deny"                      # unreachable!() is a panic with another name
+allow_attributes_without_reason = "warn"  # every #[allow] says why
+print_stdout = "warn"                     # libraries never print
+print_stderr = "warn"
+exit = "warn"                             # libraries never end the process
+mem_forget = "warn"                       # nor leak on purpose
+```
+
+- I primi tre completano la regola "niente panic nel codice di libreria", quindi sono `deny` come
+  lei.
+- `allow_attributes_without_reason` vuol dire che un lint disattivato deve portare con sé la sua
+  spiegazione: `#[allow(clippy::panic, reason = "...")]`. È la nostra regola "commenta ogni
+  scelta", verificata dal compilatore.
+- Le librerie non stampano: l'output spetta a chi le chiama. Il crate `app` disattiva i due lint
+  di stampa nella sua radice (con il motivo), perché l'eseguibile è il posto giusto per scrivere
+  sul terminale. Servirà anche per i bridge dei plugin, il cui stdout deve restare pulito
+  (ADR-0011).
+- Dal lato di rustc: `unreachable_pub` (un elemento `pub` che nessuno fuori dal crate può
+  raggiungere sembra API pubblica ma non lo è: si usa `pub(crate)`), `unused_qualifications` e
+  `missing_debug_implementations` (ogni tipo pubblico implementa `Debug`, per i messaggi di
+  errore e i test falliti).
+
+Due lint più severi valgono solo per i crate di cui si fidano tutti gli altri. Poiché un crate che
+dichiara `[lints] workspace = true` non può aggiungere una tabella sua, sono attributi in cima
+alla radice del crate:
+
+```rust
+// crates/core-time/src/lib.rs
+#![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+// crates/core-model/src/lib.rs
+#![deny(clippy::indexing_slicing)]
+```
+
+`indexing_slicing` vieta `v[i]` (va in panic se `i` è fuori dai limiti: si usa `get` o si
+itera); `arithmetic_side_effects` vieta `+ - *` semplici sugli interi in `core-time`, così ogni
+operazione sul tipo razionale passa dall'aritmetica controllata e dalla politica di overflow di
+ADR-0005, progettata nel passo F1.01. `clippy.toml` esenta i test da `indexing_slicing` e dai lint
+di stampa.
+
+Scartati, con i motivi in `Cargo.toml`: il gruppo `nursery` (lint ancora in sviluppo, che
+romperebbero la CI a ogni aggiornamento del compilatore) e `as_conversions` (i lint pedantic sulle
+conversioni segnalano già quelle pericolose).
 
 `unsafe_code` non è nella tabella del workspace. La radice di ogni crate comincia con
 `#![forbid(unsafe_code)]`, tranne `audio-engine`, `plugin-host` e `io`, i tre crate che parleranno
@@ -125,7 +175,7 @@ l'attributo rende l'eccezione visibile proprio in cima al crate.
 
 `xtask` non eredita questa tabella: è uno strumento per sviluppatori che stampa messaggi ed esce
 con codici di errore, quindi dichiara la sua (documentazione obbligatoria, pedantic attivo,
-`unsafe` vietato).
+`unreachable_pub` e `unused_qualifications` attivi, `unsafe` vietato).
 
 ### Formattatore, clippy e l'alias di cargo
 
@@ -371,7 +421,22 @@ attivare l'hook.
 
 ### Integrazione continua
 
-`.github/workflows/ci.yml` parte a ogni push su qualunque branch:
+`.github/workflows/ci.yml` parte a ogni push su qualunque branch, a richiesta (`workflow_dispatch`)
+e **una volta alla settimana su `main`**, il lunedì alle 06:00 UTC:
+
+```yaml
+schedule:
+  - cron: "0 6 * * 1"
+```
+
+Perché un run settimanale se il codice non è cambiato? Perché cambia il mondo intorno: GitHub
+aggiorna le immagini dei runner, e il database degli avvisi di sicurezza RustSec che `cargo deny`
+scarica si arricchisce di nuove voci. Senza questo run una piattaforma potrebbe diventare rossa in
+silenzio e ce ne accorgeremmo solo alla pull request successiva. Valgono due regole di GitHub:
+l'email di fallimento arriva a chi ha modificato per ultimo la riga `cron`, e i run programmati
+vengono disattivati dopo 60 giorni senza attività nel repository (GitHub avvisa prima via email).
+
+I job:
 
 - **check**, su `ubuntu-latest`, `windows-latest` e `macos-latest`: installa Rust 1.99.1 (la stessa
   versione di `rust-version`), ripristina la cache di compilazione, installa `cargo-nextest` e
@@ -390,7 +455,9 @@ dell'action:
 ```
 
 Il workflow ha solo accesso in lettura al repository, e un push più recente sullo stesso branch
-annulla l'esecuzione precedente.
+annulla l'esecuzione precedente. Il nome dell'evento fa parte del gruppo di annullamento
+(`ci-${{ github.ref }}-${{ github.event_name }}`), così un merge in `main` e il run settimanale non
+si annullano mai a vicenda.
 
 ## Le guide per l'utente
 

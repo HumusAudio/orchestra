@@ -19,6 +19,9 @@ publish.workspace = true
 [lints.rust]
 missing_docs = "deny"
 unsafe_code = "forbid"
+# Same as the workspace (SCALETTA F0.16, 2026-10-30): no misleading `pub`, no needless paths.
+unreachable_pub = "warn"
+unused_qualifications = "warn"
 
 [lints.clippy]
 missing_docs_in_private_items = "deny"

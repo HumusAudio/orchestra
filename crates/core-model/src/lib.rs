@@ -31,3 +31,7 @@
 //! `orchestra-core-time` only.
 
 #![forbid(unsafe_code)]
+// Stricter than the workspace (owner's decision, 2026-10-30, SCALETTA F0.16): the document is the
+// single source of truth (ADR-0003) and must never panic on a bad index — `v[i]` panics when `i` is
+// out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
+#![deny(clippy::indexing_slicing)]

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 ///
 /// # Errors
 /// A message naming the first structural difference, or a missing/unreadable file.
-pub fn check_docs(root: &Path) -> Result<(), String> {
+pub(crate) fn check_docs(root: &Path) -> Result<(), String> {
     let it = read(&root.join("DOCUMENTAZIONE.md"))?;
     let en = read(&root.join("DOCUMENTATION.md"))?;
     compare(
@@ -37,7 +37,7 @@ pub fn check_docs(root: &Path) -> Result<(), String> {
 /// # Errors
 /// A message listing files present in only one tree, or the first structural difference in a
 /// pair of `.typ` files.
-pub fn check_guides(root: &Path) -> Result<(), String> {
+pub(crate) fn check_guides(root: &Path) -> Result<(), String> {
     let it_dir = root.join("docs").join("guide").join("it");
     let en_dir = root.join("docs").join("guide").join("en");
     let it_files = relative_files(&it_dir)?;

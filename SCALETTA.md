@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.2, approvata dal proprietario il 2026-10-30.**
+> **Stato di questo documento: v0.3, approvata dal proprietario il 2026-10-30.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -97,11 +97,14 @@ Chiudere le code della Fase 0 prima di iniziare, così la Fase 1 parte pulita.
 
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
-| F0.15 | **Verifica CI macOS**: la ROADMAP segnala il run macOS come punto aperto; verificare che sia verde e che lo resti | ⬜ | 0,5 |
-| F0.16 | **Revisione dei lint "pedantic"** in `Cargo.toml` (proposta in attesa di revisione del proprietario) | ⬜ | 0,5 |
+| F0.15 | **Verifica CI macOS**: la ROADMAP segnala il run macOS come punto aperto; verificare che sia verde e che lo resti | ✅ tutti i run su `main` verdi; run settimanale aggiunto | 0,5 |
+| F0.16 | **Revisione dei lint "pedantic"** in `Cargo.toml` (proposta in attesa di revisione del proprietario) | ✅ pedantic confermato + lint `restriction` scelti | 0,5 |
 | F0.17 | **Approvazione di questa scaletta** e collegamento da `ROADMAP.md` e `CLAUDE.md` §0 | ✅ | 0,5 |
 
-- ❓ **Decisione F0.16:** quali lint pedantic tenere. Claude presenta la lista con pro/contro.
+- **Decisione F0.16 (D01), chiusa il 2026-10-30:** pedantic confermato con le tre eccezioni;
+  aggiunti lint `restriction` scelti uno per uno; `indexing_slicing` in `core-time` e
+  `core-model`, `arithmetic_side_effects` in `core-time`; scartati `nursery` e `as_conversions`.
+  Dettagli in `Cargo.toml` e nella documentazione.
 - Restano aperti e **non bloccano** la Fase 1: revisione del glossario da parte di madrelingua
   (voci `review = true`), "region" o "clip", soglia di tolleranza di default.
 
@@ -397,7 +400,7 @@ modifica.
 
 | # | Decisione | Entro | Stato |
 |---|---|---|---|
-| D01 | Lint pedantic da tenere | F0.16 | aperta |
+| D01 | Lint pedantic da tenere | F0.16 | **chiusa** 2026-10-30: vedi F0.16 |
 | D02 | Tipo razionale: nostro o crate esistente; politica di overflow | F1.01 | aperta |
 | D03 | Strumenti di benchmark e di test di proprietà | F1.02 | aperta |
 | D04 | Metri non binari (es. 4/3): sì o no | F1.04 | aperta |
@@ -433,3 +436,4 @@ raccomandato.
 |---|---|---|---|
 | 2026-10-30 | 0.1 | Prima proposta | — |
 | 2026-10-30 | 0.2 | Scaletta approvata; D11 (sì a F1.18), D19 (italiano), D20 (F2A poi F2B) chiuse; F0.17 fatto; protocollo aggiunto a `CLAUDE.md` §0 | proprietario |
+| 2026-10-30 | 0.3 | F0.15 e F0.16 fatti, D01 chiusa | proprietario |

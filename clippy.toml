@@ -6,6 +6,12 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
+# Same reasoning for the 2026-10-30 additions (SCALETTA F0.16): in tests, `v[0]` on a vector the
+# test itself just built is a clear way to say "this must hold", and printing diagnostics is
+# normal. Clippy has no such option for `unreachable`: a test that needs it uses `panic!` with a
+# message, which the option above already allows and which reads better anyway.
+allow-indexing-slicing-in-tests = true
+allow-print-in-tests = true
 # `dbg!` in tests is still a leftover: keep it flagged everywhere.
 allow-dbg-in-tests = false
 # Proper nouns of our domain that `clippy::doc_markdown` (pedantic) would otherwise want in
