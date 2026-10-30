@@ -12,9 +12,8 @@ detailed work plan **`SCALETTA.md`** (Italian, owner's choice): phases, steps wi
 milestones and the index of open decisions live there. Steps F0.15 and F0.16 are done
 (`fix/raccordo-fase-0`, 2026-10-30): every CI run on `main` is green on all three platforms, a
 weekly scheduled run was added, and the lint selection was approved. Phase 1 has started: step
-F1.01 (`feature/f1-01-adr-razionale`, 2026-10-30) drafted **ADR-0015, the rational type**
-(Proposed, awaiting the owner's review: decision D02). Next: the owner reviews ADR-0015; once it
-is Accepted, F1.02 (test and benchmark infrastructure).
+F1.01 (`feature/f1-01-adr-razionale`, 2026-10-30) produced **ADR-0015, the rational type**,
+accepted by the owner (decision D02 closed). Next: F1.02 (test and benchmark infrastructure).
 
 | Step | What | Status |
 |---|---|---|
@@ -62,8 +61,6 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
 - **Concrete project file format** (ADR-0010, Phase 1).
-- **ADR-0015 (rational type) is Proposed:** own `i64` type, `i128` intermediates, typed errors,
-  no `std::ops` operators, no big integers. To be accepted or amended by the owner (D02).
 - **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
   such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
 - **"Region" or "clip"** as the name of a block of material on a track (glossary entry `region`).

@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.3, approvata dal proprietario il 2026-10-30.**
+> **Stato di questo documento: v0.4, approvata dal proprietario il 2026-10-30.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -122,7 +122,7 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
-| F1.01 | **ADR: il tipo razionale** — rappresentazione, politica di overflow, normalizzazione | ⬜ | 1 |
+| F1.01 | **ADR: il tipo razionale** — rappresentazione, politica di overflow, normalizzazione | ✅ ADR-0015 | 1 |
 | F1.02 | **Infrastruttura di test e benchmark**: `cargo xtask bench`, test di proprietà, contatore di allocazioni | ⬜ | 1–2 |
 | F1.03 | **Implementazione del tipo razionale** + test di proprietà + benchmark | ⬜ | 1–2 |
 | F1.04 | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale | ⬜ | 2 |
@@ -137,6 +137,9 @@ Dettagli:
   `num-rational`: da verificare su crates.io — licenza, manutenzione, dimensione, controllo
   dell'overflow). Raccomandazione preliminare di Claude: tipo nostro, piccolo e con overflow
   esplicito, ma la decisione è del proprietario dopo il confronto.
+  **Decisione D02, chiusa il 2026-10-30:** tipo nostro, `i64` ai minimi termini con intermedi
+  `i128`, errore tipizzato, solo metodi `checked_*` (niente operatori), niente interi grandi per
+  ora. Dettagli e crate esaminati in ADR-0015.
 - **F1.02** È il primo vero uso di `cargo xtask bench`. ❓ **Decisioni:** (a) strumento per
   misure deterministiche: conteggio istruzioni (Callgrind, disponibile solo su Linux) e/o tempi
   con un framework classico, e cosa gira in CI su quali piattaforme; (b) crate per i test di
@@ -152,7 +155,9 @@ Dettagli:
   registrazione e DAW). Nessuna allocazione nelle conversioni usate dal thread audio (test).
   Benchmark: ricerca O(log n) misurata. ❓ **Decisione:** in quale grandezza è lineare un cambio
   graduale (BPM lineare nel tempo musicale o nel tempo reale): cambia le formule e il
-  comportamento percepito.
+  comportamento percepito. **Nota (da F1.01):** integrare un cambio graduale dà in generale un
+  logaritmo, quindi i secondi dentro quei segmenti non sono razionali: F1.05 deve dichiarare fin
+  dove arriva l'esattezza, prima dell'arrotondamento finale ai campioni (ADR-0015, Conseguenze).
 
 #### F1-B — Il modello (`core-model`)
 
@@ -401,7 +406,7 @@ modifica.
 | # | Decisione | Entro | Stato |
 |---|---|---|---|
 | D01 | Lint pedantic da tenere | F0.16 | **chiusa** 2026-10-30: vedi F0.16 |
-| D02 | Tipo razionale: nostro o crate esistente; politica di overflow | F1.01 | aperta |
+| D02 | Tipo razionale: nostro o crate esistente; politica di overflow | F1.01 | **chiusa** 2026-10-30: ADR-0015 |
 | D03 | Strumenti di benchmark e di test di proprietà | F1.02 | aperta |
 | D04 | Metri non binari (es. 4/3): sì o no | F1.04 | aperta |
 | D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | aperta |
@@ -437,3 +442,4 @@ raccomandato.
 | 2026-10-30 | 0.1 | Prima proposta | — |
 | 2026-10-30 | 0.2 | Scaletta approvata; D11 (sì a F1.18), D19 (italiano), D20 (F2A poi F2B) chiuse; F0.17 fatto; protocollo aggiunto a `CLAUDE.md` §0 | proprietario |
 | 2026-10-30 | 0.3 | F0.15 e F0.16 fatti, D01 chiusa | proprietario |
+| 2026-10-30 | 0.4 | F1.01 fatto (ADR-0015 Accepted), D02 chiusa; nota sull'esattezza dei cambi di tempo graduali in F1.05 | proprietario |

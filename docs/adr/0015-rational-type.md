@@ -1,6 +1,6 @@
 # ADR-0015 — The rational type: own `i64` fraction, exact `i128` intermediates, typed overflow
 
-- **Status:** Proposed (SCALETTA F1.01, decision D02 — awaiting the owner's review)
+- **Status:** Accepted (owner's decision, 2026-10-30; SCALETTA F1.01, decision D02)
 - **Date:** 2026-10-30
 - **Completes:** ADR-0005 §1 and §6 (representation and overflow policy of musical time)
 
