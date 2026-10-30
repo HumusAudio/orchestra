@@ -30,3 +30,10 @@
 //! in an ADR (e.g. a big-integer crate if 64-bit numerators ever prove insufficient).
 
 #![forbid(unsafe_code)]
+// Stricter than the workspace (owner's decision, 2026-10-30, SCALETTA F0.16). Every crate trusts
+// the time values computed here, so no operation may panic or wrap silently:
+// - `v[i]` panics when `i` is out of range: use `get` and handle `None`, or iterate;
+// - `+ - *` on integers can overflow: use `checked_*` and return the typed overflow error of
+//   ADR-0005 §6 (its exact design is step F1.01; this lint makes sure no operation escapes it).
+// Tests are exempt from the first one through clippy.toml.
+#![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]

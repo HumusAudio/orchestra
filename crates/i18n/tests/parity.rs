@@ -18,7 +18,10 @@
 // This whole file is test code, but clippy only recognises `#[test]` functions as such: the
 // helper `collect` legitimately panics (with a readable message) on a broken catalog, so the
 // workspace's library rule against `panic!` is lifted for this file only.
-#![allow(clippy::panic)]
+#![allow(
+    clippy::panic,
+    reason = "test helper: panicking with a readable message is how a broken catalog is reported"
+)]
 
 use std::collections::{BTreeMap, BTreeSet};
 

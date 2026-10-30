@@ -106,11 +106,56 @@ panic = "deny"
 - `dbg_macro`, `todo` and `unimplemented` are warnings locally, but `cargo xtask check` runs clippy
   with `-D warnings`, so in CI they are errors too.
 
-The **pedantic** group is enabled as a proposal, with three lints silenced
-(`module_name_repetitions`, `must_use_candidate`, `similar_names`) and a comment in `Cargo.toml`
-explaining each choice; the selection is still an open decision in `ROADMAP.md`. The cast lints
+The **pedantic** group is enabled, with three lints silenced (`module_name_repetitions`,
+`must_use_candidate`, `similar_names`) and a comment in `Cargo.toml` explaining each choice; the
+owner approved this selection on 2026-10-30 (SCALETTA step F0.16, decision D01). The cast lints
 stay on deliberately: audio and time code converts between sample counts, frames and floats, and
 every lossy conversion must be visible.
+
+On top of pedantic, a few lints are picked one by one from clippy's `restriction` group (never
+enabled as a whole: its lints contradict each other by design) and from rustc:
+
+```toml
+string_slice = "deny"                     # slicing a str off a char boundary panics
+get_unwrap = "deny"                       # v.get(i).unwrap() is an unwrap in disguise
+unreachable = "deny"                      # unreachable!() is a panic with another name
+allow_attributes_without_reason = "warn"  # every #[allow] says why
+print_stdout = "warn"                     # libraries never print
+print_stderr = "warn"
+exit = "warn"                             # libraries never end the process
+mem_forget = "warn"                       # nor leak on purpose
+```
+
+- The first three complete the "no panics in library code" rule, so they are `deny` like it.
+- `allow_attributes_without_reason` means a silenced lint must carry its explanation:
+  `#[allow(clippy::panic, reason = "...")]`. It is our "comment every choice" rule, checked.
+- Libraries do not print: output belongs to whoever calls them. The `app` crate lifts the two
+  print lints in its root (with a reason), because the executable is where terminal output
+  belongs. This will matter for plugin bridges too, whose stdout must stay clean (ADR-0011).
+- On the rustc side: `unreachable_pub` (an item marked `pub` that nobody outside the crate can
+  reach looks like public API but is not: use `pub(crate)`), `unused_qualifications` and
+  `missing_debug_implementations` (every public type implements `Debug`, for error messages and
+  test failures).
+
+Two stricter lints apply only to the crates that everything else trusts. Because a crate that
+says `[lints] workspace = true` cannot add its own table, they are attributes at the top of the
+crate root:
+
+```rust
+// crates/core-time/src/lib.rs
+#![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+// crates/core-model/src/lib.rs
+#![deny(clippy::indexing_slicing)]
+```
+
+`indexing_slicing` forbids `v[i]` (it panics when `i` is out of range: use `get` or iterate);
+`arithmetic_side_effects` forbids plain `+ - *` on integers in `core-time`, so every operation on
+the rational type goes through checked arithmetic and the overflow policy of ADR-0005, designed in
+step F1.01. `clippy.toml` exempts tests from `indexing_slicing` and from the print lints.
+
+Rejected, with reasons in `Cargo.toml`: the `nursery` group (lints still in development, which
+would break CI on toolchain updates) and `as_conversions` (the pedantic cast lints already flag
+the dangerous conversions).
 
 `unsafe_code` is not in the workspace table. Each crate's root starts with
 `#![forbid(unsafe_code)]`, except `audio-engine`, `plugin-host` and `io`, the three crates that will
@@ -118,7 +163,8 @@ talk to C APIs. A workspace-level `forbid` could not be relaxed for just those t
 attribute makes the exception visible right at the top of the crate.
 
 `xtask` does not inherit this table: it is a developer tool that prints and exits with error codes,
-so it declares its own (documentation required, pedantic on, `unsafe` forbidden).
+so it declares its own (documentation required, pedantic on, `unreachable_pub` and
+`unused_qualifications` on, `unsafe` forbidden).
 
 ### Formatter, clippy and the cargo alias
 
@@ -354,7 +400,22 @@ the hook.
 
 ### Continuous integration
 
-`.github/workflows/ci.yml` runs on every push to any branch:
+`.github/workflows/ci.yml` runs on every push to any branch, on demand (`workflow_dispatch`) and
+**once a week on `main`**, on Monday at 06:00 UTC:
+
+```yaml
+schedule:
+  - cron: "0 6 * * 1"
+```
+
+Why a weekly run if the code has not changed? Because the world around it changes: GitHub updates
+its runner images, and the RustSec advisory database that `cargo deny` downloads gains new
+entries. Without this run, a platform could turn red silently and we would only find out at the
+next pull request. Two GitHub rules apply: the failure email goes to whoever last edited the
+`cron` line, and scheduled runs are switched off after 60 days without activity in the repository
+(GitHub sends an email first).
+
+The jobs:
 
 - **check**, on `ubuntu-latest`, `windows-latest` and `macos-latest`: installs Rust 1.99.1 (the
   same version as `rust-version`), restores the build cache, installs prebuilt `cargo-nextest` and
@@ -372,7 +433,9 @@ with the tag in a comment, because a tag can be moved by whoever controls the ac
 ```
 
 The workflow only has read access to the repository, and a newer push to the same branch cancels
-the older run.
+the older run. The event name is part of the cancellation group
+(`ci-${{ github.ref }}-${{ github.event_name }}`), so a merge into `main` and the weekly run never
+cancel each other.
 
 ## The user guides
 

@@ -14,6 +14,12 @@
 //! Every workspace crate (it is the only crate allowed to see all of them).
 
 #![forbid(unsafe_code)]
+#![allow(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the executable is where output to the terminal belongs (command-line errors, --help); \
+              the library crates must not print (workspace lints)"
+)]
 
 /// Program entry point.
 ///

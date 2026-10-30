@@ -9,8 +9,10 @@ Phase 0 was merged into `main` (PR #1, 2026-10-29). Then, on `feature/logo-e-tem
 logo became the only project logo (outlined SVG in `assets/logo/`, used on the guide covers) and
 ADR-0014 fixed light and dark themes from the start. On 2026-10-30 the owner approved the
 detailed work plan **`SCALETTA.md`** (Italian, owner's choice): phases, steps with stable IDs,
-milestones and the index of open decisions live there. Next: step F0.15 (macOS CI check), then
-Phase 1 on a new branch.
+milestones and the index of open decisions live there. Steps F0.15 and F0.16 are done
+(`fix/raccordo-fase-0`, 2026-10-30): every CI run on `main` is green on all three platforms, a
+weekly scheduled run was added, and the lint selection was approved. Next: Phase 1 (step F1.01,
+ADR on the rational type) on a new branch.
 
 | Step | What | Status |
 |---|---|---|
@@ -25,7 +27,7 @@ Phase 1 on a new branch.
 | 9 | i18n: Fluent catalogs ×6, glossary (45 researched terms), parity tests | ✅ |
 | 10 | Docs: DOCUMENTAZIONE/DOCUMENTATION, Typst guides + template, OFL fonts, `cargo xtask` | ✅ |
 | 11 | Every automation verified for real (found and fixed a flaw in the Stop hook) | ✅ |
-| 12 | CI on Linux/Windows/macOS + guide PDFs as artifacts | ✅ (see open items: macOS run) |
+| 12 | CI on Linux/Windows/macOS + guide PDFs as artifacts | ✅ (all `main` runs green on the 3 OS; weekly run since 2026-10-30) |
 | 13 | Spikes → ADR-0012 *no GUI toolkit* and ADR-0011 *own plugin host layer*, both Accepted | ✅ |
 | 14 | Closing: docs, roadmap, PR, green CI, merge | ✅ merged (PR #1) |
 
@@ -56,7 +58,6 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 
 ## Open decisions and open items
 
-- **Pedantic lint selection** (`Cargo.toml`): proposal in place, awaiting the owner's review.
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
 - **Concrete project file format** (ADR-0010, Phase 1).
 - **"Region" or "clip"** as the name of a block of material on a track (glossary entry `region`).
@@ -82,5 +83,10 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - The sandbox has no GPU and no display: windows (GUI tests, plugin editors) must run outside it
   with the owner's permission, and the owner must look at the screen.
 - Commit trailers (`User-visible`, `Co-Authored-By`) must be in the **same last paragraph**.
+- The weekly CI run (Monday 06:00 UTC) emails failures to whoever last edited its `cron` line,
+  and GitHub disables scheduled workflows after 60 days without repository activity.
+- `core-time` denies `clippy::arithmetic_side_effects` and `clippy::indexing_slicing`,
+  `core-model` denies `clippy::indexing_slicing` (crate-root attributes): plain `+ - *` and `v[i]`
+  do not compile there.
 - `rustfmt` on a single file fails when a `mod` it declares has no file yet: write module files
   first, or run `cargo fmt --all` afterwards.

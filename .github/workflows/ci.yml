@@ -20,14 +20,24 @@ on:
   # run on the PR's head commit is what branch protection's required checks look at.
   push:
   workflow_dispatch:
+  # Weekly run on `main` (owner's decision, 2026-10-30, SCALETTA F0.15): the code may not change for
+  # days, but the world around it does — runner images are updated, the RustSec advisory database
+  # that cargo-deny downloads gains new entries. This catches a platform turning red while nobody
+  # pushes. Monday 06:00 UTC, a quiet hour for GitHub's shared runners. Scheduled runs always use
+  # the default branch. Two GitHub rules to remember: failure emails go to whoever last edited this
+  # cron line, and scheduled workflows are disabled after 60 days without repository activity.
+  schedule:
+    - cron: "0 6 * * 1"
 
 # Least privilege: the jobs only read the repository (uploading artifacts needs no extra scope).
 permissions:
   contents: read
 
 # A newer push to the same branch makes older runs pointless: cancel them to save runner time.
+# The event name is part of the group so that a merge into `main` and the weekly scheduled run
+# never cancel each other: both results matter.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
