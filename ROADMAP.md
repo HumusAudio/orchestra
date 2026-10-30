@@ -7,7 +7,10 @@ comes next** and **which decisions are still open**. Decisions themselves live i
 
 Phase 0 was merged into `main` (PR #1, 2026-10-29). Then, on `feature/logo-e-temi`: the owner's
 logo became the only project logo (outlined SVG in `assets/logo/`, used on the guide covers) and
-ADR-0014 fixed light and dark themes from the start. Next: Phase 1 on a new branch.
+ADR-0014 fixed light and dark themes from the start. On 2026-10-30 the owner approved the
+detailed work plan **`SCALETTA.md`** (Italian, owner's choice): phases, steps with stable IDs,
+milestones and the index of open decisions live there. Next: step F0.15 (macOS CI check), then
+Phase 1 on a new branch.
 
 | Step | What | Status |
 |---|---|---|
@@ -28,12 +31,16 @@ ADR-0014 fixed light and dark themes from the start. Next: Phase 1 on a new bran
 
 ## Next phases
 
+Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCALETTA.md`.
+
 1. **Phase 1 — `core-time` and `core-model`:** rational time type with overflow policy, tempo and
    meter maps with O(log n) lookup, conversions to seconds/samples/frames (benchmarks: first
    `cargo xtask bench`); the document model with two-layer notes (ADR-0004), form (repeats,
    voltas, jumps), commands and unified undo/redo; concrete project file format with version 1
-   and its first golden file (ADR-0010).
-2. **Phase 2 — UI foundation and basic notation:** because ADR-0012 chose no toolkit, this phase
+   and its first golden file (ADR-0010); MIDI file export of the performed events (SCALETTA
+   F1.18, approved 2026-10-30) so the owner can listen to the model before the audio engine.
+2. **Phase 2 — UI foundation and basic notation** (SCALETTA: F2A UI foundation first, then F2B
+   notation; order confirmed by the owner 2026-10-30): because ADR-0012 chose no toolkit, this phase
    starts with our own UI layer, and that starts with the **theme system** of ADR-0014 (semantic
    colour tokens, light and dark themes, WCAG contrast test, system light/dark detection): window + input (winit), renderer (tiny-skia, then a measured GPU
    path with wgpu/vello), text shaping and glyph cache, widgets with **AccessKit nodes from day
