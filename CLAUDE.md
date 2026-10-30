@@ -2,7 +2,7 @@
 
 Software unico che unisce notazione musicale, DAW e un editor video semplice. Open source (GPL-3.0-or-later), scritto in Rust. **Linux first**; Windows e macOS arrivano dopo, ma nessuna scelta fatta oggi deve ostacolarli.
 
-Questo file contiene solo le REGOLE permanenti. Le decisioni di progetto stanno in `docs/adr/`, lo stato dei lavori in `ROADMAP.md`. Non duplicare qui il loro contenuto.
+Questo file contiene solo le REGOLE permanenti. Le decisioni di progetto stanno in `docs/adr/`, lo stato dei lavori in `ROADMAP.md`, il piano di lavoro (fasi, passi, decisioni da prendere) in `SCALETTA.md`. Non duplicare qui il loro contenuto.
 
 
 ## 0. Inizio di OGNI sessione — fai sempre questo per primo
@@ -14,6 +14,8 @@ Questo file contiene solo le REGOLE permanenti. Le decisioni di progetto stanno 
 3. **Mai contraddire un ADR con stato "Accepted".** Se pensi che una decisione sia sbagliata, FERMATI, spiegami il problema e proponi un nuovo ADR che la sostituisca. Procedi solo dopo il mio ok. Questo è ciò che garantisce la coerenza tra sessioni diverse.
 
 4. A fine sessione aggiorna `ROADMAP.md` (cosa è stato fatto, cosa resta, decisioni aperte).
+
+5. **Comando "briefing" e protocollo di lavoro:** segui `SCALETTA.md` §0.2. In breve: a ogni "briefing" rileggi SEMPRE `SCALETTA.md` (posso averla modificata a mano), fai un punto brevissimo e proponi il lavoro; dopo il mio prompt NON partire: analizzalo, segnala problemi, fai domande e proposte, poi chiedi l'ok; a fine passo proponi gli aggiornamenti della scaletta e applicali solo dopo il mio ok. Nessuna decisione progettuale in autonomia.
 
 
 ## 1. Principio architetturale non negoziabile
