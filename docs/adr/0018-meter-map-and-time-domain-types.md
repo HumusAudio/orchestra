@@ -1,7 +1,9 @@
-# ADR-0018 — Meter map and time domain types: `Position`/`Duration`, meters, irregular bars
+# ADR-0018 — Meter map and time domain types: `Position`/`Duration`, meters, irregular and free bars
 
-- **Status:** Proposed (SCALETTA F1.04; choices D04, signed duration, 8 additive groups and basic
-  bar numbering approved by the owner on 2026-10-31, before this text was written)
+- **Status:** Accepted (owner's decision, 2026-10-31; SCALETTA F1.04, decision D04). The choices
+  on D04, signed duration, 8 additive groups and basic bar numbering were approved before the text
+  was written; free bars (meter suspension, §3), with an explicit length and counted by default,
+  were requested by the owner on reviewing the draft and added before acceptance.
 - **Date:** 2026-10-31
 - **Completes:** ADR-0005 §2 (the meter map) and ADR-0015 §3 (the domain newtypes)
 
@@ -20,8 +22,8 @@ What the meter map has to answer, from the SCALETTA F1.04 cases:
 - **beat ⇄ position** (in Italian *movimento*): which beat of the bar, and where inside the beat,
   for display (bar:beat counters), the metronome (F3) and beaming defaults (F2B);
 - pickup bars (anacrusis), meter changes, compound meters (6/8, 9/8, 12/8), additive meters
-  (3+2+2/8), meters whose denominator is not a power of two (4/3, 3/10: D04), and bar numbers
-  with exceptions;
+  (3+2+2/8), meters whose denominator is not a power of two (4/3, 3/10: D04), free cadenzas where
+  the meter is **suspended** (owner's request on the draft), and bar numbers with exceptions;
 - all of this with **O(log n)** lookups in the number of meter changes (ADR-0005 §4, ADR-0007),
   without allocating, because the audio thread will need bar/beat positions for the metronome.
 
@@ -103,14 +105,26 @@ Invalid meters (no groups, more than 8, a zero group, a zero denominator) are a 
   about 4·10⁹ bars, far beyond any score.
 - Every bar has the meter in force at that bar and, normally, the nominal length of that meter.
   An **irregular bar** overrides the length of one bar with any positive `Duration`: a pickup
-  bar, the incomplete bar before a repeat sign, a cadenza bar longer than its meter, free-time
-  passages. One mechanism covers all these cases, instead of a special case for the anacrusis.
-- An irregular bar also has an **alignment**, which decides how its beats are counted:
+  bar, the incomplete bar before a repeat sign, a bar longer than its meter, a free cadenza. One
+  mechanism covers all these cases, instead of a special case for the anacrusis.
+- An irregular bar also has a **kind**, which decides how its beats are counted:
   - `AlignStart` (default): the bar is the *beginning* of a nominal bar, beat 1 at its start
-    (incomplete bar before a repeat; longer cadenza bar);
+    (incomplete bar before a repeat; a bar with a few beats more than its meter);
   - `AlignEnd`: the bar is the *end* of a nominal bar, so a quarter-note pickup in 4/4 is
     **beat 4**, as musicians count it. Only allowed when the actual length does not exceed the
-    nominal one (otherwise beat 1 would lie before the bar); typically used for bar 0.
+    nominal one (otherwise beat 1 would lie before the bar); typically used for bar 0;
+  - `Free`: the meter is **suspended** for this bar (a free cadenza, *senza misura*). The bar has
+    no beats at all: a beat lookup inside it answers explicitly "no beat" (an `Option`), never an
+    invented value. No time signature is in force for display, and the metronome (F3) is silent.
+    The meter of the map stays recorded and **resumes** at the next regular bar without a new
+    meter change. A free passage may span several consecutive free bars (a long cadenza divided
+    by dashed barlines), each with its own length.
+- The length of every irregular bar, free ones included, is **explicit source data** of the map
+  (owner's choice), not derived from the notes it contains. It is the position of the next
+  barline, a fact of its own; deriving it from the content would make the map depend on the model
+  and duplicate data (CLAUDE.md §1). When notes are entered beyond the end of a free bar, the
+  same editing command lengthens the bar, atomically and with a single undo (ADR-0003); those
+  commands belong to the model (F1.06 and following).
 
 ### 4. The map: meter changes and irregular bars in, cumulative segments out
 
@@ -119,7 +133,7 @@ commands edit (ADR-0003):
 
 - meter changes `(BarIndex, Meter)`, sorted by bar, the first one at bar 0 (so a meter is always
   in force);
-- irregular bars `(BarIndex, Duration, alignment)`, sorted by bar.
+- irregular bars `(BarIndex, Duration, kind)`, sorted by bar.
 
 From them it derives a sorted vector of **segments**: maximal runs of consecutive bars with the
 same meter and the same actual length. Each segment stores its first bar, its start `Position`
@@ -134,7 +148,7 @@ Operations and costs (`n` = number of segments):
 |---|---|---|
 | start of bar `k` | binary search on the first bar of the segments, then `start + (k − first)·length` | O(log n) |
 | position → (bar, offset in bar) | binary search on the start positions, then `floor((pos − start) / length)` | O(log n) |
-| (bar, offset) → (beat, offset in beat), and back | walk the at most 8 groups of the meter | O(1), bounded |
+| (bar, offset) → (beat, offset in beat), and back; "no beat" in a free bar | walk the at most 8 groups of the meter | O(1), bounded |
 | editing the source data (add/remove a meter change or an irregular bar) | rebuild the segments and their cumulated starts | O(n) and allocates: commands only, never on the audio thread |
 
 No remainder operation (`rem`) is added to `Rational`: `checked_div` + `floor` + `checked_mul`
@@ -152,9 +166,11 @@ The displayed number of a bar is derived from the `BarIndex` through **numbering
 source data of the document:
 
 - by default bar 0 is numbered **0 if it is an irregular `AlignEnd` bar** (a pickup), otherwise
-  1, and every following bar adds one;
+  1, and every following bar adds one; **free bars are counted** like any other bar (owner's
+  choice: the usual practice for concerto cadenzas), unless marked uncounted;
 - a bar can be marked **uncounted**: it has no number, and the following bar continues the
-  count (a cadenza bar, a bar split in two by a line break);
+  count (a free cadenza in editions that do not number it, a bar split in two by a line
+  break);
 - the count can **restart** at a given bar with a given number (a new movement in the same file,
   or editorial numbering).
 
@@ -187,6 +203,10 @@ maps variants to Fluent keys.
 - **A special "pickup" flag instead of irregular bars:** the same need (a bar shorter or longer
   than its meter) appears before repeats and in cadenzas; one mechanism is simpler and more
   general.
+- **Free bar length derived from its notes:** the map would depend on the content of the model
+  (an upward dependency from `core-time`) and the barline position would be duplicated data
+  that must be kept in sync; an explicit length, adjusted by the same command that edits the
+  cadenza, keeps one source of truth.
 - **Storing every bar explicitly (one entry per bar):** O(bars) memory and O(bars) work for a
   meter change at the start of a long score, while segments keep both proportional to the number
   of changes.
@@ -201,8 +221,11 @@ maps variants to Fluent keys.
 - One meter map per project (ADR-0005): different meters in different staves *at the same time*
   (polymeter, e.g. 3/4 against 6/8 with shared barlines) can only be a display matter of the
   staff (F2B); truly independent barlines per staff are out of scope and would need a new ADR.
-- Free time and cadenzas are expressed as irregular bars (possibly uncounted): no separate
-  "senza misura" concept for now.
+- Free cadenzas and *senza misura* passages are `Free` irregular bars, counted by default.
+  Consequences noted for later steps: inside them the tempo map (F1.05) still gives a nominal
+  tempo, and the real rubato of a performance is made of execution offsets (ADR-0004); the
+  metronome (F3) is silent; whether the time signature is shown again when the meter resumes is
+  an engraving choice (F2B).
 - The meter map's source data become part of the project file format (F1.15).
 - The question of absolute vs bar-relative note positions stays open for F1.06; the map offers
   both directions so that either answer works.

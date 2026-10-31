@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.7, approvata dal proprietario il 2026-10-31.**
+> **Stato di questo documento: v0.8, approvata dal proprietario il 2026-10-31.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -126,7 +126,8 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 | F1.02 | **Infrastruttura di test e benchmark**: `cargo xtask bench`, test di proprietà, contatore di allocazioni | ✅ ADR-0016 | 1–2 |
 | F1.03 | **Implementazione del tipo razionale** + test di proprietà (con oracolo) + test "non alloca" | ✅ PR #8 | 1–2 |
 | F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ✅ ADR-0017, PR #9 | 1 |
-| F1.04 | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale | ⬜ | 2 |
+| F1.04 | **ADR della mappa delle misure + tipi posizione e durata** | ✅ ADR-0018 | 1 |
+| F1.04b | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale, battute irregolari e libere, numerazione, benchmark | ⬜ | 1–2 |
 | F1.05 | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni | ⬜ | 2–3 |
 
 Dettagli:
@@ -177,6 +178,20 @@ Dettagli:
   sopra `Rational` (posizione e durata, ADR-0015 §3: posizione − posizione = durata, posizione +
   posizione non compila) e, se la mappa delle misure ne ha bisogno, un'operazione di resto
   (`rem`).
+  **Fatto il 2026-10-31 (ADR-0018 Accepted):** diviso in F1.04 (ADR e tipi `Position`/`Duration`)
+  e F1.04b (la mappa). Decisione D04 chiusa: metri non binari ammessi nel tipo (incisione in F2B,
+  esportazione MIDI in F1.18). Scelte approvate: `Duration` con segno, al massimo 8 gruppi
+  additivi, eccezioni di numerazione di base adesso (quelle legate alle volte con la forma),
+  nessun `rem` per ora. Su richiesta del proprietario, le **cadenze libere** con sospensione del
+  metro (battute `Free`: nessun movimento, il metro riprende dopo), con lunghezza esplicita e
+  contate di default.
+- **F1.04b** Implementa `Meter`, le battute irregolari (allineate all'inizio, alla fine, libere),
+  la mappa a segmenti con ricerche O(log n) e la numerazione mostrata, come da ADR-0018. Casi da
+  coprire con test: anacrusi (movimento 4 in 4/4), cambi di metro, composti (6/8 in due),
+  additivi (3+2+2/8), non binari (4/3), cadenza libera su una o più battute con ripresa del
+  metro, numerazione con battute non contate e ripartenze, errori tipizzati. Test di proprietà
+  (posizione → battuta → posizione è l'identità), test "non alloca" sulle ricerche, benchmark a
+  lotti (ADR-0017 §4).
 - **F1.05** Segmenti a tempo costante (esatti) e cambi graduali (accelerando/rallentando)
   integrati analiticamente; regola di arrotondamento ai campioni **documentata**; frame rate
   razionali (24/1, 25/1, 30000/1001); conversione inversa secondi → posizione (servirà a
@@ -207,7 +222,10 @@ Dettagli:
   memorizzati oppure derivate dalla mappa dei metri? (lo spartito ne ha bisogno, la DAW no:
   ADR-0003 vieta di duplicare); dove vivono le marcature che coprono un intervallo (forcelle,
   legature di portamento, ottave). Claude preparerà 2–3 alternative con un mini-prototipo e
-  misure (inserimento in una partitura di riferimento da 100 battute × 10 righi). ❓
+  misure (inserimento in una partitura di riferimento da 100 battute × 10 righi). Da ADR-0018:
+  decidere se le note memorizzano una posizione assoluta o relativa alla battuta (cambiare un
+  metro non deve spostare per sbaglio tutte le note successive), e i comandi che allungano una
+  battuta libera quando vi si inseriscono note. ❓
 - **F1.07** Grafia (nome della nota, alterazione, ottava), enarmonie, intervalli con qualità,
   trasposizione di strumenti traspositori con grafia corretta (ADR-0004), altezza sonora MIDI
   derivata. Microtoni: ❓ **Decisione:** previsti nel tipo da subito (anche se non usati) o
@@ -436,7 +454,7 @@ modifica.
 | D01 | Lint pedantic da tenere | F0.16 | **chiusa** 2026-10-30: vedi F0.16 |
 | D02 | Tipo razionale: nostro o crate esistente; politica di overflow | F1.01 | **chiusa** 2026-10-30: ADR-0015 |
 | D03 | Strumenti di benchmark e di test di proprietà | F1.02 | **chiusa** 2026-10-31: ADR-0016 |
-| D04 | Metri non binari (es. 4/3): sì o no | F1.04 | aperta |
+| D04 | Metri non binari (es. 4/3): sì o no | F1.04 | chiusa: sì nel tipo (ADR-0018) |
 | D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | aperta |
 | D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | aperta |
 | D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | aperta |
@@ -474,3 +492,4 @@ raccomandato.
 | 2026-10-31 | 0.5 | F1.02 fatto (ADR-0016 Accepted), D03 chiusa; F1.03 diviso in F1.03 (tipo + oracolo `i128`) e F1.03b (benchmark + confronto con `main`) | proprietario |
 | 2026-10-31 | 0.6 | F1.03 fatto (PR #8) con le scelte d'interfaccia approvate; note su F1.03b (benchmark di ADR-0015 §9, caso oltre i 64 bit) e F1.04 (tipi specifici, eventuale `rem`) | proprietario |
 | 2026-10-31 | 0.7 | F1.03b fatto (ADR-0017 Accepted, PR #9); regole dei benchmark: lotti e nome nuovo se cambia significato | proprietario |
+| 2026-10-31 | 0.8 | F1.04 fatto (ADR-0018 Accepted, tipi `Position`/`Duration`), D04 chiusa; nuovo F1.04b (la mappa) con le cadenze libere richieste dal proprietario; note per F1.06 | proprietario |
