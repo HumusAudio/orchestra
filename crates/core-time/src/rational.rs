@@ -532,7 +532,11 @@ impl Rational {
     ///
     /// Cannot wrap because `num ≠ i64::MIN` (invariant 3); the result keeps all invariants (`-0`
     /// is `0`, and the gcd does not depend on the sign).
-    const fn negated(self) -> Self {
+    ///
+    /// Visible to the whole crate so that the domain types of `position` can negate without the
+    /// `-` operator, which clippy's `arithmetic_side_effects` (denied in this crate) cannot tell
+    /// apart from a possibly overflowing integer negation.
+    pub(crate) const fn negated(self) -> Self {
         Self {
             num: self.num.wrapping_neg(),
             den: self.den,

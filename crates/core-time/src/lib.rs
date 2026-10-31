@@ -14,6 +14,9 @@
 //! - [`Rational`], the rational type for positions/durations that never silently rounds (triplets
 //!   of triplets must line up exactly, even after hours of music). Implemented in step F1.03
 //!   according to ADR-0015: see the [`rational`] module.
+//! - [`Position`] and [`Duration`], the domain types over `Rational` (ADR-0018 §1): a position
+//!   minus a position is a duration, and adding two positions does not compile. See the
+//!   [`position`] module.
 //! - The tempo map: tempo changes (including gradual ones), with O(log n) lookup of the segment
 //!   containing a position through a cumulative table.
 //! - The meter map (time signatures), used to turn positions into bars/beats for display.
@@ -27,7 +30,7 @@
 //!   real-time context (CLAUDE.md §5).
 //!
 //! ## Still to come in Phase 1
-//! The meter map (F1.04), the tempo map and the conversions (F1.05).
+//! The meter map (F1.04, ADR-0018 §2–§5), the tempo map and the conversions (F1.05).
 //!
 //! ## Allowed dependencies
 //! None inside the workspace. External crates only if they are small, GPL-compatible and justified
@@ -42,6 +45,8 @@
 // Tests are exempt from the first one through clippy.toml.
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+pub mod position;
 pub mod rational;
 
+pub use position::{Duration, Position};
 pub use rational::{Rational, RationalError};

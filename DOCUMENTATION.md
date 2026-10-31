@@ -211,8 +211,8 @@ and `.env` files.
 
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
 what it must *not* do, allowed dependencies), except `orchestra-i18n`, which already works. Phase
-1 is filling them from the bottom: `orchestra-test-support` and the rational type of
-`orchestra-core-time` exist so far. The
+1 is filling them from the bottom: `orchestra-test-support` and, in `orchestra-core-time`, the
+rational type and the position and duration types exist so far. The
 dependency rules are summarised in `docs/ARCHITECTURE.md`; here is what each crate is for.
 
 ### orchestra-core-time
@@ -221,8 +221,8 @@ Exact musical time: positions and durations as fractions of a whole note, the si
 conversions to seconds, samples and video frames (ADR-0005). The conversion functions will be
 called by the audio thread, so they must not allocate. No dependencies inside the workspace (in
 `[dev-dependencies]` only `orchestra-test-support` and `proptest`, for the tests). So far it
-contains the rational type (step F1.03); the meter map (F1.04) and the tempo map with the
-conversions (F1.05) come next.
+contains the rational type (step F1.03) and the position and duration types (F1.04, first
+part); the meter map (rest of F1.04) and the tempo map with the conversions (F1.05) come next.
 
 #### The rational type
 
@@ -344,6 +344,55 @@ Euclid, the range check).
 
 The benchmarks (`benches/rational.rs`, step F1.03b) and their first numbers are described in
 "Benchmarks and property tests" below.
+
+#### Positions and durations
+
+`src/position.rs` adds the two **domain types** of ADR-0018 §1, re-exported at the crate root:
+`Position` (a point on the written timeline, in whole notes from the start of bar 0, which is the
+pickup bar when there is one) and `Duration` (the signed distance between two positions). Both
+are a `Rational` in disguise: same 16 bytes (`#[repr(transparent)]`), same cost. What they add is
+**which operations make sense**:
+
+```rust
+use orchestra_core_time::{Duration, Position, Rational};
+
+let quarter = Duration::from_rational(Rational::new(1, 4)?);
+let beat_two = Position::ZERO.checked_add(quarter)?; // position + duration = position
+let gap = beat_two.checked_duration_since(Position::ZERO)?; // position − position = duration
+let dotted = quarter.checked_mul(Rational::new(3, 2)?)?; // duration × number = duration
+let per_bar = Duration::from_rational(Rational::new(6, 8)?).checked_ratio(dotted)?; // 2
+```
+
+Adding two positions or multiplying a position does not compile: the module documentation has
+two `compile_fail` doctests that prove it. With plain `Rational` everywhere, "bar start + note
+position" by mistake would compile and land one bar too late; here the compiler stops it.
+
+Some details:
+
+- **Signs.** Both types accept negative values. A position before zero is a point before the
+  score (the meter map will reject it, but a first note played early by a microtiming offset
+  sounds there); a duration is negative when measured backwards. "A note lasts more than zero" is
+  a rule of the model, not of the type.
+- **The name `checked_duration_since`** follows `std::time::Instant::duration_since`: the
+  receiver is the later position, the argument the earlier one.
+- **`Duration::checked_ratio`** answers "how many times does this fit in that": the units
+  cancel, so it returns a plain `Rational`. Its `floor` will tell the meter map which bar of a
+  run of equal bars contains a position, so no remainder operation is needed on `Rational`.
+- **Ways in and out:** `from_rational` and `as_rational` are explicit on purpose. The tempo map
+  and the file format will use them, and seeing them in a diff means "a value is leaving (or
+  entering) the type safety here".
+- Every method is a `const fn` forwarding to the `Rational` operation, with the same errors.
+  Negation calls `Rational`'s crate-private `negated` instead of the `-` operator, because
+  clippy's `arithmetic_side_effects` cannot tell `-rational` (infallible) from an integer
+  negation that might overflow.
+- `Debug` prints `Position(3/8)` and `Duration(-1/4)`; no `Display` until F1.15.
+
+The tests are in two files. `tests/position.rs` checks with proptest that each method returns
+exactly what its `Rational` operation returns (errors included), then the algebra the types
+exist for (`(p + d) − p = d`, `a − b = −(b − a)`, ratio × unit = duration), then hand-written
+musical cases. A bug injected on purpose (`checked_sub` adding instead of subtracting) was caught
+by two properties at once. `tests/position_no_alloc.rs` checks with the counting allocator that
+nothing allocates, on success and error paths.
 
 ### orchestra-core-model
 

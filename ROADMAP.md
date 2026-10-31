@@ -33,8 +33,16 @@ commit has the trailer `Bench-regression: accepted`; CI runs it on every branch 
 deliberately injected regression was caught. The owner added `bench (instruction counts)` to the
 required checks of the `main` ruleset (verified with `gh api`, 2026-10-31). The first CI run found
 that sharing `target/` between the base export and the current tree made cargo run the base's
-benchmark binaries for both; the base now builds in `target/bench-base-target/`. Next: F1.04
-(meter map).
+benchmark binaries for both; the base now builds in `target/bench-base-target/`. Step F1.04
+(`feature/f1-04-meter-map`, started 2026-10-31) is split in two parts. Choices approved by the
+owner on 2026-10-31: meters with non-power-of-two denominators are allowed in the type (D04
+closed: their engraving is F2B's problem, their MIDI export F1.18's), `Duration` is signed, an
+additive meter has at most 8 groups, and basic bar-numbering exceptions are done now (those tied to
+voltas go with the form). **Part 1 (done):** draft **ADR-0018** (Proposed, waiting for the owner's
+review) and the types `Position`/`Duration` in `core-time` (`src/position.rs`), with
+forwarding/algebra property tests, `compile_fail` doctests for `position + position`, and
+allocation-free tests; an injected bug was caught. **Part 2 (next):** after ADR-0018 is accepted,
+`Meter`, irregular bars, the meter map with O(log n) lookups, bar numbering, tests and benchmarks.
 
 | Step | What | Status |
 |---|---|---|
@@ -85,8 +93,10 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions
   per operation); the 128-bit gcd costs ~5× the 64-bit one. Any change is judged by the gate.
-- **For F1.04:** domain newtypes over `Rational` (position vs duration, ADR-0015 §3); a remainder
-  operation if the meter map needs one.
+- **ADR-0018 (Proposed):** owner's review needed before part 2 of F1.04. No `rem` on `Rational`
+  for now (`checked_ratio` + `floor` suffice); revisit only if the meter map benchmark says so.
+- **For F1.06:** absolute vs bar-relative note positions (ADR-0018 leaves it open; changing a meter
+  must not shift every later note by accident).
 - **Concrete project file format** (ADR-0010, Phase 1).
 - **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
   such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
