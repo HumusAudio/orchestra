@@ -28,8 +28,16 @@
 //! `git archive <commit> | tar -x` exports the files of that commit into
 //! `target/bench-base/`, a plain directory. A `git worktree` would be the classic tool, but it
 //! writes into `.git/` (read-only in the development sandbox, see ROADMAP) and must be cleaned
-//! up explicitly. The export shares `target/` with the current tree (`CARGO_TARGET_DIR`), so
-//! the dependencies are compiled once for both.
+//! up explicitly.
+//!
+//! The export is built in its **own** target directory, `target/bench-base-target/`. Sharing
+//! `target/` with the current tree looks attractive (dependencies compiled once) but is wrong:
+//! cargo names the artifacts of workspace members from paths *relative to the workspace root*,
+//! so both trees produce the same file names, and cargo's freshness check (based on file
+//! modification times) can then take the base commit's benchmark binaries for up to date and run
+//! them for the current tree. That happened in CI during F1.03b: the "current" run reported the
+//! benchmark names of the base commit. The separate directory costs one more build of the
+//! dependencies and is kept between local runs, so later comparisons are incremental.
 //!
 //! # Accepting a deliberate regression
 //! Sometimes a slower result is the right one (a necessary check, a more general algorithm). If
@@ -138,8 +146,9 @@ fn run_benchmarks(dir: &Path, extra: &[(&str, OsString)]) -> TaskResult {
 ///
 /// Steps:
 /// 1. find the merge base of `HEAD` and `rev`;
-/// 2. export it to `target/bench-base/` and benchmark it, saving the numbers as the Gungraun
-///    baseline [`BASELINE`] in a fresh `target/gungraun-compare/`;
+/// 2. export it to `target/bench-base/`, build it in `target/bench-base-target/` and benchmark
+///    it, saving the numbers as the Gungraun baseline [`BASELINE`] in a fresh
+///    `target/gungraun-compare/`;
 /// 3. benchmark the working tree against that baseline, with [`INSTRUCTION_LIMIT`] unless the
 ///    `HEAD` commit accepts a regression.
 ///
@@ -165,6 +174,9 @@ fn compare(rev: &str) -> TaskResult {
     // comparison against another commit would give silently wrong results.
     let target = root.join("target");
     let base_dir = target.join("bench-base");
+    // Deliberately NOT `target/` itself: see "How the base commit is built" in the module docs.
+    // Not removed between runs, so that rebuilding the base is incremental.
+    let base_target = target.join("bench-base-target");
     let home = target.join("gungraun-compare");
     for dir in [&base_dir, &home] {
         if dir.exists() {
@@ -185,7 +197,7 @@ fn compare(rev: &str) -> TaskResult {
     let base_run = run_benchmarks(
         &base_dir,
         &[
-            ("CARGO_TARGET_DIR", target.clone().into_os_string()),
+            ("CARGO_TARGET_DIR", base_target.into_os_string()),
             ("GUNGRAUN_HOME", home.clone().into_os_string()),
             ("GUNGRAUN_SAVE_BASELINE", OsString::from(BASELINE)),
         ],

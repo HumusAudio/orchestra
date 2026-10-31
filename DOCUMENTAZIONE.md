@@ -666,8 +666,11 @@ lavoro, e fallisce se un conteggio di istruzioni è cresciuto più del **5%**. L
 
 - il commit di base viene esportato con `git archive <commit> | tar -x` in `target/bench-base/`
   (niente `git worktree`, che scriverebbe in `.git/`, in sola lettura nella sandbox) e compilato
-  con `CARGO_TARGET_DIR` che punta al solito `target/`, così le dipendenze si compilano una volta
-  sola;
+  in una cartella sua, `target/bench-base-target/`. Condividere il solito `target/` farebbe
+  compilare le dipendenze una volta sola, ma è sbagliato: cargo dà agli artefatti dei due alberi
+  gli stessi nomi (ricavati da percorsi relativi alla radice del workspace), e nella prima
+  esecuzione della CI di F1.03b il suo controllo di aggiornamento, basato sulle date dei file, ha
+  eseguito i binari dei benchmark del commit di base al posto di quelli dell'albero attuale;
 - i suoi numeri vengono salvati come baseline Gungraun `base` in una cartella
   `target/gungraun-compare/` nuova (`GUNGRAUN_SAVE_BASELINE`), poi l'albero di lavoro gira con
   `GUNGRAUN_BASELINE=base` e `GUNGRAUN_CALLGRIND_LIMITS=ir=5%`;

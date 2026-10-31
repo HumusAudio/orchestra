@@ -639,8 +639,12 @@ the code in the same run: first the **merge base** of `HEAD` and `<rev>` (for a 
 instruction count grew by more than **5%**. The logic is in `xtask/src/bench.rs`:
 
 - the base commit is exported with `git archive <commit> | tar -x` into `target/bench-base/`
-  (no `git worktree`, which would write into `.git/`, read-only in the sandbox), and built with
-  `CARGO_TARGET_DIR` pointing at the usual `target/`, so the dependencies are compiled once;
+  (no `git worktree`, which would write into `.git/`, read-only in the sandbox), and built in its
+  own `target/bench-base-target/`. Sharing the usual `target/` would compile the dependencies
+  only once, but it is wrong: cargo gives the artifacts of the two trees the same names (they are
+  derived from paths relative to the workspace root), and in the first CI run of F1.03b its
+  freshness check, based on file dates, ran the base commit's benchmark binaries for the current
+  tree;
 - its numbers are saved as the Gungraun baseline `base` in a fresh `target/gungraun-compare/`
   (`GUNGRAUN_SAVE_BASELINE`), then the working tree runs with `GUNGRAUN_BASELINE=base` and
   `GUNGRAUN_CALLGRIND_LIMITS=ir=5%`;

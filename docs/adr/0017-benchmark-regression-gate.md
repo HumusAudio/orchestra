@@ -37,8 +37,11 @@ Facts that shape the decision:
    then the pushed commit, on the same runner with the same tools. `cargo xtask bench --compare
    <rev>` implements it (CLAUDE.md §3: automation goes through xtask), so it also works locally.
    The base commit is exported with `git archive | tar -x` into `target/bench-base/` (no
-   `.git/` writes, nothing to clean up in git) and shares `target/` with the current tree, so
-   dependencies are built once. The merge base, not the tip of `main`, so that a branch is judged
+   `.git/` writes, nothing to clean up in git) and built in its own target directory,
+   `target/bench-base-target/`. Sharing `target/` was tried and is wrong: cargo names the
+   artifacts of workspace members from paths relative to the workspace root, so both trees produce
+   the same file names, and its modification-time freshness check let the base commit's benchmark
+   binaries run for the current tree (seen in this step's first CI run). The merge base, not the tip of `main`, so that a branch is judged
    on its own changes only.
 2. **On `main`:** the numbers are published, not compared.
 3. **What is checked: instructions only, at most +5%.** The limit is `ir=5%` against the base;
@@ -89,8 +92,9 @@ Facts that shape the decision:
 
 ## Consequences
 
-- The `bench` job does two benchmark runs and clones the whole history: about a minute more per
-  push on branches (measured in this step's CI runs).
+- The `bench` job does two builds and two benchmark runs and clones the whole history, so it
+  takes longer on branches than on `main` (measured in this step's CI runs, see the developer
+  documentation).
 - The comparison only runs on Linux (Valgrind); `cargo xtask bench --compare` on Windows and
   macOS only compiles the benchmarks, like plain `bench`.
 - Locally, `cargo xtask bench --compare main` (or `--compare HEAD` for uncommitted changes) shows
