@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-test-support"
+description = "Test-only helpers: a per-thread allocation-counting global allocator (ADR-0016)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# This crate sits at the very bottom of the dependency graph: it depends on no workspace crate, so
+# every crate (core-time included) can use it without breaking the "only downwards" rule. Other
+# crates may use it ONLY in `[dev-dependencies]` (ADR-0016 §6): `cargo xtask check` fails if any
+# crate depends on it as a normal or build dependency, so it can never end up in the program.
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+gungraun.workspace = true
+
+# Gungraun replaces the default libtest benchmark harness with its own `main!` (ADR-0016 §1).
+[[bench]]
+name = "counting"
+harness = false
+
+[lints]
+workspace = true

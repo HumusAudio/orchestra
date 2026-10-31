@@ -38,7 +38,7 @@ Esiste UN SOLO documento di progetto (la "fonte di verità"). Notazione e DAW so
 
 ## 2. Struttura del workspace
 
-Cargo workspace; un crate per responsabilità, dipendenze solo "verso il basso". `core-time` · `core-model` · `playback` (da intento scritto a esecuzione) · `notation-layout` · `audio-engine` · `plugin-host` · `io` (MIDI, MusicXML, file di progetto versionato) · `i18n` · `ui` · `app` · `xtask` (automazione). `video` arriva per ultimo. L'elenco aggiornato è in `docs/ARCHITECTURE.md`. Codice specifico di piattaforma SOLO in moduli `platform/` dietro trait.
+Cargo workspace; un crate per responsabilità, dipendenze solo "verso il basso". `core-time` · `core-model` · `playback` (da intento scritto a esecuzione) · `notation-layout` · `audio-engine` · `plugin-host` · `io` (MIDI, MusicXML, file di progetto versionato) · `i18n` · `ui` · `app` · `test-support` (solo test, solo in `[dev-dependencies]`) · `xtask` (automazione). `video` arriva per ultimo. L'elenco aggiornato è in `docs/ARCHITECTURE.md`. Codice specifico di piattaforma SOLO in moduli `platform/` dietro trait.
 
 ## 3. Comandi (tutto passa da `cargo xtask`)
 
@@ -62,7 +62,7 @@ I test NON devono mai richiedere un dispositivo audio né un display: usa backen
 
 - Ogni elemento (anche privato) ha un doc comment: `missing_docs` è un errore del compilatore.
 
-- Ogni `unsafe` ha un commento `// SAFETY:` che dimostra perché è corretto (`undocumented_unsafe_blocks` è un errore). `unsafe` ammesso solo nei crate designati (FFI/audio).
+- Ogni `unsafe` ha un commento `// SAFETY:` che dimostra perché è corretto (`undocumented_unsafe_blocks` è un errore). `unsafe` ammesso solo nei crate designati (FFI/audio, e `test-support` per l'allocatore contatore, ADR-0016).
 
 - Niente `unwrap`/`expect`/`panic!` in codice di libreria; errori tipizzati e propagati.
 

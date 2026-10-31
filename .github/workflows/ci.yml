@@ -9,6 +9,10 @@
 # - `guides` builds GUIDA.pdf and GUIDE.pdf with Typst and publishes them as an artifact (PDFs are
 #   never committed). Linux only: the PDFs are byte-for-byte the same on every OS anyway, because
 #   only the bundled fonts are used.
+# - `bench` runs the instruction-count benchmarks (Gungraun under Valgrind, ADR-0016) and publishes
+#   the numbers in the job summary and as an artifact. Linux only, because Valgrind is; on Windows
+#   and macOS the `check` job compiles the benchmarks instead, so they cannot rot there. The numbers
+#   are not enforced yet: comparison against `main` with thresholds comes in SCALETTA F1.03.
 #
 # Every third-party action is pinned to a full commit SHA (the tag is in the comment): a tag can be
 # moved by whoever controls the action's repository, a SHA cannot. Versions checked on 2026-10-28.
@@ -45,6 +49,9 @@ env:
   # Same toolchain as `rust-version` in Cargo.toml: bump both together, deliberately.
   RUST_TOOLCHAIN: 1.99.1
   TYPST_VERSION: 0.15.1
+  # Must be EXACTLY the `gungraun` version pinned in Cargo.toml (`=0.20.0`): the runner refuses to
+  # work with a different library version. Bump both together (ADR-0016, Consequences).
+  GUNGRAUN_RUNNER_VERSION: 0.20.0
 
 jobs:
   check:
@@ -82,6 +89,12 @@ jobs:
       - name: cargo xtask check
         run: cargo xtask check
 
+      # On Windows and macOS `cargo xtask bench` only compiles the benchmarks (no Valgrind there);
+      # on Linux the dedicated `bench` job below runs them for real.
+      - name: cargo xtask bench (compile only)
+        if: runner.os != 'Linux'
+        run: cargo xtask bench
+
   guides:
     name: guides (PDF)
     runs-on: ubuntu-latest
@@ -109,4 +122,66 @@ jobs:
             dist/GUIDE.pdf
           if-no-files-found: error
           # Limited retention (ADR-0009): the guides can always be rebuilt from the sources.
+          retention-days: 30
+
+  bench:
+    name: bench (instruction counts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # Valgrind from the distribution: a development tool, never linked into the program
+      # (ADR-0016 §7, docs/native-deps.md).
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends valgrind
+
+      # Prebuilt runner (with checksums), pinned to the exact library version.
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: gungraun-runner@${{ env.GUNGRAUN_RUNNER_VERSION }}
+
+      # `pipefail` so that a failing benchmark fails the step even though its output goes through
+      # `tee`. Colours off: the output is also pasted into the job summary, where escape codes
+      # would show up as garbage. `GUNGRAUN_SAVE_SUMMARY` writes one machine-readable summary.json
+      # per benchmark under target/gungraun/, for the artifact (and for the F1.03 comparison).
+      - name: cargo xtask bench
+        shell: bash
+        env:
+          CARGO_TERM_COLOR: never
+          GUNGRAUN_COLOR: never
+          GUNGRAUN_SAVE_SUMMARY: json
+        run: |
+          set -o pipefail
+          cargo xtask bench 2>&1 | tee bench-output.txt
+
+      # The numbers in the run's summary page, from the first benchmark target onwards (the
+      # compilation lines before it are noise). `always()`: a failed run is when they matter most.
+      - name: Benchmark summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Benchmarks: instruction counts (Gungraun, Callgrind)'
+            echo
+            echo '```'
+            sed -n '/Running /,$p' bench-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: benchmarks
+          path: |
+            bench-output.txt
+            target/gungraun/**/summary.json
+          if-no-files-found: warn
           retention-days: 30

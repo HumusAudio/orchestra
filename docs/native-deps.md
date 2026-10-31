@@ -13,6 +13,23 @@ portability, even though they cannot be "replaced".
 
 *No entries yet.*
 
+## Development tools (never linked into the program)
+
+Native programs that the **development workflow and CI** need, but that are never linked into,
+loaded by or shipped with Orchestra. They are not exceptions to ADR-0001; they are listed for
+transparency, because a contributor has to install them.
+
+### Valgrind
+
+- **Used by:** `cargo xtask bench` (Gungraun runs each benchmark under Valgrind's Callgrind and
+  reports instruction counts; ADR-0016).
+- **License:** GPL-2.0-or-later. Only executed as a separate program, never linked.
+- **Platforms:** Linux only (Arch/CachyOS: `pacman -S valgrind`; Ubuntu CI: `apt-get install
+  valgrind`). On Windows and macOS benchmarks are compiled but not run (ADR-0016 §2).
+- **Companion tool:** `gungraun-runner` (Rust, Apache-2.0 OR MIT), installed with
+  `cargo install gungraun-runner --version <same as gungraun in Cargo.toml> --locked`.
+- **Added:** 2026-10-31, ADR-0016.
+
 ## Entry template
 
 Copy this block for every new native dependency:

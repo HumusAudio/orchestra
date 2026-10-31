@@ -13,7 +13,13 @@ milestones and the index of open decisions live there. Steps F0.15 and F0.16 are
 (`fix/raccordo-fase-0`, 2026-10-30): every CI run on `main` is green on all three platforms, a
 weekly scheduled run was added, and the lint selection was approved. Phase 1 has started: step
 F1.01 (`feature/f1-01-adr-razionale`, 2026-10-30) produced **ADR-0015, the rational type**,
-accepted by the owner (decision D02 closed). Next: F1.02 (test and benchmark infrastructure).
+accepted by the owner (decision D02 closed). Step F1.02 (`feature/f1-02-bench-test`,
+2026-10-31) produced **ADR-0016, test and benchmark tools** (decision D03 closed) and implemented
+it: the test-only crate `orchestra-test-support` (per-thread allocation-counting global allocator,
+`[dev-dependencies]` only, enforced by `cargo xtask check`), `proptest` for property tests, and
+`cargo xtask bench` with Gungraun (instruction counts under Valgrind; CI job on Linux, compile-only
+on Windows and macOS). Next: F1.03 (implementation of the rational type, its property tests and
+the first real benchmarks, plus the benchmark comparison against `main` with thresholds).
 
 | Step | What | Status |
 |---|---|---|
@@ -60,6 +66,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
+- **For F1.03** (ADR-0016 §3–§4): design the benchmark regression comparison against `main` and its
+  thresholds; choose the exact oracle for the rational type's property tests.
 - **Concrete project file format** (ADR-0010, Phase 1).
 - **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
   such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
@@ -91,5 +99,9 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - `core-time` denies `clippy::arithmetic_side_effects` and `clippy::indexing_slicing`,
   `core-model` denies `clippy::indexing_slicing` (crate-root attributes): plain `+ - *` and `v[i]`
   do not compile there.
+- Benchmarks need Valgrind and `gungraun-runner` of exactly the `gungraun` version in Cargo.toml
+  (both installed on the development machine on 2026-10-31). Inside the sandbox `/tmp` is not
+  writable: `cargo xtask bench` forwards `TMPDIR` so that Valgrind can create its temporary files.
+- Gungraun's `#[library_benchmark]` rejects doc comments on benchmark functions: use `//` comments.
 - `rustfmt` on a single file fails when a `mod` it declares has no file yet: write module files
   first, or run `cargo fmt --all` afterwards.

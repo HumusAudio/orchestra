@@ -249,6 +249,68 @@ under the strict rules of ADR-0007 and offers a null/offline backend for tests. 
 the views and turns input into commands (no GUI toolkit: widgets and drawing are ours, ADR-0012). `video` is intentionally empty until
 the last phase. `app` builds the `orchestra` executable and only wires the others together.
 
+### orchestra-test-support: counting allocations in tests
+
+A crate that exists **only for tests and benchmarks** (ADR-0016). Every other crate may use it,
+but only in `[dev-dependencies]`: `cargo xtask check` fails otherwise, so it can never end up in
+the program. It depends on nothing in the workspace, which is why even `core-time`, at the bottom
+of the graph, can use it.
+
+What it offers is a **global allocator that counts**: `CountingAllocator` passes every request on
+to the system allocator, and before doing so it adds one to a counter. ADR-0007 requires it ("a
+test fails if the audio thread allocates") and ADR-0015 needs it to prove that the rational type
+never allocates. A test file registers it with one line and then measures closures:
+
+```rust
+// At the top of a file under tests/ (each file there is its own binary):
+use std::hint::black_box;
+
+orchestra_test_support::install_counting_allocator!();
+
+#[test]
+fn comparison_never_allocates() {
+    let a = black_box(3_u64);
+    let b = black_box(4_u64);
+    // Fails the test if the closure allocates, reallocates or frees on this thread.
+    let less = orchestra_test_support::assert_no_allocations(|| a < b);
+    assert!(less);
+}
+```
+
+`count_allocations` returns the result together with an `AllocationStats` with four counters:
+allocations, reallocations, deallocations and bytes requested. For example, from
+`tests/counting.rs`:
+
+```rust
+let ((), stats) = count_allocations(|| {
+    let v: Vec<u32> = Vec::with_capacity(16);
+    drop(black_box(v));
+})
+.unwrap();
+// 1 allocation of 16 × 4 bytes, 1 deallocation.
+assert_eq!(stats.bytes_allocated, 64);
+```
+
+Three details that matter:
+
+- **Counters are per thread.** Tests run in parallel: with a single global counter, a test that
+  checks "this does not allocate" would fail at random whenever another test allocates at the
+  same moment. Each thread has its own counters (a `thread_local!` with `const` initialisation and
+  no destructor, so reading it never allocates, otherwise the allocator would recurse forever).
+  This is also what the audio-thread test of Phase 3 will need.
+- **Freeing counts too.** `assert_no_allocations` fails on allocations, reallocations *and*
+  deallocations: `free` can take a lock inside the system allocator, so the audio thread must not
+  call it either.
+- **No vacuous passes.** If a test file forgets `install_counting_allocator!()`, every counter
+  stays at zero and "does not allocate" would always pass. So `count_allocations` first makes a
+  tiny probe allocation and checks that the counter moved; if not, it returns
+  `NotInstalledError` (and `assert_no_allocations` fails the test). `tests/not_installed.rs` is a
+  test binary without the allocator that checks exactly this.
+
+It is the fourth crate allowed to contain `unsafe`, because the `GlobalAlloc` trait is `unsafe`
+by definition; the only unsafe operations are the forwarding calls to the system allocator, each
+with its `// SAFETY:` comment.
+
 ### orchestra-i18n: the interface in six languages
 
 This is the first crate with real code. It owns every user-visible string, in Fluent catalogs for
@@ -333,12 +395,19 @@ cargo xtask setup        # use the versioned git hooks (once per clone)
 cargo xtask check        # everything CI checks
 cargo xtask guides       # build dist/GUIDA.pdf and dist/GUIDE.pdf
 cargo xtask screenshots  # not implemented yet (needs the UI layer, ADR-0012)
-cargo xtask bench        # not implemented yet (no hot paths yet)
+cargo xtask bench        # instruction-count benchmarks (Linux; compile-only elsewhere)
 ```
 
 `check` runs, in this order: `cargo fmt --check`, the documentation and guide parity checks,
 `cargo clippy -D warnings`, `cargo nextest` (which includes the translation parity tests), the
-doctests (nextest does not run them) and `cargo deny check`. It stops at the first failure.
+doctests (nextest does not run them), `cargo deny check` and finally the **test-only crates
+check**. It stops at the first failure.
+
+The last step makes sure that `orchestra-test-support` is never a normal or build dependency of
+any crate. It runs `cargo tree --invert orchestra-test-support --edges normal,build --target all`:
+the output lists the crate and everything that depends on it through normal or build edges (dev
+edges are excluded), on every target platform. For a correct workspace the output is exactly one
+line, the crate itself; every further line is an offender, and the error names it.
 
 The parity checks live in `xtask/src/parity.rs`. For the two developer documents they compute the
 same structural signature as the Stop hook: the sequence of heading levels plus the exact content
@@ -346,8 +415,60 @@ of code blocks. For the guides they also require the same files in `docs/guide/i
 `docs/guide/en/`, and in each pair of Typst files the same headings, `#include`s and screenshots.
 On failure they point at the first difference.
 
-`screenshots` and `bench` deliberately fail with an explanation instead of doing nothing, so
-nobody mistakes them for working steps.
+`screenshots` deliberately fails with an explanation instead of doing nothing, so nobody
+mistakes it for a working step.
+
+### Benchmarks and property tests
+
+The tools were chosen in ADR-0016 after a comparison (versions, licenses, dependency counts and
+build times are in the ADR).
+
+**Benchmarks: Gungraun.** `cargo xtask bench` runs `cargo bench --workspace --bench '*'` (only the
+`[[bench]]` targets, not the empty default harness of every library). Each benchmark file has
+`harness = false` in its `Cargo.toml` and ends with Gungraun's `main!`, which hands the work to the
+`gungraun-runner` program: it runs every benchmark function **once** under Valgrind's Callgrind
+and counts the instructions executed. The count is the same on every run of the same binary,
+which is why ADR-0007 prefers it to times in seconds (noisy on shared CI machines). Valgrind only
+exists on Linux: on Windows and macOS `cargo xtask bench` only compiles the benchmarks
+(`--no-run`), so they cannot break there unnoticed.
+
+What you need to install, once, on Linux:
+
+```sh
+sudo pacman -S valgrind                                       # Arch / CachyOS
+cargo install gungraun-runner --version 0.20.0 --locked      # same version as gungraun
+cargo xtask bench
+```
+
+The runner must have **exactly** the version of the `gungraun` library, which is why Cargo.toml
+pins it with `=0.20.0`: an innocent `cargo update` must not move it. When it is bumped, the runner
+is reinstalled with the same version and `GUNGRAUN_RUNNER_VERSION` in `ci.yml` follows.
+
+The first benchmark (`crates/test-support/benches/counting.rs`) measures the counter itself and
+proves that the whole chain works. A run prints, for each benchmark, the count and the
+difference from the previous run (kept in `target/gungraun/`):
+
+```text
+counting::counting::snapshot
+  Instructions:                                         15|15                   (No change)
+counting::counting::allocate_and_free_64_bytes
+  Instructions:                                        255|255                  (No change)
+counting::counting::measure_empty_closure
+  Instructions:                                        163|163                  (No change)
+```
+
+Two practical notes. Gungraun's `#[library_benchmark]` rejects doc comments on the benchmark
+functions (they are `#[doc]` attributes), so those functions have plain `//` comments and the file
+lifts the documentation lints for the code the macros generate. And Gungraun clears the
+environment of what it runs, so Valgrind would write its temporary files to `/tmp`: where `/tmp`
+is not writable (the Claude Code sandbox) xtask forwards `TMPDIR` through `GUNGRAUN_ENVS`.
+
+**Property tests: proptest.** A property test states a rule that must hold for *every* input
+(for example "allocating n buffers counts n allocations and their total size in bytes") and
+proptest checks it on hundreds of random inputs. When it finds a failure it **shrinks** the input
+to the simplest case that still fails, and saves its seed in a `proptest-regressions/` file next
+to the test: those files are committed, so the case is re-run forever. It is used without its
+default features (`fork` and `timeout` would bring in more crates we do not need).
 
 ### Claude Code hooks
 
@@ -422,7 +543,13 @@ The jobs:
   `cargo-deny`, and runs `cargo xtask check`. The three platforms run independently
   (`fail-fast: false`), so a Windows failure does not hide a macOS one;
 - **guides**, on Linux: installs Typst 0.15.1, runs `cargo xtask guides` and uploads
-  `GUIDA.pdf` and `GUIDE.pdf` as the `user-guides` artifact, kept for 30 days.
+  `GUIDA.pdf` and `GUIDE.pdf` as the `user-guides` artifact, kept for 30 days;
+- **bench**, on Linux: installs Valgrind (`apt-get`) and the prebuilt `gungraun-runner` of the
+  pinned version, runs `cargo xtask bench`, writes the numbers into the run's summary page and
+  uploads them (with one `summary.json` per benchmark) as the `benchmarks` artifact. The numbers
+  are not enforced yet: comparing a pull request against `main` with thresholds comes in F1.03.
+  On Windows and macOS the **check** job runs `cargo xtask bench` too, which there only compiles
+  the benchmarks.
 
 Only the standard GitHub-hosted runners are used: they are free for public repositories, while
 larger runners are billed even there. Every third-party action is pinned to a full commit hash,

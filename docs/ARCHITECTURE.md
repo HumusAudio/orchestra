@@ -27,6 +27,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 | `crates/ui` | `orchestra-ui` | Our own UI layer (ADR-0012), light/dark themes (ADR-0014), notation/DAW/video views, input → commands, headless screenshots |
 | `crates/video` | `orchestra-video` | Video tracks (last phase; empty for now) |
 | `crates/app` | `orchestra-app` (binary `orchestra`) | Wiring only |
+| `crates/test-support` | `orchestra-test-support` | Test-only helpers: per-thread allocation-counting global allocator (ADR-0016); `[dev-dependencies]` only |
 | `xtask` | `xtask` | Automation: `cargo xtask check/guides/screenshots/bench/setup` |
 | `spikes/` (separate workspace) | — | Time-boxed evaluation prototypes; never part of release builds |
 
@@ -62,6 +63,7 @@ future `cargo xtask check` step may verify this table automatically):
 | video | core-time |
 | ui | core-time, core-model, playback, notation-layout, i18n, video |
 | app | everything |
+| test-support | — (and it may be used by any crate, but **only** in `[dev-dependencies]`: ADR-0016 §6, checked by `cargo xtask check`) |
 
 Notable consequences:
 
@@ -74,8 +76,9 @@ Notable consequences:
 ## Unsafe code
 
 `#![forbid(unsafe_code)]` in every crate except `audio-engine`, `plugin-host` and `io` (FFI,
-lock-free primitives, shared memory). In those three, every `unsafe` block has a `// SAFETY:`
-comment (`clippy::undocumented_unsafe_blocks = "deny"`).
+lock-free primitives, shared memory) and the test-only `test-support` (its `GlobalAlloc`
+implementation is `unsafe` by definition, ADR-0016 §6). In those four, every `unsafe` block has a
+`// SAFETY:` comment (`clippy::undocumented_unsafe_blocks = "deny"`).
 
 ## Platform-specific code
 
