@@ -56,8 +56,19 @@ previous value, O(log n) allocation-free lookups (bar ⇄ position, beat ⇄ pos
 displayed number), free bars without beats. Tests: 20 hand-written cases, a property test against a
 bar-by-bar naive oracle (two injected bugs caught), an allocation-free test; benchmarks in batches
 (≈ 100–1140 instructions per lookup, ≈ 97 000 per edit on a 150-segment map). PR #11; SCALETTA
-v0.9 adds step F2.22b (meter entry in the interface) with the mixed-meter requirement. Next:
-F1.05 (tempo map).
+v0.9 adds step F2.22b (meter entry in the interface) with the mixed-meter requirement (PR #11,
+merged). Step **F1.05** (`feature/f1-05-tempo-map`, 2026-10-31): decision **D05** taken by the
+owner — gradual tempo changes are linear in **time** (constant acceleration), which makes their
+durations rational, so every boundary time stays exact; checked against Friberg & Sundberg 1999
+(q = 2 is "linear in time" and, with q = 3, was the best rated; Claude had first misattributed
+the runners' model to q = 2 and corrected it). **ADR-0020** (Proposed, waiting for the owner's
+review): tempo as beat unit + rational BPM, tempo map on written positions (the unrolled clock
+belongs to `playback`), nearest-sample and containing-frame rounding, exact sample indices even
+inside gradual changes via the exact inverse (f64 fallback on overflow, to be measured).
+Implemented so far: `Tempo` (`src/tempo.rs`), `Seconds`, `SampleRate`, `FrameRate` with the
+rounding rules (`src/clock.rs`), property tests by definition, allocation-free test; an injected
+rounding bug was caught. Next: **F1.05b**, the tempo map itself (segments, gradual changes, exact
+rounding inside them, oracle tests, benchmarks).
 
 | Step | What | Status |
 |---|---|---|
@@ -117,8 +128,9 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   must not shift every later note by accident); the commands that lengthen a free bar when notes
   are entered past its end.
 - **Concrete project file format** (ADR-0010, Phase 1).
-- **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
-  such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
+- **For F1.05b:** measure how often the exact sample correction inside a gradual change overflows
+  and falls back to f64 (ADR-0020 §5); tempo changes are anchored to positions, like notes
+  (absolute vs bar-relative is F1.06's question).
 - **"Region" or "clip"** as the name of a block of material on a track (glossary entry `region`).
 - **Glossary entries with `review = true`** (grand staff, clef fr, key signature de, slur fr/es,
   hairpin, part es, grace note, volta, region, send, plug-in, velocity, mute, menu Edit fr): to

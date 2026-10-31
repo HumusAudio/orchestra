@@ -212,7 +212,8 @@ and `.env` files.
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
 what it must *not* do, allowed dependencies), except `orchestra-i18n`, which already works. Phase
 1 is filling them from the bottom: `orchestra-test-support` and, in `orchestra-core-time`, the
-rational type, the position and duration types and the meter map exist so far. The
+rational type, the position and duration types, the meter map and the units of real time exist
+so far. The
 dependency rules are summarised in `docs/ARCHITECTURE.md`; here is what each crate is for.
 
 ### orchestra-core-time
@@ -222,7 +223,8 @@ conversions to seconds, samples and video frames (ADR-0005). The conversion func
 called by the audio thread, so they must not allocate. No dependencies inside the workspace (in
 `[dev-dependencies]` only `orchestra-test-support` and `proptest`, for the tests). So far it
 contains the rational type (step F1.03), the position and duration types (F1.04) and the meter
-map with beat groupings (F1.04b); the tempo map with the conversions (F1.05) comes next.
+map with beat groupings (F1.04b) and the units of real time (F1.05: tempo, seconds, samples,
+frames); the tempo map with gradual changes (F1.05b) comes next.
 
 #### The rational type
 
@@ -515,6 +517,47 @@ edit_meter_change 97488 for one edit (clone, rebuild, validation)
 
 Most of the cost is the exact rational arithmetic (the gcds), not the search. A lookup of about a
 thousand instructions is well under a microsecond on the reference hardware.
+
+#### Tempo, seconds, samples and frames
+
+`src/tempo.rs` and `src/clock.rs` hold the units of real time that the tempo map (step F1.05b)
+will use (ADR-0020 §2, §5, §7):
+
+- **`Tempo`**: a beat unit (a `Duration`: ♩ = 1/4, ♩. = 3/8) and a rational number of beats per
+  minute (120, or `185/2` for 92.5). What matters for the sound is its **speed**,
+  `unit × bpm / 60` whole notes per second, so ♩ = 120 and ♩. = 80 differ as written but go
+  equally fast. At a constant tempo `seconds_for` and `duration_in` convert exactly in both
+  directions.
+- **`Seconds`**: an exact time, a newtype over `Rational`; `to_f64` exists for display only.
+- **`SampleRate`**: a whole number of Hz, never zero. `sample_at(t)` gives the **nearest**
+  sample, `⌊t·rate + 1/2⌋`, ties to the later one; `time_of_sample(n)` is exactly `n/rate`.
+- **`FrameRate`**: a positive rational (24, 25, 30000/1001). `frame_at(t)` gives the frame that
+  **contains** `t`, `⌊t·fps⌋`; `frame_start(k)` is exactly `k/fps`.
+
+```rust
+use orchestra_core_time::{Duration, FrameRate, Rational, SampleRate, Seconds, Tempo};
+
+let rate = SampleRate::new(48_000)?;
+let half_sample = Seconds::from_rational(Rational::new(1, 96_000)?);
+assert_eq!(rate.sample_at(half_sample)?, 1); // a tie goes to the later sample
+let ntsc = FrameRate::new(Rational::new(30_000, 1001)?)?;
+assert_eq!(ntsc.frame_at(Seconds::from_rational(Rational::ONE))?, 29); // the frame containing 1 s
+let quarter_120 = Tempo::new(Duration::from_rational(Rational::new(1, 4)?), Rational::from_integer(120)?)?;
+let dotted_80 = Tempo::new(Duration::from_rational(Rational::new(3, 8)?), Rational::from_integer(80)?)?;
+assert_eq!(quarter_120.speed()?, dotted_80.speed()?); // both 1/2 whole note per second
+```
+
+Why two different rules: a sample is an instant, so the nearest one is the right answer and the
+error is at most half a sample; a frame is an interval of time shown on screen, so a time belongs
+to the frame that contains it. Everything is exact rational arithmetic, so every platform gives
+the same index. Indices are `i64` and may be negative (pre-roll).
+
+Tests: `tests/clock.rs` checks the rounding rules **by their definition** with proptest (for
+instance `(n − 1/2)/rate ≤ t < (n + 1/2)/rate` whenever `sample_at(t) = n`), that the inverses
+land on their own index, that constant-tempo conversions round-trip and that ♩ = x has the speed
+of ♩. = 2x/3; plus hand-written ties, negative times, one hour of NTSC and the errors. A bug
+injected on purpose (rounding down instead of to the nearest sample) failed two tests.
+`tests/clock_no_alloc.rs` checks that no conversion allocates.
 
 ### orchestra-core-model
 

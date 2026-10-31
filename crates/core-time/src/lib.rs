@@ -32,7 +32,9 @@
 //!   real-time context (CLAUDE.md §5).
 //!
 //! ## Still to come in Phase 1
-//! The tempo map and the conversions (F1.05).
+//! The tempo map with gradual changes and its exact conversions (F1.05b, ADR-0020). The units
+//! are already here: [`Tempo`], [`Seconds`], [`SampleRate`] and [`FrameRate`] with the rounding
+//! rules of ADR-0020 §5, see the [`tempo`] and [`clock`] modules.
 //!
 //! ## Allowed dependencies
 //! None inside the workspace. External crates only if they are small, GPL-compatible and justified
@@ -47,11 +49,14 @@
 // Tests are exempt from the first one through clippy.toml.
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+pub mod clock;
 pub mod meter;
 pub mod meter_map;
 pub mod position;
 pub mod rational;
+pub mod tempo;
 
+pub use clock::{ClockError, FrameRate, SampleRate, Seconds};
 pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};
 pub use meter_map::{
     BarIndex, BarKind, BarPosition, BeatPosition, IrregularBar, MeterChange, MeterMap,
@@ -59,3 +64,4 @@ pub use meter_map::{
 };
 pub use position::{Duration, Position};
 pub use rational::{Rational, RationalError};
+pub use tempo::{Tempo, TempoError};
