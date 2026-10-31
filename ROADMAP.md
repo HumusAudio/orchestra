@@ -18,8 +18,9 @@ accepted by the owner (decision D02 closed). Step F1.02 (`feature/f1-02-bench-te
 it: the test-only crate `orchestra-test-support` (per-thread allocation-counting global allocator,
 `[dev-dependencies]` only, enforced by `cargo xtask check`), `proptest` for property tests, and
 `cargo xtask bench` with Gungraun (instruction counts under Valgrind; CI job on Linux, compile-only
-on Windows and macOS). Next: F1.03 (implementation of the rational type, its property tests and
-the first real benchmarks, plus the benchmark comparison against `main` with thresholds).
+on Windows and macOS). Next: F1.03 (implementation of the rational type, property tests against an
+`i128` oracle written in the tests, allocation-free tests), then F1.03b (its benchmarks and the
+CI comparison against `main` with thresholds). The split was approved on 2026-10-31.
 
 | Step | What | Status |
 |---|---|---|
@@ -66,8 +67,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
-- **For F1.03** (ADR-0016 §3–§4): design the benchmark regression comparison against `main` and its
-  thresholds; choose the exact oracle for the rational type's property tests.
+- **For F1.03b** (ADR-0016 §3): design the benchmark regression comparison against `main` and its
+  thresholds. (The F1.03 oracle is decided: `i128` reference computation in the tests.)
 - **Concrete project file format** (ADR-0010, Phase 1).
 - **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
   such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
