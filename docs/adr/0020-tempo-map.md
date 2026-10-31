@@ -1,7 +1,7 @@
 # ADR-0020 — Tempo map: gradual changes linear in time, exact boundaries, exact sample rounding
 
-- **Status:** Proposed (SCALETTA F1.05, decision D05; content approved by the owner on 2026-10-31
-  before the text was written)
+- **Status:** Accepted (owner's decision, 2026-10-31; SCALETTA F1.05, decision D05). The content
+  was approved before the text was written.
 - **Date:** 2026-10-31
 - **Completes:** ADR-0005 §2–§4 (the tempo map and the derived seconds, samples and frames) and
   the note of ADR-0015 "Consequences" on where exactness ends

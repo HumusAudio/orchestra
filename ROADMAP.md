@@ -61,13 +61,13 @@ merged). Step **F1.05** (`feature/f1-05-tempo-map`, 2026-10-31): decision **D05*
 owner — gradual tempo changes are linear in **time** (constant acceleration), which makes their
 durations rational, so every boundary time stays exact; checked against Friberg & Sundberg 1999
 (q = 2 is "linear in time" and, with q = 3, was the best rated; Claude had first misattributed
-the runners' model to q = 2 and corrected it). **ADR-0020** (Proposed, waiting for the owner's
-review): tempo as beat unit + rational BPM, tempo map on written positions (the unrolled clock
+the runners' model to q = 2 and corrected it). **ADR-0020** (Accepted by the owner,
+2026-10-31): tempo as beat unit + rational BPM, tempo map on written positions (the unrolled clock
 belongs to `playback`), nearest-sample and containing-frame rounding, exact sample indices even
 inside gradual changes via the exact inverse (f64 fallback on overflow, to be measured).
 Implemented so far: `Tempo` (`src/tempo.rs`), `Seconds`, `SampleRate`, `FrameRate` with the
 rounding rules (`src/clock.rs`), property tests by definition, allocation-free test; an injected
-rounding bug was caught. Next: **F1.05b**, the tempo map itself (segments, gradual changes, exact
+rounding bug was caught. PR #12; SCALETTA v0.10. Next: **F1.05b**, the tempo map itself (segments, gradual changes, exact
 rounding inside them, oracle tests, benchmarks).
 
 | Step | What | Status |
