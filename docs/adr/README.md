@@ -27,3 +27,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0017](0017-benchmark-regression-gate.md) | Benchmark regression gate: same-job comparison with the merge base, +5% instructions | Accepted |
 | [0018](0018-meter-map-and-time-domain-types.md) | Meter map and time domain types: `Position`/`Duration`, meters, irregular and free bars | Accepted |
 | [0019](0019-beat-grouping.md) | Beat grouping: how a bar is counted, separate from how its meter is written | Accepted |
+| [0020](0020-tempo-map.md) | Tempo map: gradual changes linear in time, exact boundaries, exact sample rounding | Accepted |

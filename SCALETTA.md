@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.9, approvata dal proprietario il 2026-10-31.**
+> **Stato di questo documento: v0.10, approvata dal proprietario il 2026-10-31.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -128,7 +128,8 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 | F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ✅ ADR-0017, PR #9 | 1 |
 | F1.04 | **ADR della mappa delle misure + tipi posizione e durata** | ✅ ADR-0018 | 1 |
 | F1.04b | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale, battute irregolari e libere, numerazione, benchmark | ✅ ADR-0019, PR #11 | 1–2 |
-| F1.05 | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni | ⬜ | 2–3 |
+| F1.05 | **ADR della mappa dei tempi + unità del tempo reale** (tempo, secondi, campioni, fotogrammi) | ✅ ADR-0020, PR #12 | 1 |
+| F1.05b | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni, con i cambi graduali | ⬜ | 2 |
 
 Dettagli:
 
@@ -206,6 +207,18 @@ Dettagli:
   comportamento percepito. **Nota (da F1.01):** integrare un cambio graduale dà in generale un
   logaritmo, quindi i secondi dentro quei segmenti non sono razionali: F1.05 deve dichiarare fin
   dove arriva l'esattezza, prima dell'arrotondamento finale ai campioni (ADR-0015, Conseguenze).
+  **Fatto il 2026-10-31 (ADR-0020 Accepted):** decisione D05 chiusa, i cambi graduali sono
+  lineari nel **tempo reale** (accelerazione costante): le loro durate sono razionali, quindi i
+  confini restano esatti. Verificato su Friberg e Sundberg (1999): q = 2 è "lineare nel tempo" ed
+  è stata, con q = 3, la curva più apprezzata all'ascolto. Tempo come unità + BPM razionali; mappa
+  sulle posizioni scritte (l'orologio srotolato è di `playback`); campione più vicino (pareggi al
+  successivo) e fotogramma che contiene l'istante. Implementati `Tempo`, `Seconds`, `SampleRate`,
+  `FrameRate` con gli arrotondamenti.
+- **F1.05b** Implementa la mappa dei tempi di ADR-0020: segmenti costanti e graduali con istanti
+  iniziali esatti cumulati, ricerca O(log n) nei due sensi, indice di campione e di fotogramma
+  esatto anche dentro i cambi graduali (stima in `f64` + correzione esatta con l'inversa; ripiego
+  `f64` in caso di overflow, da misurare), modifiche tutto-o-niente. Test contro un oracolo,
+  test "non alloca" sulle conversioni, benchmark a lotti.
 
 #### F1-B — Il modello (`core-model`)
 
@@ -466,7 +479,7 @@ modifica.
 | D02 | Tipo razionale: nostro o crate esistente; politica di overflow | F1.01 | **chiusa** 2026-10-30: ADR-0015 |
 | D03 | Strumenti di benchmark e di test di proprietà | F1.02 | **chiusa** 2026-10-31: ADR-0016 |
 | D04 | Metri non binari (es. 4/3): sì o no | F1.04 | chiusa: sì nel tipo (ADR-0018) |
-| D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | aperta |
+| D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | chiusa: nel tempo reale (ADR-0020) |
 | D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | aperta |
 | D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | aperta |
 | D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | aperta |
@@ -505,3 +518,4 @@ raccomandato.
 | 2026-10-31 | 0.7 | F1.03b fatto (ADR-0017 Accepted, PR #9); regole dei benchmark: lotti e nome nuovo se cambia significato | proprietario |
 | 2026-10-31 | 0.8 | F1.04 fatto (ADR-0018 Accepted, tipi `Position`/`Duration`), D04 chiusa; nuovo F1.04b (la mappa) con le cadenze libere richieste dal proprietario; note per F1.06 | proprietario |
 | 2026-10-31 | 0.9 | F1.04b fatto (ADR-0019 Accepted, PR #11): suddivisione dei movimenti separata dal metro scritto; nuovo F2.22b (inserimento dei metri) con il requisito dei metri misti | proprietario |
+| 2026-10-31 | 0.10 | F1.05 fatto (ADR-0020 Accepted, PR #12), D05 chiusa; nuovo F1.05b (la mappa dei tempi) | proprietario |

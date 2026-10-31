@@ -226,7 +226,8 @@ editor e i file `.env`.
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
 cosa *non* deve fare, dipendenze ammesse), tranne `orchestra-i18n`, che funziona già. La Fase 1 li
 riempie dal basso: per ora esistono `orchestra-test-support` e, in `orchestra-core-time`, il
-tipo razionale, i tipi posizione e durata e la mappa delle misure. Le regole sulle
+tipo razionale, i tipi posizione e durata, la mappa delle misure e le unità del tempo reale. Le
+regole sulle
 dipendenze sono riassunte in `docs/ARCHITECTURE.md`; qui c'è a cosa serve ciascun crate.
 
 ### orchestra-core-time
@@ -236,8 +237,8 @@ le conversioni in secondi, campioni e fotogrammi video (ADR-0005). Le funzioni d
 verranno chiamate dal thread audio, quindi non devono allocare memoria. Nessuna dipendenza
 all'interno del workspace (in `[dev-dependencies]` solo `orchestra-test-support` e `proptest`, per
 i test). Per ora contiene il tipo razionale (passo F1.03), i tipi posizione e durata (F1.04) e la
-mappa delle misure con le suddivisioni dei movimenti (F1.04b); seguirà la mappa dei tempi con le
-conversioni (F1.05).
+mappa delle misure con le suddivisioni dei movimenti (F1.04b) e le unità del tempo reale (F1.05:
+tempo, secondi, campioni, fotogrammi); seguirà la mappa dei tempi con i cambi graduali (F1.05b).
 
 #### Il tipo razionale
 
@@ -544,6 +545,51 @@ edit_meter_change 97488 for one edit (clone, rebuild, validation)
 
 Gran parte del costo è l'aritmetica razionale esatta (i massimi comun divisori), non la ricerca.
 Una ricerca da circa mille istruzioni sta ben sotto il microsecondo sull'hardware di riferimento.
+
+#### Tempo, secondi, campioni e fotogrammi
+
+`src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che userà la mappa dei tempi
+(passo F1.05b) (ADR-0020 §2, §5, §7):
+
+- **`Tempo`**: un'unità di movimento (una `Duration`: ♩ = 1/4, ♩. = 3/8) e un numero razionale di
+  movimenti al minuto (120, oppure `185/2` per 92,5). Quello che conta per il suono è la sua
+  **velocità**, `unità × bpm / 60` semibrevi al secondo, quindi ♩ = 120 e ♩. = 80 sono scritti
+  diversamente ma vanno alla stessa velocità. A tempo costante `seconds_for` e `duration_in`
+  convertono in modo esatto nei due sensi.
+- **`Seconds`**: un istante esatto, un newtype sopra `Rational`; `to_f64` esiste solo per la
+  visualizzazione.
+- **`SampleRate`**: un numero intero di Hz, mai zero. `sample_at(t)` dà il campione **più
+  vicino**, `⌊t·rate + 1/2⌋`, con i pareggi al successivo; `time_of_sample(n)` è esattamente
+  `n/rate`.
+- **`FrameRate`**: un razionale positivo (24, 25, 30000/1001). `frame_at(t)` dà il fotogramma che
+  **contiene** `t`, `⌊t·fps⌋`; `frame_start(k)` è esattamente `k/fps`.
+
+```rust
+use orchestra_core_time::{Duration, FrameRate, Rational, SampleRate, Seconds, Tempo};
+
+let rate = SampleRate::new(48_000)?;
+let half_sample = Seconds::from_rational(Rational::new(1, 96_000)?);
+assert_eq!(rate.sample_at(half_sample)?, 1); // a tie goes to the later sample
+let ntsc = FrameRate::new(Rational::new(30_000, 1001)?)?;
+assert_eq!(ntsc.frame_at(Seconds::from_rational(Rational::ONE))?, 29); // the frame containing 1 s
+let quarter_120 = Tempo::new(Duration::from_rational(Rational::new(1, 4)?), Rational::from_integer(120)?)?;
+let dotted_80 = Tempo::new(Duration::from_rational(Rational::new(3, 8)?), Rational::from_integer(80)?)?;
+assert_eq!(quarter_120.speed()?, dotted_80.speed()?); // both 1/2 whole note per second
+```
+
+Perché due regole diverse: un campione è un istante, quindi la risposta giusta è il più vicino e
+l'errore è al massimo mezzo campione; un fotogramma è un intervallo di tempo mostrato sullo
+schermo, quindi un istante appartiene al fotogramma che lo contiene. È tutto aritmetica razionale
+esatta, quindi ogni piattaforma dà lo stesso indice. Gli indici sono `i64` e possono essere
+negativi (pre-roll).
+
+Test: `tests/clock.rs` controlla con proptest le regole di arrotondamento **per definizione** (per
+esempio `(n − 1/2)/rate ≤ t < (n + 1/2)/rate` ogni volta che `sample_at(t) = n`), che le inverse
+ricadano sul proprio indice, che le conversioni a tempo costante tornino al punto di partenza e
+che ♩ = x abbia la velocità di ♩. = 2x/3; più pareggi, istanti negativi, un'ora di NTSC ed errori
+scritti a mano. Un bug inserito apposta (arrotondare per difetto invece che al campione più
+vicino) ha fatto fallire due test. `tests/clock_no_alloc.rs` controlla che nessuna conversione
+allochi.
 
 ### orchestra-core-model
 
