@@ -4,6 +4,8 @@
   on D04, signed duration, 8 additive groups and basic bar numbering were approved before the text
   was written; free bars (meter suspension, §3), with an explicit length and counted by default,
   were requested by the owner on reviewing the draft and added before acceptance.
+- **Amended by:** ADR-0019 (§2, beat grouping separate from the written meter; beats of a bar
+  longer than its meter)
 - **Date:** 2026-10-31
 - **Completes:** ADR-0005 §2 (the meter map) and ADR-0015 §3 (the domain newtypes)
 
