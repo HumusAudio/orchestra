@@ -27,7 +27,7 @@ tests against an independent `i128` oracle (textbook formulas + Euclid), hand-wr
 and allocation-free tests; two deliberately injected bugs were caught by the oracle tests. Step
 F1.03b (`feature/f1-03b-rational-bench`, 2026-10-31) added the Gungraun benchmarks of `Rational`
 (batches of 64, `const` inputs, a case beyond 64 bits) and the **regression gate** of ADR-0017
-(Proposed, options approved by the owner): `cargo xtask bench --compare <rev>` measures the merge
+(Accepted by the owner, 2026-10-31): `cargo xtask bench --compare <rev>` measures the merge
 base and the working tree in the same run and fails above +5% instructions, unless the HEAD
 commit has the trailer `Bench-regression: accepted`; CI runs it on every branch except `main`. A
 deliberately injected regression was caught. The owner added `bench (instruction counts)` to the
@@ -81,7 +81,6 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
-- **ADR-0017** (benchmark regression gate) is Proposed: to be accepted by the owner.
 - **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions

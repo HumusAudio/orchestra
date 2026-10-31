@@ -1,6 +1,6 @@
 # ADR-0017 — Benchmark regression gate: same-job comparison with the merge base, +5% instructions
 
-- **Status:** Proposed (SCALETTA F1.03b; options approved by the owner on 2026-10-31)
+- **Status:** Accepted (owner's decision, 2026-10-31; SCALETTA F1.03b)
 - **Date:** 2026-10-31
 - **Completes:** ADR-0016 §3 (regression comparison against `main` and its thresholds)
 
