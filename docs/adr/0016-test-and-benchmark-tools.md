@@ -4,6 +4,7 @@
 - **Date:** 2026-10-31
 - **Completes:** ADR-0007 rules 1 and 3 (allocation test on the audio thread, deterministic
   benchmarks run by `cargo xtask bench`)
+- **Completed by:** ADR-0017 (the regression comparison deferred by §3)
 
 ## Context
 
