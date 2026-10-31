@@ -23,4 +23,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0013](0013-github-hosting-and-workflow.md) | GitHub hosting, protected `main`, PR workflow | Accepted |
 | [0014](0014-visual-identity-logo-and-themes.md) | Visual identity: one logo, light and dark themes | Accepted |
 | [0015](0015-rational-type.md) | The rational type: own `i64` fraction, exact `i128` intermediates, typed overflow | Accepted |
-| [0016](0016-test-and-benchmark-tools.md) | Test and benchmark tools: Gungraun, proptest, own allocation counter | Proposed |
+| [0016](0016-test-and-benchmark-tools.md) | Test and benchmark tools: Gungraun, proptest, own allocation counter | Accepted |

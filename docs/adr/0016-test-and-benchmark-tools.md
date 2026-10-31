@@ -1,7 +1,6 @@
 # ADR-0016 — Test and benchmark tools: Gungraun, proptest, own allocation counter
 
-- **Status:** Proposed (SCALETTA F1.02, decision D03; recommendations approved by the owner on
-  2026-10-31, text awaiting acceptance)
+- **Status:** Accepted (owner's decision, 2026-10-31; SCALETTA F1.02, decision D03)
 - **Date:** 2026-10-31
 - **Completes:** ADR-0007 rules 1 and 3 (allocation test on the audio thread, deterministic
   benchmarks run by `cargo xtask bench`)
