@@ -12,11 +12,12 @@
 //! | `check` | Everything CI checks: fmt, clippy, tests (nextest), cargo-deny, documentation parity, guide parity, test-only crates kept out of normal dependencies. Translation parity runs inside the tests. |
 //! | `guides` | Builds `dist/GUIDA.pdf` (it) and `dist/GUIDE.pdf` (en-US) with Typst. |
 //! | `screenshots` | Placeholder until our UI layer exists (ADR-0012: no toolkit, headless rendering to a pixmap). |
-//! | `bench` | Instruction-count benchmarks with Gungraun under Valgrind on Linux; compile-only elsewhere (ADR-0016). |
+//! | `bench` | Instruction-count benchmarks with Gungraun under Valgrind on Linux; compile-only elsewhere (ADR-0016). With `--compare <rev>`, also the regression gate against the merge base with `<rev>` (ADR-0017). |
 //!
 //! Every command prints what it runs, stops at the first failure and exits with a non-zero code,
 //! so it can be used as-is in CI.
 
+mod bench;
 mod parity;
 
 use std::env;
@@ -53,7 +54,10 @@ commands:
   guides       build dist/GUIDA.pdf and dist/GUIDE.pdf with Typst
   screenshots  (not implemented yet: needs our UI layer, ADR-0012)
   bench        instruction-count benchmarks (Gungraun + Valgrind, Linux);
-               on Windows and macOS the benchmarks are only compiled";
+               on Windows and macOS the benchmarks are only compiled
+  bench --compare <rev>
+               also measure the merge base of HEAD and <rev> and fail if an
+               instruction count grows by more than the limit (ADR-0017)";
 
 /// Program entry point: dispatches the first argument to a task.
 fn main() -> ExitCode {
@@ -63,7 +67,8 @@ fn main() -> ExitCode {
         Some("check") => check(),
         Some("guides") => guides(),
         Some("screenshots") => screenshots(),
-        Some("bench") => bench(),
+        // Everything after `bench` is that task's own options (`--compare <rev>`).
+        Some("bench") => bench::bench(&env::args().skip(2).collect::<Vec<_>>()),
         Some("help" | "--help" | "-h") => {
             println!("{USAGE}");
             Ok(())
@@ -113,6 +118,21 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
+    run_in(&root(), program, args, envs)
+}
+
+/// Like [`run_with_env`], but in the directory `dir` instead of the repository root.
+///
+/// Needed by the benchmark comparison, which builds an exported copy of an older commit in its
+/// own directory (see `bench.rs`).
+///
+/// # Errors
+/// Same as [`run`].
+fn run_in<I, S>(dir: &Path, program: &str, args: I, envs: &[(&str, &OsStr)]) -> TaskResult
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     let args: Vec<S> = args.into_iter().collect();
     let shown: Vec<String> = args
         .iter()
@@ -123,11 +143,17 @@ where
         // Writing into a `String` cannot fail: the `fmt::Result` is always `Ok`.
         let _ = write!(shown_envs, "{name}={} ", value.to_string_lossy());
     }
-    println!("\n▶ {shown_envs}{program} {}", shown.join(" "));
+    // The directory is shown only when it is not the repository root, the usual case.
+    let shown_dir = if dir == root() {
+        String::new()
+    } else {
+        format!("(in {}) ", dir.display())
+    };
+    println!("\n▶ {shown_dir}{shown_envs}{program} {}", shown.join(" "));
     let status = Command::new(program)
         .args(&args)
         .envs(envs.iter().copied())
-        .current_dir(root())
+        .current_dir(dir)
         .status()
         .map_err(|e| {
             TaskError(format!(
@@ -142,6 +168,39 @@ where
             shown.join(" ")
         )))
     }
+}
+
+/// Runs `program` with `args` in the repository root and returns its standard output, trimmed.
+///
+/// For short queries whose answer the task needs (`git rev-parse`, `git merge-base`, …); unlike
+/// [`run`], the command line is not echoed, because the output is not shown either. The
+/// program's standard error is inherited, so its own error message reaches the developer.
+///
+/// # Errors
+/// Fails if the program cannot be started, exits with a non-zero status or prints something that
+/// is not UTF-8.
+fn capture(program: &str, args: &[&str]) -> Result<String, TaskError> {
+    let output = Command::new(program)
+        .args(args)
+        .current_dir(root())
+        .stderr(std::process::Stdio::inherit())
+        .output()
+        .map_err(|e| TaskError(format!("cannot run `{program}`: {e}")))?;
+    if !output.status.success() {
+        return Err(TaskError(format!(
+            "`{program} {}` failed ({})",
+            args.join(" "),
+            output.status
+        )));
+    }
+    String::from_utf8(output.stdout)
+        .map(|s| s.trim().to_owned())
+        .map_err(|_| {
+            TaskError(format!(
+                "`{program} {}` printed non-UTF-8 output",
+                args.join(" ")
+            ))
+        })
 }
 
 /// `cargo xtask setup`: makes git use the hooks versioned in `.githooks/`.
@@ -307,60 +366,4 @@ fn check_test_only_crates() -> TaskResult {
         println!("  ok");
     }
     Ok(())
-}
-
-/// `cargo xtask bench`: runs every Gungraun benchmark of the workspace (ADR-0016 §1–§2).
-///
-/// # Linux
-/// `cargo bench --workspace --bench '*'` builds the benchmark targets in release mode and runs
-/// them; each target's `main!` (generated by Gungraun) hands the work to `gungraun-runner`, which
-/// executes every benchmark function once under Valgrind's Callgrind and prints instruction
-/// counts and the difference from the previous run (kept in `target/gungraun/`). Requires
-/// Valgrind and `gungraun-runner` of exactly the `gungraun` version in Cargo.toml (see
-/// DOCUMENTATION.md).
-///
-/// `--bench '*'` (a glob that cargo expands itself, so no shell is involved) selects only the
-/// `[[bench]]` targets: plain `cargo bench` would also run the default libtest harness of every
-/// library, which has no benchmarks and only adds noise.
-///
-/// `TMPDIR` is forwarded to the benchmarks (`GUNGRAUN_ENVS`) when it is set: Gungraun clears the
-/// environment of what it runs, and Valgrind then falls back to `/tmp` for its temporary files,
-/// which fails wherever `/tmp` is not writable (e.g. the Claude Code sandbox).
-///
-/// # Windows and macOS
-/// Valgrind does not run there, so the benchmarks are only **compiled** (`--no-run`): they cannot
-/// rot unnoticed on a platform where they cannot be measured.
-///
-/// # Errors
-/// Fails if the build fails or a benchmark fails (including a missing or mismatched runner).
-fn bench() -> TaskResult {
-    if cfg!(target_os = "linux") {
-        let tmpdir = env::var_os("TMPDIR");
-        let envs: Vec<(&str, &OsStr)> = if tmpdir.is_some() {
-            vec![("GUNGRAUN_ENVS", OsStr::new("TMPDIR"))]
-        } else {
-            Vec::new()
-        };
-        run_with_env(
-            "cargo",
-            ["bench", "--workspace", "--locked", "--bench", "*"],
-            &envs,
-        )
-    } else {
-        println!(
-            "\nbench: Valgrind is Linux-only, so on this platform the benchmarks are only \
-             compiled (ADR-0016 §2)"
-        );
-        run(
-            "cargo",
-            [
-                "bench",
-                "--workspace",
-                "--locked",
-                "--bench",
-                "*",
-                "--no-run",
-            ],
-        )
-    }
 }

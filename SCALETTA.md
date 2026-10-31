@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.6, approvata dal proprietario il 2026-10-31.**
+> **Stato di questo documento: v0.7, approvata dal proprietario il 2026-10-31.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -125,7 +125,7 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 | F1.01 | **ADR: il tipo razionale** — rappresentazione, politica di overflow, normalizzazione | ✅ ADR-0015 | 1 |
 | F1.02 | **Infrastruttura di test e benchmark**: `cargo xtask bench`, test di proprietà, contatore di allocazioni | ✅ ADR-0016 | 1–2 |
 | F1.03 | **Implementazione del tipo razionale** + test di proprietà (con oracolo) + test "non alloca" | ✅ PR #8 | 1–2 |
-| F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ⬜ | 1 |
+| F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ✅ ADR-0017, PR #9 | 1 |
 | F1.04 | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale | ⬜ | 2 |
 | F1.05 | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni | ⬜ | 2–3 |
 
@@ -166,6 +166,11 @@ Dettagli:
   Sono qui anche i benchmark che ADR-0015 §9 attribuiva a F1.03. Serve almeno un caso con valori
   oltre i 64 bit, per misurare il percorso a 128 bit del massimo comun divisore (non solo quello
   veloce a 64 bit).
+  **Fatto il 2026-10-31 (decisioni in ADR-0017):** confronto nello stesso job con la base comune
+  con `main`, soglia +5% sulle istruzioni, trailer `Bench-regression: accepted` per i peggioramenti
+  voluti, job `bench` obbligatorio nella regola di `main`. Regole per tutti i benchmark futuri:
+  ogni benchmark esegue un **lotto** di operazioni (conteggi nell'ordine delle migliaia), e un
+  benchmark che cambia significato prende un **nome nuovo**.
 - **F1.04** Casi da coprire con test: battuta in levare (anacrusi), cambi di metro, metri
   composti e additivi (3+2+2/8), metri non binari (es. 4/3, se li vogliamo: ❓), numerazione
   delle battute con eccezioni. Ricerca O(log n). Qui si progettano anche i **tipi specifici**
@@ -468,3 +473,4 @@ raccomandato.
 | 2026-10-30 | 0.4 | F1.01 fatto (ADR-0015 Accepted), D02 chiusa; nota sull'esattezza dei cambi di tempo graduali in F1.05 | proprietario |
 | 2026-10-31 | 0.5 | F1.02 fatto (ADR-0016 Accepted), D03 chiusa; F1.03 diviso in F1.03 (tipo + oracolo `i128`) e F1.03b (benchmark + confronto con `main`) | proprietario |
 | 2026-10-31 | 0.6 | F1.03 fatto (PR #8) con le scelte d'interfaccia approvate; note su F1.03b (benchmark di ADR-0015 §9, caso oltre i 64 bit) e F1.04 (tipi specifici, eventuale `rem`) | proprietario |
+| 2026-10-31 | 0.7 | F1.03b fatto (ADR-0017 Accepted, PR #9); regole dei benchmark: lotti e nome nuovo se cambia significato | proprietario |

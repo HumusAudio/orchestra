@@ -24,8 +24,17 @@ that day: base type only (the position/duration newtypes are designed in F1.04),
 `Display`/`FromStr` until F1.15), English developer-facing `Display` on `RationalError` (the UI will
 map variants to Fluent keys), `const fn` constructors and arithmetic. It is covered by property
 tests against an independent `i128` oracle (textbook formulas + Euclid), hand-written edge cases
-and allocation-free tests; two deliberately injected bugs were caught by the oracle tests. Next:
-F1.03b (benchmarks of the rational type and the CI comparison against `main` with thresholds).
+and allocation-free tests; two deliberately injected bugs were caught by the oracle tests. Step
+F1.03b (`feature/f1-03b-rational-bench`, 2026-10-31) added the Gungraun benchmarks of `Rational`
+(batches of 64, `const` inputs, a case beyond 64 bits) and the **regression gate** of ADR-0017
+(Accepted by the owner, 2026-10-31): `cargo xtask bench --compare <rev>` measures the merge
+base and the working tree in the same run and fails above +5% instructions, unless the HEAD
+commit has the trailer `Bench-regression: accepted`; CI runs it on every branch except `main`. A
+deliberately injected regression was caught. The owner added `bench (instruction counts)` to the
+required checks of the `main` ruleset (verified with `gh api`, 2026-10-31). The first CI run found
+that sharing `target/` between the base export and the current tree made cargo run the base's
+benchmark binaries for both; the base now builds in `target/bench-base-target/`. Next: F1.04
+(meter map).
 
 | Step | What | Status |
 |---|---|---|
@@ -72,9 +81,10 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
-- **For F1.03b** (ADR-0016 §3): design the benchmark regression comparison against `main` and its
-  thresholds; benchmark add, sub, mul, cmp and reduction of `Rational` (ADR-0015 §9 said "F1.03";
-  moved to F1.03b by the approved split).
+- **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
+  equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
+  could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions
+  per operation); the 128-bit gcd costs ~5× the 64-bit one. Any change is judged by the gate.
 - **For F1.04:** domain newtypes over `Rational` (position vs duration, ADR-0015 §3); a remainder
   operation if the meter map needs one.
 - **Concrete project file format** (ADR-0010, Phase 1).
@@ -117,6 +127,11 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   zero divisor) but accepts `wrapping_div_euclid`, `wrapping_neg/abs/shr/shl` and all `checked_*`.
   Helper functions in integration tests are not covered by clippy.toml's `allow-unwrap-in-tests`:
   those files lift `unwrap_used` with a file-level `#![allow(..., reason = ...)]`.
+- Every Gungraun runner option has an environment variable (`GUNGRAUN_BASELINE`,
+  `GUNGRAUN_SAVE_BASELINE`, `GUNGRAUN_CALLGRIND_LIMITS`, `GUNGRAUN_HOME`, …): xtask passes them
+  that way through `cargo bench`. Baselines are keyed by benchmark **name**: rename a benchmark
+  whose meaning changes. Small benchmarks drift by an instruction when unrelated code in the same
+  binary changes: always benchmark batches (ADR-0017 §4).
 - Gungraun's `#[library_benchmark]` rejects doc comments on benchmark functions: use `//` comments.
 - `rustfmt` on a single file fails when a `mod` it declares has no file yet: write module files
   first, or run `cargo fmt --all` afterwards.

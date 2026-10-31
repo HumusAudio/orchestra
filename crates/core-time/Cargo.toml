@@ -17,6 +17,13 @@ publish.workspace = true
 [dev-dependencies]
 orchestra-test-support.workspace = true
 proptest.workspace = true
+gungraun.workspace = true
+
+# Instruction-count benchmarks of the rational type (ADR-0016 §1, SCALETTA F1.03b). Gungraun
+# replaces the default libtest benchmark harness with its own `main!`.
+[[bench]]
+name = "rational"
+harness = false
 
 [lints]
 workspace = true

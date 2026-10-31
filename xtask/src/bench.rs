@@ -1,0 +1,298 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! `cargo xtask bench`: the instruction-count benchmarks (ADR-0016) and the regression gate
+//! against an older commit (ADR-0017).
+//!
+//! # Two modes
+//! - `cargo xtask bench` runs every Gungraun benchmark of the workspace and prints the counts,
+//!   with the difference from the previous local run. Nothing is enforced.
+//! - `cargo xtask bench --compare <rev>` first measures the **merge base** of `HEAD` and `<rev>`
+//!   (for a feature branch and `origin/main`: the commit of `main` the branch started from, or
+//!   last merged), then measures the working tree against it and **fails** if an instruction
+//!   count grew by more than [`INSTRUCTION_LIMIT`]. This is what CI runs on every branch except
+//!   `main` (ADR-0017).
+//!
+//! # Why measure both sides in the same run?
+//! Instruction counts are deterministic for a given binary, but they change with the compiler,
+//! Valgrind and the machine image. Measuring the base commit in the same job, with the same
+//! tools, is what makes the two numbers comparable; a baseline cached from an earlier run (or
+//! committed to the repository) could have been produced by different tools and would report
+//! changes nobody made (ADR-0017, alternatives).
+//!
+//! # Why the merge base and not the tip of `<rev>`?
+//! A branch must be judged on its own changes. If `main` moved on after the branch was created,
+//! its tip contains other people's changes, and a regression (or an improvement) there would be
+//! wrongly attributed to the branch.
+//!
+//! # How the base commit is built without touching `.git`
+//! `git archive <commit> | tar -x` exports the files of that commit into
+//! `target/bench-base/`, a plain directory. A `git worktree` would be the classic tool, but it
+//! writes into `.git/` (read-only in the development sandbox, see ROADMAP) and must be cleaned
+//! up explicitly.
+//!
+//! The export is built in its **own** target directory, `target/bench-base-target/`. Sharing
+//! `target/` with the current tree looks attractive (dependencies compiled once) but is wrong:
+//! cargo names the artifacts of workspace members from paths *relative to the workspace root*,
+//! so both trees produce the same file names, and cargo's freshness check (based on file
+//! modification times) can then take the base commit's benchmark binaries for up to date and run
+//! them for the current tree. That happened in CI during F1.03b: the "current" run reported the
+//! benchmark names of the base commit. The separate directory costs one more build of the
+//! dependencies and is kept between local runs, so later comparisons are incremental.
+//!
+//! # Accepting a deliberate regression
+//! Sometimes a slower result is the right one (a necessary check, a more general algorithm). If
+//! the message of the `HEAD` commit has the trailer `Bench-regression: accepted` (with the reason
+//! written in the message body), the comparison is still run and printed, but no limit is
+//! applied, so it cannot fail. A trailer rather than a pull-request label because CI runs on
+//! `push` events, which do not carry labels (ADR-0017).
+
+use std::env;
+use std::ffi::{OsStr, OsString};
+use std::fs;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use crate::{TaskError, TaskResult, capture, root, run, run_in};
+
+/// The regression limit passed to Gungraun (`GUNGRAUN_CALLGRIND_LIMITS`): the number of
+/// instructions executed (`ir`) may grow by at most 5% against the base commit (ADR-0017).
+///
+/// Only instructions are checked: they are the deterministic metric of ADR-0007. Cache and cycle
+/// figures are Callgrind *estimates* and stay informative only. Improvements never fail.
+pub(crate) const INSTRUCTION_LIMIT: &str = "ir=5%";
+
+/// Key of the commit trailer that accepts a deliberate regression (see the module docs).
+const ACCEPT_TRAILER_KEY: &str = "Bench-regression";
+
+/// The only value of [`ACCEPT_TRAILER_KEY`] that accepts a regression (compared without regard
+/// to case). Any other value is ignored: a typo in the trailer leaves the gate **on**, which is
+/// the safe direction (a false failure is visible, a false pass is not).
+const ACCEPT_TRAILER_VALUE: &str = "accepted";
+
+/// Name of the Gungraun baseline holding the base commit's numbers.
+const BASELINE: &str = "base";
+
+/// Entry point of `cargo xtask bench [--compare <rev>]`; `args` are the arguments after `bench`.
+///
+/// # Errors
+/// An unknown option, or any failure of the benchmark run or of the comparison (see
+/// [`compare`]).
+pub(crate) fn bench(args: &[String]) -> TaskResult {
+    match args {
+        [] => run_benchmarks(&root(), &[]),
+        [flag, rev] if flag == "--compare" => compare(rev),
+        _ => Err(TaskError(
+            "usage: cargo xtask bench [--compare <rev>]".to_owned(),
+        )),
+    }
+}
+
+/// Runs every benchmark target of the workspace rooted at `dir`, with the extra environment
+/// variables `extra` (on top of the inherited environment).
+///
+/// # Linux
+/// `cargo bench --workspace --bench '*'` builds the benchmark targets in release mode and runs
+/// them; each target's `main!` (generated by Gungraun) hands the work to `gungraun-runner`, which
+/// executes every benchmark function once under Valgrind's Callgrind and prints instruction
+/// counts. Requires Valgrind and `gungraun-runner` of exactly the `gungraun` version in
+/// Cargo.toml (see DOCUMENTATION.md).
+///
+/// `--bench '*'` (a glob that cargo expands itself, so no shell is involved) selects only the
+/// `[[bench]]` targets: plain `cargo bench` would also run the default libtest harness of every
+/// library, which has no benchmarks and only adds noise.
+///
+/// `TMPDIR` is forwarded to the benchmarks (`GUNGRAUN_ENVS`) when it is set: Gungraun clears the
+/// environment of what it runs, and Valgrind then falls back to `/tmp` for its temporary files,
+/// which fails wherever `/tmp` is not writable (e.g. the Claude Code sandbox).
+///
+/// # Windows and macOS
+/// Valgrind does not run there, so the benchmarks are only **compiled** (`--no-run`): they cannot
+/// rot unnoticed on a platform where they cannot be measured.
+///
+/// # Errors
+/// Fails if the build fails or a benchmark fails (including a missing or mismatched runner, and
+/// a regression beyond the limit when `extra` sets one).
+fn run_benchmarks(dir: &Path, extra: &[(&str, OsString)]) -> TaskResult {
+    if !cfg!(target_os = "linux") {
+        println!(
+            "\nbench: Valgrind is Linux-only, so on this platform the benchmarks are only \
+             compiled (ADR-0016 §2)"
+        );
+        return run(
+            "cargo",
+            [
+                "bench",
+                "--workspace",
+                "--locked",
+                "--bench",
+                "*",
+                "--no-run",
+            ],
+        );
+    }
+    let mut envs: Vec<(&str, &OsStr)> = extra.iter().map(|(k, v)| (*k, v.as_os_str())).collect();
+    if env::var_os("TMPDIR").is_some() {
+        envs.push(("GUNGRAUN_ENVS", OsStr::new("TMPDIR")));
+    }
+    run_in(
+        dir,
+        "cargo",
+        ["bench", "--workspace", "--locked", "--bench", "*"],
+        &envs,
+    )
+}
+
+/// `cargo xtask bench --compare <rev>`: the regression gate of ADR-0017.
+///
+/// Steps:
+/// 1. find the merge base of `HEAD` and `rev`;
+/// 2. export it to `target/bench-base/`, build it in `target/bench-base-target/` and benchmark
+///    it, saving the numbers as the Gungraun baseline [`BASELINE`] in a fresh
+///    `target/gungraun-compare/`;
+/// 3. benchmark the working tree against that baseline, with [`INSTRUCTION_LIMIT`] unless the
+///    `HEAD` commit accepts a regression.
+///
+/// Benchmarks that do not exist in the base commit have no baseline: Gungraun records them and
+/// they pass. The working tree (not only `HEAD`) is measured, so the gate can also be tried
+/// locally on uncommitted changes, e.g. `cargo xtask bench --compare HEAD`.
+///
+/// # Errors
+/// Fails if a git command fails (unknown `rev`, shallow clone without the base commit), if the
+/// base commit cannot be benchmarked (unless `HEAD` accepts a regression), or if an instruction
+/// count grows beyond the limit.
+fn compare(rev: &str) -> TaskResult {
+    if !cfg!(target_os = "linux") {
+        // Nothing can be measured: fall back to compiling, as plain `bench` does.
+        return run_benchmarks(&root(), &[]);
+    }
+    let root = root();
+    let base = capture("git", &["merge-base", "HEAD", rev])?;
+    let short = base.get(..12).unwrap_or(&base);
+    println!("\n▶ comparing the working tree with {short} (merge base of HEAD and {rev})");
+
+    // Fresh directories every time: a stale export or a stale baseline from an earlier
+    // comparison against another commit would give silently wrong results.
+    let target = root.join("target");
+    let base_dir = target.join("bench-base");
+    // Deliberately NOT `target/` itself: see "How the base commit is built" in the module docs.
+    // Not removed between runs, so that rebuilding the base is incremental.
+    let base_target = target.join("bench-base-target");
+    let home = target.join("gungraun-compare");
+    for dir in [&base_dir, &home] {
+        if dir.exists() {
+            fs::remove_dir_all(dir)
+                .map_err(|e| TaskError(format!("cannot remove {}: {e}", dir.display())))?;
+        }
+    }
+    fs::create_dir_all(&base_dir)
+        .map_err(|e| TaskError(format!("cannot create {}: {e}", base_dir.display())))?;
+    export_commit(&base, &base_dir)?;
+
+    let accepted = regression_accepted()?;
+
+    // Step 2: the base commit, measured and saved as the baseline. If it cannot be measured (for
+    // example it no longer builds after a toolchain bump), that is an error, unless HEAD accepts
+    // a regression: then there is nothing to enforce anyway, so the working tree is measured
+    // without a baseline and the reason is printed.
+    let base_run = run_benchmarks(
+        &base_dir,
+        &[
+            ("CARGO_TARGET_DIR", base_target.into_os_string()),
+            ("GUNGRAUN_HOME", home.clone().into_os_string()),
+            ("GUNGRAUN_SAVE_BASELINE", OsString::from(BASELINE)),
+        ],
+    );
+    if let Err(e) = base_run {
+        if !accepted {
+            return Err(e);
+        }
+        println!(
+            "\n▶ the base commit could not be measured ({e}); HEAD has `{ACCEPT_TRAILER_KEY}: \
+             {ACCEPT_TRAILER_VALUE}`, so the working tree is measured without a comparison"
+        );
+    }
+
+    // Step 3: the working tree, compared with the baseline. The marker line below is what CI
+    // looks for to put only this part of the output in the job summary: keep the two in sync.
+    println!("\n▶ measuring the working tree against {short}");
+    let mut envs = vec![
+        ("GUNGRAUN_HOME", home.into_os_string()),
+        ("GUNGRAUN_BASELINE", OsString::from(BASELINE)),
+    ];
+    if accepted {
+        println!(
+            "\n▶ HEAD has `{ACCEPT_TRAILER_KEY}: {ACCEPT_TRAILER_VALUE}`: the comparison is shown \
+             but no limit is applied (ADR-0017)"
+        );
+    } else {
+        envs.push((
+            "GUNGRAUN_CALLGRIND_LIMITS",
+            OsString::from(INSTRUCTION_LIMIT),
+        ));
+    }
+    run_benchmarks(&root, &envs).map_err(|e| {
+        if accepted {
+            e
+        } else {
+            TaskError(format!(
+                "{e}\n\nIf an instruction count grew by more than the limit ({INSTRUCTION_LIMIT}) \
+                 on purpose, explain why in the commit message and add the trailer \
+                 `{ACCEPT_TRAILER_KEY}: {ACCEPT_TRAILER_VALUE}` (ADR-0017)."
+            ))
+        }
+    })
+}
+
+/// Exports the files of `commit` into the existing, empty directory `dest`, with
+/// `git archive <commit> | tar -x -C <dest>`.
+///
+/// The pipe is built in Rust (no shell), so no quoting issues arise. `tar` is present on every
+/// Linux system, which is the only platform where the comparison runs.
+///
+/// # Errors
+/// Fails if either program cannot be started or exits with a non-zero status.
+fn export_commit(commit: &str, dest: &Path) -> TaskResult {
+    println!("\n▶ git archive {commit} | tar -x -C {}", dest.display());
+    let mut archive = Command::new("git")
+        .args(["archive", "--format=tar", commit])
+        .current_dir(root())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| TaskError(format!("cannot run `git archive`: {e}")))?;
+    let Some(stdout) = archive.stdout.take() else {
+        return Err(TaskError("`git archive` has no output pipe".to_owned()));
+    };
+    let untar = Command::new("tar")
+        .arg("-x")
+        .arg("-C")
+        .arg(dest)
+        .stdin(stdout)
+        .status()
+        .map_err(|e| TaskError(format!("cannot run `tar`: {e}")))?;
+    let archived = archive
+        .wait()
+        .map_err(|e| TaskError(format!("`git archive` did not finish: {e}")))?;
+    if archived.success() && untar.success() {
+        Ok(())
+    } else {
+        Err(TaskError(format!(
+            "exporting {commit} failed (git archive: {archived}, tar: {untar})"
+        )))
+    }
+}
+
+/// Whether the `HEAD` commit accepts a regression: its message has the trailer
+/// `Bench-regression: accepted` (value compared without regard to case).
+///
+/// Git itself parses the trailers (`%(trailers:key=…,valueonly)`), with the same rules the
+/// `commit-msg` hook relies on for `User-visible`: the trailer must be in the last paragraph.
+///
+/// # Errors
+/// Fails if `git log` fails.
+fn regression_accepted() -> Result<bool, TaskError> {
+    let format = format!("--format=%(trailers:key={ACCEPT_TRAILER_KEY},valueonly)");
+    let values = capture("git", &["log", "-1", &format])?;
+    Ok(values
+        .lines()
+        .any(|v| v.trim().eq_ignore_ascii_case(ACCEPT_TRAILER_VALUE)))
+}

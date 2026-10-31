@@ -296,6 +296,7 @@ dependencies = [
 name = "orchestra-core-time"
 version = "0.0.0"
 dependencies = [
+ "gungraun",
  "orchestra-test-support",
  "proptest",
 ]
