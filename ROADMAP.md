@@ -89,6 +89,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - `sandbox.excludedCommands` only applies to a command run **on its own**: `cd … && git push`
   and `gh … | grep` stay sandboxed (and `gh` then has no token: anonymous rate limit, no job
   logs). Run `git push`, `gh …` and `cargo fetch` alone; the cwd is already the repository.
+  A `gh` command spanning several lines (e.g. `--body "…"` with newlines) is not recognised as
+  excluded either and fails with HTTP 401: write the text to a file and use `--body-file`.
 - `.git/config`, `~/.cargo` and `~/.rustup` are read-only inside the sandbox: new dependencies
   are downloaded with `cargo fetch` (then builds work offline), toolchain updates are done by the
   owner, `cargo xtask setup` must run outside the sandbox.
