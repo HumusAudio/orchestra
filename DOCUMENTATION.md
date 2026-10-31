@@ -672,6 +672,7 @@ Measuring the working tree, not only `HEAD`, means the gate can be tried before 
 `cargo xtask bench --compare HEAD` compares uncommitted changes with the last commit. In CI the
 gate runs on every branch except `main`, and the `bench (instruction counts)` job is a required
 check of the `main` ruleset, so a branch that regresses cannot be merged without the trailer.
+The price is small: in the CI runs of F1.03b the job took about 49 s instead of 35 s.
 
 A benchmark whose meaning changes gets a new name. In F1.03b the three benchmarks of the
 counter became batches and were renamed (`snapshot` → `snapshots`, and so on): Gungraun keys

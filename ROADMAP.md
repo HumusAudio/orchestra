@@ -30,8 +30,11 @@ F1.03b (`feature/f1-03b-rational-bench`, 2026-10-31) added the Gungraun benchmar
 (Proposed, options approved by the owner): `cargo xtask bench --compare <rev>` measures the merge
 base and the working tree in the same run and fails above +5% instructions, unless the HEAD
 commit has the trailer `Bench-regression: accepted`; CI runs it on every branch except `main`. A
-deliberately injected regression was caught. The owner is adding `bench (instruction counts)` to
-the required checks of the `main` ruleset. Next: F1.04 (meter map).
+deliberately injected regression was caught. The owner added `bench (instruction counts)` to the
+required checks of the `main` ruleset (verified with `gh api`, 2026-10-31). The first CI run found
+that sharing `target/` between the base export and the current tree made cargo run the base's
+benchmark binaries for both; the base now builds in `target/bench-base-target/`. Next: F1.04
+(meter map).
 
 | Step | What | Status |
 |---|---|---|
@@ -78,9 +81,7 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
-- **ADR-0017** (benchmark regression gate) is Proposed: to be accepted by the owner; the
-  `bench (instruction counts)` required check must be verified in the ruleset (`gh api
-  repos/HumusAudio/orchestra/rulesets/26040564`).
+- **ADR-0017** (benchmark regression gate) is Proposed: to be accepted by the owner.
 - **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions

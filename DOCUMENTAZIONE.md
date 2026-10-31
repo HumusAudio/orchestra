@@ -698,7 +698,8 @@ Misurare l'albero di lavoro, e non solo `HEAD`, permette di provare il controllo
 committare: `cargo xtask bench --compare HEAD` confronta le modifiche non ancora committate con
 l'ultimo commit. Nella CI il controllo gira su ogni branch tranne `main`, e il job
 `bench (instruction counts)` è un controllo obbligatorio della regola di `main`, quindi un branch
-che peggiora non si può unire senza il trailer.
+che peggiora non si può unire senza il trailer. Il prezzo è piccolo: nelle esecuzioni della CI di
+F1.03b il job ha impiegato circa 49 s invece di 35 s.
 
 Un benchmark il cui significato cambia prende un nome nuovo. In F1.03b i tre benchmark del
 contatore sono diventati lotti e sono stati rinominati (`snapshot` → `snapshots`, e così via):

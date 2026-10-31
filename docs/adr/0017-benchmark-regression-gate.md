@@ -66,7 +66,8 @@ Facts that shape the decision:
    labels are unavailable on `push` events, and because the project already uses trailers
    (`User-visible`, ADR-0009). Any other value leaves the gate on.
 7. **The gate is enforced by branch protection.** The `bench (instruction counts)` job is a
-   required status check of the `main` ruleset (added by the owner on 2026-10-31), so a branch
+   required status check of the `main` ruleset (added by the owner on 2026-10-31, verified with
+   `gh api`), so a branch
    that regresses cannot be merged without the trailer.
 8. **Visibility.** The job summary shows the second half of the comparison (the pushed commit
    against the base, with the percentage differences); the full output and every `summary.json`
@@ -93,8 +94,7 @@ Facts that shape the decision:
 ## Consequences
 
 - The `bench` job does two builds and two benchmark runs and clones the whole history, so it
-  takes longer on branches than on `main` (measured in this step's CI runs, see the developer
-  documentation).
+  takes longer on branches than on `main`: about 49 s instead of 35 s in this step's CI runs.
 - The comparison only runs on Linux (Valgrind); `cargo xtask bench --compare` on Windows and
   macOS only compiles the benchmarks, like plain `bench`.
 - Locally, `cargo xtask bench --compare main` (or `--compare HEAD` for uncommitted changes) shows
