@@ -1,8 +1,8 @@
 # ADR-0019 — Beat grouping: how a bar is counted, separate from how its meter is written
 
-- **Status:** Proposed (SCALETTA F1.04b; content approved by the owner on 2026-10-31 before the
-  text was written: separate grouping with its own unit, per section and per bar, up to 16
-  groups, default rule unchanged)
+- **Status:** Accepted (owner's decision, 2026-10-31; SCALETTA F1.04b). The content (separate
+  grouping with its own unit, per section and per bar, up to 16 groups, default rule unchanged,
+  the interface requirement) was approved before the text was written.
 - **Date:** 2026-10-31
 - **Amends:** ADR-0018 §2 ("beats are derived, not stored"); the rest of ADR-0018 is unchanged
 
