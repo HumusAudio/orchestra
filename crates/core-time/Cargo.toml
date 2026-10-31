@@ -25,5 +25,10 @@ gungraun.workspace = true
 name = "rational"
 harness = false
 
+# Instruction-count benchmarks of the meter map lookups and of one edit (SCALETTA F1.04b).
+[[bench]]
+name = "meter_map"
+harness = false
+
 [lints]
 workspace = true

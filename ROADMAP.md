@@ -43,8 +43,20 @@ meter suspended: added as `Free` irregular bars (no beats, the meter resumes aft
 explicit length and counted by default. **ADR-0018 Accepted** (2026-10-31, SCALETTA v0.8). Step
 F1.04 (done): the ADR and the types `Position`/`Duration` in `core-time` (`src/position.rs`), with
 forwarding/algebra property tests, `compile_fail` doctests for `position + position`, and
-allocation-free tests; an injected bug was caught. **Next: F1.04b** on the same branch: `Meter`,
-irregular and free bars, the meter map with O(log n) lookups, bar numbering, tests and benchmarks.
+allocation-free tests; an injected bug was caught (PR #10, merged). Step **F1.04b**
+(`feature/f1-04b-meter-map`, 2026-10-31): before starting, the owner chose that a bar longer than
+its meter repeats the beat pattern with the numbers continuing, and asked that the beat grouping
+be changeable per bar or per section independently of the written meter (9/8 counted 3+2+2+2):
+**ADR-0019** (Proposed, waiting for the owner's review) amends ADR-0018 §2 with an optional
+`BeatGrouping` (own unit, so hemiola works; up to 16 groups) on a meter change or on one bar; the
+default rule stays as it was (7/8 counts seven eighths), and the interface must ask for the
+grouping when a mixed meter is entered. Implemented in `core-time`: `Meter`, `BeatGrouping`
+(`src/meter.rs`) and `MeterMap` (`src/meter_map.rs`) with all-or-nothing edits that return the
+previous value, O(log n) allocation-free lookups (bar ⇄ position, beat ⇄ position, beat range,
+displayed number), free bars without beats. Tests: 20 hand-written cases, a property test against a
+bar-by-bar naive oracle (two injected bugs caught), an allocation-free test; benchmarks in batches
+(≈ 100–1140 instructions per lookup, ≈ 97 000 per edit on a 150-segment map). Next: the owner's
+review of ADR-0019, PR, then F1.05 (tempo map).
 
 | Step | What | Status |
 |---|---|---|
@@ -95,8 +107,12 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions
   per operation); the 128-bit gcd costs ~5× the 64-bit one. Any change is judged by the gate.
-- **For F1.04b:** no `rem` on `Rational` for now (`checked_ratio` + `floor` suffice); revisit
-  only if the meter map benchmark says so.
+- **ADR-0019 (Proposed):** owner's review pending. No `rem` was needed on `Rational`
+  (`checked_ratio` + `floor` in the meter map).
+- **Interface requirement (owner, 2026-10-31, ADR-0019):** when a mixed meter (5/8, 7/8, 11/8…)
+  is entered, ask at once which grouping to use, listing the options (5/8: 2+3, 3+2, keep 5;
+  7/8: 2+2+3, 3+2+2, 2+3+2, keep 7; …), and remind that it can be changed bar by bar later. No
+  SCALETTA step covers meter entry yet: one is proposed for F2B.
 - **For F1.06:** absolute vs bar-relative note positions (ADR-0018 leaves it open; changing a meter
   must not shift every later note by accident); the commands that lengthen a free bar when notes
   are entered past its end.

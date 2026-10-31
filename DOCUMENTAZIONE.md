@@ -226,7 +226,7 @@ editor e i file `.env`.
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
 cosa *non* deve fare, dipendenze ammesse), tranne `orchestra-i18n`, che funziona già. La Fase 1 li
 riempie dal basso: per ora esistono `orchestra-test-support` e, in `orchestra-core-time`, il
-tipo razionale e i tipi posizione e durata. Le regole sulle
+tipo razionale, i tipi posizione e durata e la mappa delle misure. Le regole sulle
 dipendenze sono riassunte in `docs/ARCHITECTURE.md`; qui c'è a cosa serve ciascun crate.
 
 ### orchestra-core-time
@@ -235,8 +235,8 @@ Il tempo musicale esatto: posizioni e durate come frazioni di semibreve, l'unica
 le conversioni in secondi, campioni e fotogrammi video (ADR-0005). Le funzioni di conversione
 verranno chiamate dal thread audio, quindi non devono allocare memoria. Nessuna dipendenza
 all'interno del workspace (in `[dev-dependencies]` solo `orchestra-test-support` e `proptest`, per
-i test). Per ora contiene il tipo razionale (passo F1.03) e i tipi posizione e durata (F1.04,
-prima parte); seguiranno la mappa delle misure (resto di F1.04) e la mappa dei tempi con le
+i test). Per ora contiene il tipo razionale (passo F1.03), i tipi posizione e durata (F1.04) e la
+mappa delle misure con le suddivisioni dei movimenti (F1.04b); seguirà la mappa dei tempi con le
 conversioni (F1.05).
 
 #### Il tipo razionale
@@ -415,6 +415,135 @@ per cui i tipi esistono (`(p + d) − p = d`, `a − b = −(b − a)`, rapporto
 casi musicali scritti a mano. Un bug inserito apposta (`checked_sub` che somma invece di
 sottrarre) è stato preso da due proprietà insieme. `tests/position_no_alloc.rs` controlla con
 l'allocatore contatore che nulla allochi, sui percorsi di successo e di errore.
+
+#### Metri e suddivisioni dei movimenti
+
+`src/meter.rs` contiene due tipi piccoli che rispondono a due domande diverse su una battuta
+(ADR-0018 §2, ADR-0019):
+
+- **`Meter`**: come la battuta è *scritta*, l'indicazione di tempo stampata nella partitura. Da 1
+  a 8 gruppi al numeratore e un denominatore: 4/4 è `[4]/4`, l'additivo 3+2+2/8 è `[3, 2, 2]/8`.
+  Si accetta qualunque denominatore da 1 a 65535, non solo le potenze di due (decisione D04): 4/3
+  dura quattro minime di terzina.
+- **`BeatGrouping`**: come la battuta è *contata*, se la regola predefinita non è quella che
+  l'utente vuole. Da 1 a 16 movimenti, ciascuno di `gruppo/unità` semibrevi, con un'unità propria:
+
+```rust
+use orchestra_core_time::{BeatGrouping, Meter, MeterChange, MeterMap};
+
+let nine_eight = Meter::new(&[9], 8)?; // written "9/8"
+let mixed = Meter::new(&[3, 2, 2], 8)?; // written "3+2+2/8"
+// 9/8 still written "9/8", but counted 3+2+2+2 for the whole section:
+let counted = BeatGrouping::new(&[3, 2, 2, 2], 8)?;
+let map = MeterMap::new(MeterChange::with_grouping(nine_eight, counted))?;
+// A 3/4 bar counted as two dotted quarters (hemiola): the grouping has its own unit.
+let hemiola = BeatGrouping::new(&[3, 3], 8)?;
+```
+
+Entrambi tengono i gruppi in un array fisso (8 o 16 posti) più una lunghezza, quindi sono `Copy` e
+non allocano mai. I posti non usati sono sempre zero: è questo che rende corretti l'uguaglianza e
+l'hash derivati. Gli ingressi non validi (nessun gruppo, troppi, un gruppo zero, un denominatore
+zero) sono un `MeterError`. `Debug` scrive `Meter(3+2+2/8)` e `BeatGrouping(3+2+2+2/8)`.
+
+Il **conteggio predefinito**, usato quando non c'è una suddivisione, sta nella mappa delle misure:
+un metro additivo ha un movimento per gruppo scritto; un numeratore unico multiplo di 3 maggiore di
+3 è composto (6/8 in due semiminime puntate, 12/8 in quattro); tutto il resto è semplice, un
+movimento per unità. Quindi 7/8 conta sette crome: il proprietario ha scelto di non indovinare
+2+2+3 o 3+2+2, e l'interfaccia chiederà quale suddivisione usare quando si inserisce un metro misto
+(ADR-0019, Conseguenze).
+
+#### La mappa delle misure
+
+`src/meter_map.rs` trasforma battute e movimenti in posizioni e viceversa. Conserva i **dati
+sorgente** che il documento memorizza e i comandi modificano, in liste ordinate per battuta:
+
+- i cambi di metro (`MeterChange`: un metro e una suddivisione facoltativa per la sua sezione), il
+  primo sempre alla battuta 0;
+- le battute irregolari (`IrregularBar`: una lunghezza esplicita e un `BarKind`): `AlignStart`
+  (l'inizio di una battuta nominale, per esempio la battuta incompleta prima di un ritornello, o
+  una battuta più lunga del suo metro), `AlignEnd` (la fine di una battuta nominale: il levare),
+  `Free` (metro sospeso: una cadenza libera);
+- le suddivisioni per singola battuta, che vincono su quella della sezione;
+- le regole di numerazione: battute non contate e ripartenze.
+
+Da questi ricava i **segmenti**, serie di battute con lo stesso metro, la stessa lunghezza e lo
+stesso conteggio, ciascuno con la sua prima battuta e la sua posizione iniziale già sommata:
+
+```text
+bars:      0      1    2    3    4    5   …      (bar 0 a 1/4 pickup, 3/4 from bar 3)
+segments: [pickup][ 4/4 × 2 ][ 3/4 forever  …
+starts:    0      1/4        9/4
+```
+
+Così ogni ricerca è una ricerca binaria (`partition_point`) seguita da una o due divisioni
+esatte: `locate` (posizione → battuta e scostamento), `bar_start`, `position_of`, `beat_of` (punto
+→ movimento, oppure `None` in una battuta libera), `beat_position` (l'inversa), `beat_range` (i
+movimenti che iniziano dentro una battuta, per il metronomo), `display_number`. Nessuna alloca
+(`tests/meter_map_no_alloc.rs`). L'ultimo segmento continua per sempre: dove finisce la partitura
+è affare del modello.
+
+Alcune regole da sapere:
+
+- **I movimenti si numerano da 0** e si contano dall'inizio virtuale della battuta nominale. Un
+  levare di semiminima in 4/4 è il movimento 3 (il "quarto movimento" del musicista), e
+  `beat_range` dà `3..4`; un levare di croma dà l'intervallo vuoto `4..4`, perché l'unico
+  movimento che tocca è iniziato prima.
+- **Una battuta più lunga del suo metro** ripete lo schema e continua a contare (opzione "a" del
+  proprietario): un 5/4 in 4/4 ha i movimenti `0..5`; un 3+2+2/8 allungato a 9/8 ha un quarto
+  movimento di 3/8 troncato a 2/8 dalla stanghetta.
+- **Le battute libere** non hanno movimenti, ma il metro resta registrato e riprende alla prima
+  battuta regolare; un cambio di metro messo su una battuta libera è "il metro dopo la cadenza".
+  Nella numerazione contano, salvo che siano marcate come non contate.
+- **Numerazione:** la battuta 0 ha il numero 0 se è un levare, altrimenti 1; le battute non
+  contate non hanno numero e non fanno avanzare il conteggio; una ripartenza fissa il numero della
+  sua battuta.
+
+**Le modifiche sono tutto o niente.** Ogni modifica (`set_meter_change`, `set_irregular_bar`,
+`set_bar_grouping` e i loro `remove_*`) lavora su una copia dei dati sorgente, ricostruisce i
+segmenti e convalida tutto; solo allora sostituisce la mappa:
+
+```rust
+fn edit<T>(&mut self, change: impl FnOnce(&mut Sources) -> T) -> Result<T, MeterMapError> {
+    let mut sources = self.sources.clone();
+    let result = change(&mut sources);
+    let segments = build_segments(&sources)?;
+    self.sources = sources;
+    self.segments = segments;
+    Ok(result)
+}
+```
+
+Quindi una modifica che lascerebbe incoerente qualche battuta (un levare ora più lungo di un nuovo
+metro, una suddivisione per battuta che non torna più) restituisce un `MeterMapError` tipizzato e
+la mappa resta esattamente com'era, come richiedono i comandi di ADR-0003. Ogni modifica
+restituisce il valore precedente, che è ciò che un annulla memorizzerà. La ricostruzione costa
+O(n log n) nel numero di voci sorgente e alloca, il che va bene sul percorso di modifica.
+
+**Test.** `tests/meter_map_cases.rs` ha 20 casi scritti a mano, uno per voce dell'elenco della
+SCALETTA (levare, cambi di metro, composti, additivi, 4/3, cadenza libera su una e più battute,
+emiolia, suddivisioni che non tornano, numerazione, errori). `tests/meter_map_oracle.rs` costruisce
+mappe da sequenze casuali di modifiche e confronta ogni battuta e punti casuali con un **oracolo
+ingenuo** che cammina battuta per battuta dai dati sorgente, con scansioni lineari ed elenchi
+espliciti dei movimenti, e controlla che le modifiche fallite lascino la mappa invariata. Due bug
+inseriti apposta (composto da 3 invece che da 6; sommare una sola battuta per segmento invece di
+tutte) sono stati presi da entrambi i file.
+
+**Benchmark** (`benches/meter_map.rs`): usano una mappa di riferimento di 256 battute con circa 150
+segmenti, molti più di una partitura reale, e lotti di 64 ricerche; la mappa è costruita nelle
+funzioni di preparazione di Gungraun, che non vengono misurate. Primi numeri (macchina di sviluppo,
+2026-10-31):
+
+```text
+locate            61609 instructions / 64 lookups ≈  960 each
+bar_start         29850                            ≈  470
+beat_of           59567                            ≈  930
+beat_position     72693                            ≈ 1140
+display_number     6557                            ≈  100
+edit_meter_change 97488 for one edit (clone, rebuild, validation)
+```
+
+Gran parte del costo è l'aritmetica razionale esatta (i massimi comun divisori), non la ricerca.
+Una ricerca da circa mille istruzioni sta ben sotto il microsecondo sull'hardware di riferimento.
 
 ### orchestra-core-model
 
