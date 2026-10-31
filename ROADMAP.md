@@ -18,9 +18,14 @@ accepted by the owner (decision D02 closed). Step F1.02 (`feature/f1-02-bench-te
 it: the test-only crate `orchestra-test-support` (per-thread allocation-counting global allocator,
 `[dev-dependencies]` only, enforced by `cargo xtask check`), `proptest` for property tests, and
 `cargo xtask bench` with Gungraun (instruction counts under Valgrind; CI job on Linux, compile-only
-on Windows and macOS). Next: F1.03 (implementation of the rational type, property tests against an
-`i128` oracle written in the tests, allocation-free tests), then F1.03b (its benchmarks and the
-CI comparison against `main` with thresholds). The split was approved on 2026-10-31.
+on Windows and macOS). Step F1.03 (`feature/f1-03-rational`, 2026-10-31) implemented
+**`Rational`** in `core-time` as ADR-0015 prescribes, with the API choices approved by the owner
+that day: base type only (the position/duration newtypes are designed in F1.04), `Debug` only (no
+`Display`/`FromStr` until F1.15), English developer-facing `Display` on `RationalError` (the UI will
+map variants to Fluent keys), `const fn` constructors and arithmetic. It is covered by property
+tests against an independent `i128` oracle (textbook formulas + Euclid), hand-written edge cases
+and allocation-free tests; two deliberately injected bugs were caught by the oracle tests. Next:
+F1.03b (benchmarks of the rational type and the CI comparison against `main` with thresholds).
 
 | Step | What | Status |
 |---|---|---|
@@ -68,7 +73,10 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
 - **For F1.03b** (ADR-0016 §3): design the benchmark regression comparison against `main` and its
-  thresholds. (The F1.03 oracle is decided: `i128` reference computation in the tests.)
+  thresholds; benchmark add, sub, mul, cmp and reduction of `Rational` (ADR-0015 §9 said "F1.03";
+  moved to F1.03b by the approved split).
+- **For F1.04:** domain newtypes over `Rational` (position vs duration, ADR-0015 §3); a remainder
+  operation if the meter map needs one.
 - **Concrete project file format** (ADR-0010, Phase 1).
 - **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
   such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
@@ -105,6 +113,10 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - Benchmarks need Valgrind and `gungraun-runner` of exactly the `gungraun` version in Cargo.toml
   (both installed on the development machine on 2026-10-31). Inside the sandbox `/tmp` is not
   writable: `cargo xtask bench` forwards `TMPDIR` so that Valgrind can create its temporary files.
+- In `core-time`, clippy's `arithmetic_side_effects` also rejects `wrapping_div` (it may panic on a
+  zero divisor) but accepts `wrapping_div_euclid`, `wrapping_neg/abs/shr/shl` and all `checked_*`.
+  Helper functions in integration tests are not covered by clippy.toml's `allow-unwrap-in-tests`:
+  those files lift `unwrap_used` with a file-level `#![allow(..., reason = ...)]`.
 - Gungraun's `#[library_benchmark]` rejects doc comments on benchmark functions: use `//` comments.
 - `rustfmt` on a single file fails when a `mod` it declares has no file yet: write module files
   first, or run `cargo fmt --all` afterwards.

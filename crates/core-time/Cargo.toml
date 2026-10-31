@@ -13,5 +13,10 @@ publish.workspace = true
 # Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
 [dependencies]
 
+# Test-only tools (ADR-0016): property tests and the allocation counter. Never shipped.
+[dev-dependencies]
+orchestra-test-support.workspace = true
+proptest.workspace = true
+
 [lints]
 workspace = true
