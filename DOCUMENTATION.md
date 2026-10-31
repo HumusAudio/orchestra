@@ -209,15 +209,138 @@ and `.env` files.
 
 ## The crates
 
-In Phase 0 every crate contains only its crate-level documentation (purpose, responsibilities,
-what it must *not* do, allowed dependencies), except `orchestra-i18n`, which already works. The
+In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
+what it must *not* do, allowed dependencies), except `orchestra-i18n`, which already works. Phase
+1 is filling them from the bottom: `orchestra-test-support` and the rational type of
+`orchestra-core-time` exist so far. The
 dependency rules are summarised in `docs/ARCHITECTURE.md`; here is what each crate is for.
 
 ### orchestra-core-time
 
 Exact musical time: positions and durations as fractions of a whole note, the single tempo map,
 conversions to seconds, samples and video frames (ADR-0005). The conversion functions will be
-called by the audio thread, so they must not allocate. No dependencies inside the workspace.
+called by the audio thread, so they must not allocate. No dependencies inside the workspace (in
+`[dev-dependencies]` only `orchestra-test-support` and `proptest`, for the tests). So far it
+contains the rational type (step F1.03); the meter map (F1.04) and the tempo map with the
+conversions (F1.05) come next.
+
+#### The rational type
+
+`Rational` (in `src/rational.rs`, re-exported at the crate root together with `RationalError`)
+is the number every other crate will use for "when" and "how long": a fraction of two `i64`,
+measured in whole notes. A quarter note is `1/4`, an eighth-note triplet `1/12`, bar 3 of a 4/4
+piece starts at `2/1`. It was designed in ADR-0015; here is how it works in practice.
+
+```rust
+use orchestra_core_time::{Rational, RationalError};
+
+let triplet_eighth = Rational::new(1, 12)?;
+let three = triplet_eighth.checked_add(triplet_eighth)?.checked_add(triplet_eighth)?;
+assert_eq!(three, Rational::new(1, 4)?); // exactly a quarter note
+assert_eq!(Rational::new(6, -8)?.numerator(), -3); // always reduced: -3/4
+assert_eq!(Rational::new(1, 0), Err(RationalError::DivisionByZero));
+```
+
+**Always in lowest terms.** The two fields are private, and every constructor and every
+operation leaves the value with three properties (the *invariants*): the denominator is at least
+1 (the sign lives in the numerator), numerator and denominator have no common factor (so zero is
+always `0/1`), and the numerator is never `i64::MIN`. Since every value has exactly one way of
+being written, equality and hashing are just "same fields", and the third rule means that `-x`
+and `abs` can never overflow: `Neg` is the only operator the type implements.
+
+**Why no `+`, `-`, `*`, `/`.** An operator must return a value, so on overflow it could only
+crash, wrap around or saturate, and a wrapped or saturated position is a wrong note in the
+wrong place, silently. So the operations that can fail are methods (`checked_add`,
+`checked_sub`, `checked_mul`, `checked_div`, `checked_recip`) returning
+`Result<Rational, RationalError>`, with two errors: `Overflow` and `DivisionByZero`. The error
+texts (`Display`) are English for developers; the interface will translate each variant through
+a Fluent key, as for every user-visible text.
+
+**Exact even with huge numbers.** Each operation widens to `i128`, computes there, reduces, and
+only at the end checks that the result fits back into `i64`. So it fails only when the *reduced*
+result does not fit: `(i64::MAX/3) · (3/i64::MAX)` gives `1`, although the plain product of the
+numerators would be enormous. This is what an existing crate such as `num-rational` does not do
+(it fails as soon as an intermediate step overflows). The sum, for example:
+
+```rust
+pub const fn checked_add(self, rhs: Self) -> Result<Self, RationalError> {
+    // Fast path: equal denominators (very common: notes in the same tuplet, integer bars).
+    if self.den == rhs.den {
+        let num = or_overflow!(wide(self.num).checked_add(wide(rhs.num)));
+        return Self::from_wide(num, wide(self.den));
+    }
+    // ... otherwise (a·(d/g) + c·(b/g)) / ((b/g)·d) in i128, then reduce and narrow.
+}
+```
+
+The products of two `i64` are below 2¹²⁶ and their sum below 2¹²⁷, so nothing can overflow in
+`i128`; the code uses `checked_*` all the same, so that a mistake in that reasoning would become an
+error instead of a wrong value. The same bound makes the comparison (`Ord`) exact and infallible:
+`a/b < c/d` is `a·d < c·b` computed in `i128`, with a shortcut when the denominators are equal.
+
+**Greatest common divisor.** Reduction uses the binary (Stein) algorithm, which only needs
+shifts and subtractions instead of the slow integer division of Euclid's algorithm, and a 64-bit
+version when both numbers fit in 64 bits (almost always: musical denominators are small).
+Multiplication reduces *crosswise* before multiplying (`a` with `d`, `c` with `b`), so it needs
+no final reduction. Cost: O(log n) for the arithmetic, O(1) for comparisons, and **no
+allocation** anywhere. The instruction-count benchmarks are step F1.03b.
+
+**`const fn`.** Constructors and arithmetic can run at compile time, so a fixed value is checked
+when the program is built:
+
+```rust
+const QUARTER: Rational = match Rational::new(1, 4) {
+    Ok(r) => r,
+    Err(_) => panic!("1/4 is a valid rational"),
+};
+```
+
+Being `const` has a price in verbosity: `?` and `TryFrom` cannot be used inside a `const fn` yet,
+so the file has two small macros (`const_try!`, `or_overflow!`) that do the job of `?`, and a few
+`as` casts each with its reason. The other methods are `abs`, `signum`, `is_zero`,
+`is_positive`, `is_negative`, `is_integer`, `floor`/`ceil`/`trunc` (towards `i64`, they cannot
+fail) and `to_f64`, an approximation for display only that must never flow back into the model.
+There is deliberately no `Display` and no parsing: the text form is chosen with the file format
+(F1.15). `Debug` prints `Rational(3/8)`.
+
+Because `core-time` forbids plain `+ - *` on integers (`clippy::arithmetic_side_effects`), every
+integer operation in the file is either `checked_*` or `wrapping_*` with a comment that proves it
+cannot wrap. One curiosity: clippy rejects `wrapping_div` too (it could panic on a zero divisor),
+so `trunc` is written as `floor` or `ceil` depending on the sign.
+
+#### How it is tested
+
+Three test files in `crates/core-time/tests/`, each its own binary:
+
+- `rational_oracle.rs`: **property tests** with proptest against an **oracle**, an independent
+  exact calculation written in the test itself in `i128`. The oracle uses the textbook formulas
+  (`a/b + c/d = (a·d + c·b)/(b·d)`) and Euclid's gcd, while the library uses other algorithms
+  (division by the gcd first, cross-reduction, Stein): if one of the two is wrong, they disagree.
+
+  ```rust
+  /// Oracle sum: `(a·d + c·b) / (b·d)`.
+  fn oracle_add(x: Rational, y: Rational) -> Result<(i64, i64), RationalError> {
+      let ((a, b), (c, d)) = (wide(x), wide(y));
+      expected(a * d + c * b, b * d)
+  }
+  ```
+
+  Uniformly random `i64` almost never land on the interesting cases, so the inputs come from a
+  mix of generators: values near `i64::MAX` and `i64::MIN`, powers of two, products of small
+  primes (like tuplets of tuplets), and *related* pairs (equal, opposite, reciprocal, same large
+  denominator) where intermediate values are huge but the result fits. Each property runs 2048
+  cases. To be sure that the tests really catch mistakes, two bugs were introduced on purpose
+  during development (a `<` instead of `<=` in the range check, a wrong sign rule): both were
+  found at once, with a minimal counter-example.
+- `rational_cases.rs`: the edge cases written by hand, checkable on paper: `i64::MIN` as input,
+  results that fit only after reduction, the overflows that must be reported (`-i64::MAX − 1`
+  would be exactly `i64::MIN`), rounding on both sides of zero, the `Debug` form, a `const`
+  dotted quarter.
+- `rational_no_alloc.rs`: installs the counting allocator of `orchestra-test-support` and checks
+  that no operation touches the heap, on the success paths and on the error paths.
+
+Inside `src/rational.rs` a small `#[cfg(test)]` module checks the private helpers (Stein against
+Euclid, the range check).
 
 ### orchestra-core-model
 

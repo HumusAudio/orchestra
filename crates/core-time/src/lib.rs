@@ -10,9 +10,10 @@
 //! audio sample indices, video frame numbers — is *derived* from rational time through this crate,
 //! and only at the very last step (ADR-0005).
 //!
-//! ## Responsibilities (planned for Phase 1)
-//! - A rational type for positions/durations that never silently rounds (triplets of triplets must
-//!   line up exactly, even after hours of music).
+//! ## Responsibilities (Phase 1)
+//! - [`Rational`], the rational type for positions/durations that never silently rounds (triplets
+//!   of triplets must line up exactly, even after hours of music). Implemented in step F1.03
+//!   according to ADR-0015: see the [`rational`] module.
 //! - The tempo map: tempo changes (including gradual ones), with O(log n) lookup of the segment
 //!   containing a position through a cumulative table.
 //! - The meter map (time signatures), used to turn positions into bars/beats for display.
@@ -25,6 +26,9 @@
 //! - Allocate in the conversion functions used by the audio thread: those must be callable from a
 //!   real-time context (CLAUDE.md §5).
 //!
+//! ## Still to come in Phase 1
+//! The meter map (F1.04), the tempo map and the conversions (F1.05).
+//!
 //! ## Allowed dependencies
 //! None inside the workspace. External crates only if they are small, GPL-compatible and justified
 //! in an ADR (e.g. a big-integer crate if 64-bit numerators ever prove insufficient).
@@ -34,6 +38,10 @@
 // the time values computed here, so no operation may panic or wrap silently:
 // - `v[i]` panics when `i` is out of range: use `get` and handle `None`, or iterate;
 // - `+ - *` on integers can overflow: use `checked_*` and return the typed overflow error of
-//   ADR-0005 §6 (its exact design is step F1.01; this lint makes sure no operation escapes it).
+//   ADR-0015 §6 (`RationalError::Overflow`); this lint makes sure no operation escapes it.
 // Tests are exempt from the first one through clippy.toml.
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
+
+pub mod rational;
+
+pub use rational::{Rational, RationalError};

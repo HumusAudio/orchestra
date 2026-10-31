@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.5, approvata dal proprietario il 2026-10-31.**
+> **Stato di questo documento: v0.6, approvata dal proprietario il 2026-10-31.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -124,7 +124,7 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 |---|---|---|---|
 | F1.01 | **ADR: il tipo razionale** — rappresentazione, politica di overflow, normalizzazione | ✅ ADR-0015 | 1 |
 | F1.02 | **Infrastruttura di test e benchmark**: `cargo xtask bench`, test di proprietà, contatore di allocazioni | ✅ ADR-0016 | 1–2 |
-| F1.03 | **Implementazione del tipo razionale** + test di proprietà (con oracolo) + test "non alloca" | ⬜ | 1–2 |
+| F1.03 | **Implementazione del tipo razionale** + test di proprietà (con oracolo) + test "non alloca" | ✅ PR #8 | 1–2 |
 | F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ⬜ | 1 |
 | F1.04 | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale | ⬜ | 2 |
 | F1.05 | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni | ⬜ | 2–3 |
@@ -156,12 +156,22 @@ Dettagli:
   test stessi, senza crate nuovi; ogni operazione è confrontata con l'oracolo, compresi i casi
   limite di ADR-0015 (`i64::MAX`, zero, negativi, risultati che entrano in `i64` solo dopo la
   riduzione). Test "non alloca" con `orchestra-test-support`.
+  **Fatto il 2026-10-31.** Scelte d'interfaccia approvate dal proprietario lo stesso giorno: solo il
+  tipo base (i tipi specifici in F1.04); solo `Debug`, niente `Display`/`FromStr` (forma testuale
+  in F1.15); `Display` dell'errore in inglese per gli sviluppatori (l'interfaccia tradurrà le
+  varianti con chiavi Fluent); costruttori e aritmetica `const fn`.
 - **F1.03b** Benchmark Gungraun di somma, prodotto, confronto e riduzione; nella CI il confronto
   di una pull request con `main` (baseline di Gungraun) e soglie di fallimento, tarate sui primi
   numeri reali (ADR-0016 §3). Diviso da F1.03 il 2026-10-31 perché insieme superavano la stima.
+  Sono qui anche i benchmark che ADR-0015 §9 attribuiva a F1.03. Serve almeno un caso con valori
+  oltre i 64 bit, per misurare il percorso a 128 bit del massimo comun divisore (non solo quello
+  veloce a 64 bit).
 - **F1.04** Casi da coprire con test: battuta in levare (anacrusi), cambi di metro, metri
   composti e additivi (3+2+2/8), metri non binari (es. 4/3, se li vogliamo: ❓), numerazione
-  delle battute con eccezioni. Ricerca O(log n).
+  delle battute con eccezioni. Ricerca O(log n). Qui si progettano anche i **tipi specifici**
+  sopra `Rational` (posizione e durata, ADR-0015 §3: posizione − posizione = durata, posizione +
+  posizione non compila) e, se la mappa delle misure ne ha bisogno, un'operazione di resto
+  (`rem`).
 - **F1.05** Segmenti a tempo costante (esatti) e cambi graduali (accelerando/rallentando)
   integrati analiticamente; regola di arrotondamento ai campioni **documentata**; frame rate
   razionali (24/1, 25/1, 30000/1001); conversione inversa secondi → posizione (servirà a
@@ -457,3 +467,4 @@ raccomandato.
 | 2026-10-30 | 0.3 | F0.15 e F0.16 fatti, D01 chiusa | proprietario |
 | 2026-10-30 | 0.4 | F1.01 fatto (ADR-0015 Accepted), D02 chiusa; nota sull'esattezza dei cambi di tempo graduali in F1.05 | proprietario |
 | 2026-10-31 | 0.5 | F1.02 fatto (ADR-0016 Accepted), D03 chiusa; F1.03 diviso in F1.03 (tipo + oracolo `i128`) e F1.03b (benchmark + confronto con `main`) | proprietario |
+| 2026-10-31 | 0.6 | F1.03 fatto (PR #8) con le scelte d'interfaccia approvate; note su F1.03b (benchmark di ADR-0015 §9, caso oltre i 64 bit) e F1.04 (tipi specifici, eventuale `rem`) | proprietario |

@@ -295,6 +295,10 @@ dependencies = [
 [[package]]
 name = "orchestra-core-time"
 version = "0.0.0"
+dependencies = [
+ "orchestra-test-support",
+ "proptest",
+]
 
 [[package]]
 name = "orchestra-i18n"
