@@ -11,8 +11,9 @@
 #   only the bundled fonts are used.
 # - `bench` runs the instruction-count benchmarks (Gungraun under Valgrind, ADR-0016) and publishes
 #   the numbers in the job summary and as an artifact. Linux only, because Valgrind is; on Windows
-#   and macOS the `check` job compiles the benchmarks instead, so they cannot rot there. The numbers
-#   are not enforced yet: comparison against `main` with thresholds comes in SCALETTA F1.03.
+#   and macOS the `check` job compiles the benchmarks instead, so they cannot rot there. On every
+#   branch except `main` it is also the regression gate of ADR-0017: the merge base with `main` is
+#   measured in the same job and an instruction count growing by more than 5% fails the job.
 #
 # Every third-party action is pinned to a full commit SHA (the tag is in the comment): a tag can be
 # moved by whoever controls the action's repository, a SHA cannot. Versions checked on 2026-10-28.
@@ -128,7 +129,11 @@ jobs:
     name: bench (instruction counts)
     runs-on: ubuntu-latest
     steps:
+      # The whole history (`fetch-depth: 0`) and the remote branches: the comparison needs the
+      # merge base of this commit and `origin/main`, which a shallow clone does not contain.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master 2026-10-16
         with:
@@ -151,7 +156,12 @@ jobs:
       # `pipefail` so that a failing benchmark fails the step even though its output goes through
       # `tee`. Colours off: the output is also pasted into the job summary, where escape codes
       # would show up as garbage. `GUNGRAUN_SAVE_SUMMARY` writes one machine-readable summary.json
-      # per benchmark under target/gungraun/, for the artifact (and for the F1.03 comparison).
+      # per benchmark (under target/gungraun/, or target/gungraun-compare/ when comparing), for
+      # the artifact.
+      # On `main` the numbers are only published: there is nothing to compare a merge commit with
+      # that would not already have been checked on its branch. Everywhere else `--compare` runs
+      # the regression gate of ADR-0017 against the merge base with `origin/main`; a commit whose
+      # message has the trailer `Bench-regression: accepted` is compared but cannot fail.
       - name: cargo xtask bench
         shell: bash
         env:
@@ -160,10 +170,17 @@ jobs:
           GUNGRAUN_SAVE_SUMMARY: json
         run: |
           set -o pipefail
-          cargo xtask bench 2>&1 | tee bench-output.txt
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            cargo xtask bench 2>&1 | tee bench-output.txt
+          else
+            cargo xtask bench --compare origin/main 2>&1 | tee bench-output.txt
+          fi
 
-      # The numbers in the run's summary page, from the first benchmark target onwards (the
-      # compilation lines before it are noise). `always()`: a failed run is when they matter most.
+      # The numbers in the run's summary page. When comparing, only the second half matters (the
+      # working tree against the base commit, with the differences): it starts at the marker line
+      # printed by `cargo xtask bench --compare` (xtask/src/bench.rs; keep the two in sync).
+      # Otherwise, from the first benchmark target onwards (the compilation lines before it are
+      # noise). `always()`: a failed run is when the numbers matter most.
       - name: Benchmark summary
         if: always()
         shell: bash
@@ -172,7 +189,11 @@ jobs:
             echo '## Benchmarks: instruction counts (Gungraun, Callgrind)'
             echo
             echo '```'
-            sed -n '/Running /,$p' bench-output.txt
+            if grep -q '^▶ measuring the working tree against' bench-output.txt; then
+              sed -n '/^▶ measuring the working tree against/,$p' bench-output.txt
+            else
+              sed -n '/Running /,$p' bench-output.txt
+            fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -183,5 +204,6 @@ jobs:
           path: |
             bench-output.txt
             target/gungraun/**/summary.json
+            target/gungraun-compare/**/summary.json
           if-no-files-found: warn
           retention-days: 30

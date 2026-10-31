@@ -342,6 +342,9 @@ Three test files in `crates/core-time/tests/`, each its own binary:
 Inside `src/rational.rs` a small `#[cfg(test)]` module checks the private helpers (Stein against
 Euclid, the range check).
 
+The benchmarks (`benches/rational.rs`, step F1.03b) and their first numbers are described in
+"Benchmarks and property tests" below.
+
 ### orchestra-core-model
 
 The one project document (ADR-0003): tracks, notes with their two layers (written intent and
@@ -519,6 +522,7 @@ cargo xtask check        # everything CI checks
 cargo xtask guides       # build dist/GUIDA.pdf and dist/GUIDE.pdf
 cargo xtask screenshots  # not implemented yet (needs the UI layer, ADR-0012)
 cargo xtask bench        # instruction-count benchmarks (Linux; compile-only elsewhere)
+cargo xtask bench --compare main  # same, plus the regression gate against main (ADR-0017)
 ```
 
 `check` runs, in this order: `cargo fmt --check`, the documentation and guide parity checks,
@@ -572,13 +576,103 @@ proves that the whole chain works. A run prints, for each benchmark, the count a
 difference from the previous run (kept in `target/gungraun/`):
 
 ```text
-counting::counting::snapshot
-  Instructions:                                         15|15                   (No change)
-counting::counting::allocate_and_free_64_bytes
-  Instructions:                                        255|255                  (No change)
-counting::counting::measure_empty_closure
-  Instructions:                                        163|163                  (No change)
+counting::counting::snapshots
+  Instructions:                                       1167|1167                 (No change)
+counting::counting::allocations_of_64_bytes
+  Instructions:                                       7641|7641                 (No change)
+counting::counting::empty_measurements
+  Instructions:                                      10067|10067                (No change)
 ```
+
+Each benchmark runs its operation on a **batch of 64** inputs (the counts above are for 64
+operations: divide by 64 for one). A single operation is a few dozen instructions, and one
+instruction more or less can appear when *unrelated* code in the same binary changes (the
+compiler inlines and lays out code differently): on a 15-instruction benchmark that would already
+be 7%, enough to trip the regression gate described below. Batches put the counts in the
+thousands, where such drift is a fraction of a percent.
+
+The benchmarks of the rational type (`crates/core-time/benches/rational.rs`, step F1.03b) cover
+every operation that ADR-0015 §9 names. Their inputs are `const` arrays computed at compile time
+(the constructors are `const fn`), read through `black_box` so that the compiler cannot compute
+the results in advance too. An excerpt of a run:
+
+```text
+rational::rational::add_same_denominator
+  Instructions:                                      12686|12686                (No change)
+rational::rational::add_wide_intermediate
+  Instructions:                                      77147|77147                (No change)
+rational::rational::cmp_different_denominators
+  Instructions:                                       1410|1410                 (No change)
+```
+
+The first numbers, per operation (count ÷ 64), on the development machine:
+
+| Benchmark | Instructions per operation |
+|---|---|
+| `add_same_denominator` | ~198 |
+| `add_different_denominators` | ~233 |
+| `add_wide_intermediate` (intermediates beyond 64 bits) | ~1205 |
+| `sub_different_denominators` | ~232 |
+| `mul` | ~196 |
+| `div` | ~207 |
+| `cmp_same_denominator` | ~18 |
+| `cmp_different_denominators` | ~22 |
+| `new_with_reduction` | ~99 |
+| `overflow_errors` (one sum + one product that overflow) | ~910 |
+
+Three things they show. Comparisons are an order of magnitude cheaper than arithmetic, as
+expected (no gcd). The equal-denominator fast path of the sum saves less than hoped, because the
+final reduction (a gcd) dominates the cost of both paths. And the 128-bit gcd costs about five
+times the 64-bit one, which confirms the fast path of ADR-0015 §9. None of this needs action
+today: these numbers are the reference against which future changes are judged, and possible
+optimisations are noted in the ROADMAP.
+
+The case "beyond 64 bits" needs carefully built inputs: `x = a/(G·P)` and `y = c/(G·Q)` with
+`G = 2³⁰` and two primes `P`, `Q` just below 2²⁰, so that the common denominator is about 2⁷⁰.
+`c` is chosen (with a modular inverse computed at compile time) so that the numerator of the sum
+is a multiple of `G`, and the reduced result has a denominator of about 2⁴⁰, which fits. All 64
+inputs were checked with an independent script before being used.
+
+**The regression gate (ADR-0017).** `cargo xtask bench --compare <rev>` measures two versions of
+the code in the same run: first the **merge base** of `HEAD` and `<rev>` (for a branch and
+`main`: the commit of `main` the branch started from), then the working tree, and fails if an
+instruction count grew by more than **5%**. The logic is in `xtask/src/bench.rs`:
+
+- the base commit is exported with `git archive <commit> | tar -x` into `target/bench-base/`
+  (no `git worktree`, which would write into `.git/`, read-only in the sandbox), and built with
+  `CARGO_TARGET_DIR` pointing at the usual `target/`, so the dependencies are compiled once;
+- its numbers are saved as the Gungraun baseline `base` in a fresh `target/gungraun-compare/`
+  (`GUNGRAUN_SAVE_BASELINE`), then the working tree runs with `GUNGRAUN_BASELINE=base` and
+  `GUNGRAUN_CALLGRIND_LIMITS=ir=5%`;
+- a benchmark that the base does not have passes (nothing to compare), and so does every
+  improvement;
+- if the `HEAD` commit message has the trailer `Bench-regression: accepted` (with the reason in
+  the message), the comparison is still printed but no limit is applied.
+
+Why the merge base and not the tip of `main`: a branch must be judged on its own changes; if
+`main` moved on, its tip contains other people's work. Why measure both in the same run: counts
+are deterministic for a given binary, but they depend on the compiler, Valgrind and the machine,
+so only two measurements taken together are comparable. To check that the gate works, a
+regression was introduced on purpose during development (the snapshot benchmark taking two
+snapshots instead of one):
+
+```text
+counting::counting::snapshot
+  Instructions:                                         37|15                   (+146.667%) [+2.46667x]
+Performance has regressed: Instructions (15 -> 37) regressed by +146.667% (>+5.00000%)
+xtask: `cargo bench --workspace --locked --bench *` failed (exit status: 3)
+If an instruction count grew by more than the limit (ir=5%) on purpose, explain why in the commit message and add the trailer `Bench-regression: accepted` (ADR-0017).
+```
+
+Measuring the working tree, not only `HEAD`, means the gate can be tried before committing:
+`cargo xtask bench --compare HEAD` compares uncommitted changes with the last commit. In CI the
+gate runs on every branch except `main`, and the `bench (instruction counts)` job is a required
+check of the `main` ruleset, so a branch that regresses cannot be merged without the trailer.
+
+A benchmark whose meaning changes gets a new name. In F1.03b the three benchmarks of the
+counter became batches and were renamed (`snapshot` → `snapshots`, and so on): Gungraun keys
+baselines by name, so under the old names the comparison would have reported a meaningless
++7000%.
 
 Two practical notes. Gungraun's `#[library_benchmark]` rejects doc comments on the benchmark
 functions (they are `#[doc]` attributes), so those functions have plain `//` comments and the file
@@ -669,9 +763,10 @@ The jobs:
   `GUIDA.pdf` and `GUIDE.pdf` as the `user-guides` artifact, kept for 30 days;
 - **bench**, on Linux: installs Valgrind (`apt-get`) and the prebuilt `gungraun-runner` of the
   pinned version, runs `cargo xtask bench`, writes the numbers into the run's summary page and
-  uploads them (with one `summary.json` per benchmark) as the `benchmarks` artifact. The numbers
-  are not enforced yet: comparing a pull request against `main` with thresholds comes in F1.03.
-  On Windows and macOS the **check** job runs `cargo xtask bench` too, which there only compiles
+  uploads them (with one `summary.json` per benchmark) as the `benchmarks` artifact. On every
+  branch except `main` it runs `cargo xtask bench --compare origin/main` instead, the regression
+  gate of ADR-0017 (with the whole git history, `fetch-depth: 0`, because the merge base must be
+  available); the summary page then shows only the comparison. On Windows and macOS the **check** job runs `cargo xtask bench` too, which there only compiles
   the benchmarks.
 
 Only the standard GitHub-hosted runners are used: they are free for public repositories, while

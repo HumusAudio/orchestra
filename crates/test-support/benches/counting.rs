@@ -10,6 +10,13 @@
 //! numbers below make that cost visible (it should be a handful of instructions on top of the
 //! system allocator).
 //!
+//! # Why batches of 64?
+//! Each benchmark repeats its operation [`BATCH`] times. A single snapshot is about 15
+//! instructions, so a change of one instruction anywhere in the binary (inlining and code layout
+//! move when unrelated code changes) would be a 7% "regression" and trip the 5% gate of ADR-0017.
+//! Batches make the counts large enough that only real changes matter. Divide by 64 for the cost
+//! of one operation.
+//!
 //! # Reading the numbers
 //! Gungraun runs each benchmark once under Callgrind and reports instructions executed (`Ir`),
 //! estimated cache behaviour and estimated cycles. Instruction counts are deterministic for a
@@ -37,34 +44,43 @@ use orchestra_test_support::{AllocationStats, count_allocations, thread_stats};
 
 orchestra_test_support::install_counting_allocator!();
 
-// Cost of one counter snapshot: the primitive every measurement is built from. It must stay a
-// few instructions (one thread-local load).
+// Number of repetitions per benchmark (see the module documentation).
+const BATCH: usize = 64;
+
+// Cost of 64 counter snapshots: the primitive every measurement is built from. One snapshot must
+// stay a few instructions (one thread-local load).
 #[library_benchmark]
-fn snapshot() -> AllocationStats {
-    black_box(thread_stats())
+fn snapshots() {
+    for _ in 0..BATCH {
+        black_box(thread_stats());
+    }
 }
 
-// Cost of allocating and freeing one 64-byte buffer through the counting allocator: system
-// allocator plus two counter updates.
+// Cost of allocating and freeing a 64-byte buffer, 64 times, through the counting allocator:
+// system allocator plus two counter updates each time.
 #[library_benchmark]
-fn allocate_and_free_64_bytes() {
-    drop(black_box(Vec::<u8>::with_capacity(black_box(64))));
+fn allocations_of_64_bytes() {
+    for _ in 0..BATCH {
+        drop(black_box(Vec::<u8>::with_capacity(black_box(64))));
+    }
 }
 
-// Cost of a complete measurement of an empty closure: installation probe (one allocation and
-// one free) plus two snapshots. This is the fixed overhead each "no allocation" assertion adds
-// to a test.
+// Cost of 64 complete measurements of an empty closure: each is the installation probe (one
+// allocation and one free) plus two snapshots. This is the fixed overhead each "no allocation"
+// assertion adds to a test.
 #[library_benchmark]
-fn measure_empty_closure() -> AllocationStats {
-    // The `Result` is resolved with a fallback instead of `unwrap()`, so the benchmark has no
-    // panic path that would distort the instruction count.
-    let stats = count_allocations(|| ()).map_or(AllocationStats::ZERO, |((), s)| s);
-    black_box(stats)
+fn empty_measurements() {
+    for _ in 0..BATCH {
+        // The `Result` is resolved with a fallback instead of `unwrap()`, so the benchmark has no
+        // panic path that would distort the instruction count.
+        let stats = count_allocations(|| ()).map_or(AllocationStats::ZERO, |((), s)| s);
+        black_box(stats);
+    }
 }
 
 library_benchmark_group!(
     name = counting,
-    benchmarks = [snapshot, allocate_and_free_64_bytes, measure_empty_closure]
+    benchmarks = [snapshots, allocations_of_64_bytes, empty_measurements]
 );
 
 main!(library_benchmark_groups = counting);

@@ -361,6 +361,9 @@ Tre file di test in `crates/core-time/tests/`, ciascuno un eseguibile a sé:
 Dentro `src/rational.rs` un piccolo modulo `#[cfg(test)]` controlla le funzioni private (Stein
 contro Euclide, il controllo dell'intervallo).
 
+I benchmark (`benches/rational.rs`, passo F1.03b) e i loro primi numeri sono descritti più sotto,
+in "Benchmark e test di proprietà".
+
 ### orchestra-core-model
 
 L'unico documento di progetto (ADR-0003): tracce, note con i loro due strati (intento scritto e
@@ -541,6 +544,7 @@ cargo xtask check        # everything CI checks
 cargo xtask guides       # build dist/GUIDA.pdf and dist/GUIDE.pdf
 cargo xtask screenshots  # not implemented yet (needs the UI layer, ADR-0012)
 cargo xtask bench        # instruction-count benchmarks (Linux; compile-only elsewhere)
+cargo xtask bench --compare main  # same, plus the regression gate against main (ADR-0017)
 ```
 
 `check` esegue, in quest'ordine: `cargo fmt --check`, i controlli di parità di documenti e guide,
@@ -596,13 +600,107 @@ che tutta la catena funziona. Un'esecuzione stampa, per ogni benchmark, il conte
 differenza rispetto all'esecuzione precedente (conservata in `target/gungraun/`):
 
 ```text
-counting::counting::snapshot
-  Instructions:                                         15|15                   (No change)
-counting::counting::allocate_and_free_64_bytes
-  Instructions:                                        255|255                  (No change)
-counting::counting::measure_empty_closure
-  Instructions:                                        163|163                  (No change)
+counting::counting::snapshots
+  Instructions:                                       1167|1167                 (No change)
+counting::counting::allocations_of_64_bytes
+  Instructions:                                       7641|7641                 (No change)
+counting::counting::empty_measurements
+  Instructions:                                      10067|10067                (No change)
 ```
+
+Ogni benchmark esegue la sua operazione su un **lotto di 64** ingressi (i conteggi qui sopra sono
+per 64 operazioni: si divide per 64 per averne una). Una singola operazione costa qualche decina
+di istruzioni, e un'istruzione in più o in meno può comparire quando cambia codice *non collegato*
+nello stesso binario (il compilatore espande e dispone il codice in modo diverso): su un benchmark
+da 15 istruzioni sarebbe già il 7%, abbastanza per far scattare il controllo dei peggioramenti
+descritto più sotto. I lotti portano i conteggi alle migliaia, dove una deriva del genere è una
+frazione di punto percentuale.
+
+I benchmark del tipo razionale (`crates/core-time/benches/rational.rs`, passo F1.03b) coprono ogni
+operazione citata da ADR-0015 §9. I loro ingressi sono array `const` calcolati durante la
+compilazione (i costruttori sono `const fn`), letti attraverso `black_box` così che il compilatore
+non possa calcolare in anticipo anche i risultati. Un estratto di un'esecuzione:
+
+```text
+rational::rational::add_same_denominator
+  Instructions:                                      12686|12686                (No change)
+rational::rational::add_wide_intermediate
+  Instructions:                                      77147|77147                (No change)
+rational::rational::cmp_different_denominators
+  Instructions:                                       1410|1410                 (No change)
+```
+
+I primi numeri, per operazione (conteggio ÷ 64), sulla macchina di sviluppo:
+
+| Benchmark | Istruzioni per operazione |
+|---|---|
+| `add_same_denominator` | ~198 |
+| `add_different_denominators` | ~233 |
+| `add_wide_intermediate` (intermedi oltre i 64 bit) | ~1205 |
+| `sub_different_denominators` | ~232 |
+| `mul` | ~196 |
+| `div` | ~207 |
+| `cmp_same_denominator` | ~18 |
+| `cmp_different_denominators` | ~22 |
+| `new_with_reduction` | ~99 |
+| `overflow_errors` (una somma + un prodotto che vanno in overflow) | ~910 |
+
+Mostrano tre cose. I confronti costano un ordine di grandezza meno dell'aritmetica, come previsto
+(niente MCD). La scorciatoia della somma per denominatori uguali fa risparmiare meno del previsto,
+perché la riduzione finale (un MCD) domina il costo di entrambi i percorsi. E il MCD a 128 bit
+costa circa cinque volte quello a 64 bit, il che conferma la scorciatoia di ADR-0015 §9. Nulla di
+questo richiede interventi oggi: questi numeri sono il riferimento con cui si giudicheranno le
+modifiche future, e le possibili ottimizzazioni sono annotate nella ROADMAP.
+
+Il caso "oltre i 64 bit" richiede ingressi costruiti con cura: `x = a/(G·P)` e `y = c/(G·Q)` con
+`G = 2³⁰` e due primi `P`, `Q` appena sotto 2²⁰, così il denominatore comune è circa 2⁷⁰. `c` è
+scelto (con un inverso modulare calcolato durante la compilazione) in modo che il numeratore della
+somma sia un multiplo di `G`, e il risultato ridotto abbia un denominatore di circa 2⁴⁰, che ci
+sta. Tutti i 64 ingressi sono stati verificati con uno script indipendente prima di usarli.
+
+**Il controllo dei peggioramenti (ADR-0017).** `cargo xtask bench --compare <rev>` misura due
+versioni del codice nella stessa esecuzione: prima la **base comune** (merge base) di `HEAD` e
+`<rev>` (per un branch e `main`: il commit di `main` da cui il branch è partito), poi l'albero di
+lavoro, e fallisce se un conteggio di istruzioni è cresciuto più del **5%**. La logica sta in
+`xtask/src/bench.rs`:
+
+- il commit di base viene esportato con `git archive <commit> | tar -x` in `target/bench-base/`
+  (niente `git worktree`, che scriverebbe in `.git/`, in sola lettura nella sandbox) e compilato
+  con `CARGO_TARGET_DIR` che punta al solito `target/`, così le dipendenze si compilano una volta
+  sola;
+- i suoi numeri vengono salvati come baseline Gungraun `base` in una cartella
+  `target/gungraun-compare/` nuova (`GUNGRAUN_SAVE_BASELINE`), poi l'albero di lavoro gira con
+  `GUNGRAUN_BASELINE=base` e `GUNGRAUN_CALLGRIND_LIMITS=ir=5%`;
+- un benchmark che la base non ha passa (non c'è nulla con cui confrontarlo), e così ogni
+  miglioramento;
+- se il messaggio del commit `HEAD` ha il trailer `Bench-regression: accepted` (con il motivo nel
+  messaggio), il confronto viene comunque stampato ma senza limite.
+
+Perché la base comune e non l'ultimo commit di `main`: un branch va giudicato sulle sue modifiche;
+se `main` è andato avanti, contiene il lavoro di altri. Perché misurare entrambi nella stessa
+esecuzione: i conteggi sono deterministici per un dato binario, ma dipendono da compilatore,
+Valgrind e macchina, quindi solo due misure prese insieme sono confrontabili. Per verificare che il
+controllo funzioni, durante lo sviluppo è stato introdotto di proposito un peggioramento (il
+benchmark degli snapshot che ne prende due invece di uno):
+
+```text
+counting::counting::snapshot
+  Instructions:                                         37|15                   (+146.667%) [+2.46667x]
+Performance has regressed: Instructions (15 -> 37) regressed by +146.667% (>+5.00000%)
+xtask: `cargo bench --workspace --locked --bench *` failed (exit status: 3)
+If an instruction count grew by more than the limit (ir=5%) on purpose, explain why in the commit message and add the trailer `Bench-regression: accepted` (ADR-0017).
+```
+
+Misurare l'albero di lavoro, e non solo `HEAD`, permette di provare il controllo prima di
+committare: `cargo xtask bench --compare HEAD` confronta le modifiche non ancora committate con
+l'ultimo commit. Nella CI il controllo gira su ogni branch tranne `main`, e il job
+`bench (instruction counts)` è un controllo obbligatorio della regola di `main`, quindi un branch
+che peggiora non si può unire senza il trailer.
+
+Un benchmark il cui significato cambia prende un nome nuovo. In F1.03b i tre benchmark del
+contatore sono diventati lotti e sono stati rinominati (`snapshot` → `snapshots`, e così via):
+Gungraun associa le baseline al nome, quindi con i vecchi nomi il confronto avrebbe segnalato un
++7000% privo di senso.
 
 Due note pratiche. Il `#[library_benchmark]` di Gungraun rifiuta i doc comment sulle funzioni di
 benchmark (sono attributi `#[doc]`), quindi quelle funzioni hanno normali commenti `//` e il file
@@ -696,9 +794,10 @@ I job:
   `GUIDE.pdf` come artefatto `user-guides`, conservato per 30 giorni;
 - **bench**, su Linux: installa Valgrind (`apt-get`) e il `gungraun-runner` già compilato della
   versione fissata, esegue `cargo xtask bench`, scrive i numeri nella pagina di riepilogo
-  dell'esecuzione e li carica (con un `summary.json` per benchmark) come artefatto `benchmarks`. I
-  numeri non sono ancora vincolanti: il confronto di una pull request con `main`, con delle soglie,
-  arriva in F1.03. Su Windows e macOS anche il job **check** esegue `cargo xtask bench`, che lì si
+  dell'esecuzione e li carica (con un `summary.json` per benchmark) come artefatto `benchmarks`. Su
+  ogni branch tranne `main` esegue invece `cargo xtask bench --compare origin/main`, il controllo
+  dei peggioramenti di ADR-0017 (con tutta la cronologia git, `fetch-depth: 0`, perché serve la
+  base comune); la pagina di riepilogo mostra allora solo il confronto. Su Windows e macOS anche il job **check** esegue `cargo xtask bench`, che lì si
   limita a compilare i benchmark.
 
 Usiamo solo i runner standard ospitati da GitHub: sono gratuiti per i repository pubblici, mentre
