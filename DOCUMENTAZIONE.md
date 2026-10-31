@@ -225,8 +225,8 @@ editor e i file `.env`.
 
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
 cosa *non* deve fare, dipendenze ammesse), tranne `orchestra-i18n`, che funziona già. La Fase 1 li
-riempie dal basso: per ora esistono `orchestra-test-support` e il tipo razionale di
-`orchestra-core-time`. Le regole sulle
+riempie dal basso: per ora esistono `orchestra-test-support` e, in `orchestra-core-time`, il
+tipo razionale e i tipi posizione e durata. Le regole sulle
 dipendenze sono riassunte in `docs/ARCHITECTURE.md`; qui c'è a cosa serve ciascun crate.
 
 ### orchestra-core-time
@@ -235,8 +235,9 @@ Il tempo musicale esatto: posizioni e durate come frazioni di semibreve, l'unica
 le conversioni in secondi, campioni e fotogrammi video (ADR-0005). Le funzioni di conversione
 verranno chiamate dal thread audio, quindi non devono allocare memoria. Nessuna dipendenza
 all'interno del workspace (in `[dev-dependencies]` solo `orchestra-test-support` e `proptest`, per
-i test). Per ora contiene il tipo razionale (passo F1.03); seguiranno la mappa delle misure
-(F1.04) e la mappa dei tempi con le conversioni (F1.05).
+i test). Per ora contiene il tipo razionale (passo F1.03) e i tipi posizione e durata (F1.04,
+prima parte); seguiranno la mappa delle misure (resto di F1.04) e la mappa dei tempi con le
+conversioni (F1.05).
 
 #### Il tipo razionale
 
@@ -363,6 +364,57 @@ contro Euclide, il controllo dell'intervallo).
 
 I benchmark (`benches/rational.rs`, passo F1.03b) e i loro primi numeri sono descritti più sotto,
 in "Benchmark e test di proprietà".
+
+#### Posizioni e durate
+
+`src/position.rs` aggiunge i due **tipi di dominio** di ADR-0018 §1, riesportati alla radice del
+crate: `Position` (un punto della linea del tempo scritta, in semibrevi dall'inizio della battuta
+0, che è la battuta in levare quando c'è) e `Duration` (la distanza con segno fra due posizioni).
+Entrambi sono un `Rational` travestito: stessi 16 byte (`#[repr(transparent)]`), stesso costo.
+Quello che aggiungono è **quali operazioni hanno senso**:
+
+```rust
+use orchestra_core_time::{Duration, Position, Rational};
+
+let quarter = Duration::from_rational(Rational::new(1, 4)?);
+let beat_two = Position::ZERO.checked_add(quarter)?; // position + duration = position
+let gap = beat_two.checked_duration_since(Position::ZERO)?; // position − position = duration
+let dotted = quarter.checked_mul(Rational::new(3, 2)?)?; // duration × number = duration
+let per_bar = Duration::from_rational(Rational::new(6, 8)?).checked_ratio(dotted)?; // 2
+```
+
+Sommare due posizioni o moltiplicare una posizione non compila: la documentazione del modulo ha
+due doctest `compile_fail` che lo dimostrano. Con `Rational` ovunque, "inizio battuta + posizione
+della nota" per errore compilerebbe e finirebbe una battuta più in là; qui lo ferma il
+compilatore.
+
+Alcuni dettagli:
+
+- **Segni.** Entrambi i tipi accettano valori negativi. Una posizione prima di zero è un punto
+  prima della partitura (la mappa delle misure la rifiuterà, ma una prima nota anticipata da uno
+  scostamento di microtiming suona lì); una durata è negativa quando si misura all'indietro.
+  "Una nota dura più di zero" è una regola del modello, non del tipo.
+- **Il nome `checked_duration_since`** segue `std::time::Instant::duration_since`: il ricevente
+  è la posizione successiva, l'argomento quella precedente.
+- **`Duration::checked_ratio`** risponde a "quante volte questa sta in quella": le unità si
+  semplificano, quindi restituisce un semplice `Rational`. Il suo `floor` dirà alla mappa delle
+  misure quale battuta di una serie di battute uguali contiene una posizione, quindi su
+  `Rational` non serve un'operazione di resto.
+- **Vie d'ingresso e d'uscita:** `from_rational` e `as_rational` sono esplicite apposta. Le
+  useranno la mappa dei tempi e il formato del file, e vederle in un diff vuol dire "qui un
+  valore esce (o entra) dalla protezione dei tipi".
+- Ogni metodo è una `const fn` che inoltra all'operazione di `Rational`, con gli stessi errori.
+  La negazione chiama `negated` di `Rational`, privata al crate, invece dell'operatore `-`,
+  perché `arithmetic_side_effects` di clippy non sa distinguere `-razionale` (infallibile) da una
+  negazione intera che potrebbe traboccare.
+- `Debug` stampa `Position(3/8)` e `Duration(-1/4)`; niente `Display` fino a F1.15.
+
+I test sono in due file. `tests/position.rs` controlla con proptest che ogni metodo restituisca
+esattamente ciò che restituisce la sua operazione di `Rational` (errori compresi), poi l'algebra
+per cui i tipi esistono (`(p + d) − p = d`, `a − b = −(b − a)`, rapporto × unità = durata), poi
+casi musicali scritti a mano. Un bug inserito apposta (`checked_sub` che somma invece di
+sottrarre) è stato preso da due proprietà insieme. `tests/position_no_alloc.rs` controlla con
+l'allocatore contatore che nulla allochi, sui percorsi di successo e di errore.
 
 ### orchestra-core-model
 
