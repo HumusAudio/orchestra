@@ -19,7 +19,9 @@
 //!   [`position`] module.
 //! - The tempo map: tempo changes (including gradual ones), with O(log n) lookup of the segment
 //!   containing a position through a cumulative table.
-//! - The meter map (time signatures), used to turn positions into bars/beats for display.
+//! - The meter map (ADR-0018, ADR-0019): written meters ([`Meter`]), beat groupings
+//!   ([`BeatGrouping`]), irregular and free bars, and [`MeterMap`], which turns positions into
+//!   bars and beats and back with O(log n) lookups. See the [`meter`] and [`meter_map`] modules.
 //! - Conversions rational time ⇄ seconds ⇄ sample index (at a given sample rate) ⇄ video frame
 //!   (with a rational frame rate, e.g. 30000/1001 for NTSC).
 //!
@@ -30,7 +32,7 @@
 //!   real-time context (CLAUDE.md §5).
 //!
 //! ## Still to come in Phase 1
-//! The meter map (F1.04, ADR-0018 §2–§5), the tempo map and the conversions (F1.05).
+//! The tempo map and the conversions (F1.05).
 //!
 //! ## Allowed dependencies
 //! None inside the workspace. External crates only if they are small, GPL-compatible and justified
@@ -45,8 +47,15 @@
 // Tests are exempt from the first one through clippy.toml.
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+pub mod meter;
+pub mod meter_map;
 pub mod position;
 pub mod rational;
 
+pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};
+pub use meter_map::{
+    BarIndex, BarKind, BarPosition, BeatPosition, IrregularBar, MeterChange, MeterMap,
+    MeterMapError,
+};
 pub use position::{Duration, Position};
 pub use rational::{Rational, RationalError};

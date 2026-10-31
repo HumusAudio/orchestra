@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1ead375f3e8f1da2406bc7bea6cf5d5fb2249fa79e41d3dbc93bb031258cd32c # shrinks to edits = [Meter(2, 0, None)]
+cc 8fb3d192f795a8f8bb954411bc73e173a392a785b04d4e619154efb7099f96e7 # shrinks to edits = [Irregular(2, 1, 4, AlignStart)], points = [(1, 0)]
+cc 94bf6d4481553acea2af31b3375cd3a1ba270fea555041593d3d6e152aa02245 # shrinks to edits = [Meter(0, 1, None)], points = [(0, 22)]

@@ -212,7 +212,7 @@ and `.env` files.
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
 what it must *not* do, allowed dependencies), except `orchestra-i18n`, which already works. Phase
 1 is filling them from the bottom: `orchestra-test-support` and, in `orchestra-core-time`, the
-rational type and the position and duration types exist so far. The
+rational type, the position and duration types and the meter map exist so far. The
 dependency rules are summarised in `docs/ARCHITECTURE.md`; here is what each crate is for.
 
 ### orchestra-core-time
@@ -221,8 +221,8 @@ Exact musical time: positions and durations as fractions of a whole note, the si
 conversions to seconds, samples and video frames (ADR-0005). The conversion functions will be
 called by the audio thread, so they must not allocate. No dependencies inside the workspace (in
 `[dev-dependencies]` only `orchestra-test-support` and `proptest`, for the tests). So far it
-contains the rational type (step F1.03) and the position and duration types (F1.04, first
-part); the meter map (rest of F1.04) and the tempo map with the conversions (F1.05) come next.
+contains the rational type (step F1.03), the position and duration types (F1.04) and the meter
+map with beat groupings (F1.04b); the tempo map with the conversions (F1.05) comes next.
 
 #### The rational type
 
@@ -393,6 +393,128 @@ exist for (`(p + d) − p = d`, `a − b = −(b − a)`, ratio × unit = durati
 musical cases. A bug injected on purpose (`checked_sub` adding instead of subtracting) was caught
 by two properties at once. `tests/position_no_alloc.rs` checks with the counting allocator that
 nothing allocates, on success and error paths.
+
+#### Meters and beat groupings
+
+`src/meter.rs` holds two small types that answer two different questions about a bar
+(ADR-0018 §2, ADR-0019):
+
+- **`Meter`**: how the bar is *written*, the time signature printed in the score. From 1 to 8
+  numerator groups and a denominator: 4/4 is `[4]/4`, the additive 3+2+2/8 is `[3, 2, 2]/8`. Any
+  denominator from 1 to 65535 is accepted, not only powers of two (decision D04): 4/3 lasts
+  four triplet half notes.
+- **`BeatGrouping`**: how the bar is *counted*, if the default rule is not what the user wants.
+  From 1 to 16 beats, each of `group/unit` whole notes, with a unit of its own:
+
+```rust
+use orchestra_core_time::{BeatGrouping, Meter, MeterChange, MeterMap};
+
+let nine_eight = Meter::new(&[9], 8)?; // written "9/8"
+let mixed = Meter::new(&[3, 2, 2], 8)?; // written "3+2+2/8"
+// 9/8 still written "9/8", but counted 3+2+2+2 for the whole section:
+let counted = BeatGrouping::new(&[3, 2, 2, 2], 8)?;
+let map = MeterMap::new(MeterChange::with_grouping(nine_eight, counted))?;
+// A 3/4 bar counted as two dotted quarters (hemiola): the grouping has its own unit.
+let hemiola = BeatGrouping::new(&[3, 3], 8)?;
+```
+
+Both keep their groups in a fixed array (8 or 16 slots) plus a length, so they are `Copy` and
+never allocate. The unused slots are always zero: that is what makes the derived equality and
+hash correct. Invalid inputs (no groups, too many, a zero group, a zero denominator) are a
+`MeterError`. `Debug` writes `Meter(3+2+2/8)` and `BeatGrouping(3+2+2+2/8)`.
+
+The **default counting**, used when no grouping is given, lives in the meter map: an additive
+meter has one beat per written group; a single numerator that is a multiple of 3 greater than 3
+is compound (6/8 in two dotted quarters, 12/8 in four); anything else is simple, one beat per
+unit. So 7/8 counts seven eighths: the owner chose not to guess 2+2+3 or 3+2+2, and the
+interface will ask which grouping to use when a mixed meter is entered (ADR-0019, Consequences).
+
+#### The meter map
+
+`src/meter_map.rs` turns bars and beats into positions and back. It keeps the **source data**
+that the document stores and the commands edit, in lists sorted by bar:
+
+- meter changes (`MeterChange`: a meter and an optional grouping for its section), the first
+  always at bar 0;
+- irregular bars (`IrregularBar`: an explicit length and a `BarKind`): `AlignStart` (the start of
+  a nominal bar, e.g. the incomplete bar before a repeat, or a bar longer than its meter),
+  `AlignEnd` (the end of a nominal bar: the pickup), `Free` (meter suspended: a free cadenza);
+- per-bar groupings, which win over the section's;
+- the numbering rules: uncounted bars and restarts.
+
+From these it derives **segments**, runs of bars with the same meter, length and counting, each
+with its first bar and its start position already summed up:
+
+```text
+bars:      0      1    2    3    4    5   …      (bar 0 a 1/4 pickup, 3/4 from bar 3)
+segments: [pickup][ 4/4 × 2 ][ 3/4 forever  …
+starts:    0      1/4        9/4
+```
+
+So every lookup is a binary search (`partition_point`) followed by one or two exact divisions:
+`locate` (position → bar and offset), `bar_start`, `position_of`, `beat_of` (point → beat, or
+`None` in a free bar), `beat_position` (the inverse), `beat_range` (the beats that start inside a
+bar, for the metronome), `display_number`. None of them allocates (`tests/meter_map_no_alloc.rs`).
+The last segment continues forever: where the score ends is the model's business.
+
+Some rules worth knowing:
+
+- **Beat numbers are 0-based** and counted from the virtual start of the nominal bar. A
+  quarter-note pickup in 4/4 is beat 3 (the musician's "beat 4"), and `beat_range` gives `3..4`;
+  an eighth pickup gives the empty range `4..4`, because the only beat it touches began before it.
+- **A bar longer than its meter** repeats the pattern and keeps counting (owner's option "a"):
+  5/4 in 4/4 has beats `0..5`; 3+2+2/8 stretched to 9/8 has a fourth beat of 3/8 cut to 2/8 by the
+  barline.
+- **Free bars** have no beats, but the meter stays recorded and resumes at the next regular bar;
+  a meter change placed on a free bar is "the meter after the cadenza". They are counted in the
+  numbering unless marked uncounted.
+- **Numbering:** bar 0 is number 0 if it is a pickup, otherwise 1; uncounted bars have no number
+  and do not advance the count; a restart sets the number of its bar.
+
+**Editing is all or nothing.** Each edit (`set_meter_change`, `set_irregular_bar`,
+`set_bar_grouping` and their `remove_*`) works on a copy of the source data, rebuilds the
+segments and validates everything; only then does it replace the map:
+
+```rust
+fn edit<T>(&mut self, change: impl FnOnce(&mut Sources) -> T) -> Result<T, MeterMapError> {
+    let mut sources = self.sources.clone();
+    let result = change(&mut sources);
+    let segments = build_segments(&sources)?;
+    self.sources = sources;
+    self.segments = segments;
+    Ok(result)
+}
+```
+
+So an edit that would leave some bar inconsistent (a pickup now longer than a new meter, a
+per-bar grouping that no longer adds up) returns a typed `MeterMapError` and the map is exactly
+as before, as the commands of ADR-0003 need. Every edit returns the previous value, which is what
+an undo will store. The rebuild costs O(n log n) in the number of source entries and allocates,
+which is fine on the editing path.
+
+**Tests.** `tests/meter_map_cases.rs` has 20 hand-written cases, one per item of the SCALETTA
+list (pickup, meter changes, compound, additive, 4/3, free cadenza over one and several bars,
+hemiola, groupings that do not add up, numbering, errors). `tests/meter_map_oracle.rs` builds maps
+from random sequences of edits and compares every bar and random points with a **naive oracle**
+that walks bar by bar from the source data, with linear scans and explicit beat lists, and checks
+that failed edits leave the map unchanged. Two bugs injected on purpose (compound from 3 instead
+of from 6; summing one bar per segment instead of all of them) were caught by both files.
+
+**Benchmarks** (`benches/meter_map.rs`) use a reference map of 256 bars with about 150 segments,
+far more than a real score, and batches of 64 lookups; the map is built in Gungraun setup
+functions, which are not measured. First numbers (development machine, 2026-10-31):
+
+```text
+locate            61609 instructions / 64 lookups ≈  960 each
+bar_start         29850                            ≈  470
+beat_of           59567                            ≈  930
+beat_position     72693                            ≈ 1140
+display_number     6557                            ≈  100
+edit_meter_change 97488 for one edit (clone, rebuild, validation)
+```
+
+Most of the cost is the exact rational arithmetic (the gcds), not the search. A lookup of about a
+thousand instructions is well under a microsecond on the reference hardware.
 
 ### orchestra-core-model
 

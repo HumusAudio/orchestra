@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.8, approvata dal proprietario il 2026-10-31.**
+> **Stato di questo documento: v0.9, approvata dal proprietario il 2026-10-31.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -127,7 +127,7 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 | F1.03 | **Implementazione del tipo razionale** + test di proprietà (con oracolo) + test "non alloca" | ✅ PR #8 | 1–2 |
 | F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ✅ ADR-0017, PR #9 | 1 |
 | F1.04 | **ADR della mappa delle misure + tipi posizione e durata** | ✅ ADR-0018 | 1 |
-| F1.04b | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale, battute irregolari e libere, numerazione, benchmark | ⬜ | 1–2 |
+| F1.04b | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale, battute irregolari e libere, numerazione, benchmark | ✅ ADR-0019, PR #11 | 1–2 |
 | F1.05 | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni | ⬜ | 2–3 |
 
 Dettagli:
@@ -192,6 +192,11 @@ Dettagli:
   metro, numerazione con battute non contate e ripartenze, errori tipizzati. Test di proprietà
   (posizione → battuta → posizione è l'identità), test "non alloca" sulle ricerche, benchmark a
   lotti (ADR-0017 §4).
+  **Fatto il 2026-10-31 (ADR-0019 Accepted):** prima di partire il proprietario ha scelto che una
+  battuta più lunga del suo metro ripeta lo schema dei movimenti con la numerazione che prosegue,
+  e ha chiesto che la **suddivisione dei movimenti** sia separata dal metro scritto e modificabile
+  per sezione o per singola battuta (9/8 contato 3+2+2+2; unità propria, quindi anche l'emiolia).
+  Regola predefinita invariata: 7/8 conta sette crome. Requisito per l'interfaccia in F2.22b.
 - **F1.05** Segmenti a tempo costante (esatti) e cambi graduali (accelerando/rallentando)
   integrati analiticamente; regola di arrotondamento ai campioni **documentata**; frame rate
   razionali (24/1, 25/1, 30000/1001); conversione inversa secondi → posizione (servirà a
@@ -331,11 +336,17 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 | F2.20 | **Più voci, più righi, accollature, sistemi e interruzioni di riga** (incrementali) | ⬜ | 3–4 |
 | F2.21 | **Vista notazione**: scorrimento, zoom, selezione, pagina bianca opzionale (ADR-0014) | ⬜ | 2–3 |
 | F2.22 | **Inserimento note da tastiera** (step input) e modifica → comandi, undo/redo | ⬜ | 3 |
+| F2.22b | **Inserimento di metri, cambi di metro, battute irregolari e libere, suddivisioni dei movimenti** → comandi | ⬜ | 1–2 |
 | F2.23 | **Benchmark di fase**: re-layout ≤ 16 ms; 100 battute × 10 righi a ≥ 30 fps software / 60 fps GPU | ⬜ | 1 |
 | F2.24 | **Chiusura fase**: guide, documentazione, PR | ⬜ | 1–2 |
 
 - ❓ **Decisione F2.18:** algoritmo di spaziatura (esistono approcci noti in letteratura, es.
   quelli basati sulle durate e sulle "molle"): Claude fa una ricerca e propone.
+- **F2.22b** Requisito del proprietario (2026-10-31, ADR-0019): quando si inserisce un metro misto
+  (5/8, 7/8, 11/8…) l'interfaccia chiede **subito** quale raggruppamento usare, elencando le
+  opzioni (5/8: 2+3, 3+2 o tenere 5; 7/8: 2+2+3, 3+2+2, 2+3+2 o tenere 7; ecc.), e ricorda che
+  si potrà poi cambiare battuta per battuta. Comprende anche levare, battute non contate e
+  cadenze libere (ADR-0018).
 - Fuori da questa fase (vedi §5): parti staccate, stampa/PDF, MusicXML.
 
 **Tappa M2B.**
@@ -493,3 +504,4 @@ raccomandato.
 | 2026-10-31 | 0.6 | F1.03 fatto (PR #8) con le scelte d'interfaccia approvate; note su F1.03b (benchmark di ADR-0015 §9, caso oltre i 64 bit) e F1.04 (tipi specifici, eventuale `rem`) | proprietario |
 | 2026-10-31 | 0.7 | F1.03b fatto (ADR-0017 Accepted, PR #9); regole dei benchmark: lotti e nome nuovo se cambia significato | proprietario |
 | 2026-10-31 | 0.8 | F1.04 fatto (ADR-0018 Accepted, tipi `Position`/`Duration`), D04 chiusa; nuovo F1.04b (la mappa) con le cadenze libere richieste dal proprietario; note per F1.06 | proprietario |
+| 2026-10-31 | 0.9 | F1.04b fatto (ADR-0019 Accepted, PR #11): suddivisione dei movimenti separata dal metro scritto; nuovo F2.22b (inserimento dei metri) con il requisito dei metri misti | proprietario |
