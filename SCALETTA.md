@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.4, approvata dal proprietario il 2026-10-30.**
+> **Stato di questo documento: v0.5, approvata dal proprietario il 2026-10-31.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -123,8 +123,9 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
 | F1.01 | **ADR: il tipo razionale** — rappresentazione, politica di overflow, normalizzazione | ✅ ADR-0015 | 1 |
-| F1.02 | **Infrastruttura di test e benchmark**: `cargo xtask bench`, test di proprietà, contatore di allocazioni | ⬜ | 1–2 |
-| F1.03 | **Implementazione del tipo razionale** + test di proprietà + benchmark | ⬜ | 1–2 |
+| F1.02 | **Infrastruttura di test e benchmark**: `cargo xtask bench`, test di proprietà, contatore di allocazioni | ✅ ADR-0016 | 1–2 |
+| F1.03 | **Implementazione del tipo razionale** + test di proprietà (con oracolo) + test "non alloca" | ⬜ | 1–2 |
+| F1.03b | **Benchmark del tipo razionale + confronto con `main` in CI** (soglie di regressione) | ⬜ | 1 |
 | F1.04 | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale | ⬜ | 2 |
 | F1.05 | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni | ⬜ | 2–3 |
 
@@ -146,6 +147,18 @@ Dettagli:
   proprietà (es. `proptest`), da verificare; (c) contatore di allocazioni globale nei test
   (ADR-0007 regola 1), che servirà anche per il thread audio in F3. Ogni dipendenza nuova va
   valutata per licenza, dimensione e tempo di compilazione (CLAUDE.md §5, §10).
+  **Decisione D03, chiusa il 2026-10-31:** benchmark solo con Gungraun (conteggio istruzioni
+  sotto Valgrind; in CI su Linux, solo compilati su Windows e macOS), test di proprietà con
+  `proptest`, contatore di allocazioni nostro, per thread, nel nuovo crate `test-support` (solo
+  `[dev-dependencies]`). Confronto con `main` e soglie rimandati a F1.03b. Dettagli in ADR-0016.
+- **F1.03** Implementa `Rational` secondo ADR-0015. **Oracolo** dei test di proprietà (ADR-0016
+  §4): proposta di Claude, approvata il 2026-10-31, un calcolo di riferimento in `i128` scritto nei
+  test stessi, senza crate nuovi; ogni operazione è confrontata con l'oracolo, compresi i casi
+  limite di ADR-0015 (`i64::MAX`, zero, negativi, risultati che entrano in `i64` solo dopo la
+  riduzione). Test "non alloca" con `orchestra-test-support`.
+- **F1.03b** Benchmark Gungraun di somma, prodotto, confronto e riduzione; nella CI il confronto
+  di una pull request con `main` (baseline di Gungraun) e soglie di fallimento, tarate sui primi
+  numeri reali (ADR-0016 §3). Diviso da F1.03 il 2026-10-31 perché insieme superavano la stima.
 - **F1.04** Casi da coprire con test: battuta in levare (anacrusi), cambi di metro, metri
   composti e additivi (3+2+2/8), metri non binari (es. 4/3, se li vogliamo: ❓), numerazione
   delle battute con eccezioni. Ricerca O(log n).
@@ -407,7 +420,7 @@ modifica.
 |---|---|---|---|
 | D01 | Lint pedantic da tenere | F0.16 | **chiusa** 2026-10-30: vedi F0.16 |
 | D02 | Tipo razionale: nostro o crate esistente; politica di overflow | F1.01 | **chiusa** 2026-10-30: ADR-0015 |
-| D03 | Strumenti di benchmark e di test di proprietà | F1.02 | aperta |
+| D03 | Strumenti di benchmark e di test di proprietà | F1.02 | **chiusa** 2026-10-31: ADR-0016 |
 | D04 | Metri non binari (es. 4/3): sì o no | F1.04 | aperta |
 | D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | aperta |
 | D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | aperta |
@@ -443,3 +456,4 @@ raccomandato.
 | 2026-10-30 | 0.2 | Scaletta approvata; D11 (sì a F1.18), D19 (italiano), D20 (F2A poi F2B) chiuse; F0.17 fatto; protocollo aggiunto a `CLAUDE.md` §0 | proprietario |
 | 2026-10-30 | 0.3 | F0.15 e F0.16 fatti, D01 chiusa | proprietario |
 | 2026-10-30 | 0.4 | F1.01 fatto (ADR-0015 Accepted), D02 chiusa; nota sull'esattezza dei cambi di tempo graduali in F1.05 | proprietario |
+| 2026-10-31 | 0.5 | F1.02 fatto (ADR-0016 Accepted), D03 chiusa; F1.03 diviso in F1.03 (tipo + oracolo `i128`) e F1.03b (benchmark + confronto con `main`) | proprietario |

@@ -29,6 +29,7 @@ members = [
     "crates/ui",
     "crates/video",
     "crates/app",
+    "crates/test-support",
     "xtask",
 ]
 # Evaluation prototypes have their own workspace (spikes/Cargo.toml) and must never be picked up
@@ -61,6 +62,8 @@ orchestra-io = { path = "crates/io" }
 orchestra-i18n = { path = "crates/i18n" }
 orchestra-ui = { path = "crates/ui" }
 orchestra-video = { path = "crates/video" }
+# Test-only: allowed exclusively in `[dev-dependencies]` (ADR-0016 §6, checked by `cargo xtask check`).
+orchestra-test-support = { path = "crates/test-support" }
 
 # External crates. Every entry was checked on crates.io (version, license, maintenance) and is
 # justified in an ADR; versions are pinned to the minor release we verified.
@@ -68,6 +71,15 @@ orchestra-video = { path = "crates/video" }
 fluent-bundle = "0.16.0"
 fluent-syntax = "0.12.0"
 unic-langid = "0.9.6"
+# Test and benchmark tools (ADR-0016, verified 2026-10-31). Dev-dependencies only: never shipped.
+# proptest: property tests with shrinking. Default features off: `fork` and `timeout` would pull in
+# rusty-fork and tempfile, which we do not need; `std` keeps the regression-file persistence.
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
+# gungraun: instruction-count benchmarks under Valgrind's Callgrind. Pinned EXACTLY (`=`) because
+# the separately installed `gungraun-runner` binary must have the very same version: a silent
+# `cargo update` to 0.20.1 would break `cargo xtask bench` locally and in CI. Bump it together with
+# the runner version in .github/workflows/ci.yml and in the developer documentation.
+gungraun = "=0.20.0"
 
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a

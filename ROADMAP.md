@@ -13,7 +13,14 @@ milestones and the index of open decisions live there. Steps F0.15 and F0.16 are
 (`fix/raccordo-fase-0`, 2026-10-30): every CI run on `main` is green on all three platforms, a
 weekly scheduled run was added, and the lint selection was approved. Phase 1 has started: step
 F1.01 (`feature/f1-01-adr-razionale`, 2026-10-30) produced **ADR-0015, the rational type**,
-accepted by the owner (decision D02 closed). Next: F1.02 (test and benchmark infrastructure).
+accepted by the owner (decision D02 closed). Step F1.02 (`feature/f1-02-bench-test`,
+2026-10-31) produced **ADR-0016, test and benchmark tools** (decision D03 closed) and implemented
+it: the test-only crate `orchestra-test-support` (per-thread allocation-counting global allocator,
+`[dev-dependencies]` only, enforced by `cargo xtask check`), `proptest` for property tests, and
+`cargo xtask bench` with Gungraun (instruction counts under Valgrind; CI job on Linux, compile-only
+on Windows and macOS). Next: F1.03 (implementation of the rational type, property tests against an
+`i128` oracle written in the tests, allocation-free tests), then F1.03b (its benchmarks and the
+CI comparison against `main` with thresholds). The split was approved on 2026-10-31.
 
 | Step | What | Status |
 |---|---|---|
@@ -60,6 +67,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
+- **For F1.03b** (ADR-0016 §3): design the benchmark regression comparison against `main` and its
+  thresholds. (The F1.03 oracle is decided: `i128` reference computation in the tests.)
 - **Concrete project file format** (ADR-0010, Phase 1).
 - **For F1.05:** integrating a gradual tempo change generally gives a logarithm, so seconds inside
   such segments are not rational; F1.05 must state where exactness ends (noted in ADR-0015).
@@ -80,6 +89,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - `sandbox.excludedCommands` only applies to a command run **on its own**: `cd … && git push`
   and `gh … | grep` stay sandboxed (and `gh` then has no token: anonymous rate limit, no job
   logs). Run `git push`, `gh …` and `cargo fetch` alone; the cwd is already the repository.
+  A `gh` command spanning several lines (e.g. `--body "…"` with newlines) is not recognised as
+  excluded either and fails with HTTP 401: write the text to a file and use `--body-file`.
 - `.git/config`, `~/.cargo` and `~/.rustup` are read-only inside the sandbox: new dependencies
   are downloaded with `cargo fetch` (then builds work offline), toolchain updates are done by the
   owner, `cargo xtask setup` must run outside the sandbox.
@@ -91,5 +102,9 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - `core-time` denies `clippy::arithmetic_side_effects` and `clippy::indexing_slicing`,
   `core-model` denies `clippy::indexing_slicing` (crate-root attributes): plain `+ - *` and `v[i]`
   do not compile there.
+- Benchmarks need Valgrind and `gungraun-runner` of exactly the `gungraun` version in Cargo.toml
+  (both installed on the development machine on 2026-10-31). Inside the sandbox `/tmp` is not
+  writable: `cargo xtask bench` forwards `TMPDIR` so that Valgrind can create its temporary files.
+- Gungraun's `#[library_benchmark]` rejects doc comments on benchmark functions: use `//` comments.
 - `rustfmt` on a single file fails when a `mod` it declares has no file yet: write module files
   first, or run `cargo fmt --all` afterwards.
