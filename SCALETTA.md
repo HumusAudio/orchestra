@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.13, approvata dal proprietario il 2026-11-01.**
+> **Stato di questo documento: v0.14, approvata dal proprietario il 2026-11-01.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -239,7 +239,7 @@ Dettagli:
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
 | F1.06 | **ADR: architettura del modello** — identità degli oggetti, struttura in memoria, come sono organizzate voci e tracce | ✅ | 2 |
-| F1.07 | **Altezza con grafia, intervalli, trasposizione** (tipi puri, molto testati) | ⬜ | 1–2 |
+| F1.07 | **Altezza con grafia, intervalli, trasposizione** (tipi puri, molto testati) | ✅ | 1–2 |
 | F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ⬜ | 2 |
 | F1.09 | **Note a due strati** (ADR-0004): intento scritto + scostamenti; gruppi irregolari, legature di valore, abbellimenti, articolazioni, dinamiche e forcelle | ⬜ | 3–4 |
 | F1.10 | **Forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ⬜ | 1–2 |
@@ -265,6 +265,8 @@ Dettagli:
   trasposizione di strumenti traspositori con grafia corretta (ADR-0004), altezza sonora MIDI
   derivata. Microtoni: ❓ **Decisione:** previsti nel tipo da subito (anche se non usati) o
   rimandati? Cambiarlo dopo tocca il formato del file.
+  **Fatto il 2026-11-01:** ADR-0023 Accepted, modulo `pitch` di `core-model` (alterazione
+  razionale in semitoni, armature tradizionali fino a ±14 quinte, grafia da MIDI, trasposizione).
 - **F1.08** Implementa ADR-0022 §1–3: contatore unico e ID tipizzati, tracce → strumento → righi
   e voci (le voci appartengono allo strumento, ogni evento ha il suo rigo), elenco delle battute
   con `BarId`.
@@ -301,7 +303,9 @@ Dettagli:
 
 - **F1.13** È il punto in cui il principio "intento + scostamenti" diventa concreto. L'uscita è
   un buffer di eventi pre-calcolato: è proprio ciò che il motore audio (F3) riceverà
-  (ARCHITECTURE: `audio-engine` non vede `core-model`).
+  (ARCHITECTURE: `audio-engine` non vede `core-model`). Restano fuori dalla v0 l'**intonazione**
+  (temperamenti, intonazione naturale) e i segni di comma (Helmholtz-Ellis, Sagittal): ADR-0023
+  §2–§3 usa il 12-TET come riferimento. ❓ **Decisione D22:** in quale passo si fa l'intonazione.
 - **F1.14** ❓ **Decisione:** valore di default della soglia (proposta di ADR-0004: 1/32) e se
   offrire da subito anche la variante in millisecondi.
 - **F1.15** Candidati da confrontare con i tipi veri: testo strutturato (JSON, RON o simili,
@@ -389,6 +393,9 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
   opzioni (5/8: 2+3, 3+2 o tenere 5; 7/8: 2+2+3, 3+2+2, 2+3+2 o tenere 7; ecc.), e ricorda che
   si potrà poi cambiare battuta per battuta. Comprende anche levare, battute non contate e
   cadenze libere (ADR-0018).
+- Da ADR-0023: il simbolo da disegnare per le alterazioni microtonali (Stein-Zimmermann, frecce
+  di Gould…); la semplificazione enarmonica delle armature trasposte (9 diesis mostrati come
+  3 bemolle); i nomi delle note nelle sei lingue, con il Si tedesco «H» (glossario).
 - Fuori da questa fase (vedi §5): parti staccate, stampa/PDF, MusicXML.
 
 **Tappa M2B.**
@@ -429,8 +436,8 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 | Filone | Quando (proposta) | Note |
 |---|---|---|
 | **Esportazione MIDI** | F1.18 (approvato) | Primo ascolto |
-| **Importazione MIDI** | dopo F3.06 | ADR-0004: va *dedotto* l'intento (quantizzazione, grafia, voci): difficile, merita un ADR |
-| **MusicXML import/export** | dopo F2B | Fondamentale per l'interoperabilità con gli altri software di notazione |
+| **Importazione MIDI** | dopo F3.06 | ADR-0004: va *dedotto* l'intento (quantizzazione, grafia, voci): difficile, merita un ADR. Grafia secondo il contesto melodico (ADR-0023 §6) |
+| **MusicXML import/export** | dopo F2B | Fondamentale per l'interoperabilità con gli altri software di notazione. **Da ricordare:** le armature non tradizionali (Bartók, klezmer, maqam e makam), rimandate dal proprietario, come secondo caso di `Key` con la loro regola di grafia (ADR-0023 §5) |
 | **Stampa ed esportazione PDF** | dopo F2B | Sempre in colori chiari (ADR-0014) |
 | **Parti staccate e strumenti traspositori in vista** | dopo F2B | Nessun dato duplicato (ADR-0004) |
 | **Accessibilità** | ogni passo UI | Nodi AccessKit fin dal primo widget; test con lettore di schermo a ogni tappa |
@@ -510,7 +517,7 @@ modifica.
 | D04 | Metri non binari (es. 4/3): sì o no | F1.04 | chiusa: sì nel tipo (ADR-0018) |
 | D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | chiusa: nel tempo reale (ADR-0020) |
 | D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | **chiusa** 2026-11-01: ADR-0022 |
-| D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | aperta |
+| D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | **chiusa** 2026-11-01: ADR-0023 (alterazione razionale in semitoni; l'intonazione è rimandata) |
 | D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | aperta |
 | D09 | Soglia di tolleranza di default; variante in ms | F1.14 | aperta (esiste già nella ROADMAP) |
 | D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | aperta |
@@ -525,6 +532,7 @@ modifica.
 | D19 | Lingua della scaletta: italiano (attuale) o inglese come gli altri documenti di progetto | F0.17 | **chiusa** 2026-10-30: italiano |
 | D20 | Ordine alternativo: incisione headless (F2B in PNG) **prima** delle fondamenta UI (F2A) | F0.17 | **chiusa** 2026-10-30: F2A poi F2B |
 | D21 | Cambio di metro: mantenere le battute o riscrivere la musica | F1.11 | aperta |
+| D22 | Intonazione (temperamenti, intonazione naturale, segni di comma): in quale passo | F1.13 | aperta |
 
 Nota su **D20**: `notation-layout` non dipende da `ui`, quindi in teoria si potrebbe incidere la
 musica su immagini PNG (headless) subito dopo la Fase 1, vedendo prima i risultati musicali.
@@ -552,3 +560,4 @@ raccomandato.
 | 2026-11-01 | 0.11 | ADR-0021 Accepted (istanti di confine su una griglia fissa, posizioni arrotondate dentro i cambi graduali, tempo di partenza facoltativo); F1.05b in corso, prima parte fatta (posizioni ⇄ secondi) | proprietario |
 | 2026-11-01 | 0.12 | F1.05b fatto (PR #13): indici esatti di campione e di fotogramma, nessun ripiego misurato; F1-A completata | proprietario |
 | 2026-11-01 | 0.13 | F1.06 fatto (ADR-0022 Accepted), D06 chiusa; nuova D21 (comportamento del cambio di metro) per F1.11; vincoli di ADR-0022 annotati in F1.08, F1.09, F1.11, F1.16 | proprietario |
+| 2026-11-01 | 0.14 | F1.07 fatto (ADR-0023 Accepted), D07 chiusa; nuova D22 (intonazione) per F1.13; armature non tradizionali da ricordare nel filone MusicXML, grafia dal contesto nel filone importazione MIDI, note di ADR-0023 in F2B | proprietario |

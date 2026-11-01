@@ -787,7 +787,8 @@ pub struct TraditionalKey {
 ///
 /// An enum with one variant from the start: non-traditional signatures (free lists of steps and
 /// alterations, as in Bartók, klezmer and Balkan modes, maqam and makam) are deferred by the
-/// owner's choice and will be a second variant (F1.17 or the first concrete need).
+/// owner's choice and will be a second variant (the MusicXML import after F2B, or the first
+/// concrete need).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Key {
     /// A signature in the order of fifths.

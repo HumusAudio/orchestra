@@ -144,8 +144,8 @@ Key::Traditional { fifths: i8, mode: Mode }
   lists of steps and alterations: Bartók, klezmer and Balkan modes, maqam and makam with microtonal
   signatures, as MusicXML allows with `key-step`/`key-alter`/`key-octave`) are **deferred by the
   owner's choice, to be remembered**. They will be a second variant, a trivial file migration.
-  The natural moment is F1.17 (MusicXML import, where real files contain them) or the first
-  concrete need. They will need their own spelling rule, because §6 relies on the key's place on
+  The natural moment is the MusicXML import (after F2B, SCALETTA §5), where real files contain
+  them, or the first concrete need. They will need their own spelling rule, because §6 relies on the key's place on
   the line of fifths, which a free signature does not have.
 
 ### 6. Spelling a MIDI key in a key
@@ -160,7 +160,7 @@ position `t` with `7t ≡ pc (mod 12)` that lies in a window of twelve consecuti
 
 The step and the alteration follow from `t`, and the octave from the key number. The rule is
 deliberately simple and documented. Spelling from melodic context (sharps going up, flats going
-down) is for MIDI import (F1.17) or F1.14, which may refine it.
+down) is for MIDI import (after F3.06, SCALETTA §5) or F1.14, which may refine it.
 
 ### 7. Transposing instruments
 
@@ -209,6 +209,6 @@ variants to Fluent keys, as for `RationalError`):
   transposition, quarter tones in MIDI with the tie to the lower key); allocation-free tests;
   benchmarks in batches for the MIDI conversion and the transposition, which the playback compile
   calls once per note.
-- Recorded for later: non-traditional key signatures (F1.17 or first need), comma accidentals
+- Recorded for later: non-traditional key signatures (MusicXML import or first need), comma accidentals
   together with tuning (b), context-dependent spelling, the enharmonic simplification of transposed
   keys (F2B), localised note names (interface and glossary, with the German H/B).

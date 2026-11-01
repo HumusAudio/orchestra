@@ -162,7 +162,7 @@ The open choice is where voices belong:
 |---|---|---|
 | Piano cross-staff passages | A per-event override | A per-event field: the same thing, named differently |
 | A voice that wanders between staves (a melody passing hands) | Stays in its staff's voice, every note overridden | Natural |
-| MusicXML (F1.17) | Needs a remapping of voice numbers | Matches MusicXML directly: voices per part, `<staff>` per note |
+| MusicXML (import/export after F2B) | Needs a remapping of voice numbers | Matches MusicXML directly: voices per part, `<staff>` per note |
 | Layout per staff | Direct | One filter per staff (cheap, the staff field is on the event) |
 
 **Leaning: F2**, because it matches the interchange format and makes cross-staff a field rather

@@ -809,7 +809,8 @@ dell'intervallo: Fa♯4 più una sesta eccedente è Re𝄪5, mai Mi5. Un risulta
 Le **tonalità** (`Key`, `TraditionalKey`, `Mode`) contano diesis o bemolli in quinte, da −14 a +14
 (le tonalità oltre sette, come Re♯ maggiore per un clarinetto in Si♭ che suona in Do♯ maggiore,
 escono dalla trasposizione), con sette modi più "nessuno". `Key` è di proposito un enum con un solo
-caso: le armature libere (Bartók, maqam…) le ha rimandate il proprietario e saranno un secondo caso.
+caso: le armature libere (Bartók, maqam…) le ha rimandate il proprietario e saranno un secondo caso,
+all'importazione MusicXML (dopo F2B) o al primo bisogno concreto.
 I calcoli usano la **linea delle quinte** (… Si♭ −2, Fa −1, Do 0, Sol 1, Re 2 …): una tonalità di k
 quinte occupa i sette posti `[k − 1, k + 5]`, quindi l'alterazione di ogni lettera, la tonica di
 ogni modo e la trasposizione di una tonalità sono una somma ciascuna. `Pitch::spell_midi` sceglie la

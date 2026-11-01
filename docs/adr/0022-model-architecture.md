@@ -70,7 +70,7 @@ ADR-0004, its number of staves) → **staves** and **voices**.
 event records the staff it is drawn on** (by default the voice's home staff). A melody passing
 from one hand to the other, a cross-staff arpeggio or a beam across the two staves of a piano are
 one voice with a different staff on some events. This matches MusicXML (voices per part, a
-`<staff>` per note) for F1.17. The interface may still present "voices 1–4 of each staff" if that
+`<staff>` per note) for the MusicXML import and export (after F2B, SCALETTA §5). The interface may still present "voices 1–4 of each staff" if that
 reads better for the user.
 
 ### 3. Bars: lengths in the meter map, identity in the bar list

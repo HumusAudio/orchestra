@@ -766,7 +766,8 @@ F♯4 up an augmented sixth is D𝄪5, never E5. A result beyond a triple sharp 
 **Keys** (`Key`, `TraditionalKey`, `Mode`) count sharps or flats in fifths, from −14 to +14 (keys
 beyond seven, like D♯ major for a B♭ clarinet playing in C♯ major, come out of transposition), with
 seven modes and "none". `Key` is an enum with one variant on purpose: free signatures (Bartók,
-maqam…) were deferred by the owner and will be a second variant. The computations use the **line
+maqam…) were deferred by the owner and will be a second variant, at the MusicXML import (after
+F2B) or at the first concrete need. The computations use the **line
 of fifths** (… B♭ −2, F −1, C 0, G 1, D 2 …): a key of k fifths holds the seven places
 `[k − 1, k + 5]`, so the alteration of each letter, the tonic of each mode and the transposition of a
 key are one addition each. `Pitch::spell_midi` picks the spelling of a MIDI key inside a window of
