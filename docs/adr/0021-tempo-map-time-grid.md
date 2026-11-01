@@ -1,7 +1,7 @@
 # ADR-0021 — Tempo map: boundary times on a fixed grid, rounded positions inside gradual changes
 
-- **Status:** Proposed (SCALETTA F1.05b; the content was approved by the owner on 2026-11-01
-  before the text was written)
+- **Status:** Accepted (owner's decision, 2026-11-01; SCALETTA F1.05b). The content was approved
+  before the text was written.
 - **Date:** 2026-11-01
 - **Amends:** ADR-0020 §3 (the source data of a gradual change), §4 (where exactness ends) and §5
   (how the exact sample index is computed). Everything else in ADR-0020 stays as it is, in
