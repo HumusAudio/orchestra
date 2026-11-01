@@ -69,7 +69,13 @@ Every conversion inside a segment works with the local time `τ = t − t_k` and
 - if the next start comes **after** the exact end, the times in between map to the segment's end
   position (clamped), so time → position stays non-decreasing;
 - if it comes **before**, the last half tick of the segment is never reached: those times belong
-  to the next segment.
+  to the next segment. In the other direction, the positions just before the segment's end would
+  map to times after the next start: they map to the next start (clamped), so position → time
+  stays non-decreasing too. *(Added on 2026-11-01 with the owner's approval, after the
+  implementation showed that the clamp is needed in both directions.)*
+
+Both conversions therefore stay inside the segment: position → time within `[t_k, t_{k+1}]` and
+time → position within `[p_k, p_{k+1}]`.
 
 ### 3. Position → seconds
 

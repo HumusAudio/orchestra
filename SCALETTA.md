@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.10, approvata dal proprietario il 2026-10-31.**
+> **Stato di questo documento: v0.11, approvata dal proprietario il 2026-11-01.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -129,7 +129,7 @@ paga ovunque; per questo la fase è lunga e piena di ADR.
 | F1.04 | **ADR della mappa delle misure + tipi posizione e durata** | ✅ ADR-0018 | 1 |
 | F1.04b | **Mappa delle misure (metri)**: battute/movimenti ↔ posizione razionale, battute irregolari e libere, numerazione, benchmark | ✅ ADR-0019, PR #11 | 1–2 |
 | F1.05 | **ADR della mappa dei tempi + unità del tempo reale** (tempo, secondi, campioni, fotogrammi) | ✅ ADR-0020, PR #12 | 1 |
-| F1.05b | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni, con i cambi graduali | ⬜ | 2 |
+| F1.05b | **Mappa dei tempi (tempo map)**: posizione ↔ secondi ↔ campioni ↔ fotogrammi, in entrambe le direzioni, con i cambi graduali | 🔄 ADR-0021, prima parte fatta | 2 |
 
 Dettagli:
 
@@ -219,6 +219,15 @@ Dettagli:
   esatto anche dentro i cambi graduali (stima in `f64` + correzione esatta con l'inversa; ripiego
   `f64` in caso di overflow, da misurare), modifiche tutto-o-niente. Test contro un oracolo,
   test "non alloca" sulle conversioni, benchmark a lotti.
+  **ADR-0021 Accepted il 2026-11-01:** una simulazione ha mostrato che gli istanti esatti cumulati
+  escono dai limiti di `i64` dopo 8–13 cambi graduali (di `i128` dopo 31–53). Gli istanti di
+  confine stanno quindi su una griglia di 1/705 600 000 s (al massimo mezzo tick di errore per
+  confine), le posizioni dentro i cambi graduali si arrotondano alla stessa griglia in semibrevi,
+  entrambe le conversioni si fermano ai bordi del segmento; un cambio graduale può avere un tempo
+  di partenza ("Meno mosso, poco a poco accel."). Diviso in due parti. **Prima parte fatta il
+  2026-11-01:** `TempoMap`, posizioni ⇄ secondi, modifiche, oracolo, test "non alloca". **Seconda
+  parte:** indici esatti di campione e di fotogramma dentro i cambi graduali (controllo esatto in
+  `i128`), misura di quanto spesso serve il ripiego `f64`, benchmark a lotti, PR.
 
 #### F1-B — Il modello (`core-model`)
 
@@ -519,3 +528,4 @@ raccomandato.
 | 2026-10-31 | 0.8 | F1.04 fatto (ADR-0018 Accepted, tipi `Position`/`Duration`), D04 chiusa; nuovo F1.04b (la mappa) con le cadenze libere richieste dal proprietario; note per F1.06 | proprietario |
 | 2026-10-31 | 0.9 | F1.04b fatto (ADR-0019 Accepted, PR #11): suddivisione dei movimenti separata dal metro scritto; nuovo F2.22b (inserimento dei metri) con il requisito dei metri misti | proprietario |
 | 2026-10-31 | 0.10 | F1.05 fatto (ADR-0020 Accepted, PR #12), D05 chiusa; nuovo F1.05b (la mappa dei tempi) | proprietario |
+| 2026-11-01 | 0.11 | ADR-0021 Accepted (istanti di confine su una griglia fissa, posizioni arrotondate dentro i cambi graduali, tempo di partenza facoltativo); F1.05b in corso, prima parte fatta (posizioni ⇄ secondi) | proprietario |
