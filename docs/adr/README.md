@@ -29,4 +29,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0019](0019-beat-grouping.md) | Beat grouping: how a bar is counted, separate from how its meter is written | Accepted |
 | [0020](0020-tempo-map.md) | Tempo map: gradual changes linear in time, exact boundaries, exact sample rounding | Accepted |
 | [0021](0021-tempo-map-time-grid.md) | Tempo map: boundary times on a fixed grid, rounded positions inside gradual changes | Accepted |
-| [0022](0022-model-architecture.md) | Model architecture: stable IDs, bar-relative events in per-bar chunks, voices per instrument | Proposed |
+| [0022](0022-model-architecture.md) | Model architecture: stable IDs, bar-relative events in per-bar chunks, voices per instrument | Accepted |

@@ -1,7 +1,8 @@
 # ADR-0022 — Model architecture: stable IDs, bar-relative events in per-bar chunks, voices per instrument
 
-- **Status:** Proposed (SCALETTA F1.06, decision D06). Draft written after the owner chose the
-  candidate P3 and voices per instrument on 2026-11-01.
+- **Status:** Accepted (owner's decision, 2026-11-01; SCALETTA F1.06, decision D06). The owner
+  chose the candidate P3 and voices per instrument before the text was written, then accepted the
+  draft as it is.
 - **Date:** 2026-11-01
 - **Clarifies:** ADR-0004 ("position in its measure" is taken literally, §4). Does not change any
   Accepted decision.
