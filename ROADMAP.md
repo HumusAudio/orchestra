@@ -97,8 +97,23 @@ round trip and monotonicity; five injected bugs caught (two only after adding ta
 Benchmarks (`benches/tempo_map.rs`, 250 segments, batches of 64): ≈ 900 instructions per `time_at`,
 2000 per `position_at`, 2300 per `sample_at` at constant tempo, 4500 inside a gradual change, 3400
 per `frame_at`, 573 000 per edit; the gate against `main` shows no regression. PR #13 (CI green
-on the three platforms, merged); SCALETTA v0.12 closes F1.05b and with it F1-A. Next: **F1.06**
-(decision D06, the model architecture).
+on the three platforms, merged); SCALETTA v0.12 closes F1.05b and with it F1-A. Step **F1.06**
+(`feature/f1-06-model-architecture`, 2026-11-01) in three stages, each approved by the owner:
+an analysis of the alternatives (`spikes/model/ANALYSIS.md`), in which the owner chose **voices
+per instrument** with a staff per event; a prototype in `spikes/model/` comparing three storages
+with the real `core-time` types on generated scores (normal: 100 bars, 10 staves, 8 690 notes;
+heavy: 1 000 bars, 30 staves, 255 776 notes), with a test that the three hold the same music after
+every operation. On the heavy score, absolute positions in one sorted vector per voice need
+≈ 50 ms (≈ 170 M instructions) to insert a bar, lengthen a free bar or change a meter keeping the
+bars, while bar-relative offsets in one chunk per bar keyed by stable bar IDs keep every measured
+edit under 1.3 ms. **ADR-0022** (Accepted by the owner, 2026-11-01, D06 closed): 64-bit IDs from
+one counter, never reused, saved in the file; voices per instrument; bar lengths only in the meter
+map plus a list of `BarId`s; events as (bar, offset) in copy-on-write chunks; overfull bars a valid
+state; notes split into tie chains at barlines; commands shift the later tempo changes; snapshots
+for background readers, the audio thread never reads the model. SCALETTA v0.13 closes F1.06, adds
+decision **D21** (default behaviour of a meter change, for F1.11) and writes ADR-0022's
+constraints into F1.08, F1.09, F1.11 and F1.16. Next: **F1.07** (pitch with spelling, decision D07
+on microtones).
 
 | Step | What | Status |
 |---|---|---|
@@ -154,12 +169,15 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   is entered, ask at once which grouping to use, listing the options (5/8: 2+3, 3+2, keep 5;
   7/8: 2+2+3, 3+2+2, 2+3+2, keep 7; …), and remind that it can be changed bar by bar later. Written
   into SCALETTA step F2.22b.
-- **For F1.06:** absolute vs bar-relative note positions (ADR-0018 leaves it open; changing a meter
-  must not shift every later note by accident); the commands that lengthen a free bar when notes
-  are entered past its end.
+- **D21, for F1.11:** the default behaviour of a meter change (keep the bars' contents, or rewrite
+  the music up to the next meter change); both are cheap with ADR-0022's storage.
+- **`core-time` work required by ADR-0022 §8, with the first command that needs it:** inserting and
+  deleting bars in the meter map, and a bulk edit on both maps (shifting t tempo changes is now t
+  rebuilds, O(t²)).
+- **Possible model optimisations, not urgent (F1.06 numbers):** a whole-score iteration with
+  absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
+  ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
-- **Tempo changes are anchored to positions**, like notes: absolute vs bar-relative is F1.06's
-  question (ADR-0020 §3).
 - **Possible tempo map optimisations, not urgent (F1.05b numbers):** `sample_at` at constant tempo
   (≈ 2300 instructions) costs more than `time_at` (≈ 900 on mixed points) because the exact time has
   large denominators (boundaries off the grid) and is then multiplied by the rate; computing in
@@ -214,3 +232,9 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   first, or run `cargo fmt --all` afterwards.
 - The PostToolUse rustfmt hook formats only the edited file; a later script edit can still leave
   `cargo fmt --all --check` failing: run `cargo fmt --all` before `cargo xtask check`.
+- `spikes/` strips release binaries; its `[profile.bench]` keeps symbols because Callgrind finds
+  the measured function by name (otherwise every count is 0). Run its benchmarks with
+  `GUNGRAUN_ENVS=TMPDIR` (Valgrind needs a writable temporary directory inside the sandbox).
+  Passing a name filter after `--` filtered out every benchmark there; the whole run takes a few
+  minutes. One case (`iterate` on P2) recorded no work under Callgrind while the native timing
+  showed it did: always cross-check a suspicious count with a native measurement.

@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.12, approvata dal proprietario il 2026-11-01.**
+> **Stato di questo documento: v0.13, approvata dal proprietario il 2026-11-01.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -238,7 +238,7 @@ Dettagli:
 
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
-| F1.06 | **ADR: architettura del modello** — identità degli oggetti, struttura in memoria, come sono organizzate voci e tracce | ⬜ | 2 |
+| F1.06 | **ADR: architettura del modello** — identità degli oggetti, struttura in memoria, come sono organizzate voci e tracce | ✅ | 2 |
 | F1.07 | **Altezza con grafia, intervalli, trasposizione** (tipi puri, molto testati) | ⬜ | 1–2 |
 | F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ⬜ | 2 |
 | F1.09 | **Note a due strati** (ADR-0004): intento scritto + scostamenti; gruppi irregolari, legature di valore, abbellimenti, articolazioni, dinamiche e forcelle | ⬜ | 3–4 |
@@ -258,18 +258,32 @@ Dettagli:
   decidere se le note memorizzano una posizione assoluta o relativa alla battuta (cambiare un
   metro non deve spostare per sbaglio tutte le note successive), e i comandi che allungano una
   battuta libera quando vi si inseriscono note. ❓
+  **Fatto il 2026-11-01:** ADR-0022 Accepted (candidato P3, voci per strumento); prototipo e
+  misure in `spikes/model/`. Sulla partitura pesante nessuna modifica misurata cresce con la
+  lunghezza della partitura.
 - **F1.07** Grafia (nome della nota, alterazione, ottava), enarmonie, intervalli con qualità,
   trasposizione di strumenti traspositori con grafia corretta (ADR-0004), altezza sonora MIDI
   derivata. Microtoni: ❓ **Decisione:** previsti nel tipo da subito (anche se non usati) o
   rimandati? Cambiarlo dopo tocca il formato del file.
+- **F1.08** Implementa ADR-0022 §1–3: contatore unico e ID tipizzati, tracce → strumento → righi
+  e voci (le voci appartengono allo strumento, ogni evento ha il suo rigo), elenco delle battute
+  con `BarId`.
 - **F1.09** Tutti i "casi difficili" della tabella di ADR-0004 devono avere un test.
-  Gli scostamenti sono **delta**, mai copie assolute.
+  Gli scostamenti sono **delta**, mai copie assolute. Vincoli di ADR-0022 §4 e §6: blocchi per
+  battuta con offset, un ID per ogni testa di nota, la battuta troppo piena è uno stato valido,
+  le note che attraversano una stanghetta diventano catene di note legate, marcature estese legate
+  alle note oppure a (battuta, offset).
 - **F1.11** Ogni comando reversibile; raggruppamento (una "transazione" = un passo di undo,
   es. incollare 200 note); notifiche che dicono **cosa** è cambiato, per l'aggiornamento
   incrementale di layout e playback (ADR-0003 §6, ADR-0007). Test di proprietà: per ogni
   sequenza di comandi, fare-poi-annullare riporta al documento identico. ❓ **Decisioni:** limite
   della cronologia di undo (numero di passi o memoria), comandi "fusi" (trascinamento continuo =
-  un solo passo).
+  un solo passo). ❓ **Decisione D21:** comportamento predefinito di un cambio di metro
+  (mantenere il contenuto delle battute, oppure riscrivere la musica fino al cambio di metro
+  successivo). Da ADR-0022 §5 e §8: i comandi che spostano l'inizio delle battute spostano anche
+  i cambi di tempo successivi, con un test di proprietà («i cambi di tempo restano nello stesso
+  punto scritto rispetto alle battute»); in `core-time` servono l'inserimento e la rimozione di
+  battute nella mappa dei metri e la modifica in blocco delle due mappe.
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -297,7 +311,8 @@ Dettagli:
   tipizzato; politica sui campi sconosciuti. ❓ **Decisioni:** formato, contenitore, uso di
   `serde` (dipendenza da valutare), estensione del file (`.orchestra`? ❓).
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
-  layout e in F3 per l'audio: si genera da codice, non si scrive a mano.
+  layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
+  deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
 
 **"Primo ascolto" anticipato (approvato il 2026-10-30, D11):**
 **F1.18:** esportazione **MIDI file** (crate `io`) degli eventi
@@ -494,7 +509,7 @@ modifica.
 | D03 | Strumenti di benchmark e di test di proprietà | F1.02 | **chiusa** 2026-10-31: ADR-0016 |
 | D04 | Metri non binari (es. 4/3): sì o no | F1.04 | chiusa: sì nel tipo (ADR-0018) |
 | D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | chiusa: nel tempo reale (ADR-0020) |
-| D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | aperta |
+| D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | **chiusa** 2026-11-01: ADR-0022 |
 | D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | aperta |
 | D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | aperta |
 | D09 | Soglia di tolleranza di default; variante in ms | F1.14 | aperta (esiste già nella ROADMAP) |
@@ -509,6 +524,7 @@ modifica.
 | D18 | Accesso a macchine Windows/macOS per prove manuali | F2A | aperta |
 | D19 | Lingua della scaletta: italiano (attuale) o inglese come gli altri documenti di progetto | F0.17 | **chiusa** 2026-10-30: italiano |
 | D20 | Ordine alternativo: incisione headless (F2B in PNG) **prima** delle fondamenta UI (F2A) | F0.17 | **chiusa** 2026-10-30: F2A poi F2B |
+| D21 | Cambio di metro: mantenere le battute o riscrivere la musica | F1.11 | aperta |
 
 Nota su **D20**: `notation-layout` non dipende da `ui`, quindi in teoria si potrebbe incidere la
 musica su immagini PNG (headless) subito dopo la Fase 1, vedendo prima i risultati musicali.
@@ -535,3 +551,4 @@ raccomandato.
 | 2026-10-31 | 0.10 | F1.05 fatto (ADR-0020 Accepted, PR #12), D05 chiusa; nuovo F1.05b (la mappa dei tempi) | proprietario |
 | 2026-11-01 | 0.11 | ADR-0021 Accepted (istanti di confine su una griglia fissa, posizioni arrotondate dentro i cambi graduali, tempo di partenza facoltativo); F1.05b in corso, prima parte fatta (posizioni ⇄ secondi) | proprietario |
 | 2026-11-01 | 0.12 | F1.05b fatto (PR #13): indici esatti di campione e di fotogramma, nessun ripiego misurato; F1-A completata | proprietario |
+| 2026-11-01 | 0.13 | F1.06 fatto (ADR-0022 Accepted), D06 chiusa; nuova D21 (comportamento del cambio di metro) per F1.11; vincoli di ADR-0022 annotati in F1.08, F1.09, F1.11, F1.16 | proprietario |
