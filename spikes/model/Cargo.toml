@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "model"
+description = "Spike F1.06: three ways to store the events of the document model, measured"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The real time domain types (positions, durations, meter map), so that the measured costs include
+# the real rational arithmetic and the real bar lookups.
+orchestra-core-time = { path = "../../crates/core-time" }
+
+[dev-dependencies]
+# Same pinned version as the main workspace: the installed `gungraun-runner` must match.
+gungraun = "=0.20.0"
+
+# Instruction counts of every operation on every candidate (ANALYSIS.md §7).
+[[bench]]
+name = "model"
+harness = false

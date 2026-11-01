@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Phase 0, Step 13 — evaluation spikes (time-boxed prototypes, NOT product code).
+# Evaluation spikes (time-boxed prototypes, NOT product code): Phase 0, Step 13 (GUI and plugin
+# hosting) and SCALETTA F1.06 (`model`, the storage of the document model).
 #
 # A separate workspace on purpose: nothing here is ever built by the main workspace, by CI's
 # `cargo xtask check`, or into a release. The goal is to measure and decide (ADR-0011, ADR-0012),
@@ -9,7 +10,7 @@
 
 [workspace]
 resolver = "3"
-members = ["scene", "gui-own", "gui-iced", "gui-egui", "gui-slint", "plugin-host"]
+members = ["scene", "gui-own", "gui-iced", "gui-egui", "gui-slint", "plugin-host", "model"]
 
 [workspace.package]
 version = "0.0.0"
@@ -21,3 +22,9 @@ publish = false
 # Measurements are taken on release builds; keep debug info out so binary sizes are realistic.
 debug = false
 strip = true
+
+[profile.bench]
+# Gungraun tells Callgrind which function to measure by its symbol name: a stripped binary has none
+# and every count comes out as 0. Benchmarks (the `model` spike) keep their symbols.
+debug = true
+strip = false
