@@ -289,7 +289,10 @@ dependencies = [
 name = "orchestra-core-model"
 version = "0.0.0"
 dependencies = [
+ "gungraun",
  "orchestra-core-time",
+ "orchestra-test-support",
+ "proptest",
 ]
 
 [[package]]

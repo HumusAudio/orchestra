@@ -750,7 +750,86 @@ ben dentro i 16 ms di un aggiornamento dell'interfaccia.
 
 L'unico documento di progetto (ADR-0003): tracce, note con i loro due strati (intento scritto e
 scostamenti di esecuzione, ADR-0004), la forma del brano, i comandi e l'unica cronologia di
-annulla/ripristina. Non sa nulla di viste, impaginazione, audio o file.
+annulla/ripristina. Non sa nulla di viste, impaginazione, audio o file. La sua architettura (ID
+stabili, eventi come scostamenti relativi alla battuta in blocchi per battuta, voci per strumento)
+è fissata da ADR-0022; la prima parte implementata è il modulo delle altezze.
+
+#### Altezze, intervalli e tonalità
+
+`src/pitch.rs` (passo F1.07, ADR-0023) contiene i tipi puri di cui è fatta l'altezza di ogni nota.
+Un `Pitch` è ciò che scrive un musicista: una lettera (`Step`, da C a B, cioè da Do a Si), un'
+`Alteration` e un'ottava. Due altezze sono uguali solo se hanno la **stessa grafia**, perché
+ADR-0004 conserva l'intento scritto: Fa♯4 e Sol♭4 sono note diverse che per caso suonano uguali, e
+`sounds_like` è la domanda separata.
+
+```rust
+let b_sharp_3 = Pitch::new(Step::B, Alteration::SHARP, 3);
+let c_4 = Pitch::new(Step::C, Alteration::NATURAL, 4);
+assert_ne!(b_sharp_3, c_4); // spelled differently…
+assert!(b_sharp_3.sounds_like(c_4)?); // …same sound
+assert_eq!(c_4.midi()?.key, 60);
+```
+
+**L'alterazione è un numero razionale di semitoni** (decisione D07): 1 è un diesis, −1 un bemolle,
+1/2 un quarto di diesis, 1/3 un sesto di tono, fino al triplo diesis o triplo bemolle. È il modo in
+cui MusicXML scrive `<alter>`, quindi importazione ed esportazione sono dirette, ed è coerente con
+il resto del progetto, dove niente è un numero decimale. Quale simbolo disegna un quarto di tono è
+affare dell'incisione (F2B); i segni di comma dell'intonazione naturale non sono numeri di semitoni
+e aspettano l'intonazione, che sarà una regola successiva di `playback`.
+
+**Le ottave sono scientifiche** (Do4 è il Do centrale) e cambiano al Do: Si♯3 suona come Do4, Do♭4
+come Si3. L'**altezza sonora** è esatta, `12 × (ottava + 1) + semitoni della nota naturale +
+alterazione` sulla scala MIDI, e `midi()` la trasforma in un `MidiNote`: il tasto più vicino e uno
+scostamento (bend) in semitoni. Un quarto di tono cade esattamente tra due tasti; la regola sceglie
+il tasto **sotto** e piega verso l'alto di mezzo semitono, così il risultato è deterministico. Un
+tasto fuori da 0–127 è un `PitchError::MidiOutOfRange`, mai tagliato in silenzio. Le altezze
+cromatiche prendono una scorciatoia con semplici somme di interi.
+
+Un **`Interval`** è una coppia (passi diatonici, semitoni), entrambi con segno: la stessa coppia che
+MusicXML usa per gli strumenti traspositori. La **qualità** si ricava dalla differenza tra i suoi
+semitoni e quelli dell'intervallo maggiore o giusto dello stesso numero: per unisoni, quarte e
+quinte 0 è giusto e ±n è n volte eccedente o diminuito; per gli altri 0 è maggiore, −1 minore, +n
+eccedente, −(n+1) diminuito. Un intervallo microtonale non ha una qualità standard e risponde
+`None`.
+
+```rust
+let c4 = Pitch::new(Step::C, Alteration::NATURAL, 4);
+let third = Interval::from_quality(Quality::Major, 3, false)?;
+assert_eq!(c4.transposed(third)?, Pitch::new(Step::E, Alteration::NATURAL, 4));
+// The B♭ clarinet sounds a major second lower than written:
+let clarinet = Interval::from_quality(Quality::Major, 2, true)?;
+let written = c4.transposed(clarinet.reversed())?; // D4
+```
+
+La **trasposizione** aggiunge i passi al posto dell'altezza nella sequenza delle lettere (che dà la
+nuova lettera e l'ottava), poi sceglie l'alterazione che sposta il suono esattamente
+dell'intervallo: Fa♯4 più una sesta eccedente è Re𝄪5, mai Mi5. Un risultato oltre il triplo diesis
+è un errore.
+
+Le **tonalità** (`Key`, `TraditionalKey`, `Mode`) contano diesis o bemolli in quinte, da −14 a +14
+(le tonalità oltre sette, come Re♯ maggiore per un clarinetto in Si♭ che suona in Do♯ maggiore,
+escono dalla trasposizione), con sette modi più "nessuno". `Key` è di proposito un enum con un solo
+caso: le armature libere (Bartók, maqam…) le ha rimandate il proprietario e saranno un secondo caso,
+all'importazione MusicXML (dopo F2B) o al primo bisogno concreto.
+I calcoli usano la **linea delle quinte** (… Si♭ −2, Fa −1, Do 0, Sol 1, Re 2 …): una tonalità di k
+quinte occupa i sette posti `[k − 1, k + 5]`, quindi l'alterazione di ogni lettera, la tonica di
+ogni modo e la trasposizione di una tonalità sono una somma ciascuna. `Pitch::spell_midi` sceglie la
+grafia di un tasto MIDI dentro una finestra di dodici quinte, `[k − 4, k + 7]` (Do maggiore: Do♯ Mi♭
+Fa♯ La♭ Si♭), spostata di una in minore perché la sensibile sia un diesis (La minore: Sol♯).
+
+**Test.** `tests/pitch_cases.rs` ha 14 gruppi di casi scritti a mano che un musicista può
+controllare (Si♯3 e Do♭4, quarti di tono in MIDI, qualità da più che diminuita a più che eccedente,
+clarinetto in Si♭, corno in Fa, ottavino, contrabbasso, tonalità teoriche). `tests/pitch_oracle.rs`
+confronta la libreria con un oracolo che non condivide con lei nessuna formula: le note naturali
+percorrendo la scala maggiore, le tonalità applicando un'alterazione alla volta nell'ordine dei
+diesis, le qualità da una tabella di manuale, le toniche come gradi della scala maggiore; controlla
+anche ogni tasto MIDI in ogni tonalità e modo, in modo esaustivo. Cinque bug iniettati apposta sono
+stati scoperti; uno (una tonica del lidio sbagliata) solo dopo aver aggiunto l'oracolo delle toniche.
+`tests/pitch_no_alloc.rs` controlla che niente allochi.
+
+**Benchmark** (`benches/pitch.rs`, lotti da 64, istruzioni per chiamata): conversione MIDI ≈ 155 su
+un insieme con un quarto di tono ogni otto note (≈ 650 prima della scorciatoia cromatica),
+trasposizione ≈ 560, intervallo e qualità ≈ 800, grafia di un tasto MIDI ≈ 100.
 
 ### orchestra-playback
 
@@ -1265,11 +1344,12 @@ notazione.
 
 ## Prototipi di valutazione
 
-`spikes/` è un workspace Cargo separato con i prototipi a tempo limitato della Fase 0, Passo 13. È
-escluso dal workspace principale (`exclude = ["spikes"]` nel `Cargo.toml` della radice), non viene
-mai compilato da `cargo xtask check` né dalla CI e non viene mai distribuito: il suo compito era
-misurare e decidere. Le decisioni e tutti i numeri sono negli ADR-0011 e ADR-0012; questa sezione
-spiega come rieseguire i prototipi.
+`spikes/` è un workspace Cargo separato con prototipi a tempo limitato: quelli della Fase 0, Passo
+13 e il prototipo della memorizzazione del modello del passo F1.06. È escluso dal workspace
+principale (`exclude = ["spikes"]` nel `Cargo.toml` della radice), non viene mai compilato da
+`cargo xtask check` né dalla CI e non viene mai distribuito: il suo compito era misurare e decidere.
+Le decisioni e tutti i numeri sono negli ADR-0011, ADR-0012 e ADR-0022 (con
+`spikes/model/ANALYSIS.md`); questa sezione spiega come rieseguire i prototipi.
 
 ### Il prototipo dell'interfaccia grafica
 
@@ -1316,6 +1396,28 @@ cd spikes
 Il prototipo usava truce-rack dentro il bridge; l'ADR-0011 ha deciso invece di scrivere un nostro
 strato di host sugli stessi binding di basso livello, mantenendo l'architettura a bridge che le
 misure hanno confermato.
+
+### Il prototipo della memorizzazione del modello
+
+`spikes/model` (passo F1.06) confronta tre modi di memorizzare gli eventi di una voce, con i veri
+tipi di `core-time`: P1, un vettore per voce ordinato per posizione assoluta; P2, un blocco per
+battuta con scostamenti relativi alla battuta, battute indicate dal numero; P3, gli stessi blocchi
+indicizzati da ID di battuta stabili dietro `Arc`. `src/lib.rs` genera due partiture deterministiche
+(100 battute × 10 righi, 8 690 note; 1 000 battute × 30 righi, 255 776 note) e le modifiche della
+mappa dei metri, `tests/agree.rs` controlla che i tre contengano la stessa musica dopo ogni
+operazione, `benches/model.rs` conta le istruzioni e `src/bin/report.rs` misura memoria,
+allocazioni e tempi reali:
+
+```sh
+cd spikes
+cargo test --release -p model
+GUNGRAUN_ENVS=TMPDIR cargo bench -p model
+cargo run --release -p model --bin report
+```
+
+Il workspace `spikes` toglie i simboli dai binari release, quindi il suo `[profile.bench]` li
+mantiene: Callgrind trova la funzione misurata per nome, e senza simboli ogni conteggio è 0. I numeri
+e la scelta di P3 sono in `spikes/model/ANALYSIS.md` e in ADR-0022.
 
 ## Lezioni della Fase 0
 

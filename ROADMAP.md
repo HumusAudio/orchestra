@@ -112,8 +112,23 @@ map plus a list of `BarId`s; events as (bar, offset) in copy-on-write chunks; ov
 state; notes split into tie chains at barlines; commands shift the later tempo changes; snapshots
 for background readers, the audio thread never reads the model. SCALETTA v0.13 closes F1.06, adds
 decision **D21** (default behaviour of a meter change, for F1.11) and writes ADR-0022's
-constraints into F1.08, F1.09, F1.11 and F1.16. Next: **F1.07** (pitch with spelling, decision D07
-on microtones).
+constraints into F1.08, F1.09, F1.11 and F1.16 (PR #14, merged). Step **F1.07**
+(`feature/f1-07-pitch`, 2026-11-01): after a search of MusicXML, LilyPond, MuseScore and SMuFL, the
+owner separated microtones in notation from tuning and chose step + alteration + octave with a
+**rational alteration in semitones** (D07 closed), traditional keys up to ±14 fifths with seven
+modes and "none", and **deferred non-traditional key signatures, to be remembered** (MusicXML
+thread). **ADR-0023** (Accepted, 2026-11-01, with the shifted spelling window for minor):
+scientific octaves, exact sounding pitch and MIDI key with a bend (lower key on a tie, typed error
+outside 0–127), intervals as steps + semitones with derived quality, keys on the line of fifths,
+spelling of MIDI keys by a window of twelve fifths, transposing instruments as written-to-sounding
+intervals. Implemented in `core-model` (`src/pitch.rs`, its first module): 14 hand-written cases,
+property and exhaustive tests against an oracle that shares no formula with the library (five
+injected bugs caught, one only after adding a tonic oracle), an allocation-free test; benchmarks
+≈ 155 instructions per MIDI conversion (after a chromatic fast path, from ≈ 650), 560 per
+transposition, 800 per interval and quality, 100 per spelling. SCALETTA v0.14 closes F1.07 and
+adds decision **D22** (in which step tuning is done). Errata: ADR-0022, ADR-0023 and a comment
+called the MusicXML import "F1.17", which is the phase close; the references now point to the
+MusicXML and MIDI import threads of SCALETTA §5. Next: **F1.08** (document skeleton).
 
 | Step | What | Status |
 |---|---|---|
@@ -169,6 +184,13 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   is entered, ask at once which grouping to use, listing the options (5/8: 2+3, 3+2, keep 5;
   7/8: 2+2+3, 3+2+2, 2+3+2, keep 7; …), and remind that it can be changed bar by bar later. Written
   into SCALETTA step F2.22b.
+- **Non-traditional key signatures** (Bartók, klezmer and Balkan modes, maqam and makam): deferred
+  by the owner on 2026-11-01, **to be remembered**; a second variant of `Key` with its own spelling
+  rule, at the MusicXML import or at the first concrete need (ADR-0023 §5, SCALETTA §5).
+- **D22, for F1.13:** tuning (temperaments, just intonation, comma accidentals); the MIDI
+  conversion uses 12-TET as the reference (ADR-0023 §3).
+- **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
+  window, whatever its signature; to revisit if open signatures with accidentals turn out common.
 - **D21, for F1.11:** the default behaviour of a meter change (keep the bars' contents, or rewrite
   the music up to the next meter change); both are cheap with ADR-0022's storage.
 - **`core-time` work required by ADR-0022 §8, with the first command that needs it:** inserting and
