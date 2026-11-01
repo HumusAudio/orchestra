@@ -1,7 +1,8 @@
 # F1.06 — Model architecture: analysis of the alternatives (stage 1 of 3)
 
-Status: **draft for the owner's review** (2026-11-01). No code yet. Stage 2 prototypes the
-alternatives the owner picks from this document and measures them; stage 3 is the draft ADR.
+Status: stage 1 (this analysis) reviewed by the owner on 2026-11-01, who chose **F2** for the
+voices (§6) and approved the prototype plan of §7; **stage 2 results in §8**. Stage 3 is the
+draft ADR.
 
 The binding context: one document, views as projections, every edit a command, one undo history,
 derived data as caches keyed by model identifiers, fine-grained notifications (ADR-0003);
@@ -203,3 +204,75 @@ both behaviours (i) and (ii); take a snapshot; full ordered iteration; memory an
 the loaded score. Each operation is compared with the ADR-0007 budget it serves.
 
 Expected time: one session for the prototype and the numbers, then the ADR draft.
+
+## 8. Results (stage 2, 2026-11-01)
+
+Code: `src/p1.rs`, `src/p2.rs`, `src/p3.rs` (the candidates), `src/lib.rs` (event type, score
+generator, meter map edits, probes), `tests/agree.rs` (the three candidates hold the same music
+after every operation), `benches/model.rs` (instruction counts, Gungraun), `src/bin/report.rs`
+(memory, allocations, wall-clock times on the development machine).
+
+Generated scores: **normal** 100 bars, 14 voices on 10 staves, 7 968 events, 8 690 notes;
+**heavy** 1 000 bars, 41 voices on 30 staves, 238 552 events, 255 776 notes.
+
+### Instruction counts (Callgrind; insert/delete/find are batches of 64)
+
+| Operation | P1 normal | P2 normal | P3 normal | P1 heavy | P2 heavy | P3 heavy |
+|---|---:|---:|---:|---:|---:|---:|
+| insert ×64 | 483 328 | 116 112 | 117 862 | 28 721 941 | 107 183 | 108 735 |
+| delete ×64 | 2 861 910 | 19 040 | 22 855 | 20 695 907 | 16 253 | 20 104 |
+| find ×64 | 3 322 | 48 244 | 50 611 | 3 322 | 51 474 | 53 841 |
+| collect bars 40–60 | 19 210 | 456 185 | 457 282 | 60 103 | 1 367 833 | 1 370 372 |
+| insert a bar | 4 079 532 | 396 142 | 16 114 | 169 468 248 | 16 288 331 | 137 614 |
+| lengthen the free bar | 5 005 594 | 94 | 94 | 172 146 230 | 94 | 94 |
+| meter change, keep bars (i) | 4 874 291 | 94 | 94 | 172 963 585 | 94 | 94 |
+| meter change, rewrite (ii) | 99 | 1 427 868 | 1 162 839 | 99 | 20 515 262 | 4 801 028 |
+| snapshot + 64 inserts | 1 383 180 | 808 309 | 213 864 | 55 472 029 | 19 224 853 | 1 059 976 |
+| iterate everything | 64 048 | (invalid) | 2 053 160 | 1 909 071 | (invalid) | 65 385 086 |
+
+94–99 instructions = the empty operation (the benchmark's own overhead). The two P2 `iterate`
+counts (120) are a measurement artefact: Callgrind records no work inside the measured function,
+while the native timing below shows that P2 does the same work as P3 (same code path). They are
+left out rather than explained away.
+
+### Memory and times (native, development machine, median of 31 runs, µs unless stated)
+
+| | memory | allocations | per note | build | insert | delete | find | page 40–60 | insert bar | lengthen | keep | rewrite | snapshot | iterate |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| P1 normal | 1.4 MB | 16 | 165 B | 1.0 ms | 2.80 | 1.83 | 0.008 | 8 | 707 | 874 | 808 | 0 | 49 | 15 |
+| P2 normal | 1.3 MB | 1 416 | 152 B | 1.4 ms | 0.43 | 0.12 | 0.139 | 58 | 50 | 0 | 0 | 183 | 144 | 256 |
+| P3 normal | 1.5 MB | 2 818 | 172 B | 1.5 ms | 0.42 | 0.19 | 0.160 | 61 | 2 | 0 | 0 | 168 | 25 | 266 |
+| P1 heavy | 44.0 MB | 43 | 172 B | 33 ms | 158 | 34 | 0.092 | 135 | **47 458** | **50 814** | **49 291** | 0 | 11 218 | 1 455 |
+| P2 heavy | 41.0 MB | 41 043 | 160 B | 55 ms | 1.06 | 0.56 | 0.682 | 230 | 8 887 | 0 | 0 | 9 655 | 6 773 | 10 550 |
+| P3 heavy | 46.2 MB | 82 045 | 181 B | 57 ms | 1.15 | 1.00 | 0.911 | 221 | 61 | 0 | 0 | 1 241 | 1 404 | 16 920 |
+
+### What the numbers say
+
+1. **P1 breaks the budget on a large score.** Inserting a bar, lengthening a free bar or a
+   keep-bars meter change cost ≈ 170 million instructions and ≈ 50 ms on the heavy score, three
+   times the 16 ms of CLAUDE.md §5 for one edit, and they grow with the score. Even a single note
+   costs ≈ 0.16 ms there (the `memmove` of a 650 KB voice). P1 also **cannot represent an overfull
+   bar** (`p1.rs`). On the normal score it stays under 1 ms, which is why the choice would not
+   show up in small tests.
+2. **P2 fixes the edits that change bar lengths** (they cost nothing), but naming bars by index
+   makes inserting a bar and the rewrite meter change renumber the index of every later event:
+   ≈ 9–10 ms on the heavy score, within budget but O(n).
+3. **P3 keeps every edit small on the heavy score:** insert a bar 61 µs, rewrite 1.2 ms (only the
+   region's events move), and the snapshot for a background reader is 8× cheaper than P1's
+   (1.4 ms vs 11 ms), including the copy-on-write cost of the inserts that follow.
+4. **The price of bar-relative offsets (P2, P3)** is one rational addition per event read with
+   its absolute position: a page of layout costs ≈ 1.4 M instructions instead of 60 k (≈ 0.2 ms,
+   far under the 16 ms), find by ID ≈ 0.9 µs instead of 0.1 µs, and a full iteration of the heavy
+   score ≈ 17 ms instead of 1.5 ms. The last one matters only for whole-score work (export, the
+   first playback compile), which is not per keystroke. It can be lowered later: per-bar
+   denominators, or iterating in bar-relative form where absolute positions are not needed.
+5. **Memory** is about the same (165–181 bytes per note, 46 MB for the heavy score; ADR-0007's
+   250 MB is for an empty project). P3 has one `Arc` and one `Vec` per non-empty voice-bar
+   (82 000 allocations on the heavy score), which costs load time (57 ms vs 33 ms, far under
+   the 1 s budget for 100 bars).
+6. Possible later optimisations for P3, not needed now: share whole voices behind an `Arc` as
+   well (the snapshot would copy 41 pointers instead of 41 000); give empty voice-bars no slot at
+   all; a cheaper rational add when the bar start is an integer.
+
+**Recommendation for the ADR: P3** (B3 + D2 + C2 + E3, with A2 IDs and F2 voices). It is the
+only candidate where no measured edit grows with the length of the score.
