@@ -67,8 +67,28 @@ belongs to `playback`), nearest-sample and containing-frame rounding, exact samp
 inside gradual changes via the exact inverse (f64 fallback on overflow, to be measured).
 Implemented so far: `Tempo` (`src/tempo.rs`), `Seconds`, `SampleRate`, `FrameRate` with the
 rounding rules (`src/clock.rs`), property tests by definition, allocation-free test; an injected
-rounding bug was caught. PR #12; SCALETTA v0.10. Next: **F1.05b**, the tempo map itself (segments, gradual changes, exact
-rounding inside them, oracle tests, benchmarks).
+rounding bug was caught. PR #12; SCALETTA v0.10. Step **F1.05b** (`feature/f1-05b-tempo-map`,
+started 2026-11-01), split in two parts. Before implementing, a simulation with realistic
+metronome marks showed that ADR-0020 §4 could not hold: exact cumulated boundary times overflow
+an `i64` fraction after 8–13 gradual changes (an `i128` one after 31–53), and the exact position of
+a sample instant inside a gradual change fits an `i64` fraction only in about 25% of cases.
+**ADR-0021** (Accepted by the owner, 2026-11-01) amends ADR-0020: boundary times on a grid of
+1/705 600 000 s (the "flick"; ≤ half a tick per boundary, deterministic), positions inside gradual
+changes rounded to 1/705 600 000 of a whole note, `i128` exact checks for the sample indices, an
+optional starting tempo on a gradual change ("Meno mosso, poco a poco accel."), the first change
+immediate at 0, an immediate change allowed at the end of a gradual one, back-to-back gradual
+changes allowed, `time_at` returning `TimeAt::Exact`/`Approximate`. **First part done**
+(2026-11-01): `TempoMap` in `src/tempo_map.rs` with all-or-nothing edits returning the previous
+value, segments with start times as integer grid ticks, clamping at segment ends so that both
+conversions are non-decreasing, O(log n) allocation-free lookups. Tests: 12 hand-computed cases,
+a property test against an oracle sharing no code with the library (own `i128` fractions, linear
+scans, trapezoid form) that also bounds the boundary error, an allocation-free test; three
+injected bugs caught. The oracle found that times with a denominator foreign to the grid
+(`n/3001` s) could overflow the grid rounding: a gcd-reduction fallback now rescues most of them
+(1.3% still overflow, with a typed error; never for sample, frame or decimal times). Next: the
+**second part of F1.05b**: exact sample and frame indices inside gradual changes (f64 estimate +
+exact `i128` check, ADR-0021 §5), measuring how often the f64 fallback is needed, benchmarks in
+batches, then PR and CI.
 
 | Step | What | Status |
 |---|---|---|
@@ -128,9 +148,12 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   must not shift every later note by accident); the commands that lengthen a free bar when notes
   are entered past its end.
 - **Concrete project file format** (ADR-0010, Phase 1).
-- **For F1.05b:** measure how often the exact sample correction inside a gradual change overflows
-  and falls back to f64 (ADR-0020 §5); tempo changes are anchored to positions, like notes
-  (absolute vs bar-relative is F1.06's question).
+- **For F1.05b (second part):** measure how often the exact sample correction inside a gradual
+  change overflows and falls back to f64 (ADR-0020 §5, ADR-0021 §5); tempo changes are anchored to
+  positions, like notes (absolute vs bar-relative is F1.06's question).
+- **Tempo queries for the interface and the metronome** (the tempo in force at a position, the
+  speed at a time inside a gradual change): the segments already keep the written tempi; the API
+  comes when a caller needs it.
 - **"Region" or "clip"** as the name of a block of material on a track (glossary entry `region`).
 - **Glossary entries with `review = true`** (grand staff, clef fr, key signature de, slur fr/es,
   hairpin, part es, grace note, volta, region, send, plug-in, velocity, mute, menu Edit fr): to
@@ -176,3 +199,5 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - Gungraun's `#[library_benchmark]` rejects doc comments on benchmark functions: use `//` comments.
 - `rustfmt` on a single file fails when a `mod` it declares has no file yet: write module files
   first, or run `cargo fmt --all` afterwards.
+- The PostToolUse rustfmt hook formats only the edited file; a later script edit can still leave
+  `cargo fmt --all --check` failing: run `cargo fmt --all` before `cargo xtask check`.

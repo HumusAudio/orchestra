@@ -206,7 +206,7 @@ const fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
 ///
 /// # Complexity
 /// O(log a + log b).
-const fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
+pub(crate) const fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
     // Fast path: both operands fit in a machine word. The casts are exact because of the check,
     // and `u128::from`/`u64::try_from` are not callable in a `const fn`.
     if a <= u64::MAX as u128 && b <= u64::MAX as u128 {

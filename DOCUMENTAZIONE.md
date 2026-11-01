@@ -237,8 +237,9 @@ le conversioni in secondi, campioni e fotogrammi video (ADR-0005). Le funzioni d
 verranno chiamate dal thread audio, quindi non devono allocare memoria. Nessuna dipendenza
 all'interno del workspace (in `[dev-dependencies]` solo `orchestra-test-support` e `proptest`, per
 i test). Per ora contiene il tipo razionale (passo F1.03), i tipi posizione e durata (F1.04) e la
-mappa delle misure con le suddivisioni dei movimenti (F1.04b) e le unità del tempo reale (F1.05:
-tempo, secondi, campioni, fotogrammi); seguirà la mappa dei tempi con i cambi graduali (F1.05b).
+mappa delle misure con le suddivisioni dei movimenti (F1.04b), le unità del tempo reale (F1.05:
+tempo, secondi, campioni, fotogrammi) e la mappa dei tempi con i cambi graduali (F1.05b, prima
+parte: posizioni ⇄ secondi).
 
 #### Il tipo razionale
 
@@ -548,7 +549,7 @@ Una ricerca da circa mille istruzioni sta ben sotto il microsecondo sull'hardwar
 
 #### Tempo, secondi, campioni e fotogrammi
 
-`src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che userà la mappa dei tempi
+`src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che usa la mappa dei tempi
 (passo F1.05b) (ADR-0020 §2, §5, §7):
 
 - **`Tempo`**: un'unità di movimento (una `Duration`: ♩ = 1/4, ♩. = 3/8) e un numero razionale di
@@ -590,6 +591,102 @@ che ♩ = x abbia la velocità di ♩. = 2x/3; più pareggi, istanti negativi, u
 scritti a mano. Un bug inserito apposta (arrotondare per difetto invece che al campione più
 vicino) ha fatto fallire due test. `tests/clock_no_alloc.rs` controlla che nessuna conversione
 allochi.
+
+#### La mappa dei tempi
+
+`src/tempo_map.rs` trasforma le posizioni scritte in secondi e viceversa (ADR-0020, corretto da
+ADR-0021). I suoi **dati di origine** sono un elenco di `TempoChange` ordinato per posizione, al
+più uno per posizione, il primo sempre un cambio immediato alla posizione 0 (il tempo iniziale):
+
+- `TempoChange::Immediate(tempo)`: da qui in poi, questo tempo;
+- `TempoChange::Gradual(GradualChange { from, to, end })`: da qui a `end` la velocità va
+  linearmente **nel tempo** (accelerazione costante, ADR-0020 §1) fino a `to`, che poi resta.
+  `from` è un tempo di partenza facoltativo per "Meno mosso, poco a poco accel." (salto, poi
+  cambio graduale); senza, il cambio parte dal tempo in vigore.
+
+Un cambio strettamente dentro un cambio graduale è un errore, mentre un cambio immediato proprio
+alla sua fine ("rit. … a tempo") e due cambi graduali uno dopo l'altro vanno bene. Dai dati di
+origine la mappa ricava i **segmenti**, costanti o graduali; dopo un cambio graduale non seguito
+subito da un altro cambio, un segmento costante implicito mantiene il tempo d'arrivo:
+
+```text
+changes:   0: ♩=120        8: rit. to ♩=60 until 12        16: ♩=96
+segments: [ constant 120 ][ gradual 120 → 60 ][ constant 60 ][ constant 96 … forever
+positions: 0               8                   12             16
+```
+
+Il primo segmento copre anche le posizioni e gli istanti negativi (il primo tempo prolungato
+all'indietro); l'ultimo continua per sempre.
+
+**Istanti d'inizio su una griglia.** Gli istanti esatti cumulati supererebbero i limiti di
+qualunque frazione a larghezza fissa dopo qualche decina di cambi graduali (le misure sono in
+ADR-0021). Perciò ogni segmento comincia all'inizio del precedente più la durata **esatta** del
+segmento precedente, arrotondata al tick più vicino di `TIME_GRID` = 705 600 000 tick al secondo
+(la "flick", divisibile per tutte le frequenze di campionamento e i fotogrammi al secondo comuni).
+Dato che l'inizio precedente sta già sulla griglia, basta arrotondare la durata, e gli istanti
+d'inizio si tengono come semplici numeri interi di tick:
+
+```rust
+// `t_k` is on the grid, so `round(t_k + D) = t_k + round(D)`: integers only.
+ticks = ticks
+    .checked_add(rational_ticks(duration)?)
+    .ok_or(OVERFLOW)?;
+```
+
+L'errore è al massimo mezzo tick (≈ 0,7 ns) per confine ed è lo stesso su ogni piattaforma. Dato
+che un segmento occupa così `[t_k, t_{k+1})`, che può differire dalla sua durata esatta di mezzo
+tick, entrambe le conversioni si **fermano** ai bordi del segmento, così da non tornare mai
+indietro attraversando un confine.
+
+**Le due conversioni** sono una ricerca binaria sugli inizi dei segmenti (posizioni o istanti)
+seguita da calcoli O(1), senza allocare:
+
+- `time_at(position)` restituisce un `TimeAt`: `Exact(Seconds)` nei segmenti costanti e
+  all'inizio di ogni segmento, `Approximate(f64)` dentro un cambio graduale, dove l'istante è
+  irrazionale. Lì si calcola come `τ(x) = 2x / (s₀ + √(s₀² + 4h·x))`, con `h = (s₁² − s₀²)/(4L)`
+  metà dell'accelerazione: questa forma evita la cancellazione di quella dei libri quando `h` è
+  piccolo.
+- `position_at(seconds)` è esatto nei segmenti costanti; dentro un cambio graduale calcola
+  `s₀·τ + h·τ²` in modo esatto con intermedi `i128` (il valore esatto raramente sta in una
+  frazione `i64`) e lo arrotonda al più vicino `1/TIME_GRID` di semibreve, circa 2,8 ns a ♩ = 120.
+
+```rust
+let mut map = TempoMap::new(tempo(120)?)?;
+let rit = GradualChange { from: None, to: tempo(60)?, end: at(6, 1)? };
+map.set_change(at(2, 1)?, TempoChange::Gradual(rit))?;
+assert_eq!(map.time_at(at(6, 1)?)?, TimeAt::Exact(secs(44, 3)?)); // 4 s + 32/3 s
+assert!(matches!(map.time_at(at(4, 1)?)?, TimeAt::Approximate(_)));
+```
+
+L'arrotondamento alla griglia separa prima la parte intera, perché il prodotto con la griglia
+resti piccolo; per un istante il cui denominatore non divide la griglia (diciamo `n/3001` s) quel
+prodotto può comunque uscire dai limiti, e allora la frazione si riduce col massimo comun divisore
+e il prodotto si riprova una volta. Quel che resta è un errore di overflow tipizzato: nei test è
+successo per l'1,3% di questi istanti artificiali e mai per istanti di campioni, di fotogrammi o
+decimali.
+
+**Le modifiche** funzionano come nella mappa delle misure: `set_change` e `remove_change`
+cambiano una copia dei dati di origine, ricostruiscono i segmenti e convalidano tutto,
+sostituiscono la mappa solo se va tutto bene (`TempoMapError`: `BeforeStart`, `NoTempoAtStart`,
+`GradualAtStart`, `NonPositiveGradual`, `ChangeInsideGradual`, `Arithmetic`) e restituiscono il
+valore precedente per l'annullamento.
+
+**Test.** `tests/tempo_map_cases.rs` ha 12 casi calcolati a mano: il ritardando della tabella di
+ADR-0020 (32/3 s), posizioni dentro un cambio sulla griglia e fuori, confini arrotondati per
+difetto (♩ = 77) e per eccesso (♩ = 71) con il loro fermo ai bordi, il tempo di partenza
+facoltativo, cambi adiacenti, gli errori con la mappa invariata, i valori precedenti, le
+posizioni negative, la monotonia. `tests/tempo_map_oracle.rs` confronta mappe casuali con un
+**oracolo** che non condivide codice con la libreria: frazioni `i128` sue, segmenti suoi
+ricostruiti con un percorso lineare, ricerche lineari, la forma del trapezio `τ·(s₀ + s(τ))/2` e
+un altro integrale per gli istanti approssimati; controlla anche che ogni confine stia entro mezzo
+tick per ogni confine precedente dall'istante esatto cumulato. Tre bug inseriti apposta (niente
+fermo ai bordi, una `h` sbagliata, pareggi arrotondati per difetto) sono stati tutti trovati;
+l'oracolo ha trovato anche l'overflow sui denominatori estranei che ora gestisce il ripiego col
+massimo comun divisore. `tests/tempo_map_no_alloc.rs` controlla che nessuna ricerca allochi,
+compreso il percorso lento.
+
+Restano da fare in F1.05b: gli indici esatti di campione e di fotogramma dentro i cambi graduali,
+e i benchmark.
 
 ### orchestra-core-model
 

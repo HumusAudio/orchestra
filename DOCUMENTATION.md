@@ -223,8 +223,8 @@ conversions to seconds, samples and video frames (ADR-0005). The conversion func
 called by the audio thread, so they must not allocate. No dependencies inside the workspace (in
 `[dev-dependencies]` only `orchestra-test-support` and `proptest`, for the tests). So far it
 contains the rational type (step F1.03), the position and duration types (F1.04) and the meter
-map with beat groupings (F1.04b) and the units of real time (F1.05: tempo, seconds, samples,
-frames); the tempo map with gradual changes (F1.05b) comes next.
+map with beat groupings (F1.04b), the units of real time (F1.05: tempo, seconds, samples,
+frames) and the tempo map with gradual changes (F1.05b, first part: positions ⇄ seconds).
 
 #### The rational type
 
@@ -521,7 +521,7 @@ thousand instructions is well under a microsecond on the reference hardware.
 #### Tempo, seconds, samples and frames
 
 `src/tempo.rs` and `src/clock.rs` hold the units of real time that the tempo map (step F1.05b)
-will use (ADR-0020 §2, §5, §7):
+uses (ADR-0020 §2, §5, §7):
 
 - **`Tempo`**: a beat unit (a `Duration`: ♩ = 1/4, ♩. = 3/8) and a rational number of beats per
   minute (120, or `185/2` for 92.5). What matters for the sound is its **speed**,
@@ -558,6 +558,95 @@ land on their own index, that constant-tempo conversions round-trip and that ♩
 of ♩. = 2x/3; plus hand-written ties, negative times, one hour of NTSC and the errors. A bug
 injected on purpose (rounding down instead of to the nearest sample) failed two tests.
 `tests/clock_no_alloc.rs` checks that no conversion allocates.
+
+#### The tempo map
+
+`src/tempo_map.rs` turns written positions into seconds and back (ADR-0020, amended by
+ADR-0021). Its **source data** is a list of `TempoChange`s sorted by position, at most one per
+position, the first always an immediate change at position 0 (the initial tempo):
+
+- `TempoChange::Immediate(tempo)`: from here on, this tempo;
+- `TempoChange::Gradual(GradualChange { from, to, end })`: from here to `end` the speed moves
+  linearly **in time** (constant acceleration, ADR-0020 §1) to `to`, which then holds. `from` is
+  an optional starting tempo for "Meno mosso, poco a poco accel." (jump, then change); without it
+  the change starts from the tempo in force.
+
+A change strictly inside a gradual change is an error, but an immediate change exactly at its end
+("rit. … a tempo") and two gradual changes back to back are fine. From the source data the map
+derives **segments**, constant or gradual; after a gradual change that is not followed at once by
+another change, an implicit constant segment holds its target tempo:
+
+```text
+changes:   0: ♩=120        8: rit. to ♩=60 until 12        16: ♩=96
+segments: [ constant 120 ][ gradual 120 → 60 ][ constant 60 ][ constant 96 … forever
+positions: 0               8                   12             16
+```
+
+The first segment also covers negative positions and times (the first tempo extended backwards);
+the last continues forever.
+
+**Start times on a grid.** Exact cumulated times would overflow any fixed-width fraction after
+a few dozen gradual changes (the measurements are in ADR-0021). So each segment starts at the
+previous start plus the **exact** duration of the previous segment, rounded to the nearest tick
+of `TIME_GRID` = 705 600 000 ticks per second (the "flick", which every common sample rate and
+frame rate divides). Since the previous start is already on the grid, only the duration needs
+rounding, and start times are kept as plain integer ticks:
+
+```rust
+// `t_k` is on the grid, so `round(t_k + D) = t_k + round(D)`: integers only.
+ticks = ticks
+    .checked_add(rational_ticks(duration)?)
+    .ok_or(OVERFLOW)?;
+```
+
+The error is at most half a tick (≈ 0.7 ns) per boundary and the same on every platform. Since a
+segment then spans `[t_k, t_{k+1})`, which may differ from its exact duration by half a tick,
+both conversions **clamp** to the segment, so that they never go backwards across a boundary.
+
+**The two conversions** are a binary search on the segment starts (positions or times) followed
+by O(1) arithmetic, without allocating:
+
+- `time_at(position)` returns a `TimeAt`: `Exact(Seconds)` in constant segments and at the start
+  of every segment, `Approximate(f64)` inside a gradual change, where the time is irrational. It
+  is computed there as `τ(x) = 2x / (s₀ + √(s₀² + 4h·x))`, with `h = (s₁² − s₀²)/(4L)` half the
+  acceleration: this form avoids the cancellation of the textbook one when `h` is small.
+- `position_at(seconds)` is exact in constant segments; inside a gradual change it computes
+  `s₀·τ + h·τ²` exactly with `i128` intermediates (the exact value rarely fits in an `i64`
+  fraction) and rounds it to the nearest `1/TIME_GRID` of a whole note, about 2.8 ns at ♩ = 120.
+
+```rust
+let mut map = TempoMap::new(tempo(120)?)?;
+let rit = GradualChange { from: None, to: tempo(60)?, end: at(6, 1)? };
+map.set_change(at(2, 1)?, TempoChange::Gradual(rit))?;
+assert_eq!(map.time_at(at(6, 1)?)?, TimeAt::Exact(secs(44, 3)?)); // 4 s + 32/3 s
+assert!(matches!(map.time_at(at(4, 1)?)?, TimeAt::Approximate(_)));
+```
+
+The rounding to the grid splits off the integer part first, so that the product with the grid
+stays small; for a time whose denominator does not divide the grid (say `n/3001` s) that product
+can still overflow, and the fraction is then reduced by its greatest common divisor and the
+product retried once. What remains is a typed overflow error: in the tests it happened for 1.3%
+of such artificial times and never for sample, frame or decimal times.
+
+**Editing** works as in the meter map: `set_change` and `remove_change` change a copy of the
+source data, rebuild the segments and validate everything, replace the map only on success
+(`TempoMapError`: `BeforeStart`, `NoTempoAtStart`, `GradualAtStart`, `NonPositiveGradual`,
+`ChangeInsideGradual`, `Arithmetic`) and return the previous value for undo.
+
+**Tests.** `tests/tempo_map_cases.rs` has 12 hand-computed cases: the ritardando of ADR-0020's
+table (32/3 s), positions inside a change on and off the grid, boundaries rounded down (♩ = 77)
+and up (♩ = 71) with their clamping, the optional starting tempo, back-to-back changes, the
+errors with the map left unchanged, previous values, negative positions, monotonicity.
+`tests/tempo_map_oracle.rs` compares random maps with an **oracle** that shares no code with the
+library: its own `i128` fractions, its own segments rebuilt by a linear walk, linear scans, the
+trapezoid form `τ·(s₀ + s(τ))/2` and another integral for the approximate times; it also checks
+that every boundary is within half a tick per earlier boundary of the exact cumulated time.
+Three bugs injected on purpose (no clamping, a wrong `h`, ties rounded down) were all caught; the
+oracle also found the overflow on foreign denominators that the gcd fallback now handles.
+`tests/tempo_map_no_alloc.rs` checks that no lookup allocates, the slow path included.
+
+Still to come in F1.05b: exact sample and frame indices inside gradual changes, and the
+benchmarks.
 
 ### orchestra-core-model
 
