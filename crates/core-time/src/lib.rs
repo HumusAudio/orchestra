@@ -17,8 +17,10 @@
 //! - [`Position`] and [`Duration`], the domain types over `Rational` (ADR-0018 §1): a position
 //!   minus a position is a duration, and adding two positions does not compile. See the
 //!   [`position`] module.
-//! - The tempo map: tempo changes (including gradual ones), with O(log n) lookup of the segment
-//!   containing a position through a cumulative table.
+//! - The tempo map (ADR-0020, ADR-0021): immediate and gradual tempo changes ([`TempoChange`]),
+//!   and [`TempoMap`], which turns written positions into seconds and back with O(log n)
+//!   lookups, and into exact sample and frame indices; segment start times lie on a fixed grid
+//!   ([`TIME_GRID`]). See the [`tempo_map`] module.
 //! - The meter map (ADR-0018, ADR-0019): written meters ([`Meter`]), beat groupings
 //!   ([`BeatGrouping`]), irregular and free bars, and [`MeterMap`], which turns positions into
 //!   bars and beats and back with O(log n) lookups. See the [`meter`] and [`meter_map`] modules.
@@ -31,10 +33,9 @@
 //! - Allocate in the conversion functions used by the audio thread: those must be callable from a
 //!   real-time context (CLAUDE.md §5).
 //!
-//! ## Still to come in Phase 1
-//! The tempo map with gradual changes and its exact conversions (F1.05b, ADR-0020). The units
-//! are already here: [`Tempo`], [`Seconds`], [`SampleRate`] and [`FrameRate`] with the rounding
-//! rules of ADR-0020 §5, see the [`tempo`] and [`clock`] modules.
+//! The units of real time are [`Tempo`], [`Seconds`], [`SampleRate`] and [`FrameRate`], with the
+//! rounding rules of ADR-0020 §5 (see the [`tempo`] and [`clock`] modules); the tempo map adds the
+//! exact sample and frame indices inside gradual changes ([`IndexAt`]).
 //!
 //! ## Allowed dependencies
 //! None inside the workspace. External crates only if they are small, GPL-compatible and justified
@@ -55,6 +56,7 @@ pub mod meter_map;
 pub mod position;
 pub mod rational;
 pub mod tempo;
+pub mod tempo_map;
 
 pub use clock::{ClockError, FrameRate, SampleRate, Seconds};
 pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};
@@ -65,3 +67,6 @@ pub use meter_map::{
 pub use position::{Duration, Position};
 pub use rational::{Rational, RationalError};
 pub use tempo::{Tempo, TempoError};
+pub use tempo_map::{
+    GradualChange, IndexAt, TIME_GRID, TempoChange, TempoMap, TempoMapError, TimeAt,
+};

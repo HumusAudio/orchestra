@@ -237,8 +237,9 @@ le conversioni in secondi, campioni e fotogrammi video (ADR-0005). Le funzioni d
 verranno chiamate dal thread audio, quindi non devono allocare memoria. Nessuna dipendenza
 all'interno del workspace (in `[dev-dependencies]` solo `orchestra-test-support` e `proptest`, per
 i test). Per ora contiene il tipo razionale (passo F1.03), i tipi posizione e durata (F1.04) e la
-mappa delle misure con le suddivisioni dei movimenti (F1.04b) e le unità del tempo reale (F1.05:
-tempo, secondi, campioni, fotogrammi); seguirà la mappa dei tempi con i cambi graduali (F1.05b).
+mappa delle misure con le suddivisioni dei movimenti (F1.04b), le unità del tempo reale (F1.05:
+tempo, secondi, campioni, fotogrammi) e la mappa dei tempi con i cambi graduali e gli indici esatti
+di campione e di fotogramma (F1.05b).
 
 #### Il tipo razionale
 
@@ -548,7 +549,7 @@ Una ricerca da circa mille istruzioni sta ben sotto il microsecondo sull'hardwar
 
 #### Tempo, secondi, campioni e fotogrammi
 
-`src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che userà la mappa dei tempi
+`src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che usa la mappa dei tempi
 (passo F1.05b) (ADR-0020 §2, §5, §7):
 
 - **`Tempo`**: un'unità di movimento (una `Duration`: ♩ = 1/4, ♩. = 3/8) e un numero razionale di
@@ -590,6 +591,160 @@ che ♩ = x abbia la velocità di ♩. = 2x/3; più pareggi, istanti negativi, u
 scritti a mano. Un bug inserito apposta (arrotondare per difetto invece che al campione più
 vicino) ha fatto fallire due test. `tests/clock_no_alloc.rs` controlla che nessuna conversione
 allochi.
+
+#### La mappa dei tempi
+
+`src/tempo_map.rs` trasforma le posizioni scritte in secondi e viceversa (ADR-0020, corretto da
+ADR-0021). I suoi **dati di origine** sono un elenco di `TempoChange` ordinato per posizione, al
+più uno per posizione, il primo sempre un cambio immediato alla posizione 0 (il tempo iniziale):
+
+- `TempoChange::Immediate(tempo)`: da qui in poi, questo tempo;
+- `TempoChange::Gradual(GradualChange { from, to, end })`: da qui a `end` la velocità va
+  linearmente **nel tempo** (accelerazione costante, ADR-0020 §1) fino a `to`, che poi resta.
+  `from` è un tempo di partenza facoltativo per "Meno mosso, poco a poco accel." (salto, poi
+  cambio graduale); senza, il cambio parte dal tempo in vigore.
+
+Un cambio strettamente dentro un cambio graduale è un errore, mentre un cambio immediato proprio
+alla sua fine ("rit. … a tempo") e due cambi graduali uno dopo l'altro vanno bene. Dai dati di
+origine la mappa ricava i **segmenti**, costanti o graduali; dopo un cambio graduale non seguito
+subito da un altro cambio, un segmento costante implicito mantiene il tempo d'arrivo:
+
+```text
+changes:   0: ♩=120        8: rit. to ♩=60 until 12        16: ♩=96
+segments: [ constant 120 ][ gradual 120 → 60 ][ constant 60 ][ constant 96 … forever
+positions: 0               8                   12             16
+```
+
+Il primo segmento copre anche le posizioni e gli istanti negativi (il primo tempo prolungato
+all'indietro); l'ultimo continua per sempre.
+
+**Istanti d'inizio su una griglia.** Gli istanti esatti cumulati supererebbero i limiti di
+qualunque frazione a larghezza fissa dopo qualche decina di cambi graduali (le misure sono in
+ADR-0021). Perciò ogni segmento comincia all'inizio del precedente più la durata **esatta** del
+segmento precedente, arrotondata al tick più vicino di `TIME_GRID` = 705 600 000 tick al secondo
+(la "flick", divisibile per tutte le frequenze di campionamento e i fotogrammi al secondo comuni).
+Dato che l'inizio precedente sta già sulla griglia, basta arrotondare la durata, e gli istanti
+d'inizio si tengono come semplici numeri interi di tick:
+
+```rust
+// `t_k` is on the grid, so `round(t_k + D) = t_k + round(D)`: integers only.
+ticks = ticks
+    .checked_add(rational_ticks(duration)?)
+    .ok_or(OVERFLOW)?;
+```
+
+L'errore è al massimo mezzo tick (≈ 0,7 ns) per confine ed è lo stesso su ogni piattaforma. Dato
+che un segmento occupa così `[t_k, t_{k+1})`, che può differire dalla sua durata esatta di mezzo
+tick, entrambe le conversioni si **fermano** ai bordi del segmento, così da non tornare mai
+indietro attraversando un confine.
+
+**Le due conversioni** sono una ricerca binaria sugli inizi dei segmenti (posizioni o istanti)
+seguita da calcoli O(1), senza allocare:
+
+- `time_at(position)` restituisce un `TimeAt`: `Exact(Seconds)` nei segmenti costanti e
+  all'inizio di ogni segmento, `Approximate(f64)` dentro un cambio graduale, dove l'istante è
+  irrazionale. Lì si calcola come `τ(x) = 2x / (s₀ + √(s₀² + 4h·x))`, con `h = (s₁² − s₀²)/(4L)`
+  metà dell'accelerazione: questa forma evita la cancellazione di quella dei libri quando `h` è
+  piccolo.
+- `position_at(seconds)` è esatto nei segmenti costanti; dentro un cambio graduale calcola
+  `s₀·τ + h·τ²` in modo esatto con intermedi `i128` (il valore esatto raramente sta in una
+  frazione `i64`) e lo arrotonda al più vicino `1/TIME_GRID` di semibreve, circa 2,8 ns a ♩ = 120.
+
+```rust
+let mut map = TempoMap::new(tempo(120)?)?;
+let rit = GradualChange { from: None, to: tempo(60)?, end: at(6, 1)? };
+map.set_change(at(2, 1)?, TempoChange::Gradual(rit))?;
+assert_eq!(map.time_at(at(6, 1)?)?, TimeAt::Exact(secs(44, 3)?)); // 4 s + 32/3 s
+assert!(matches!(map.time_at(at(4, 1)?)?, TimeAt::Approximate(_)));
+```
+
+L'arrotondamento alla griglia separa prima la parte intera, perché il prodotto con la griglia
+resti piccolo; per un istante il cui denominatore non divide la griglia (diciamo `n/3001` s) quel
+prodotto può comunque uscire dai limiti, e allora la frazione si riduce col massimo comun divisore
+e il prodotto si riprova una volta. Quel che resta è un errore di overflow tipizzato: nei test è
+successo per l'1,3% di questi istanti artificiali e mai per istanti di campioni, di fotogrammi o
+decimali.
+
+**Le modifiche** funzionano come nella mappa delle misure: `set_change` e `remove_change`
+cambiano una copia dei dati di origine, ricostruiscono i segmenti e convalidano tutto,
+sostituiscono la mappa solo se va tutto bene (`TempoMapError`: `BeforeStart`, `NoTempoAtStart`,
+`GradualAtStart`, `NonPositiveGradual`, `ChangeInsideGradual`, `Arithmetic`) e restituiscono il
+valore precedente per l'annullamento.
+
+**Test.** `tests/tempo_map_cases.rs` ha 12 casi calcolati a mano: il ritardando della tabella di
+ADR-0020 (32/3 s), posizioni dentro un cambio sulla griglia e fuori, confini arrotondati per
+difetto (♩ = 77) e per eccesso (♩ = 71) con il loro fermo ai bordi, il tempo di partenza
+facoltativo, cambi adiacenti, gli errori con la mappa invariata, i valori precedenti, le
+posizioni negative, la monotonia. `tests/tempo_map_oracle.rs` confronta mappe casuali con un
+**oracolo** che non condivide codice con la libreria: frazioni `i128` sue, segmenti suoi
+ricostruiti con un percorso lineare, ricerche lineari, la forma del trapezio `τ·(s₀ + s(τ))/2` e
+un altro integrale per gli istanti approssimati; controlla anche che ogni confine stia entro mezzo
+tick per ogni confine precedente dall'istante esatto cumulato. Tre bug inseriti apposta (niente
+fermo ai bordi, una `h` sbagliata, pareggi arrotondati per difetto) sono stati tutti trovati;
+l'oracolo ha trovato anche l'overflow sui denominatori estranei che ora gestisce il ripiego col
+massimo comun divisore. `tests/tempo_map_no_alloc.rs` controlla che nessuna ricerca allochi,
+compreso il percorso lento.
+
+**Indici di campione e di fotogramma.** `sample_at(position, rate)` dà il campione più vicino e
+`frame_at(position, fps)` il fotogramma che contiene l'istante, come `IndexAt`: `Exact(n)` oppure,
+solo se il controllo esatto va in overflow, `Estimated(n)` (la stessa idea di `TimeAt`: un'approssimazione non si nasconde mai; il thread audio chiama
+semplicemente `.value()`). Nei segmenti costanti si arrotonda l'istante esatto. Dentro un cambio graduale l'istante è irrazionale, ma
+l'indice no: l'indice `n` copre un intervallo di tempo con estremi razionali, e la **posizione**
+raggiunta in un istante razionale è esatta. Dato che la posizione cresce col tempo, "il punto suona
+durante l'indice `n`" equivale a "il punto sta tra le posizioni raggiunte quando l'indice `n`
+comincia e quando finisce": due confronti esatti in `i128`. L'istante in `f64` dà la prima ipotesi,
+che i confronti confermano o spostano di uno, al massimo quattro volte (un limite fisso, per il
+thread audio):
+
+```rust
+for _ in 0..=MAX_CORRECTIONS {
+    match segment.locate_in_index(x, n, grid, values) {
+        Some(Ordering::Equal) => return Ok(IndexAt::Exact(n.min(cap))),
+        Some(Ordering::Less) => n = n.checked_sub(1).ok_or(OVERFLOW)?,
+        Some(Ordering::Greater) => n = n.checked_add(1).ok_or(OVERFLOW)?,
+        None => break,
+    }
+}
+Ok(IndexAt::Estimated(estimate.min(cap)))
+```
+
+`cap` è l'indice dell'inizio del segmento successivo: lì `time_at` si ferma, e l'indice deve dargli
+ragione. Campioni e fotogrammi condividono il codice attraverso un piccolo `IndexGrid` (l'indice `n`
+copre `[(n − offset)/rate, (n + 1 − offset)/rate)`, con `offset` 1/2 per i campioni e 0 per i
+fotogrammi). Fuori dal cambio il confronto usa la posizione d'inizio o di fine, mai il polinomio,
+che in un rallentando tornerebbe indietro. `position_of_sample(n, rate)` e
+`position_of_frame(k, fps)` fanno il percorso inverso, passando per `position_at`.
+
+**Quanto spesso serve la stima?** `tests/tempo_map_fallback.rs` costruisce una partitura scomoda di
+2 h 16 min con 750 cambi, 500 dei quali graduali, indicazioni metronomiche con fattori primi grandi
+e diverse unità di battito, e chiede 12 834 punti a 44,1, 48, 96, 192 e 384 kHz (384 kHz non divide
+la griglia) e a 24, 25 e 30000/1001 fps: **nessuna stima**. Il test fallisce se una frequenza che
+divide la griglia ne avesse mai bisogno.
+
+I test degli indici: altri 5 casi calcolati a mano (tempo costante, pareggi, un ritardando
+confrontato con un istante calcolato a mano, ogni campione di un cambio che torna a sé stesso, il
+fermo ai bordi), un test di proprietà che controlla ogni indice **per definizione** con le frazioni
+proprie dell'oracolo, più la monotonia e il ritorno attraverso `position_of_sample`. Cinque bug
+inseriti apposta nel codice degli indici sono stati trovati; due solo dopo aver aggiunto due casi
+mirati (un indice che oltrepassa il fermo, visibile solo con intervalli più brevi di un tick; un
+cambio più breve di un fotogramma, dove il polinomio torna indietro).
+
+**Benchmark** (`benches/tempo_map.rs`): una mappa di riferimento di 150 cambi, due terzi graduali,
+circa 250 segmenti, con lotti di 64 ricerche. Primi numeri (macchina di sviluppo, 2026-11-01):
+
+```text
+time_at              57893 instructions / 64 lookups ≈  900 each
+position_at         129175                            ≈ 2020
+sample_at_constant  148272                            ≈ 2320
+sample_at_gradual   288218                            ≈ 4500
+frame_at            215446                            ≈ 3370
+edit_tempo_change   572602 for one edit (clone, rebuild of every segment)
+```
+
+Come nella mappa delle misure, quasi tutto il costo è l'aritmetica razionale esatta (i massimi comuni
+divisori di denominatori grandi, perché quasi tutti i confini sono fuori dalla griglia), non la
+ricerca. 4500 istruzioni sono circa 1,5 µs sull'hardware di riferimento; una modifica circa 0,2 ms,
+ben dentro i 16 ms di un aggiornamento dell'interfaccia.
 
 ### orchestra-core-model
 
