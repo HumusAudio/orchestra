@@ -20,6 +20,12 @@
 //! - Change notifications precise enough to drive *incremental* layout and rendering (which notes,
 //!   which measures changed), so no consumer ever has to recompute the whole score.
 //!
+//! ## Implemented so far
+//! - [`pitch`] (SCALETTA F1.07, ADR-0023): [`Pitch`] with its spelling (step, rational alteration
+//!   in semitones, scientific octave), the exact sounding pitch and the [`MidiNote`] it maps to,
+//!   [`Interval`] with its derived [`Quality`], traditional key signatures ([`Key`],
+//!   [`TraditionalKey`], [`Mode`]), the spelling of a MIDI key in a key, and transposition.
+//!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
 //!   depend on this one, never the other way around.
@@ -35,3 +41,9 @@
 // single source of truth (ADR-0003) and must never panic on a bad index — `v[i]` panics when `i` is
 // out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
 #![deny(clippy::indexing_slicing)]
+
+pub mod pitch;
+
+pub use pitch::{
+    Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
+};

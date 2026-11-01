@@ -14,5 +14,17 @@ publish.workspace = true
 [dependencies]
 orchestra-core-time.workspace = true
 
+# Test-only tools (ADR-0016): property tests and the allocation counter. Never shipped.
+[dev-dependencies]
+orchestra-test-support.workspace = true
+proptest.workspace = true
+gungraun.workspace = true
+
+# Instruction-count benchmarks of the pitch operations the playback compile calls once per note
+# (MIDI conversion, transposition, spelling; SCALETTA F1.07, ADR-0023).
+[[bench]]
+name = "pitch"
+harness = false
+
 [lints]
 workspace = true

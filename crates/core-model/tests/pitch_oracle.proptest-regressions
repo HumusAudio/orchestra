@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc bb166049f2da4b514ae85fe977065e4140f50cd13efe4b4d797bfc32a8076e42 # shrinks to p = Pitch { step: C, alteration: Alteration(Rational(1/2)), octave: 0 }
+cc 80314029127e95fda924fcf35a6bbf826a0e36b4b7ce5eccbbdad54df01bc544 # shrinks to a = Pitch { step: E, alteration: Alteration(Rational(0)), octave: 0 }, b = Pitch { step: F, alteration: Alteration(Rational(-1)), octave: 0 }
+cc 7eb94203c5990ab03e4440c670f2fb4031adeeb9524fcdd8303f3532ba69851b # shrinks to (q, n, down) = (Diminished(1), 6, false)

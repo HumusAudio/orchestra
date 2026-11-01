@@ -710,7 +710,81 @@ interface update.
 
 The one project document (ADR-0003): tracks, notes with their two layers (written intent and
 performance offsets, ADR-0004), the form of the piece, commands and the single undo/redo history.
-It knows nothing about views, layout, audio or files.
+It knows nothing about views, layout, audio or files. Its architecture (stable IDs, events as
+bar-relative offsets in per-bar chunks, voices per instrument) is fixed by ADR-0022; the first
+part implemented is the pitch module.
+
+#### Pitch, intervals and keys
+
+`src/pitch.rs` (step F1.07, ADR-0023) holds the pure types every note's pitch is made of. A
+`Pitch` is what a musician writes: a letter (`Step`, C to B), an `Alteration` and an octave. Two
+pitches are equal only if they are **spelled** the same, because ADR-0004 keeps the written intent:
+F♯4 and G♭4 are different notes that happen to sound alike, and `sounds_like` is the separate
+question.
+
+```rust
+let b_sharp_3 = Pitch::new(Step::B, Alteration::SHARP, 3);
+let c_4 = Pitch::new(Step::C, Alteration::NATURAL, 4);
+assert_ne!(b_sharp_3, c_4); // spelled differently…
+assert!(b_sharp_3.sounds_like(c_4)?); // …same sound
+assert_eq!(c_4.midi()?.key, 60);
+```
+
+**The alteration is a rational number of semitones** (decision D07): 1 is a sharp, −1 a flat, 1/2
+a quarter-tone sharp, 1/3 a sixth-tone sharp, up to a triple sharp or flat. That is how MusicXML
+writes `<alter>`, so import and export are direct, and it fits the rest of the project, where
+nothing is a float. Which glyph draws a quarter tone is the engraver's business (F2B); comma
+accidentals of just intonation are not numbers of semitones and wait for tuning, which is a later
+rule of `playback`.
+
+**Octaves are scientific** (C4 is middle C) and change at C: B♯3 sounds like C4, C♭4 like B3. The
+**sounding pitch** is exact, `12 × (octave + 1) + natural semitones + alteration` on the MIDI scale,
+and `midi()` turns it into a `MidiNote`: the nearest key and a bend in semitones. A quarter tone
+lies exactly between two keys; the rule takes the **lower** key and bends up by a half, so the
+result is deterministic. A key outside 0–127 is a `PitchError::MidiOutOfRange`, never clipped.
+Chromatic pitches take a fast path with plain integer sums.
+
+An **`Interval`** is a pair (diatonic steps, semitones), both signed, the same pair MusicXML uses for
+transposing instruments. Its **quality** is derived from the difference between its semitones and
+those of the major or perfect interval with the same number: for unisons, fourths and fifths 0 is
+perfect and ±n is n-times augmented or diminished; for the others 0 is major, −1 minor, +n
+augmented, −(n+1) diminished. A microtonal interval has no standard quality and answers `None`.
+
+```rust
+let c4 = Pitch::new(Step::C, Alteration::NATURAL, 4);
+let third = Interval::from_quality(Quality::Major, 3, false)?;
+assert_eq!(c4.transposed(third)?, Pitch::new(Step::E, Alteration::NATURAL, 4));
+// The B♭ clarinet sounds a major second lower than written:
+let clarinet = Interval::from_quality(Quality::Major, 2, true)?;
+let written = c4.transposed(clarinet.reversed())?; // D4
+```
+
+**Transposition** adds the steps to the pitch's place in the sequence of letters (which gives the
+new letter and octave), then chooses the alteration that moves the sound by exactly the interval:
+F♯4 up an augmented sixth is D𝄪5, never E5. A result beyond a triple sharp is an error.
+
+**Keys** (`Key`, `TraditionalKey`, `Mode`) count sharps or flats in fifths, from −14 to +14 (keys
+beyond seven, like D♯ major for a B♭ clarinet playing in C♯ major, come out of transposition), with
+seven modes and "none". `Key` is an enum with one variant on purpose: free signatures (Bartók,
+maqam…) were deferred by the owner and will be a second variant. The computations use the **line
+of fifths** (… B♭ −2, F −1, C 0, G 1, D 2 …): a key of k fifths holds the seven places
+`[k − 1, k + 5]`, so the alteration of each letter, the tonic of each mode and the transposition of a
+key are one addition each. `Pitch::spell_midi` picks the spelling of a MIDI key inside a window of
+twelve fifths, `[k − 4, k + 7]` (C major: C♯ E♭ F♯ A♭ B♭), shifted by one in minor so that the
+leading tone is a sharp (A minor: G♯).
+
+**Tests.** `tests/pitch_cases.rs` has 14 groups of hand-written cases a musician can check (B♯3 and
+C♭4, quarter tones in MIDI, qualities from doubly diminished to doubly augmented, B♭ clarinet, horn
+in F, piccolo, double bass, theoretical keys). `tests/pitch_oracle.rs` compares the library with an
+oracle that shares no formula with it: natural notes by walking the major scale, keys by applying
+one accidental at a time in the order of sharps, qualities from a textbook table, tonics as degrees
+of the major scale; it also checks every MIDI key in every key and mode exhaustively. Five injected
+bugs were caught; one of them (a wrong Lydian tonic) only after the tonic oracle was added.
+`tests/pitch_no_alloc.rs` checks that nothing allocates.
+
+**Benchmarks** (`benches/pitch.rs`, batches of 64, instructions per call): MIDI conversion ≈ 155 on a
+mix with one quarter tone in eight (≈ 650 before the chromatic fast path), transposition ≈ 560,
+interval and quality ≈ 800, spelling a MIDI key ≈ 100.
 
 ### orchestra-playback
 
@@ -1210,11 +1284,12 @@ reference font of the SMuFL music-font standard, which the notation engine will 
 
 ## Evaluation spikes
 
-`spikes/` is a separate Cargo workspace with the time-boxed prototypes of Phase 0, Step 13. It is
-excluded from the main workspace (`exclude = ["spikes"]` in the root `Cargo.toml`), never built
-by `cargo xtask check` or CI, and never shipped: its job was to measure and decide. The decisions
-and all the numbers are in ADR-0011 and ADR-0012; this section explains how to run the spikes
-again.
+`spikes/` is a separate Cargo workspace with time-boxed prototypes: those of Phase 0, Step 13 and
+the model storage prototype of step F1.06. It is excluded from the main workspace
+(`exclude = ["spikes"]` in the root `Cargo.toml`), never built by `cargo xtask check` or CI, and
+never shipped: its job was to measure and decide. The decisions and all the numbers are in
+ADR-0011, ADR-0012 and ADR-0022 (with `spikes/model/ANALYSIS.md`); this section explains how to run
+the spikes again.
 
 ### The GUI spike
 
@@ -1256,6 +1331,27 @@ cd spikes
 
 The spike used truce-rack inside the bridge; ADR-0011 decided to write our own host layer on the
 same low-level bindings instead, keeping the bridge architecture that the measurements validated.
+
+### The model storage spike
+
+`spikes/model` (step F1.06) compares three ways to store the events of a voice, with the real
+`core-time` types: P1, one vector per voice sorted by absolute position; P2, one chunk per bar
+with offsets relative to the bar, bars named by index; P3, the same chunks keyed by stable bar IDs
+behind `Arc`. `src/lib.rs` generates two deterministic scores (100 bars × 10 staves, 8 690 notes;
+1 000 bars × 30 staves, 255 776 notes) and the meter map edits, `tests/agree.rs` checks that the
+three hold the same music after every operation, `benches/model.rs` counts instructions and
+`src/bin/report.rs` measures memory, allocations and wall-clock times:
+
+```sh
+cd spikes
+cargo test --release -p model
+GUNGRAUN_ENVS=TMPDIR cargo bench -p model
+cargo run --release -p model --bin report
+```
+
+The `spikes` workspace strips release binaries, so its `[profile.bench]` keeps symbols: Callgrind
+finds the measured function by name, and without symbols every count is 0. The numbers and the
+choice of P3 are in `spikes/model/ANALYSIS.md` and ADR-0022.
 
 ## Lessons from Phase 0
 
