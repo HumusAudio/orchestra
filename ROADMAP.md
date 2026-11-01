@@ -96,8 +96,9 @@ estimate** at 44.1–384 kHz and 24/25/29.97 fps. Index tests: 5 cases, a by-def
 round trip and monotonicity; five injected bugs caught (two only after adding targeted cases).
 Benchmarks (`benches/tempo_map.rs`, 250 segments, batches of 64): ≈ 900 instructions per `time_at`,
 2000 per `position_at`, 2300 per `sample_at` at constant tempo, 4500 inside a gradual change, 3400
-per `frame_at`, 573 000 per edit; the gate against `main` shows no regression. PR to open; then
-F1.06 (decision D06, the model architecture).
+per `frame_at`, 573 000 per edit; the gate against `main` shows no regression. PR #13 (CI green
+on the three platforms, merged); SCALETTA v0.12 closes F1.05b and with it F1-A. Next: **F1.06**
+(decision D06, the model architecture).
 
 | Step | What | Status |
 |---|---|---|
