@@ -1,8 +1,9 @@
 # ADR-0023 — Pitch with spelling, intervals, key signatures, transposition
 
-- **Status:** Proposed (SCALETTA F1.07, decision D07). Draft written after the owner's choices of
-  2026-11-01: representation R1, microtones M1, the recommendations on octaves, MIDI, intervals,
-  keys and spelling; non-traditional key signatures deferred but recorded.
+- **Status:** Accepted (owner's decision, 2026-11-01; SCALETTA F1.07, decision D07). The owner
+  chose representation R1, microtones M1 and the recommendations on octaves, MIDI, intervals, keys
+  and spelling before the text was written, deferred non-traditional key signatures (to be
+  remembered), then accepted the draft with the shifted window for the minor mode (§6).
 - **Date:** 2026-11-01
 - **Refines:** ADR-0004 (pitch stored at concert pitch with its spelling; transposing instruments
   applied for display). Does not change any Accepted decision.
