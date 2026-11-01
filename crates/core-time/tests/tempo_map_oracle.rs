@@ -28,7 +28,13 @@
 //! - both conversions are non-decreasing;
 //! - every boundary time lies within `k/2` ticks of the exact cumulated time (computed in `f64`
 //!   from the exact durations), `k` the number of earlier boundaries (ADR-0021 §1);
-//! - a failed edit leaves the map unchanged.
+//! - a failed edit leaves the map unchanged;
+//! - sample and frame indices satisfy their **definition** (ADR-0020 §5, ADR-0021 §5): the
+//!   oracle checks, with its own exact fractions, that the position lies between the positions
+//!   reached when the index's interval begins and ends (or, at a clamped segment end, that it lies
+//!   after the beginning of the next start's index); indices are non-decreasing; a sample maps back
+//!   to itself through `position_of_sample`, except at the start of a segment, where several times
+//!   share one position because of the clamping.
 
 // Helper functions (not `#[test]` functions) are outside the scope of clippy.toml's
 // `allow-unwrap-in-tests`, so the exemption is stated here, for this test file only: a helper that
@@ -47,8 +53,8 @@
 use std::cmp::Ordering;
 
 use orchestra_core_time::{
-    Duration, GradualChange, Position, Rational, Seconds, TIME_GRID, Tempo, TempoChange, TempoMap,
-    TimeAt,
+    Duration, FrameRate, GradualChange, IndexAt, Position, Rational, SampleRate, Seconds,
+    TIME_GRID, Tempo, TempoChange, TempoMap, TimeAt,
 };
 use proptest::prelude::*;
 
@@ -141,6 +147,11 @@ impl Q {
     fn ticks(self) -> Option<i128> {
         let num = self.n.checked_mul(2)?.checked_mul(G)?.checked_add(self.d)?;
         num.checked_div_euclid(self.d.checked_mul(2)?)
+    }
+
+    /// `⌊self⌋`.
+    fn floor(self) -> i128 {
+        self.n.div_euclid(self.d)
     }
 
     /// An approximation.
@@ -331,6 +342,129 @@ fn oracle_position(segs: &[Seg], t: Q) -> Option<Q> {
             Some(if end.le(p)? { end } else { p })
         }
     }
+}
+
+/// An index grid of the oracle: indices per second and offset (`1/2` samples, `0` frames).
+#[derive(Debug, Clone, Copy)]
+struct Grid {
+    /// Indices per second.
+    rate: Q,
+    /// `1/2` for samples, `0` for frames.
+    offset: Q,
+}
+
+impl Grid {
+    /// The index of an exact time, `⌊t·rate + offset⌋`.
+    fn index_of(self, t: Q) -> Option<i128> {
+        Some(t.mul(self.rate)?.add(self.offset)?.floor())
+    }
+
+    /// Where index `n` begins, `(n − offset)/rate`.
+    fn start_of(self, n: i128) -> Option<Q> {
+        Q::int(n).sub(self.offset)?.div(self.rate)
+    }
+}
+
+/// The sample rates and frame rates of the index tests, with their library counterparts.
+#[derive(Debug, Clone, Copy)]
+enum Rate {
+    /// Samples per second.
+    Samples(u32),
+    /// Frames per second, `n/d`.
+    Frames(i64, i64),
+}
+
+impl Rate {
+    /// The oracle's grid.
+    fn grid(self) -> Grid {
+        match self {
+            Self::Samples(hz) => Grid {
+                rate: Q::int(hz.into()),
+                offset: Q::new(1, 2).unwrap(),
+            },
+            Self::Frames(n, d) => Grid {
+                rate: Q::new(n.into(), d.into()).unwrap(),
+                offset: Q::int(0),
+            },
+        }
+    }
+
+    /// The library's index of `p`.
+    fn index(self, map: &TempoMap, p: Position) -> IndexAt {
+        match self {
+            Self::Samples(hz) => map.sample_at(p, SampleRate::new(hz).unwrap()).unwrap(),
+            Self::Frames(n, d) => map
+                .frame_at(p, FrameRate::new(Rational::new(n, d).unwrap()).unwrap())
+                .unwrap(),
+        }
+    }
+}
+
+/// The rates tested: common sample rates (all dividing the grid), 384 kHz (which does not) and
+/// three frame rates.
+fn rate() -> impl Strategy<Value = Rate> {
+    prop_oneof![
+        Just(Rate::Samples(44_100)),
+        Just(Rate::Samples(48_000)),
+        Just(Rate::Samples(96_000)),
+        Just(Rate::Samples(192_000)),
+        Just(Rate::Samples(384_000)),
+        Just(Rate::Frames(24, 1)),
+        Just(Rate::Frames(25, 1)),
+        Just(Rate::Frames(30_000, 1001)),
+    ]
+}
+
+/// Whether `n` is the right index of position `p` on `grid`, by the definition; `None` if the
+/// oracle's own fractions overflow.
+fn index_is_right(segs: &[Seg], p: Q, n: i64, grid: Grid) -> Option<bool> {
+    let i = scan(segs, p, |s| s.start);
+    let seg = segs[i];
+    let x = p.sub(seg.start)?;
+    let n = i128::from(n);
+    match seg.kind {
+        Kind::Constant(_) => {
+            let Ok(t) = oracle_time(segs, p)? else {
+                return Some(false);
+            };
+            Some(grid.index_of(t)? == n)
+        }
+        Kind::Gradual { s0, s1, length } => {
+            if x.n == 0 {
+                return Some(grid.index_of(seg.time)? == n);
+            }
+            let cap = grid.index_of(segs[i + 1].time)?;
+            let d = length.div(s0.add(s1)?.div(Q::int(2))?)?;
+            let a = s1.sub(s0)?.div(d)?;
+            // The position reached at time `t` (trapezoid form), clamped to the segment.
+            let x_at = |t: Q| -> Option<Q> {
+                let tau = t.sub(seg.time)?;
+                if tau.le(Q::int(0))? {
+                    return Some(Q::int(0));
+                }
+                if d.le(tau)? {
+                    return Some(length);
+                }
+                let s_tau = s0.add(a.mul(tau)?)?;
+                tau.mul(s0.add(s_tau)?)?.div(Q::int(2))
+            };
+            let after_start = x_at(grid.start_of(n)?)?.le(x)?;
+            match n.cmp(&cap) {
+                Ordering::Less => {
+                    let before_end = !x_at(grid.start_of(n + 1)?)?.le(x)?;
+                    Some(after_start && before_end)
+                }
+                // At the cap the clamped time is the next start: the true index is ≥ cap.
+                Ordering::Equal => Some(after_start),
+                Ordering::Greater => Some(false),
+            }
+        }
+    }
+}
+
+/// Whether `p` is the start of an oracle segment.
+fn is_segment_start(segs: &[Seg], p: Q) -> bool {
+    segs.iter().any(|s| s.start == p)
 }
 
 /// The tempi the edits choose from: various units, integer and fractional marks, marks whose
@@ -535,6 +669,46 @@ proptest! {
                 Rational::new(seg.time.n.try_into().unwrap(), seg.time.d.try_into().unwrap())
                     .unwrap(),
             )));
+        }
+    }
+
+    /// Sample and frame indices satisfy their definition, are non-decreasing, and samples map
+    /// back to themselves.
+    #[test]
+    fn indices_match_definition(
+        edits in prop::collection::vec(edit(), 0..24),
+        mut queries in prop::collection::vec(query_position(), 48),
+        rate in rate(),
+        samples in prop::collection::vec(-48_000_i64..20_000_000, 16),
+    ) {
+        let map = build(&edits);
+        let (segs, _) = oracle_segments(&map);
+        let grid = rate.grid();
+        queries.sort_by(|a, b| Q::int(a.0.into()).mul(Q::int(b.1.into())).unwrap()
+            .cmp(Q::int(b.0.into()).mul(Q::int(a.1.into())).unwrap()).unwrap());
+        let mut last = i64::MIN;
+        for (n, d) in queries {
+            let got = rate.index(&map, at(n, d));
+            prop_assert!(got.value() >= last, "index went back at {n}/{d}");
+            last = got.value();
+            // Only 384 kHz (not dividing the grid) may need the estimate.
+            let IndexAt::Exact(index) = got else {
+                prop_assert!(matches!(rate, Rate::Samples(384_000)), "{got:?} at {n}/{d}");
+                continue;
+            };
+            let p = Q::new(n.into(), d.into()).unwrap();
+            if let Some(right) = index_is_right(&segs, p, index, grid) {
+                prop_assert!(right, "wrong index {index} for {n}/{d} at {rate:?}");
+            }
+        }
+        if let Rate::Samples(hz) = rate {
+            let sample_rate = SampleRate::new(hz).unwrap();
+            for n in samples {
+                let p = map.position_of_sample(n, sample_rate).unwrap();
+                let back = map.sample_at(p, sample_rate).unwrap().value();
+                let q = Q::of(p.as_rational());
+                prop_assert!(back == n || is_segment_start(&segs, q), "sample {n} → {p:?} → {back}");
+            }
         }
     }
 }

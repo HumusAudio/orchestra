@@ -20,7 +20,8 @@
 use std::hint::black_box;
 
 use orchestra_core_time::{
-    Duration, GradualChange, Position, Rational, Seconds, Tempo, TempoChange, TempoMap,
+    Duration, FrameRate, GradualChange, Position, Rational, SampleRate, Seconds, Tempo,
+    TempoChange, TempoMap,
 };
 use orchestra_test_support::assert_no_allocations;
 
@@ -88,13 +89,33 @@ fn lookups_do_not_allocate() {
         Seconds::from_rational(q(1_000, 1)),
         Seconds::from_rational(q(i64::MAX, 1)),
     ];
-    let (map, positions, times) = black_box((&map, positions, times));
+    let rates = [44_100_u32, 48_000, 384_000].map(|hz| SampleRate::new(hz).unwrap());
+    let fps = [q(24, 1), q(30_000, 1001)].map(|f| FrameRate::new(f).unwrap());
+    let (map, positions, times, rates, fps) = black_box((&map, positions, times, rates, fps));
     assert_no_allocations(|| {
         for p in positions {
             black_box(map.time_at(p)).ok();
         }
         for t in times {
             black_box(map.position_at(t)).ok();
+        }
+        // Sample and frame indices (with the exact check inside gradual changes) and their
+        // inverses, on every point and rate.
+        for p in positions {
+            for rate in rates {
+                black_box(map.sample_at(p, rate)).ok();
+            }
+            for f in fps {
+                black_box(map.frame_at(p, f)).ok();
+            }
+        }
+        for n in [0_i64, 123_457, 1_000_003, -48_000, i64::MAX] {
+            for rate in rates {
+                black_box(map.position_of_sample(n, rate)).ok();
+            }
+            for f in fps {
+                black_box(map.position_of_frame(n, f)).ok();
+            }
         }
         // Many sample instants across every segment, including the gradual ones.
         for n in (0..3_000_000_i64).step_by(10_007) {

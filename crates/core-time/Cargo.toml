@@ -30,5 +30,11 @@ harness = false
 name = "meter_map"
 harness = false
 
+# Instruction-count benchmarks of the tempo map lookups (positions, seconds, samples, frames) and
+# of one edit (SCALETTA F1.05b).
+[[bench]]
+name = "tempo_map"
+harness = false
+
 [lints]
 workspace = true

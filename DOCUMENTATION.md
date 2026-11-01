@@ -224,7 +224,7 @@ called by the audio thread, so they must not allocate. No dependencies inside th
 `[dev-dependencies]` only `orchestra-test-support` and `proptest`, for the tests). So far it
 contains the rational type (step F1.03), the position and duration types (F1.04) and the meter
 map with beat groupings (F1.04b), the units of real time (F1.05: tempo, seconds, samples,
-frames) and the tempo map with gradual changes (F1.05b, first part: positions ⇄ seconds).
+frames) and the tempo map with gradual changes and exact sample and frame indices (F1.05b).
 
 #### The rational type
 
@@ -645,8 +645,66 @@ Three bugs injected on purpose (no clamping, a wrong `h`, ties rounded down) wer
 oracle also found the overflow on foreign denominators that the gcd fallback now handles.
 `tests/tempo_map_no_alloc.rs` checks that no lookup allocates, the slow path included.
 
-Still to come in F1.05b: exact sample and frame indices inside gradual changes, and the
-benchmarks.
+**Sample and frame indices.** `sample_at(position, rate)` gives the nearest sample and
+`frame_at(position, fps)` the frame that contains the time, as an `IndexAt`: `Exact(n)` or, only if
+the exact check overflows, `Estimated(n)` (the same idea as `TimeAt`: an approximation is never
+hidden; the audio thread just calls `.value()`). In constant segments they round the exact time.
+Inside a gradual change the time is irrational, but the index is not: index `n` covers a time
+interval with rational ends, and the **position** reached at a rational time is exact. Since the
+position grows with time, "the point sounds during index `n`" is the same as "the point lies
+between the positions reached when index `n` begins and when it ends": two exact comparisons in
+`i128`. The `f64` time gives the first guess, which the comparisons confirm or move by one, at
+most four times (a fixed bound, for the audio thread):
+
+```rust
+for _ in 0..=MAX_CORRECTIONS {
+    match segment.locate_in_index(x, n, grid, values) {
+        Some(Ordering::Equal) => return Ok(IndexAt::Exact(n.min(cap))),
+        Some(Ordering::Less) => n = n.checked_sub(1).ok_or(OVERFLOW)?,
+        Some(Ordering::Greater) => n = n.checked_add(1).ok_or(OVERFLOW)?,
+        None => break,
+    }
+}
+Ok(IndexAt::Estimated(estimate.min(cap)))
+```
+
+`cap` is the index of the next segment's start: `time_at` clamps there, and the index has to agree
+with it. Samples and frames share the code through a small `IndexGrid` (index `n` covers
+`[(n − offset)/rate, (n + 1 − offset)/rate)`, with `offset` 1/2 for samples and 0 for frames).
+Outside the change the comparison uses the start or end position, never the polynomial, which
+for a slowing change would turn back. `position_of_sample(n, rate)` and `position_of_frame(k, fps)`
+go back, through `position_at`.
+
+**How often is the estimate needed?** `tests/tempo_map_fallback.rs` builds an unfriendly score of
+2 h 16 min with 750 changes, 500 of them gradual, metronome marks with large prime factors and
+several beat units, and asks for 12 834 points at 44.1, 48, 96, 192 and 384 kHz (384 kHz does not
+divide the grid) and at 24, 25 and 30000/1001 fps: **no estimate at all**. The test fails if any
+rate that divides the grid ever needs one.
+
+The index tests: 5 more hand-computed cases (constant tempo, ties, a ritardando against a
+hand-computed time, every sample of a change mapping back to itself, the clamping), a property
+test that checks every index **by its definition** with the oracle's own fractions, plus
+monotonicity and the round trip through `position_of_sample`. Five bugs injected on purpose into
+the index code were caught; two of them only after adding two targeted cases (an index that
+crosses the clamp, visible only with intervals shorter than a tick; a change shorter than a video
+frame, where the polynomial turns back).
+
+**Benchmarks** (`benches/tempo_map.rs`) use a reference map of 150 changes, two thirds gradual,
+about 250 segments, with batches of 64 lookups. First numbers (development machine, 2026-11-01):
+
+```text
+time_at              57893 instructions / 64 lookups ≈  900 each
+position_at         129175                            ≈ 2020
+sample_at_constant  148272                            ≈ 2320
+sample_at_gradual   288218                            ≈ 4500
+frame_at            215446                            ≈ 3370
+edit_tempo_change   572602 for one edit (clone, rebuild of every segment)
+```
+
+As in the meter map, most of the cost is the exact rational arithmetic (the gcds of large
+denominators, since most boundaries are off the grid), not the search. 4500 instructions are
+about 1.5 µs on the reference hardware; one edit is about 0.2 ms, far within the 16 ms of an
+interface update.
 
 ### orchestra-core-model
 

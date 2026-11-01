@@ -16,8 +16,8 @@
 #![allow(clippy::panic, reason = "test helpers: a panic fails the test")]
 
 use orchestra_core_time::{
-    Duration, GradualChange, Position, Rational, Seconds, TIME_GRID, Tempo, TempoChange, TempoMap,
-    TempoMapError, TimeAt,
+    Duration, FrameRate, GradualChange, IndexAt, Position, Rational, SampleRate, Seconds,
+    TIME_GRID, Tempo, TempoChange, TempoMap, TempoMapError, TimeAt,
 };
 
 /// The rational `n/d`.
@@ -346,4 +346,131 @@ fn conversions_are_monotonic() {
         assert!(back >= last_position, "position went back at {k}/30 s");
         last_position = back;
     }
+}
+
+/// 48 kHz, the usual rate of the tests.
+fn khz48() -> SampleRate {
+    SampleRate::new(48_000).unwrap()
+}
+
+/// At a constant tempo the sample and the frame come from the exact time; ties go to the later
+/// sample (ADR-0020 §5).
+#[test]
+fn indices_at_constant_tempo() {
+    let map = TempoMap::new(quarter(120)).unwrap();
+    // A quarter at ♩ = 120 is 1/2 s: sample 24 000, frame 12 at 25 fps.
+    assert_eq!(map.sample_at(at(1, 4), khz48()), Ok(IndexAt::Exact(24_000)));
+    let pal = FrameRate::new(q(25, 1)).unwrap();
+    assert_eq!(map.frame_at(at(1, 4), pal), Ok(IndexAt::Exact(12)));
+    // 1/192 000 of a whole note is 1/96 000 s: exactly half a sample, which goes to sample 1.
+    assert_eq!(
+        map.sample_at(at(1, 192_000), khz48()),
+        Ok(IndexAt::Exact(1))
+    );
+    // Before the start: −1/4 is −1/2 s.
+    assert_eq!(
+        map.sample_at(at(-1, 4), khz48()),
+        Ok(IndexAt::Exact(-24_000))
+    );
+    // The inverses.
+    assert_eq!(map.position_of_sample(24_000, khz48()), Ok(at(1, 4)));
+    // Frame 12 covers [0.48 s, 0.52 s): it begins at 0.48 s, position 6/25.
+    assert_eq!(map.position_of_frame(12, pal), Ok(at(6, 25)));
+}
+
+/// Inside a gradual change the index is exact, and agrees with the time computed by hand.
+#[test]
+fn indices_inside_a_ritardando() {
+    let mut map = TempoMap::new(quarter(120)).unwrap();
+    map.set_change(at(1, 1), gradual(quarter(60), at(5, 1)))
+        .unwrap();
+    // Two whole notes into the change (position 3): τ = (√(s₀² + 4hx) − s₀)/(2h) with s₀ = 1/2,
+    // h = −3/256, x = 2, i.e. τ ≈ 4.467 9 s, plus the 2 s before the change.
+    let (s0, h, x) = (0.5_f64, -3.0 / 256.0, 2.0);
+    let time = 2.0 + ((s0 * s0 + 4.0 * h * x).sqrt() - s0) / (2.0 * h);
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "a small positive sample index"
+    )]
+    let expected = (time * 48_000.0 + 0.5).floor() as i64;
+    assert_eq!(
+        map.sample_at(at(3, 1), khz48()),
+        Ok(IndexAt::Exact(expected))
+    );
+    // The frame at 30000/1001 fps.
+    let ntsc = FrameRate::new(q(30_000, 1001)).unwrap();
+    #[allow(
+        clippy::cast_possible_truncation,
+        reason = "a small positive frame index"
+    )]
+    let frame = (time * 30_000.0 / 1001.0).floor() as i64;
+    assert_eq!(map.frame_at(at(3, 1), ntsc), Ok(IndexAt::Exact(frame)));
+    // Every sample of the change maps back to itself through its rounded position.
+    for n in (96_000..608_000).step_by(997) {
+        let position = map.position_of_sample(n, khz48()).unwrap();
+        assert_eq!(
+            map.sample_at(position, khz48()),
+            Ok(IndexAt::Exact(n)),
+            "sample {n}"
+        );
+    }
+}
+
+/// The index of a position clamped at a segment end is the index of the next start (ADR-0021 §2),
+/// consistent with `time_at`.
+#[test]
+fn indices_follow_the_clamping() {
+    // ♩ = 77, boundary at 1 rounded down by 0.27 ticks (see `boundaries_round_to_the_grid_and_clamp`).
+    let mut map = TempoMap::new(quarter(77)).unwrap();
+    map.set_change(at(1, 1), immediate(quarter(120))).unwrap();
+    let hair = Position::from_rational(q(1, 1).checked_sub(q(1, 1 << 40)).unwrap());
+    let boundary = exact(&map, at(1, 1));
+    let rate = SampleRate::new(705_600).unwrap();
+    assert_eq!(
+        map.sample_at(hair, rate),
+        Ok(IndexAt::Exact(rate.sample_at(boundary).unwrap()))
+    );
+    // Inside a gradual change ending on a rounded boundary: the last points before the end never
+    // index past the next start.
+    let mut map = TempoMap::new(quarter(120)).unwrap();
+    map.set_change(at(1, 1), gradual(quarter(77), at(2, 1)))
+        .unwrap();
+    let next = exact(&map, at(2, 1));
+    let cap = khz48().sample_at(next).unwrap();
+    let just_before = Position::from_rational(q(2, 1).checked_sub(q(1, 1 << 40)).unwrap());
+    let got = map.sample_at(just_before, khz48()).unwrap();
+    assert!(got.is_exact() && got.value() <= cap, "{got:?} vs {cap}");
+}
+
+/// When the rounded next start comes before the exact end of a gradual change, a sample interval
+/// can begin between the two: the index of the last points must still be the next start's
+/// (ADR-0021 §2, the clamp of `time_at`). Visible only with intervals shorter than a tick: a
+/// "sample rate" of two per tick, 1 411 200 000 Hz, whose sample boundaries fall on quarter ticks.
+#[test]
+fn gradual_indices_are_capped_at_the_next_start() {
+    // ♩ = 120 → 57 over one whole note: D = 2/(1/2 + 57/240) = 480/177 s, 0.42 ticks past the
+    // rounded next start, so past the sample boundary a quarter tick after it.
+    let mut map = TempoMap::new(quarter(120)).unwrap();
+    map.set_change(at(1, 1), gradual(quarter(57), at(2, 1)))
+        .unwrap();
+    let rate = SampleRate::new(1_411_200_000).unwrap();
+    let cap = rate.sample_at(exact(&map, at(2, 1))).unwrap();
+    let just_before = Position::from_rational(q(2, 1).checked_sub(q(1, 1 << 40)).unwrap());
+    assert_eq!(map.sample_at(just_before, rate), Ok(IndexAt::Exact(cap)));
+}
+
+/// A gradual change shorter than a video frame, slowing hard: the frame that contains a point near
+/// its start ends long after the change, where the polynomial `s₀τ + hτ²` has already turned back.
+/// The check must use the end position there, not the polynomial.
+#[test]
+fn indices_of_a_change_shorter_than_a_frame() {
+    // ♩ = 240 → 30 over 1/1000 of a whole note: D = 0.002/1.125 ≈ 1.8 ms, while a frame at
+    // 24 fps lasts 41.7 ms; the polynomial turns back after about 2 ms.
+    let mut map = TempoMap::new(quarter(240)).unwrap();
+    let end = Position::from_rational(q(1, 1).checked_add(q(1, 1000)).unwrap());
+    map.set_change(at(1, 1), gradual(quarter(30), end)).unwrap();
+    let film = FrameRate::new(q(24, 1)).unwrap();
+    let inside = Position::from_rational(q(1, 1).checked_add(q(1, 4000)).unwrap());
+    // Position 1 is at 1 s: frame 24 covers [1, 1.0417) s, which contains the whole change.
+    assert_eq!(map.frame_at(inside, film), Ok(IndexAt::Exact(24)));
 }

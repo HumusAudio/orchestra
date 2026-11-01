@@ -85,10 +85,19 @@ a property test against an oracle sharing no code with the library (own `i128` f
 scans, trapezoid form) that also bounds the boundary error, an allocation-free test; three
 injected bugs caught. The oracle found that times with a denominator foreign to the grid
 (`n/3001` s) could overflow the grid rounding: a gcd-reduction fallback now rescues most of them
-(1.3% still overflow, with a typed error; never for sample, frame or decimal times). Next: the
-**second part of F1.05b**: exact sample and frame indices inside gradual changes (f64 estimate +
-exact `i128` check, ADR-0021 §5), measuring how often the f64 fallback is needed, benchmarks in
-batches, then PR and CI.
+(1.3% still overflow, with a typed error; never for sample, frame or decimal times). The owner
+then approved stating in ADR-0021 §2 that the clamp applies in both directions (SCALETTA v0.11).
+**Second part done** (2026-11-01): `sample_at`/`frame_at` return `IndexAt::Exact`/`Estimated`
+(owner's choice: the type never hides an estimate), with an `f64` guess checked exactly in `i128`
+against the positions where the index's interval begins and ends, at most four corrections, capped
+at the next segment's start for consistency with the clamp; `position_of_sample`/`position_of_frame`
+go back. Measurement: a 2 h 16 min score with 500 gradual changes and unfriendly marks needed **no
+estimate** at 44.1–384 kHz and 24/25/29.97 fps. Index tests: 5 cases, a by-definition property test,
+round trip and monotonicity; five injected bugs caught (two only after adding targeted cases).
+Benchmarks (`benches/tempo_map.rs`, 250 segments, batches of 64): ≈ 900 instructions per `time_at`,
+2000 per `position_at`, 2300 per `sample_at` at constant tempo, 4500 inside a gradual change, 3400
+per `frame_at`, 573 000 per edit; the gate against `main` shows no regression. PR to open; then
+F1.06 (decision D06, the model architecture).
 
 | Step | What | Status |
 |---|---|---|
@@ -148,9 +157,12 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   must not shift every later note by accident); the commands that lengthen a free bar when notes
   are entered past its end.
 - **Concrete project file format** (ADR-0010, Phase 1).
-- **For F1.05b (second part):** measure how often the exact sample correction inside a gradual
-  change overflows and falls back to f64 (ADR-0020 §5, ADR-0021 §5); tempo changes are anchored to
-  positions, like notes (absolute vs bar-relative is F1.06's question).
+- **Tempo changes are anchored to positions**, like notes: absolute vs bar-relative is F1.06's
+  question (ADR-0020 §3).
+- **Possible tempo map optimisations, not urgent (F1.05b numbers):** `sample_at` at constant tempo
+  (≈ 2300 instructions) costs more than `time_at` (≈ 900 on mixed points) because the exact time has
+  large denominators (boundaries off the grid) and is then multiplied by the rate; computing in
+  grid ticks would avoid most gcds. Any change is judged by the benchmark gate.
 - **Tempo queries for the interface and the metronome** (the tempo in force at a position, the
   speed at a time inside a gradual change): the segments already keep the written tempi; the API
   comes when a caller needs it.

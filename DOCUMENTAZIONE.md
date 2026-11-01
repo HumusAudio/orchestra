@@ -238,8 +238,8 @@ verranno chiamate dal thread audio, quindi non devono allocare memoria. Nessuna 
 all'interno del workspace (in `[dev-dependencies]` solo `orchestra-test-support` e `proptest`, per
 i test). Per ora contiene il tipo razionale (passo F1.03), i tipi posizione e durata (F1.04) e la
 mappa delle misure con le suddivisioni dei movimenti (F1.04b), le unità del tempo reale (F1.05:
-tempo, secondi, campioni, fotogrammi) e la mappa dei tempi con i cambi graduali (F1.05b, prima
-parte: posizioni ⇄ secondi).
+tempo, secondi, campioni, fotogrammi) e la mappa dei tempi con i cambi graduali e gli indici esatti
+di campione e di fotogramma (F1.05b).
 
 #### Il tipo razionale
 
@@ -685,8 +685,66 @@ l'oracolo ha trovato anche l'overflow sui denominatori estranei che ora gestisce
 massimo comun divisore. `tests/tempo_map_no_alloc.rs` controlla che nessuna ricerca allochi,
 compreso il percorso lento.
 
-Restano da fare in F1.05b: gli indici esatti di campione e di fotogramma dentro i cambi graduali,
-e i benchmark.
+**Indici di campione e di fotogramma.** `sample_at(position, rate)` dà il campione più vicino e
+`frame_at(position, fps)` il fotogramma che contiene l'istante, come `IndexAt`: `Exact(n)` oppure,
+solo se il controllo esatto va in overflow, `Estimated(n)` (la stessa idea di `TimeAt`: un'approssimazione non si nasconde mai; il thread audio chiama
+semplicemente `.value()`). Nei segmenti costanti si arrotonda l'istante esatto. Dentro un cambio graduale l'istante è irrazionale, ma
+l'indice no: l'indice `n` copre un intervallo di tempo con estremi razionali, e la **posizione**
+raggiunta in un istante razionale è esatta. Dato che la posizione cresce col tempo, "il punto suona
+durante l'indice `n`" equivale a "il punto sta tra le posizioni raggiunte quando l'indice `n`
+comincia e quando finisce": due confronti esatti in `i128`. L'istante in `f64` dà la prima ipotesi,
+che i confronti confermano o spostano di uno, al massimo quattro volte (un limite fisso, per il
+thread audio):
+
+```rust
+for _ in 0..=MAX_CORRECTIONS {
+    match segment.locate_in_index(x, n, grid, values) {
+        Some(Ordering::Equal) => return Ok(IndexAt::Exact(n.min(cap))),
+        Some(Ordering::Less) => n = n.checked_sub(1).ok_or(OVERFLOW)?,
+        Some(Ordering::Greater) => n = n.checked_add(1).ok_or(OVERFLOW)?,
+        None => break,
+    }
+}
+Ok(IndexAt::Estimated(estimate.min(cap)))
+```
+
+`cap` è l'indice dell'inizio del segmento successivo: lì `time_at` si ferma, e l'indice deve dargli
+ragione. Campioni e fotogrammi condividono il codice attraverso un piccolo `IndexGrid` (l'indice `n`
+copre `[(n − offset)/rate, (n + 1 − offset)/rate)`, con `offset` 1/2 per i campioni e 0 per i
+fotogrammi). Fuori dal cambio il confronto usa la posizione d'inizio o di fine, mai il polinomio,
+che in un rallentando tornerebbe indietro. `position_of_sample(n, rate)` e
+`position_of_frame(k, fps)` fanno il percorso inverso, passando per `position_at`.
+
+**Quanto spesso serve la stima?** `tests/tempo_map_fallback.rs` costruisce una partitura scomoda di
+2 h 16 min con 750 cambi, 500 dei quali graduali, indicazioni metronomiche con fattori primi grandi
+e diverse unità di battito, e chiede 12 834 punti a 44,1, 48, 96, 192 e 384 kHz (384 kHz non divide
+la griglia) e a 24, 25 e 30000/1001 fps: **nessuna stima**. Il test fallisce se una frequenza che
+divide la griglia ne avesse mai bisogno.
+
+I test degli indici: altri 5 casi calcolati a mano (tempo costante, pareggi, un ritardando
+confrontato con un istante calcolato a mano, ogni campione di un cambio che torna a sé stesso, il
+fermo ai bordi), un test di proprietà che controlla ogni indice **per definizione** con le frazioni
+proprie dell'oracolo, più la monotonia e il ritorno attraverso `position_of_sample`. Cinque bug
+inseriti apposta nel codice degli indici sono stati trovati; due solo dopo aver aggiunto due casi
+mirati (un indice che oltrepassa il fermo, visibile solo con intervalli più brevi di un tick; un
+cambio più breve di un fotogramma, dove il polinomio torna indietro).
+
+**Benchmark** (`benches/tempo_map.rs`): una mappa di riferimento di 150 cambi, due terzi graduali,
+circa 250 segmenti, con lotti di 64 ricerche. Primi numeri (macchina di sviluppo, 2026-11-01):
+
+```text
+time_at              57893 instructions / 64 lookups ≈  900 each
+position_at         129175                            ≈ 2020
+sample_at_constant  148272                            ≈ 2320
+sample_at_gradual   288218                            ≈ 4500
+frame_at            215446                            ≈ 3370
+edit_tempo_change   572602 for one edit (clone, rebuild of every segment)
+```
+
+Come nella mappa delle misure, quasi tutto il costo è l'aritmetica razionale esatta (i massimi comuni
+divisori di denominatori grandi, perché quasi tutti i confini sono fuori dalla griglia), non la
+ricerca. 4500 istruzioni sono circa 1,5 µs sull'hardware di riferimento; una modifica circa 0,2 ms,
+ben dentro i 16 ms di un aggiornamento dell'interfaccia.
 
 ### orchestra-core-model
 
