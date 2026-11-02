@@ -145,8 +145,11 @@ markings and offsets (F1.09c). With the owner's scope (fermatas and ornaments in
 later step of their own) and after a search of MusicXML 4.0, MEI, Dorico and MuseScore, the draft
 **ADR-0024** (Proposed) covers event kinds, note values with derived durations, tuplets, ties,
 grace notes, markings, slurs, dynamics and hairpins, clefs and keys, tempo marks and the
-performance offsets, with nine choices (C1–C9) for the owner, two of which would amend ADR-0022
-(§6 tuplets, §5 tempo shift). **Waiting for the owner's review.**
+performance offsets. The owner approved every recommendation (C1–C9) and **ADR-0024 was
+Accepted** (2026-11-02). It amends ADR-0022 in two places: tuplet membership is recorded on the
+events (§6), and tempo changes become tempo marks at (bar, offset) from which the tempo map is
+derived, so they follow inserted bars by construction (§5). Next: the SCALETTA update for the
+split, then **F1.09b**.
 
 | Step | What | Status |
 |---|---|---|

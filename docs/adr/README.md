@@ -31,4 +31,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0021](0021-tempo-map-time-grid.md) | Tempo map: boundary times on a fixed grid, rounded positions inside gradual changes | Accepted |
 | [0022](0022-model-architecture.md) | Model architecture: stable IDs, bar-relative events in per-bar chunks, voices per instrument | Accepted |
 | [0023](0023-pitch-spelling-intervals-keys.md) | Pitch with spelling, intervals, key signatures, transposition | Accepted |
-| [0024](0024-voice-content.md) | What a voice contains: events, note values, tuplets, ties, grace notes, markings, offsets | Proposed |
+| [0024](0024-voice-content.md) | What a voice contains: events, note values, tuplets, ties, grace notes, markings, offsets | Accepted |

@@ -1,13 +1,16 @@
 # ADR-0024 — What a voice contains: events, written durations, tuplets, ties, grace notes, markings, performance offsets
 
-- **Status:** Proposed (draft for the owner's review; SCALETTA F1.09). The choices marked
-  **Choice C1…C9** in §12 are the owner's to make; the text around them follows Claude's
-  recommendations and changes with the answers.
+- **Status:** Accepted (owner's decision, 2026-11-02; SCALETTA F1.09). The owner set the scope
+  (fermatas and ornaments in, lyrics in a later step of their own), asked for the options on tempo
+  text and on tuplets across barlines, then approved every recommendation of §12 (C1–C9) as
+  written.
 - **Date:** 2026-11-02
 - **Refines:** ADR-0004 (the two layers, the hard cases), ADR-0022 §4 and §6 (events, chords,
-  spanners: "the details of each kind belong to F1.09"). If the owner accepts the recommendations
-  of C2 and C5, this ADR also **amends** ADR-0022 §6 (how tuplets are referenced) and §5 (how
-  tempo changes follow the bars); without them it changes no Accepted decision.
+  spanners: "the details of each kind belong to F1.09").
+- **Amends:** [ADR-0022](0022-model-architecture.md) §6 for tuplets only (membership is recorded
+  on the events, C2) and §5 (tempo changes are tempo marks at (bar, offset), so they follow the
+  bars by construction and the tempo map is derived from them, C5). Everything else in ADR-0022
+  stays as it is.
 
 ## Context
 
@@ -143,7 +146,7 @@ Tuplet { id: TupletId, actual: u8, normal: u8, unit: NoteValue,
 - A tuplet whose members do not add up to its total is a valid, **incomplete** state (like an
   overfull bar): it occurs while typing. The score shows it as an error (F2B); playback plays the
   members with their derived durations.
-- **Tuplets across a barline** (C4, recommended: allowed). Events still never cross a barline
+- **Tuplets across a barline** (C4: allowed, X2). Events still never cross a barline
   (ADR-0022 §4): a note of the tuplet that would straddle the barline is split into tied notes,
   both members of the same tuplet. Nothing in the representation ties a tuplet to one bar, so
   this costs no extra data; inserting or deleting bars elsewhere does not touch the tuplet table.
@@ -239,7 +242,7 @@ live in a voice's chunks.
   and cannot be removed. `Clef { sign: G | F | C | Percussion, line, octave: −2..=2 }` (the
   treble clef with an 8 below is G, line 2, octave −1). A clef at (bar, offset) applies to the
   events of that staff from that offset on, grace notes at the same offset included.
-- **Key signatures (C6, recommended: K1):** one list in the **document**, sorted by (bar, offset),
+- **Key signatures (C6: K1):** one list in the **document**, sorted by (bar, offset),
   with the first entry at (bar 0, 0), holding the **concert** key (`Key`, ADR-0023 §5), plus a
   rare per-instrument override list (polytonal writing, an instrument "without key signature" such
   as horns in older scores or unpitched percussion). A transposing instrument's written key is
@@ -255,7 +258,7 @@ PerformanceOffsets { onset: Duration, length: Duration, velocity: i32 }   // all
 
 - Inline on every notehead (C7): no allocation, copy-on-write with the chunk. ≈ 40 bytes more per
   note (≈ 180 bytes per note today, ADR-0022).
-- `onset` and `length` are **deltas in musical time** (C8, recommended), signed `Duration`s
+- `onset` and `length` are **deltas in musical time** (C8), signed `Duration`s
   (ADR-0018 §1): a note played 1/64 early has `onset = −1/64`. A tempo change therefore scales
   the human feel with the tempo, and the one tempo map stays the only bridge to seconds
   (ADR-0005). The millisecond variant of the tolerance threshold (ADR-0004) converts through the
@@ -269,7 +272,7 @@ PerformanceOffsets { onset: Duration, length: Duration, velocity: i32 }   // all
 
 ### 11. Tempo indications (C5)
 
-Recommended: **T2, tempo marks as the written intent, the tempo map derived from them.**
+Chosen: **T2, tempo marks as the written intent, the tempo map derived from them.**
 
 ```text
 TempoMark { id: TempoMarkId, at: (BarId, offset), text: Option<String>,
@@ -282,13 +285,13 @@ TempoMark { id: TempoMarkId, at: (BarId, offset), text: Option<String>,
   segments, F1.05b numbers) after any command that changes the marks or where bars start.
 - Because the marks are bar-relative, a command that inserts a bar no longer has to move the
   tempo changes: they follow the bars by construction. This **replaces ADR-0022 §5** (and its
-  property test becomes unnecessary) and is why this needs the owner's approval.
+  property test becomes unnecessary), with the owner's approval.
 - A tempo change without printed text (a DAW user's tempo automation) is a mark with no text and
   a hidden metronome.
 
-### 12. Choices for the owner
+### 12. Choices made by the owner (2026-11-02: every recommendation approved)
 
-| # | Question | Options | Recommendation |
+| # | Question | Options | Chosen, with its reason |
 |---|---|---|---|
 | C1 | Scope of this step | (a) as §1–§11; (b) also ottava lines, pedal, glissandi | **(a)**. Ottavas are display only, because pitches are stored at concert pitch (ADR-0004): they belong to F2B. Pedal and glissandi go with the playback rules that use them (F1.13 or later) |
 | C2 | Tuplet membership | **T-A** as ADR-0022 §6 says: the tuplet stores its first and last event, members are derived (the events of the voice between them); **T-B** each event stores its innermost tuplet | **T-B**: the metric duration of every event (read by layout and playback for every event) depends on it, and a stored link avoids a derived "event → tuplet" index and the ambiguity of "between" with grace notes and other voices. Amends ADR-0022 §6 for tuplets only |
@@ -307,7 +310,7 @@ TempoMark { id: TempoMarkId, at: (BarId, offset), text: Option<String>,
 | Enharmonic spelling | `Note.pitch` with spelling, one `NoteId` per head | A chord holding F♯4 and G♭4 keeps two distinct noteheads, sorted, with their spellings |
 | Articulations | `ArticulationSet` on the chord | Set/clear round trips; portato is not staccato + tenuto |
 | Transposing instruments | concert pitch and concert key only | B♭ clarinet: written pitch and written key derived, nothing stored twice |
-| Tuplets | `NoteValue` + `TupletId` + table | A triplet eighth lasts 1/12; 3:2 inside 5:4 gives 1/30 per member; incomplete tuplet is valid; tuplet across a barline with a tied split (if X2) |
+| Tuplets | `NoteValue` + `TupletId` + table | A triplet eighth lasts 1/12; a sixteenth of a 3:2 inside a 5:4 lasts 1/30; incomplete tuplet is valid; tuplet across a barline with a tied split |
 | Grace notes | zero metric duration, slot order | Before/After graces do not move the following events; chunk order After < Before < main at one offset |
 | Dynamics | position-anchored, scope | Changing a dynamic never touches a note's stored offsets |
 | Tied notes | forward links, offsets on the first | Chains across barlines and voices; F♯ tied to G♭ allowed; tie to another pitch rejected by `validate` |
@@ -338,8 +341,8 @@ allocation-free, and the derived duration and the clef/key lookups get batch ben
 
 - F1.09 splits as proposed in the briefing: **F1.09b** events, note values, tuplets, ties, clefs
   and keys, `validate`; **F1.09c** grace notes, articulations, ornaments, fermatas, slurs,
-  dynamics, hairpins, tempo marks (if T2), offsets, benchmarks.
-- If T2 is chosen, F1.08's `DocumentBuilder::new(meter_map, tempo_map)` changes: the builder
+  dynamics, hairpins, tempo marks, offsets, benchmarks.
+- Because of T2, F1.08's `DocumentBuilder::new(meter_map, tempo_map)` changes: the builder
   takes tempo marks and derives the map (an API change with every caller updated in the same
   commit, CLAUDE.md §9).
 - The derived indices grow: ID → location (ADR-0022), tie targets backwards, slurs per event. All
