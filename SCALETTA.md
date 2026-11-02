@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.16, approvata dal proprietario il 2026-11-02.**
+> **Stato di questo documento: v0.17, approvata dal proprietario il 2026-11-02.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -242,7 +242,7 @@ Dettagli:
 | F1.07 | **Altezza con grafia, intervalli, trasposizione** (tipi puri, molto testati) | ✅ | 1–2 |
 | F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ✅ PR #16 | 2 |
 | F1.09 | **ADR del contenuto di una voce** (note a due strati, ADR-0004) | ✅ ADR-0024 | 1 |
-| F1.09b | **Eventi, figure, gruppi irregolari, legature di valore, chiavi, armature**, `validate` | ⬜ | 2 |
+| F1.09b | **Eventi, figure, gruppi irregolari, legature di valore, chiavi, armature**, `validate` | ✅ | 2 |
 | F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ⬜ | 2 |
 | F1.10 | **Forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ⬜ | 1–2 |
 | F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
@@ -596,3 +596,4 @@ raccomandato.
 | 2026-11-01 | 0.14 | F1.07 fatto (ADR-0023 Accepted), D07 chiusa; nuova D22 (intonazione) per F1.13; armature non tradizionali da ricordare nel filone MusicXML, grafia dal contesto nel filone importazione MIDI, note di ADR-0023 in F2B | proprietario |
 | 2026-11-02 | 0.15 | F1.08 fatto (PR #16): builder pubblico, una voce per rigo, tetti di 16 righi e 256 voci per strumento; chiave e armatura spostate in F1.09; tetto delle tracce e cambi oltre l'ultima battuta annotati in F1.15 | proprietario |
 | 2026-11-02 | 0.16 | F1.09 fatto (ADR-0024 Accepted, emenda ADR-0022 §5 e §6); nuovi F1.09b e F1.09c; F1.11 non sposta più i cambi di tempo; rimandi annotati in F1.12, F1.13, F2.19, F3.03, filone MusicXML e "Oltre" | proprietario |
+| 2026-11-02 | 0.17 | F1.09b fatto (eventi, gruppi irregolari, legature di valore, chiavi, armature, `validate`) | proprietario |
