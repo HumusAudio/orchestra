@@ -753,8 +753,8 @@ scostamenti di esecuzione, ADR-0004), la forma del brano, i comandi e l'unica cr
 annulla/ripristina. Non sa nulla di viste, impaginazione, audio o file. La sua architettura (ID
 stabili, eventi come scostamenti relativi alla battuta in blocchi per battuta, voci per strumento)
 è fissata da ADR-0022; le parti implementate sono il modulo delle altezze, lo scheletro del
-documento e il contenuto delle voci (eventi, gruppi irregolari, legature di valore, chiavi e
-armature).
+documento, il contenuto delle voci (eventi, gruppi irregolari, legature di valore, chiavi e
+armature) e i segni sugli eventi con le legature di portamento.
 
 #### Altezze, intervalli e tonalità
 
@@ -924,9 +924,9 @@ segmenti), voce per ID con il suo strumento ≈ 280.
 #### Il contenuto delle voci
 
 `src/event.rs`, `src/content.rs`, `src/marks.rs` e `src/validate.rs` (passo F1.09b, ADR-0024
-§1–§4 e §9) riempiono le voci di musica. Le marcature (abbellimenti, articolazioni, legature di
-portamento, dinamiche, forcelle, indicazioni di tempo) e gli scostamenti di esecuzione arrivano in
-F1.09c.
+§1–§4 e §9) riempiono le voci di musica. I segni sugli eventi, gli scostamenti di esecuzione e le
+legature di portamento sono nella sezione seguente; dinamiche, forcelle e indicazioni di tempo
+arrivano nella seconda parte di F1.09c.
 
 **Eventi.** Una voce ha un **blocco** per battuta, allineato all'elenco delle battute: un blocco è
 vuoto (`None`, nessuna memoria usata) oppure un `Arc` di un vettore di eventi ordinati per
@@ -955,7 +955,8 @@ cavallo diventa due note legate, entrambe del gruppo. Un gruppo incompleto è un
 
 **Legature di valore.** Una legatura di valore è un collegamento salvato sulla testa di nota da cui
 parte: `Tie::To(nota)`, oppure `Tie::LetRing` per un laissez-vibrer. La nota di arrivo può stare in
-un'altra voce dello stesso strumento e avere un'altra grafia, purché suoni uguale e venga dopo.
+un'altra voce dello stesso strumento e avere un'altra grafia, purché suoni uguale e venga dopo
+nell'ordine di partitura (vedi "Ordine di partitura" più sotto).
 
 **Chiavi e armature.** Non possono essere eventi di una voce: un rigo porta più voci, e una voce può
 passare da un rigo all'altro. Ogni rigo ha la sua chiave iniziale e un elenco di cambi di chiave a
@@ -1020,6 +1021,108 @@ allocazione.
 due note; istruzioni per chiamata): durata mentre si percorre un sistema ≈ 320, durata per ID
 dell'evento ≈ 625, evento per ID ≈ 200, `clef_at` ≈ 470, `written_key_at` ≈ 555; `validate`
 dell'intera partitura ≈ 5,5 milioni (≈ 550 per evento, circa 2 ms).
+
+#### Segni sugli eventi e legature di portamento
+
+`src/marking.rs` e `src/slur.rs` (prima parte del passo F1.09c, ADR-0024 §5–§7 e §10) aggiungono ciò
+che è scritto **sugli** eventi, e le legature di portamento. Dinamiche, forcelle e indicazioni di
+tempo arrivano nella seconda parte di F1.09c.
+
+**Abbellimenti.** Un accordo d'abbellimento è un accordo con un `Grace`: un'acciaccatura o
+un'appoggiatura, messa **prima** dell'evento che orna (all'offset di quell'evento) oppure **dopo**
+l'evento che segue (all'offset in cui quell'evento finisce: il *Nachschlag*, o le note di chiusura di
+un trillo). Conserva la sua figura scritta (la croma che si disegna) ma la sua durata metrica è
+**zero**, quindi non sposta mai gli eventi successivi; quanto tempo toglie ai vicini quando suona è
+una regola di esecuzione (F1.13). Dato che ora più eventi possono stare allo stesso offset, un
+frammento è ordinato per (offset, **slot**): prima gli abbellimenti `After` dell'evento che finisce
+lì, poi gli abbellimenti `Before` dell'evento che comincia lì, poi quell'evento. Lo slot si ricava
+dall'abbellimento, non si salva. Gli abbellimenti non possono stare in un gruppo irregolare
+(`DocumentError::GraceInTuplet`).
+
+**Articolazioni, ornamenti, corone, arpeggi.** Appartengono all'accordo, perché si disegnano una
+volta per gambo: un `ArticulationSet` (un insieme di bit in un `u16`: accento, marcato, staccato,
+staccatissimo, spiccato, tenuto, portato, stress, unstress, accento morbido; il portato è un segno a
+sé, non staccato + tenuto), al massimo un `Ornament` (trillo con l'eventuale alterazione della nota
+ausiliaria, gruppetto, gruppetto rovesciato, mordente e mordente superiore, con i nomi di SMuFL
+perché quelli di MusicXML vengono spesso scambiati, tremolo su una nota con da 1 a 4 tagli), una
+`Fermata` (corona breve, normale, lunga, molto lunga; anche su una pausa, così una pausa generale è
+una pausa di battuta intera con la corona) e un `Arpeggio` (semplice, verso l'alto, verso il basso, o
+la parentesi di "non arpeggiato"). Mettere su una pausa uno dei segni riservati agli accordi dà
+`DocumentError::NotAChord`.
+
+**Scostamenti di esecuzione.** Ogni testa di nota porta i suoi `PerformanceOffsets` al proprio
+interno: `onset` e `length` come durate con segno in **tempo musicale** (una nota anticipata di un
+sessantaquattresimo ha `onset = −1/64`, così il "feeling" segue ogni cambio di tempo) e `velocity`
+come differenza con segno sulla scala a 16 bit di MIDI 2.0. Valgono zero per default e si salvano
+esattamente come arrivano: i limiti (una nota prima dello zero, una lunghezza negativa, una velocity
+fuori scala) li applica l'esecuzione al risultato, così non si perde nulla quando più avanti
+cambiano le dinamiche scritte.
+
+**Legature di portamento.** Uno `Slur` unisce un evento di partenza e uno di arrivo e sta nella
+tabella del suo **strumento**, ordinata per ID, perché può unire due voci dello strumento (una frase
+che passa da una mano all'altra del pianoforte). Le legature possono annidarsi e condividere gli
+estremi. Un indice derivato risponde a "quali legature cominciano o finiscono su questo evento"
+(`slurs_at`) con una sola ricerca nella tabella hash; fino a due legature per evento tiene gli ID al
+proprio interno, quindi non costa un'allocazione per voce dell'indice.
+
+**Ordine di partitura.** Con gli abbellimenti "dopo" non vuol più dire solo "in una posizione
+successiva": un'acciaccatura e la sua nota principale cominciano nello stesso punto.
+`Document::comes_before` confronta gli eventi per posizione, poi per slot, poi (dentro un frammento)
+per il loro posto nel frammento; due eventi di voci diverse con la stessa posizione e lo stesso slot
+sono simultanei. Le legature di valore e di portamento devono andare avanti in quest'ordine
+(decisione del proprietario del 2026-11-02), così un'acciaccatura può essere legata, di portamento o
+di valore, alla sua nota principale; per gli eventi senza abbellimenti la regola è la stessa di
+prima.
+
+```rust
+// An acciaccatura slurred to an accented quarter with a trill; the quarter played a 64th early.
+let quarter = NoteValue::plain(BaseValue::Quarter);
+let main = builder.add_chord(Placement::new(voice, bar, Duration::ZERO), quarter, &[g4])?;
+let grace = Grace { kind: GraceKind::Acciaccatura, attach: GraceAttach::Before };
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let a4 = Pitch::new(Step::A, Alteration::NATURAL, 4);
+let small = builder.add_grace_chord(Placement::new(voice, bar, Duration::ZERO), grace, eighth, &[a4])?;
+builder.set_articulations(main.event, ArticulationSet::EMPTY.with(Articulation::Accent))?;
+builder.set_ornament(main.event, Some(Ornament::Trill { auxiliary: None }))?;
+let early = PerformanceOffsets { onset: Duration::from_rational(Rational::new(-1, 64)?), ..PerformanceOffsets::NONE };
+builder.set_offsets(main.notes[0], early)?;
+let slur = builder.add_slur(small.event, main.event, SlurPlacement::Auto)?;
+let document = builder.build()?;
+// The grace lasts zero and comes first in score order, although both start at the same point.
+assert_eq!(document.metric_duration(small.event)?, Duration::ZERO);
+assert!(document.comes_before(small.event, main.event)?);
+assert_eq!(document.slurs_at(main.event), [slur]);
+```
+
+**Cosa aggiunge `validate`.** Regola 4: un abbellimento `Before` ha un evento principale al suo
+offset nella sua voce e battuta, un abbellimento `After` sta esattamente dove finisce l'evento
+principale precedente del suo frammento (anche più d'uno di fila); un abbellimento dentro un evento
+principale viene segnalato come sovrapposizione. Regola 5: i due estremi di una legatura di
+portamento esistono e appartengono al suo strumento, e l'arrivo viene dopo la partenza nell'ordine
+di partitura. Le due regole girano nella stessa unica passata sui frammenti e non aggiungono
+allocazioni.
+
+**Test.** `tests/marking_cases.rs` ha 9 casi scritti a mano (andata e ritorno delle articolazioni e
+il portato, abbellimenti di durata zero e il loro ordine per slot, un abbellimento rifiutato in un
+gruppo irregolare, abbellimenti senza il loro evento principale, ornamenti con i limiti del tremolo e
+corone sulle pause, scostamenti per testa di nota, legature che si annidano e passano da una voce
+all'altra con l'indice, ordine di partitura con abbellimenti e voci simultanee, errori sulle legature
+che non consumano ID). `tests/marking_oracle.rs` costruisce battute casuali di note principali e
+abbellimenti con legature casuali e le confronta con un oracolo che conta in sedicesimi come semplici
+interi: l'ordine del frammento, se `build` riesce, `comes_before` su ogni coppia, `slurs_at` su ogni
+evento e la durata zero degli abbellimenti. Quattro errori introdotti apposta (slot scambiati, la
+regola `After` spenta, lo spareggio dell'ordine di partitura dentro un frammento rovesciato, l'indice
+che perde la terza legatura) sono stati tutti scoperti dall'oracolo. `tests/marking_no_alloc.rs`
+controlla che nessuna ricerca allochi e che `validate` faccia ancora una sola allocazione.
+
+**Benchmark** (`benches/marking.rs`, 200 battute × 10 voci, 12 000 eventi con un abbellimento prima
+e dopo ogni battuta, 4 500 legature; istruzioni per chiamata): `slurs_at` ≈ 48, legatura per ID
+≈ 640, `comes_before` ≈ 1 670; `validate` dell'intera partitura ≈ 13,8 milioni (≈ 1 150 per evento,
+circa 4,5 ms). La regola 4 gira dentro la passata della regola 1 e ne riusa le durate già calcolate:
+una passata separata aveva raddoppiato il costo di `validate`. Sulla partitura di `benches/voice.rs`,
+che non ha abbellimenti né legature di portamento, `validate` è passato da ≈ 5,49 a ≈ 5,76 milioni
+(+5%, circa 27 istruzioni per evento per i controlli nuovi); tutte le ricerche sono rimaste entro
+±0,5%.
 
 ### orchestra-playback
 

@@ -712,8 +712,9 @@ The one project document (ADR-0003): tracks, notes with their two layers (writte
 performance offsets, ADR-0004), the form of the piece, commands and the single undo/redo history.
 It knows nothing about views, layout, audio or files. Its architecture (stable IDs, events as
 bar-relative offsets in per-bar chunks, voices per instrument) is fixed by ADR-0022; the first
-parts implemented are the pitch module, the skeleton of the document and the content of
-the voices (events, tuplets, ties, clefs and key signatures).
+parts implemented are the pitch module, the skeleton of the document, the content of
+the voices (events, tuplets, ties, clefs and key signatures) and the markings on the events with
+the slurs.
 
 #### Pitch, intervals and keys
 
@@ -877,8 +878,9 @@ bar start ≈ 510 (index plus meter map search among 20 segments), voice by ID w
 #### The content of the voices
 
 `src/event.rs`, `src/content.rs`, `src/marks.rs` and `src/validate.rs` (step F1.09b, ADR-0024
-§1–§4 and §9) fill the voices with music. The markings (grace notes, articulations, slurs,
-dynamics, hairpins, tempo marks) and the performance offsets come in F1.09c.
+§1–§4 and §9) fill the voices with music. The markings on the events, the performance offsets and
+the slurs are in the next section; dynamics, hairpins and tempo marks come in the second part of
+F1.09c.
 
 **Events.** A voice holds one **chunk** per bar, aligned with the bar list: a chunk is empty
 (`None`, no memory used) or an `Arc` of a vector of events sorted by their **offset** from the
@@ -905,7 +907,8 @@ An incomplete tuplet is a valid state (it happens while typing).
 
 **Ties.** A tie is a link stored on the notehead it starts from: `Tie::To(note)`, or
 `Tie::LetRing` for a laissez-vibrer. The target may be in another voice of the same instrument
-and spelled differently, as long as it sounds the same and comes later.
+and spelled differently, as long as it sounds the same and comes later in score order (see
+"Score order" below).
 
 **Clefs and key signatures.** They cannot be events of a voice: a staff carries several voices,
 and a voice may move between staves. Each staff has its initial clef and a list of clef changes at
@@ -966,6 +969,98 @@ allocation.
 two-note chords; instructions per call): duration while walking a system ≈ 320, duration by event
 ID ≈ 625, event by ID ≈ 200, `clef_at` ≈ 470, `written_key_at` ≈ 555; `validate` of the whole
 score ≈ 5.5 million (≈ 550 per event, about 2 ms).
+
+#### Markings on the events and slurs
+
+`src/marking.rs` and `src/slur.rs` (first part of step F1.09c, ADR-0024 §5–§7 and §10) add what is
+written **on** the events, and the slurs. Dynamics, hairpins and tempo marks come in the second
+part of F1.09c.
+
+**Grace notes.** A grace chord is a chord with a `Grace`: an acciaccatura or an appoggiatura,
+placed **before** the event it ornaments (at that event's offset) or **after** the event it
+follows (at the offset where that event ends: the *Nachschlag*, or the closing notes of a trill).
+It keeps its written value (the eighth that is drawn) but its metric duration is **zero**, so it
+never moves the following events; how much time it takes from its neighbours when played is a
+playback rule (F1.13). Since several events can now sit at one offset, a chunk is sorted by
+(offset, **slot**): first the `After` graces of the event that ends there, then the `Before` graces
+of the event that starts there, then that event. The slot is derived from the grace, never stored.
+Graces cannot be in a tuplet (`DocumentError::GraceInTuplet`).
+
+**Articulations, ornaments, fermatas, arpeggios.** They belong to the chord, drawn once per stem:
+an `ArticulationSet` (a bit set in a `u16`: accent, marcato, staccato, staccatissimo, spiccato,
+tenuto, portato, stress, unstress, soft accent; portato is its own mark, not staccato + tenuto), at
+most one `Ornament` (trill with the optional accidental of its auxiliary note, turn, inverted
+turn, mordent and upper mordent named after SMuFL because MusicXML's names are often swapped,
+single-note tremolo with 1 to 4 strokes), a `Fermata` (short, normal, long, very long; also on a
+rest, so a general pause is a whole-bar rest with a fermata) and an `Arpeggio` (plain, up, down, or
+the non-arpeggio bracket). Setting one of the chord-only markings on a rest is
+`DocumentError::NotAChord`.
+
+**Performance offsets.** Every notehead carries its `PerformanceOffsets` inline: `onset` and
+`length` as signed durations in **musical time** (a note a 64th early has `onset = −1/64`, so the
+feel follows any tempo change) and `velocity` as a signed delta on the 16-bit scale of MIDI 2.0.
+They are zero by default and stored exactly as given: clamping (a note before 0, a negative length,
+a velocity off the scale) is done by playback on the result, so that nothing is lost when the
+written dynamics change later.
+
+**Slurs.** A `Slur` joins a start event and an end event and is kept in its **instrument**'s table,
+sorted by ID, because it may join two voices of the instrument (a phrase passing between the hands
+of a piano). Slurs may nest and share ends. A derived index answers "which slurs start or end on
+this event" (`slurs_at`) with one hash lookup; up to two slurs per event it stores the IDs inline,
+so it costs no allocation per entry.
+
+**Score order.** With graces, "later" is no longer only "a later position": an acciaccatura and
+its main note start at the same point. `Document::comes_before` compares events by position, then
+by slot, then (inside one chunk) by their place in it; two events of different voices at the same
+position and slot are simultaneous. Ties and slurs must go forwards in this order (owner's decision
+of 2026-11-02), so an acciaccatura can be slurred or tied to its main note; for events without
+graces the rule is the same as before.
+
+```rust
+// An acciaccatura slurred to an accented quarter with a trill; the quarter played a 64th early.
+let quarter = NoteValue::plain(BaseValue::Quarter);
+let main = builder.add_chord(Placement::new(voice, bar, Duration::ZERO), quarter, &[g4])?;
+let grace = Grace { kind: GraceKind::Acciaccatura, attach: GraceAttach::Before };
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let a4 = Pitch::new(Step::A, Alteration::NATURAL, 4);
+let small = builder.add_grace_chord(Placement::new(voice, bar, Duration::ZERO), grace, eighth, &[a4])?;
+builder.set_articulations(main.event, ArticulationSet::EMPTY.with(Articulation::Accent))?;
+builder.set_ornament(main.event, Some(Ornament::Trill { auxiliary: None }))?;
+let early = PerformanceOffsets { onset: Duration::from_rational(Rational::new(-1, 64)?), ..PerformanceOffsets::NONE };
+builder.set_offsets(main.notes[0], early)?;
+let slur = builder.add_slur(small.event, main.event, SlurPlacement::Auto)?;
+let document = builder.build()?;
+// The grace lasts zero and comes first in score order, although both start at the same point.
+assert_eq!(document.metric_duration(small.event)?, Duration::ZERO);
+assert!(document.comes_before(small.event, main.event)?);
+assert_eq!(document.slurs_at(main.event), [slur]);
+```
+
+**What `validate` adds.** Rule 4: a `Before` grace has a main event at its offset in its voice
+and bar, an `After` grace sits exactly where the previous main event of its chunk ends (several in
+a row are fine); a grace inside a main event is reported as an overlap. Rule 5: both ends of a slur
+exist and belong to its instrument, and the end comes after the start in score order. Both rules
+run in the same single pass over the chunks and add no allocation.
+
+**Tests.** `tests/marking_cases.rs` has 9 hand-written cases (articulation round trips and portato,
+graces with zero duration and their slot order, a grace refused in a tuplet, graces without their
+main event, ornaments with tremolo bounds and fermatas on rests, offsets per notehead, slurs that
+nest and cross voices with the index, score order with graces and simultaneous voices, slur
+errors that consume no ID). `tests/marking_oracle.rs` builds random bars of main notes and graces
+with random slurs and compares them with an oracle that counts in sixteenths as plain integers: the
+chunk order, whether `build` succeeds, `comes_before` on every pair, `slurs_at` on every event and
+the zero duration of graces. Four injected bugs (slots swapped, the `After` rule switched off, the
+chunk tie-break of the score order reversed, the index losing a third slur) were all caught by the
+oracle. `tests/marking_no_alloc.rs` checks that no lookup allocates and that `validate` still makes
+a single allocation.
+
+**Benchmarks** (`benches/marking.rs`, 200 bars × 10 voices, 12 000 events with a grace before and
+after each bar, 4 500 slurs; instructions per call): `slurs_at` ≈ 48, slur by ID ≈ 640,
+`comes_before` ≈ 1 670; `validate` of the whole score ≈ 13.8 million (≈ 1 150 per event, about
+4.5 ms). Rule 4 runs inside the pass of rule 1 and reuses the durations it computes: a separate
+pass had doubled the cost of `validate`. On the score of `benches/voice.rs`, which has no graces or
+slurs, `validate` went from ≈ 5.49 to ≈ 5.76 million (+5%, about 27 instructions per event for the
+new checks); every lookup stayed within ±0.5%.
 
 ### orchestra-playback
 

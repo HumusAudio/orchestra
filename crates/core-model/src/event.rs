@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! What a voice is made of: events (chords and rests), their written note values, tuplets and
-//! ties (ADR-0024 §1–§4, SCALETTA F1.09b).
+//! ties (ADR-0024 §1–§4, SCALETTA F1.09b), with the markings written on them (ADR-0024 §5, §6,
+//! §10; SCALETTA F1.09c).
 //!
 //! # What lives here
 //! - [`BaseValue`] and [`NoteValue`]: the written form of a duration (a quarter, a dotted eighth).
@@ -16,20 +17,21 @@
 //! - [`Note`], [`Chord`], [`Rest`], [`EventBody`], [`Event`], [`PlacedEvent`]: the events of a
 //!   voice and their offset in the bar (ADR-0022 §4).
 //!
+//! The values written on these events live in `crate::marking` and are fields here: a chord may
+//! be a grace chord ([`Grace`]) and carries its [`ArticulationSet`], its [`Ornament`], its
+//! [`Fermata`] and its [`Arpeggio`]; a rest may carry a fermata; every notehead carries its
+//! [`PerformanceOffsets`] inline (ADR-0024 C7).
+//!
 //! Everything here is a plain value: no type in this module knows the document. The document
 //! (`crate::document`) creates the events with their IDs and keeps the indices; the voice
 //! (`crate::content`) keeps the tuplet table and computes metric durations.
-//!
-//! # What is deliberately not here yet
-//! Grace notes, articulations, ornaments, fermatas, arpeggios and performance offsets are fields
-//! of these types that F1.09c adds (ADR-0024 §5, §6, §10). Nothing is reserved for them now
-//! (SCALETTA §1, rule 6): adding a field to a struct changes no existing caller of the getters.
 
 use std::num::NonZeroU8;
 
 use orchestra_core_time::{Duration, Rational, RationalError};
 
 use crate::id::{EventId, NoteId, StaffId, TupletId};
+use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::pitch::Pitch;
 
 /// The most augmentation dots a note value can have (ADR-0024 §2). Four dots already appear only
@@ -448,15 +450,20 @@ pub struct Note {
     pitch: Pitch,
     /// Its tie, if any.
     tie: Tie,
+    /// How its performance departs from what the playback rules derive (ADR-0024 §10): inline,
+    /// all zero by default.
+    offsets: PerformanceOffsets,
 }
 
 impl Note {
-    /// A new untied notehead: only the document creates them, with IDs from its counter. O(1).
+    /// A new untied notehead without performance offsets: only the document creates them, with
+    /// IDs from its counter. O(1).
     pub(crate) const fn new(id: NoteId, pitch: Pitch) -> Self {
         Self {
             id,
             pitch,
             tie: Tie::None,
+            offsets: PerformanceOffsets::NONE,
         }
     }
 
@@ -482,6 +489,17 @@ impl Note {
     pub(crate) const fn set_tie(&mut self, tie: Tie) {
         self.tie = tie;
     }
+
+    /// The performance offsets of this notehead (all zero unless set). O(1).
+    #[must_use]
+    pub const fn offsets(&self) -> PerformanceOffsets {
+        self.offsets
+    }
+
+    /// Changes the performance offsets: only the document does it. O(1).
+    pub(crate) const fn set_offsets(&mut self, offsets: PerformanceOffsets) {
+        self.offsets = offsets;
+    }
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -490,6 +508,15 @@ impl Note {
 
 /// A chord: one or more noteheads sharing a stem, a note value and a tuplet (ADR-0022 §4,
 /// ADR-0024 §1). A single note is a chord of one notehead.
+///
+/// # Markings (ADR-0024 §5–§6)
+/// A chord may be a **grace chord** (zero metric duration, never in a tuplet), and carries the
+/// articulations, the ornament, the fermata and the arpeggio written on it. They belong to the
+/// chord, not to each notehead, because they are drawn once per stem and mean one thing for the
+/// whole chord; what differs per notehead (spelling, tie, performance offsets) is in [`Note`].
+/// One ornament per chord: a trill and a turn on the same chord do not occur in the repertoire
+/// the model targets, and a second one can become a set later without changing the file format's
+/// meaning of the first.
 ///
 /// # Notehead order
 /// The noteheads are kept sorted by **sounding pitch, lowest first**; two noteheads sounding the
@@ -504,8 +531,19 @@ impl Note {
 pub struct Chord {
     /// The written value.
     value: NoteValue,
-    /// The innermost tuplet containing the chord, if any (ADR-0024 §3).
+    /// The innermost tuplet containing the chord, if any (ADR-0024 §3). Always `None` for a grace
+    /// chord.
     tuplet: Option<TupletId>,
+    /// `Some` if this is a grace chord (ADR-0024 §5).
+    grace: Option<Grace>,
+    /// The articulations written on the chord.
+    articulations: ArticulationSet,
+    /// The ornament written on the chord, if any.
+    ornament: Option<Ornament>,
+    /// The fermata over (or under) the chord, if any.
+    fermata: Option<Fermata>,
+    /// The arpeggio sign before the chord, if any.
+    arpeggio: Option<Arpeggio>,
     /// The lowest notehead.
     lowest: Note,
     /// The other noteheads, lowest to highest (often empty: no allocation then).
@@ -513,16 +551,23 @@ pub struct Chord {
 }
 
 impl Chord {
-    /// A chord from noteheads already sorted by the document (lowest first). O(1) moves.
+    /// A chord without markings from noteheads already sorted by the document (lowest first).
+    /// The document refuses a grace chord in a tuplet before calling this. O(1) moves.
     pub(crate) const fn from_sorted(
         value: NoteValue,
         tuplet: Option<TupletId>,
+        grace: Option<Grace>,
         lowest: Note,
         upper: Box<[Note]>,
     ) -> Self {
         Self {
             value,
             tuplet,
+            grace,
+            articulations: ArticulationSet::EMPTY,
+            ornament: None,
+            fermata: None,
+            arpeggio: None,
             lowest,
             upper,
         }
@@ -538,6 +583,51 @@ impl Chord {
     #[must_use]
     pub const fn tuplet(&self) -> Option<TupletId> {
         self.tuplet
+    }
+
+    /// `Some` if this is a grace chord, with its kind and side. O(1).
+    #[must_use]
+    pub const fn grace(&self) -> Option<Grace> {
+        self.grace
+    }
+
+    /// The articulations written on the chord. O(1).
+    #[must_use]
+    pub const fn articulations(&self) -> ArticulationSet {
+        self.articulations
+    }
+
+    /// The ornament written on the chord. O(1).
+    #[must_use]
+    pub const fn ornament(&self) -> Option<Ornament> {
+        self.ornament
+    }
+
+    /// The fermata on the chord. O(1).
+    #[must_use]
+    pub const fn fermata(&self) -> Option<Fermata> {
+        self.fermata
+    }
+
+    /// The arpeggio sign of the chord. O(1).
+    #[must_use]
+    pub const fn arpeggio(&self) -> Option<Arpeggio> {
+        self.arpeggio
+    }
+
+    /// Changes the articulations: only the document does it. O(1).
+    pub(crate) const fn set_articulations(&mut self, articulations: ArticulationSet) {
+        self.articulations = articulations;
+    }
+
+    /// Changes the ornament: only the document does it. O(1).
+    pub(crate) const fn set_ornament(&mut self, ornament: Option<Ornament>) {
+        self.ornament = ornament;
+    }
+
+    /// Changes the arpeggio sign: only the document does it. O(1).
+    pub(crate) const fn set_arpeggio(&mut self, arpeggio: Option<Arpeggio>) {
+        self.arpeggio = arpeggio;
     }
 
     /// The noteheads, lowest first. O(1) to create, O(noteheads) to exhaust; never allocates.
@@ -575,12 +665,18 @@ pub struct Rest {
     value: RestValue,
     /// The innermost tuplet containing the rest (never set on a whole-bar rest).
     tuplet: Option<TupletId>,
+    /// The fermata over the rest, if any (a general pause is a whole-bar rest with a fermata).
+    fermata: Option<Fermata>,
 }
 
 impl Rest {
-    /// A rest: only the document creates them, after checking the tuplet. O(1).
+    /// A rest without fermata: only the document creates them, after checking the tuplet. O(1).
     pub(crate) const fn new(value: RestValue, tuplet: Option<TupletId>) -> Self {
-        Self { value, tuplet }
+        Self {
+            value,
+            tuplet,
+            fermata: None,
+        }
     }
 
     /// The written value. O(1).
@@ -593,6 +689,12 @@ impl Rest {
     #[must_use]
     pub const fn tuplet(&self) -> Option<TupletId> {
         self.tuplet
+    }
+
+    /// The fermata on the rest. O(1).
+    #[must_use]
+    pub const fn fermata(&self) -> Option<Fermata> {
+        self.fermata
     }
 }
 
@@ -659,7 +761,43 @@ impl Event {
         }
     }
 
-    /// The body, mutably: the document changes ties through it. O(1).
+    /// The grace of the event: `Some` only for a grace chord. O(1).
+    #[must_use]
+    pub const fn grace(&self) -> Option<Grace> {
+        match &self.body {
+            EventBody::Chord(c) => c.grace,
+            EventBody::Rest(_) => None,
+        }
+    }
+
+    /// The fermata on the event, chord or rest. O(1).
+    #[must_use]
+    pub const fn fermata(&self) -> Option<Fermata> {
+        match &self.body {
+            EventBody::Chord(c) => c.fermata,
+            EventBody::Rest(r) => r.fermata,
+        }
+    }
+
+    /// The slot of the event in the order of events at one offset (ADR-0024 §5): the `After`
+    /// graces first, then the `Before` graces, then every other event. O(1).
+    #[must_use]
+    pub(crate) const fn slot(&self) -> u8 {
+        match self.grace() {
+            Some(grace) => grace.slot(),
+            None => Grace::SLOT_MAIN,
+        }
+    }
+
+    /// Changes the fermata, on a chord or a rest: only the document does it. O(1).
+    pub(crate) const fn set_fermata(&mut self, fermata: Option<Fermata>) {
+        match &mut self.body {
+            EventBody::Chord(c) => c.fermata = fermata,
+            EventBody::Rest(r) => r.fermata = fermata,
+        }
+    }
+
+    /// The body, mutably: the document changes ties and markings through it. O(1).
     pub(crate) const fn body_mut(&mut self) -> &mut EventBody {
         &mut self.body
     }
@@ -669,6 +807,10 @@ impl Event {
 ///
 /// The offset is a non-negative `Duration` in whole notes. It may reach past the bar's length:
 /// that is an overfull bar, a valid state the score shows as an error (ADR-0022 §4).
+///
+/// A chunk is sorted by [`order_key`](Self::order_key), (offset, slot), with the insertion order
+/// kept among equal keys: grace chords have zero duration, so the offset alone would not say
+/// whether a grace comes before or after the main event at the same offset (ADR-0024 §5).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PlacedEvent {
     /// The distance from the start of the bar (≥ 0).
@@ -698,5 +840,11 @@ impl PlacedEvent {
     /// The event, mutably. O(1).
     pub(crate) const fn event_mut(&mut self) -> &mut Event {
         &mut self.event
+    }
+
+    /// The key a chunk is sorted by: the offset, then the slot (`After` graces, `Before` graces,
+    /// main events). O(1).
+    pub(crate) const fn order_key(&self) -> (Duration, u8) {
+        (self.offset, self.event.slot())
     }
 }

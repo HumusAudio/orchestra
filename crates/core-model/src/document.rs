@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The document: tracks, instruments, staves, voices with their events, bars, clefs, key
-//! signatures and the two time maps (ADR-0022 §1–4, ADR-0024 §1–4 and §9; SCALETTA F1.08 and
-//! F1.09b).
+//! signatures, slurs and the two time maps (ADR-0022 §1–4, ADR-0024 §1–§7 and §9–§10; SCALETTA
+//! F1.08, F1.09b and F1.09c).
 //!
 //! # What lives here
 //! - [`Document`]: the one project document of ADR-0003. It holds the structure (F1.08), the
-//!   events of every voice, the clefs and the key signatures (F1.09b); the other markings arrive
-//!   in F1.09c, the form in F1.10.
+//!   events of every voice, the clefs and the key signatures (F1.09b), the markings on the events
+//!   and the slurs of each instrument (F1.09c); dynamics, hairpins and tempo marks arrive in the
+//!   second part of F1.09c, the form in F1.10.
 //! - [`Track`] → [`Instrument`] → [`Staff`] and [`Voice`]: one instrument per instrument track,
 //!   one or more staves per instrument, voices that **belong to the instrument** and have a home
 //!   staff (ADR-0022 §2), so that a melody crossing from one staff to the other stays one voice.
@@ -34,7 +35,17 @@
 //! orchestral score), so they are found by a linear scan: a few hundred comparisons of `u64`, which
 //! is cheaper than keeping a hash index in step with every structural change. Events and noteheads
 //! are hundreds of thousands, so the document keeps ADR-0022 §1's derived index from their IDs to
-//! where they are: one hash lookup, then the voice scan, then a scan of one chunk.
+//! where they are: one hash lookup, then the voice scan, then a scan of one chunk. Slurs are found
+//! by their ID with a binary search in their instrument's table (sorted by ID), and from an event
+//! through a second derived index, "which slurs start or end here" (ADR-0024 §7).
+//!
+//! # Score order
+//! Two events are compared in **score order**: by absolute written position, then by slot (at one
+//! offset the `After` grace chords come first, then the `Before` grace chords, then the main
+//! event, ADR-0024 §5), then, inside one chunk, by their place in it. Ties and slurs must go
+//! forwards in this order (owner's decision of 2026-11-02): so an acciaccatura can be slurred to
+//! its main note, which has the same position, and for events without graces the rule is simply
+//! "a later position".
 
 use std::error::Error;
 use std::fmt;
@@ -49,11 +60,13 @@ use crate::event::{
     RestValue, Tie, Tuplet,
 };
 use crate::id::{
-    BarId, ClefId, EventId, IdCounter, IdMap, InstrumentId, KeyChangeId, NoteId, StaffId, TrackId,
-    TupletId, VoiceId,
+    BarId, ClefId, EventId, IdCounter, IdMap, InstrumentId, KeyChangeId, NoteId, SlurId, StaffId,
+    TrackId, TupletId, VoiceId,
 };
+use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList};
 use crate::pitch::{Interval, Key, Pitch, PitchError};
+use crate::slur::{Slur, SlurPlacement, SlurRefs};
 use crate::validate::Violation;
 
 /// The most staves one instrument can have (owner's decision, 2026-11-02). Organ music uses
@@ -100,6 +113,8 @@ pub enum DocumentError {
     UnknownNote(NoteId),
     /// The voice has no tuplet with this ID.
     UnknownTuplet(TupletId),
+    /// No slur of the document has this ID.
+    UnknownSlur(SlurId),
     /// An event's staff belongs to another instrument than its voice (ADR-0022 §2).
     StaffOfAnotherInstrument(StaffId),
     /// An offset before the start of its bar: offsets are ≥ 0 (ADR-0022 §4).
@@ -108,10 +123,17 @@ pub enum DocumentError {
     EmptyChord,
     /// A whole-bar rest was put in a tuplet (ADR-0024 §2).
     WholeBarRestInTuplet,
+    /// A grace chord was put in a tuplet (ADR-0024 §5: graces are never tuplet members).
+    GraceInTuplet,
+    /// A marking that only a chord can carry (articulations, ornament, arpeggio) was set on a
+    /// rest.
+    NotAChord(EventId),
     /// A tuplet would be nested deeper than [`MAX_TUPLET_DEPTH`] (ADR-0024 C3).
     TupletTooDeep,
     /// A notehead was tied to itself.
     TieToItself,
+    /// A slur was requested from an event to the same event.
+    SlurToItself,
     /// A clef or key change was put where one already is (or where the initial clef or key is).
     DuplicateMark,
     /// A clef on a line outside 1–5 or with an octave shift outside ±2.
@@ -152,6 +174,7 @@ impl fmt::Display for DocumentError {
             Self::UnknownTuplet(id) => {
                 write!(f, "the voice has no tuplet with the ID {}", id.get())
             }
+            Self::UnknownSlur(id) => write!(f, "no slur has the ID {}", id.get()),
             Self::StaffOfAnotherInstrument(id) => write!(
                 f,
                 "the staff {} belongs to another instrument than the voice",
@@ -160,10 +183,17 @@ impl fmt::Display for DocumentError {
             Self::NegativeOffset => f.write_str("an offset in a bar cannot be negative"),
             Self::EmptyChord => f.write_str("a chord needs at least one notehead"),
             Self::WholeBarRestInTuplet => f.write_str("a whole-bar rest cannot be in a tuplet"),
+            Self::GraceInTuplet => f.write_str("a grace chord cannot be in a tuplet"),
+            Self::NotAChord(id) => write!(
+                f,
+                "event {} is a rest: only a chord carries articulations, ornaments and arpeggios",
+                id.get()
+            ),
             Self::TupletTooDeep => {
                 write!(f, "tuplets can be nested at most {MAX_TUPLET_DEPTH} deep")
             }
             Self::TieToItself => f.write_str("a notehead cannot be tied to itself"),
+            Self::SlurToItself => f.write_str("a slur cannot start and end on the same event"),
             Self::DuplicateMark => f.write_str("there is already a change at that point"),
             Self::ClefOutOfRange => {
                 f.write_str("a clef sits on lines 1 to 5 with an octave shift of at most 2")
@@ -337,6 +367,10 @@ pub struct Instrument {
     voices: Vec<Voice>,
     /// Where the instrument departs from the document's key (ADR-0024 §9, K1). Usually empty.
     key_overrides: MarkList<KeyChangeId, KeyOverride>,
+    /// The instrument's slurs, sorted by ID (ADR-0024 §7). IDs only grow, so a new slur is always
+    /// appended at the end and the order is also the creation order: deterministic for the file
+    /// writer, searchable in O(log s).
+    slurs: Vec<Slur>,
 }
 
 impl Instrument {
@@ -378,6 +412,20 @@ impl Instrument {
     /// The voice with this ID, if it belongs to this instrument. O(voices) ≤ 256 comparisons.
     pub fn voice(&self, id: VoiceId) -> Option<&Voice> {
         self.voices.iter().find(|v| v.id == id)
+    }
+
+    /// The instrument's slurs, in creation order (which is ID order). O(1).
+    pub fn slurs(&self) -> &[Slur] {
+        &self.slurs
+    }
+
+    /// The slur with this ID, if it belongs to this instrument. O(log s): a binary search in the
+    /// table, which is sorted by ID.
+    pub fn slur(&self, id: SlurId) -> Option<&Slur> {
+        self.slurs
+            .binary_search_by_key(&id, Slur::id)
+            .ok()
+            .and_then(|i| self.slurs.get(i))
     }
 }
 
@@ -592,6 +640,9 @@ pub struct Document {
     events: IdMap<EventId, EventLocation>,
     /// Derived index: which event each notehead belongs to.
     notes: IdMap<NoteId, EventId>,
+    /// Derived index (ADR-0024 §7): the slurs that start or end on each event. Events touched by
+    /// no slur have no entry. Rebuilt at load, never saved.
+    slur_index: IdMap<EventId, SlurRefs>,
 }
 
 impl Document {
@@ -819,6 +870,67 @@ impl Document {
         }
     }
 
+    /// The slur with this ID and the instrument it belongs to. O(tracks × log s). Never
+    /// allocates.
+    pub fn slur(&self, id: SlurId) -> Option<(&Instrument, &Slur)> {
+        self.instruments()
+            .find_map(|i| i.slur(id).map(|slur| (i, slur)))
+    }
+
+    /// The slurs that start or end on this event, in the order they were added; empty if none
+    /// does or the event does not exist (ADR-0024 §7). One hash lookup, O(1) on average; never
+    /// allocates.
+    ///
+    /// The events a slur only passes over are not listed: layout finds them by walking from the
+    /// slur's start to its end.
+    pub fn slurs_at(&self, event: EventId) -> &[SlurId] {
+        self.slur_index.get(&event).map_or(&[], SlurRefs::as_slice)
+    }
+
+    /// Whether event `a` comes strictly before event `b` in **score order** (see the module
+    /// documentation): an earlier position; or the same position and an earlier slot; or the same
+    /// position, slot, voice and bar and an earlier place in the chunk. Two events of different
+    /// voices with the same position and slot are simultaneous: neither comes before the other.
+    ///
+    /// # Complexity
+    /// Two event lookups and two bar starts, O(1) average + O(voices + k + log m); a scan of one
+    /// chunk only in the rare tie-break. Never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`] for either event; the meter map and arithmetic errors of
+    /// [`event_position`](Self::event_position).
+    pub fn comes_before(&self, a: EventId, b: EventId) -> Result<bool, DocumentError> {
+        let first = self.event(a).ok_or(DocumentError::UnknownEvent(a))?;
+        let second = self.event(b).ok_or(DocumentError::UnknownEvent(b))?;
+        let key_a = (
+            self.bar_start(first.bar)?.checked_add(first.offset())?,
+            first.event().slot(),
+        );
+        let key_b = (
+            self.bar_start(second.bar)?.checked_add(second.offset())?,
+            second.event().slot(),
+        );
+        if key_a != key_b {
+            return Ok(key_a < key_b);
+        }
+        // Same position and slot: only events of one chunk have a defined order (the order they
+        // were entered in, which the chunk keeps). `a == b` gives "not before", as it should.
+        if first.voice != second.voice || first.bar != second.bar || a == b {
+            return Ok(false);
+        }
+        let index = self.bar_index(first.bar)?;
+        let (_, voice) = self
+            .voice(first.voice)
+            .ok_or(DocumentError::UnknownVoice(first.voice))?;
+        // The first of the two found in the chunk is the earlier one.
+        let earlier = voice
+            .events_at(index)
+            .iter()
+            .map(|e| e.event().id())
+            .find(|&id| id == a || id == b);
+        Ok(earlier == Some(a))
+    }
+
     /// The index of a bar, or the typed error. O(1) average.
     fn bar_index(&self, id: BarId) -> Result<BarIndex, DocumentError> {
         self.bars.index_of(id).ok_or(DocumentError::UnknownBar(id))
@@ -920,7 +1032,7 @@ struct Resolved {
 /// Every method takes its IDs from the document's single counter in the order it creates the
 /// objects: a bar takes one; an instrument track takes the track's, then the instrument's, then
 /// one per staff top to bottom, then one per voice; a chord takes its event's, then one per
-/// notehead in the given order. Two builders given the same calls therefore produce identical
+/// notehead in the given order; a slur takes one. Two builders given the same calls therefore produce identical
 /// documents, IDs included, which keeps generated scores and golden files reproducible.
 ///
 /// # What is checked when
@@ -954,6 +1066,7 @@ impl DocumentBuilder {
                 tracks: Vec::new(),
                 events: IdMap::default(),
                 notes: IdMap::default(),
+                slur_index: IdMap::default(),
             },
         }
     }
@@ -1053,6 +1166,7 @@ impl DocumentBuilder {
                 staves: staff_list,
                 voices,
                 key_overrides: MarkList::default(),
+                slurs: Vec::new(),
             },
         });
         Ok(track_id)
@@ -1149,6 +1263,40 @@ impl DocumentBuilder {
         value: NoteValue,
         pitches: &[Pitch],
     ) -> Result<ChordIds, DocumentError> {
+        self.add_chord_with(at, None, value, pitches)
+    }
+
+    /// Adds a **grace chord** and returns its IDs (ADR-0024 §5). It keeps its written `value`
+    /// (the figure drawn) but has zero metric duration.
+    ///
+    /// A `Before` grace goes at the offset of the event it ornaments, an `After` grace at the
+    /// offset where the event it follows ends; [`build`](Self::build) checks that such an event
+    /// is there (ADR-0024 §5). Costs as [`add_chord`](Self::add_chord).
+    ///
+    /// # Errors
+    /// [`DocumentError::GraceInTuplet`] if the placement names a tuplet; otherwise as
+    /// [`add_chord`](Self::add_chord). The builder is unchanged on error.
+    pub fn add_grace_chord(
+        &mut self,
+        at: Placement,
+        grace: Grace,
+        value: NoteValue,
+        pitches: &[Pitch],
+    ) -> Result<ChordIds, DocumentError> {
+        if at.tuplet.is_some() {
+            return Err(DocumentError::GraceInTuplet);
+        }
+        self.add_chord_with(at, Some(grace), value, pitches)
+    }
+
+    /// The body of [`add_chord`](Self::add_chord) and [`add_grace_chord`](Self::add_grace_chord).
+    fn add_chord_with(
+        &mut self,
+        at: Placement,
+        grace: Option<Grace>,
+        value: NoteValue,
+        pitches: &[Pitch],
+    ) -> Result<ChordIds, DocumentError> {
         if pitches.is_empty() {
             return Err(DocumentError::EmptyChord);
         }
@@ -1186,7 +1334,7 @@ impl DocumentBuilder {
         let lowest = sorted.next().ok_or(DocumentError::EmptyChord)?;
         let upper: Box<[Note]> = sorted.collect();
 
-        let chord = Chord::from_sorted(value, at.tuplet, lowest, upper);
+        let chord = Chord::from_sorted(value, at.tuplet, grace, lowest, upper);
         self.place(
             &at,
             &resolved,
@@ -1238,31 +1386,137 @@ impl DocumentBuilder {
                 return Err(DocumentError::UnknownNote(target));
             }
         }
-        let event = *self
-            .doc
-            .notes
-            .get(&note)
-            .ok_or(DocumentError::UnknownNote(note))?;
+        self.note_mut(note)?.set_tie(tie);
+        Ok(())
+    }
+
+    /// Sets the performance offsets of a notehead (ADR-0024 §10), replacing the previous ones;
+    /// [`PerformanceOffsets::NONE`] clears them. O(1) average + O(voices) + O(k).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownNote`]. The builder is unchanged on error.
+    pub fn set_offsets(
+        &mut self,
+        note: NoteId,
+        offsets: PerformanceOffsets,
+    ) -> Result<(), DocumentError> {
+        self.note_mut(note)?.set_offsets(offsets);
+        Ok(())
+    }
+
+    /// Sets the articulations of a chord (ADR-0024 §6), replacing the previous ones. O(1)
+    /// average + O(voices) + O(k).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`], [`DocumentError::NotAChord`] for a rest. The builder is
+    /// unchanged on error.
+    pub fn set_articulations(
+        &mut self,
+        event: EventId,
+        articulations: ArticulationSet,
+    ) -> Result<(), DocumentError> {
+        self.chord_mut(event)?.set_articulations(articulations);
+        Ok(())
+    }
+
+    /// Sets (or with `None` removes) the ornament of a chord (ADR-0024 §6). Costs as
+    /// [`set_articulations`](Self::set_articulations).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`], [`DocumentError::NotAChord`] for a rest. The builder is
+    /// unchanged on error.
+    pub fn set_ornament(
+        &mut self,
+        event: EventId,
+        ornament: Option<Ornament>,
+    ) -> Result<(), DocumentError> {
+        self.chord_mut(event)?.set_ornament(ornament);
+        Ok(())
+    }
+
+    /// Sets (or with `None` removes) the arpeggio sign of a chord (ADR-0024 §6). Costs as
+    /// [`set_articulations`](Self::set_articulations).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`], [`DocumentError::NotAChord`] for a rest. The builder is
+    /// unchanged on error.
+    pub fn set_arpeggio(
+        &mut self,
+        event: EventId,
+        arpeggio: Option<Arpeggio>,
+    ) -> Result<(), DocumentError> {
+        self.chord_mut(event)?.set_arpeggio(arpeggio);
+        Ok(())
+    }
+
+    /// Sets (or with `None` removes) the fermata of a chord or a rest (ADR-0024 §6). Costs as
+    /// [`set_articulations`](Self::set_articulations).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`]. The builder is unchanged on error.
+    pub fn set_fermata(
+        &mut self,
+        event: EventId,
+        fermata: Option<Fermata>,
+    ) -> Result<(), DocumentError> {
+        self.event_mut(event)?.set_fermata(fermata);
+        Ok(())
+    }
+
+    /// Adds a slur from `start` to `end` and returns its ID (ADR-0024 §7). The slur goes into the
+    /// table of the instrument that owns `start`, and both ends into the "slurs at an event"
+    /// index.
+    ///
+    /// That `end` belongs to the same instrument and comes after `start` in score order is
+    /// checked by [`build`](Self::build), which sees the whole document (like ties).
+    ///
+    /// # Complexity
+    /// Two event lookups, O(voices) to find the instrument, O(1) amortised to append (IDs only
+    /// grow, so the table stays sorted), O(1) average for each index entry.
+    ///
+    /// # Errors
+    /// [`DocumentError::SlurToItself`], [`DocumentError::UnknownEvent`] for either end,
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_slur(
+        &mut self,
+        start: EventId,
+        end: EventId,
+        placement: SlurPlacement,
+    ) -> Result<SlurId, DocumentError> {
+        if start == end {
+            return Err(DocumentError::SlurToItself);
+        }
+        if !self.doc.events.contains_key(&end) {
+            return Err(DocumentError::UnknownEvent(end));
+        }
         let location = *self
             .doc
             .events
-            .get(&event)
-            .ok_or(DocumentError::UnknownEvent(event))?;
-        let chunk = self.chunk_mut(location)?;
-        let placed = chunk
-            .get_mut(event)
-            .ok_or(DocumentError::UnknownEvent(event))?;
-        match placed.event_mut().body_mut() {
-            EventBody::Chord(chord) => {
-                chord
-                    .note_mut(note)
-                    .ok_or(DocumentError::UnknownNote(note))?
-                    .set_tie(tie);
-                Ok(())
-            }
-            // A notehead always belongs to a chord: the index never points at a rest.
-            EventBody::Rest(_) => Err(DocumentError::UnknownNote(note)),
+            .get(&start)
+            .ok_or(DocumentError::UnknownEvent(start))?;
+        let (t, _) = self.voice_position(location.voice)?;
+        // Split the borrows: the counter, the tracks and the index are distinct fields, so the
+        // instrument can be held while the ID is taken. The instrument is found first, so that
+        // no error can come after the ID has been consumed.
+        let Document {
+            ids,
+            tracks,
+            slur_index,
+            ..
+        } = &mut self.doc;
+        let instrument = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownVoice(location.voice))?
+            .instrument;
+        let id = SlurId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        instrument.slurs.push(Slur::new(id, start, end, placement));
+        for event in [start, end] {
+            slur_index
+                .entry(event)
+                .and_modify(|refs| refs.push(id))
+                .or_insert_with(|| SlurRefs::one(id));
         }
+        Ok(id)
     }
 
     /// Adds a clef change on a staff at (bar, offset) and returns its ID (ADR-0024 §9). O(staves)
@@ -1429,6 +1683,43 @@ impl DocumentBuilder {
             .chunks
             .get_mut(chunk)
             .ok_or(DocumentError::UnknownBar(location.bar))
+    }
+
+    /// The event with this ID, mutably (copying its chunk first if a snapshot shares it).
+    /// O(1) average + O(voices) + O(k).
+    fn event_mut(&mut self, event: EventId) -> Result<&mut Event, DocumentError> {
+        let location = *self
+            .doc
+            .events
+            .get(&event)
+            .ok_or(DocumentError::UnknownEvent(event))?;
+        Ok(self
+            .chunk_mut(location)?
+            .get_mut(event)
+            .ok_or(DocumentError::UnknownEvent(event))?
+            .event_mut())
+    }
+
+    /// The chord with this event ID, mutably. As [`event_mut`](Self::event_mut).
+    fn chord_mut(&mut self, event: EventId) -> Result<&mut Chord, DocumentError> {
+        match self.event_mut(event)?.body_mut() {
+            EventBody::Chord(chord) => Ok(chord),
+            EventBody::Rest(_) => Err(DocumentError::NotAChord(event)),
+        }
+    }
+
+    /// The notehead with this ID, mutably. As [`event_mut`](Self::event_mut) plus O(noteheads).
+    fn note_mut(&mut self, note: NoteId) -> Result<&mut Note, DocumentError> {
+        let event = *self
+            .doc
+            .notes
+            .get(&note)
+            .ok_or(DocumentError::UnknownNote(note))?;
+        match self.event_mut(event)?.body_mut() {
+            EventBody::Chord(chord) => chord.note_mut(note).ok_or(DocumentError::UnknownNote(note)),
+            // A notehead always belongs to a chord: the index never points at a rest.
+            EventBody::Rest(_) => Err(DocumentError::UnknownNote(note)),
+        }
     }
 
     /// Checks a placement without changing anything: the voice and bar exist, the offset is not

@@ -165,9 +165,29 @@ IDs to their place. Every caller of the builder was updated. Tests: 16 hand-writ
 injected bugs caught, one only by the oracle), allocation-free lookups and a single allocation in
 `validate`. Benchmarks (`benches/voice.rs`, 10 000 events): ≈ 320 instructions per duration while
 walking a system, 625 by event ID, 200 per event lookup, 470 per `clef_at`, 555 per
-`written_key_at`, ≈ 5.5 M for `validate` of the whole score. Next: **F1.09c** (grace notes,
-articulations, ornaments, fermatas, slurs, dynamics, hairpins, tempo marks with the derived tempo
-map, performance offsets); then the PR of F1.09 with CI on the three platforms.
+`written_key_at`, ≈ 5.5 M for `validate` of the whole score. Step **F1.09c** (same branch,
+2026-11-02) is done in two sessions, as proposed in the briefing. Before starting, the owner
+approved the implementation choices E1–E7 (initial tempo as a non-removable mark at bar 0;
+text-only tempo marks do not change the tempo map; explicit end of a gradual change; the grace
+rules of `validate`; `add_grace_chord` and setters mirroring the future commands; the slur index
+built now; a memory test with a ceiling per note), and during the work the **score order**
+(position, then slot, then place in the chunk) for ties and slurs, so that an acciaccatura can be
+slurred or tied to its main note. **First part (session A, done):** `src/marking.rs` (grace chords
+with zero metric duration and the After < Before < main slot order in the chunks, the
+articulation bit set, ornaments with 1–4 tremolo strokes, fermatas on chords and rests,
+arpeggios, the performance offsets inline in every notehead), `src/slur.rs` (slurs per
+instrument sorted by ID, the derived index of the slurs at an event with up to two IDs inline),
+`Document::comes_before`, rules 4 (graces have their main event) and 5 (slurs) of `validate`, and
+the builder methods. Tests: 9 hand-written cases, an oracle counting in sixteenths (chunk order,
+validity, score order on every pair, the index; four injected bugs caught), allocation-free
+lookups. Benchmarks (`benches/marking.rs`): ≈ 48 instructions per `slurs_at`, 640 per slur by ID,
+1 670 per `comes_before`, ≈ 13.8 M for `validate` of 12 000 events and 4 500 slurs. A first
+version of rule 4 in a pass of its own doubled `validate` (+94%); folded into the pass of rule 1
+it costs +5% (5.49 → 5.76 M) on the score without graces, and every lookup stayed within ±0.5%,
+so no `Bench-regression` trailer was needed. **Next (session B):** dynamics, hairpins, tempo marks
+with `TempoMap::from_changes` and the derived tempo map (the `DocumentBuilder::new` API change),
+the memory measurement per note on the heavy score; then the PR of F1.09 with CI on the three
+platforms.
 
 | Step | What | Status |
 |---|---|---|
@@ -239,6 +259,18 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
+- **From F1.09c (session A), to keep in mind:** one ornament per chord (a set if the repertoire
+  ever needs two); an arpeggio spanning the two staves of a piano is one sign per chord today (a
+  cross-staff arpeggio line is an engraving question for F2B, or a spanner if it must be one
+  object); performance offsets are stored unclamped, so the playback rules of F1.13 must clamp the
+  results (start ≥ 0, a minimum length, the velocity scale).
+- **`cargo xtask bench --compare` bug (found 2026-11-02, not fixed):** the base commit is exported
+  with the commit's file times and built in the reused `target/bench-base-target/`, so after a
+  comparison with a *newer* base (e.g. `main`), comparing with an *older* one (e.g. `HEAD` of a
+  branch) makes cargo think the exported sources are up to date and reuse the other base's
+  library: the base build fails or measures the wrong code. Workaround: `rm -rf
+  target/bench-base-target` before switching base. Fix: touch the exported files, or key the
+  target directory by the base commit. CI is not affected (one comparison per fresh runner).
 - **For F1.11/F1.15 (from F1.08):** whether the model rejects meter map entries and tempo changes
   beyond the last bar (today nothing checks it: the meter map covers infinitely many bars), and a
   cap on the number of tracks when a file is loaded (staves and voices already have one).
@@ -282,6 +314,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - Benchmarks need Valgrind and `gungraun-runner` of exactly the `gungraun` version in Cargo.toml
   (both installed on the development machine on 2026-10-31). Inside the sandbox `/tmp` is not
   writable: `cargo xtask bench` forwards `TMPDIR` so that Valgrind can create its temporary files.
+  A plain `cargo bench --bench <name>` does not (Gungraun clears the environment): prefix it with
+  `GUNGRAUN_ENV_CLEAR=no`.
 - In `core-time`, clippy's `arithmetic_side_effects` also rejects `wrapping_div` (it may panic on a
   zero divisor) but accepts `wrapping_div_euclid`, `wrapping_neg/abs/shr/shl` and all `checked_*`.
   Helper functions in integration tests are not covered by clippy.toml's `allow-unwrap-in-tests`:

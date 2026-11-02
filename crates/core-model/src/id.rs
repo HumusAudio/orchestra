@@ -7,10 +7,10 @@
 //!   never handed out twice, not even after the object it named was deleted (and the deletion
 //!   undone or not), so selections, caches and later redo steps can never confuse two objects.
 //! - One newtype per kind of object ([`TrackId`], [`InstrumentId`], [`StaffId`], [`VoiceId`],
-//!   [`BarId`], and since F1.09b [`EventId`], [`NoteId`], [`TupletId`], [`ClefId`],
-//!   [`KeyChangeId`]): the compiler rejects a `StaffId` where a `VoiceId` is expected, although
-//!   both are plain `u64` values underneath. F1.09c adds the IDs of the other markings and
-//!   spanners (ADR-0024).
+//!   [`BarId`], since F1.09b [`EventId`], [`NoteId`], [`TupletId`], [`ClefId`],
+//!   [`KeyChangeId`], and since F1.09c [`SlurId`]): the compiler rejects a `StaffId` where a
+//!   `VoiceId` is expected, although both are plain `u64` values underneath. The rest of F1.09c
+//!   adds the IDs of dynamics, hairpins and tempo marks (ADR-0024).
 //! - `IdMap` (crate-private): a hash map keyed by IDs with a cheap hasher, for the derived indices
 //!   (`ID → where the object is`, ADR-0022 §1).
 //!
@@ -164,6 +164,11 @@ define_id!(
     /// The identity of a key signature change of the document, or of an instrument's override
     /// (ADR-0024 §9). The initial key of the document is part of the document and has no ID.
     KeyChangeId
+);
+
+define_id!(
+    /// The identity of a slur of an instrument (ADR-0024 §7).
+    SlurId
 );
 
 // ------------------------------------------------------------------------------------------------

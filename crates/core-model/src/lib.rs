@@ -35,6 +35,11 @@
 //!   their written [`NoteValue`]s with the metric duration derived, [`Tuplet`]s, [`Tie`]s, the
 //!   [`Clef`]s of each staff and the key signatures of the document with the instruments'
 //!   overrides, and [`Document::validate`], which [`DocumentBuilder::build`] runs.
+//! - [`marking`] and [`slur`] (SCALETTA F1.09c, ADR-0024 §5–§7 and §10): grace chords
+//!   ([`Grace`]), [`ArticulationSet`]s, [`Ornament`]s, [`Fermata`]s and [`Arpeggio`]s on the
+//!   events, the [`PerformanceOffsets`] of every notehead, the [`Slur`]s of each instrument with
+//!   the derived index of the slurs at an event, and the score order of
+//!   [`Document::comes_before`] that ties and slurs follow.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -56,8 +61,10 @@ pub mod content;
 pub mod document;
 pub mod event;
 pub mod id;
+pub mod marking;
 pub mod marks;
 pub mod pitch;
+pub mod slur;
 pub mod validate;
 
 pub use content::Chunk;
@@ -71,10 +78,16 @@ pub use event::{
     TupletNumber,
 };
 pub use id::{
-    BarId, ClefId, EventId, InstrumentId, KeyChangeId, NoteId, StaffId, TrackId, TupletId, VoiceId,
+    BarId, ClefId, EventId, InstrumentId, KeyChangeId, NoteId, SlurId, StaffId, TrackId, TupletId,
+    VoiceId,
+};
+pub use marking::{
+    Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,
+    OrnamentError, PerformanceOffsets, TremoloStrokes,
 };
 pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
+pub use slur::{Slur, SlurPlacement};
 pub use validate::Violation;

@@ -10,7 +10,10 @@
 //!
 //! A chunk is `None` while the voice has nothing in that bar (no allocation: most voices are
 //! silent in most bars of an orchestral score), and otherwise an `Arc` of a vector of
-//! [`PlacedEvent`]s sorted by offset, events at the same offset keeping their insertion order.
+//! [`PlacedEvent`]s sorted by (offset, slot), events with the same key keeping their insertion
+//! order. The slot (ADR-0024 §5, F1.09c) puts at one offset first the `After` grace chords of the
+//! event that ends there, then the `Before` grace chords of the event that starts there, then that
+//! event: grace chords last zero, so the offset alone could not order them.
 //! The `Arc` is what makes snapshots cheap (ADR-0022 §7): a background reader shares the chunks,
 //! and an edit copies only the chunk it touches (`Arc::make_mut`, copy-on-write).
 //!
@@ -29,7 +32,7 @@ use crate::id::{EventId, IdMap, TupletId};
 /// The events of one voice in one bar (ADR-0022 §4).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Chunk {
-    /// `None` for an empty chunk (no allocation), otherwise the events sorted by offset.
+    /// `None` for an empty chunk (no allocation), otherwise the events sorted by (offset, slot).
     events: Option<Arc<Vec<PlacedEvent>>>,
 }
 
@@ -37,18 +40,21 @@ impl Chunk {
     /// An empty chunk. Does not allocate. O(1).
     pub(crate) const EMPTY: Self = Self { events: None };
 
-    /// The events, sorted by offset (insertion order among equal offsets). O(1).
+    /// The events, sorted by (offset, slot) (insertion order among equal keys). O(1).
     #[must_use]
     pub fn events(&self) -> &[PlacedEvent] {
         self.events.as_deref().map_or(&[], Vec::as_slice)
     }
 
-    /// Inserts an event after every event whose offset is not later than its own, so that events
-    /// at the same offset keep the order they were entered in. O(log k) to find the place, O(k)
-    /// to shift the later events, plus a copy of the chunk if a snapshot still shares it.
+    /// Inserts an event after every event whose (offset, slot) key is not later than its own, so
+    /// that events with the same key (three `Before` graces in a row, two main events at one
+    /// offset in an invalid voice) keep the order they were entered in. O(log k) to find the
+    /// place, O(k) to shift the later events, plus a copy of the chunk if a snapshot still shares
+    /// it.
     pub(crate) fn insert(&mut self, placed: PlacedEvent) {
         let events = Arc::make_mut(self.events.get_or_insert_with(Arc::default));
-        let at = events.partition_point(|e| e.offset() <= placed.offset());
+        let key = placed.order_key();
+        let at = events.partition_point(|e| e.order_key() <= key);
         events.insert(at, placed);
     }
 
@@ -106,7 +112,8 @@ impl VoiceContent {
 }
 
 /// The metric duration of an event of a voice (ADR-0024 §2): the written length times the ratio
-/// of every tuplet that contains it, or the bar's length for a whole-bar rest.
+/// of every tuplet that contains it, the bar's length for a whole-bar rest, and **zero** for a
+/// grace chord (ADR-0024 §5: it keeps its written value but does not move the following events).
 ///
 /// `bar_length` is only read for a whole-bar rest; callers that walk a bar pass the length they
 /// already have, so the meter map is not asked again for every event.
@@ -124,6 +131,9 @@ pub(crate) fn metric_duration(
     bar_length: Duration,
 ) -> Result<Duration, DocumentError> {
     let (value, mut tuplet) = match body {
+        // A grace chord takes no metric time; how much it takes from its neighbours when played
+        // is a playback rule (F1.13).
+        EventBody::Chord(c) if c.grace().is_some() => return Ok(Duration::ZERO),
         EventBody::Chord(c) => (c.value(), c.tuplet()),
         EventBody::Rest(r) => match r.value() {
             // A whole-bar rest lasts its bar, and is never in a tuplet.
