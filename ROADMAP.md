@@ -138,8 +138,8 @@ counter, typed error on exhaustion, multiplicative ID hasher) and `src/document.
 the meter and tempo maps, `BarList` of `BarId`s with an inverse index, tracks → instrument → staves
 and voices with a home staff). Tests: 12 cases, exhaustion unit tests, a property test against a
 naive oracle (four injected bugs caught), allocation-free lookups; benchmarks ≈ 42 instructions per
-`BarId` → index, 510 per bar start, 280 per voice lookup. Closing of the step in SCALETTA awaits the
-owner's ok. Next: **F1.09** (two-layer notes).
+`BarId` → index, 510 per bar start, 280 per voice lookup. SCALETTA v0.15 closes F1.08 and moves clef
+and key signature to F1.09. Next: **F1.09** (two-layer notes).
 
 | Step | What | Status |
 |---|---|---|
