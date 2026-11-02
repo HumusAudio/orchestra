@@ -7,8 +7,10 @@
 //!   never handed out twice, not even after the object it named was deleted (and the deletion
 //!   undone or not), so selections, caches and later redo steps can never confuse two objects.
 //! - One newtype per kind of object ([`TrackId`], [`InstrumentId`], [`StaffId`], [`VoiceId`],
-//!   [`BarId`]): the compiler rejects a `StaffId` where a `VoiceId` is expected, although both are
-//!   plain `u64` values underneath. Later steps add the IDs of events, noteheads and spanners.
+//!   [`BarId`], and since F1.09b [`EventId`], [`NoteId`], [`TupletId`], [`ClefId`],
+//!   [`KeyChangeId`]): the compiler rejects a `StaffId` where a `VoiceId` is expected, although
+//!   both are plain `u64` values underneath. F1.09c adds the IDs of the other markings and
+//!   spanners (ADR-0024).
 //! - `IdMap` (crate-private): a hash map keyed by IDs with a cheap hasher, for the derived indices
 //!   (`ID → where the object is`, ADR-0022 §1).
 //!
@@ -90,7 +92,7 @@ impl IdCounter {
 /// Defines one ID newtype: a `NonZeroU64` that only this crate can create (from the counter), with
 /// a public getter for the raw value (what the project file stores, F1.15).
 ///
-/// A macro, because the five types are identical apart from their name and documentation; writing
+/// A macro, because the types are identical apart from their name and documentation; writing
 /// them out by hand would be five copies of the same code to keep in step.
 macro_rules! define_id {
     ($(#[$doc:meta])* $name:ident) => {
@@ -139,6 +141,29 @@ define_id!(
     /// The identity of a bar (ADR-0022 §3): it stays the same when bars are inserted or deleted
     /// before it, unlike its [`BarIndex`](orchestra_core_time::BarIndex).
     BarId
+);
+define_id!(
+    /// The identity of an event of a voice: a chord or a rest (ADR-0022 §4, ADR-0024 §1).
+    EventId
+);
+define_id!(
+    /// The identity of one notehead of a chord (ADR-0022 §4): ties, spelling and performance
+    /// offsets are per notehead, so each has its own ID even when it shares its chord's stem.
+    NoteId
+);
+define_id!(
+    /// The identity of a tuplet of a voice (ADR-0024 §3).
+    TupletId
+);
+define_id!(
+    /// The identity of a clef change on a staff (ADR-0024 §9). A staff's initial clef is part of
+    /// the staff and has no ID of its own: it cannot be removed or moved.
+    ClefId
+);
+define_id!(
+    /// The identity of a key signature change of the document, or of an instrument's override
+    /// (ADR-0024 §9). The initial key of the document is part of the document and has no ID.
+    KeyChangeId
 );
 
 // ------------------------------------------------------------------------------------------------

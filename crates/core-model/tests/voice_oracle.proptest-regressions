@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 136d4790677970a735587fb7428f4761fce85ef92b602a6f8af4fee02b3b0033 # shrinks to meter = 0, bars = 1, gen_tuplets = [], gen_events = [GenEvent { bar: 0, offset: 4, base: Half, dots: 0, tuplet: None, rest: false, whole_bar: false }, GenEvent { bar: 0, offset: 4, base: Half, dots: 0, tuplet: None, rest: false, whole_bar: false }]
+cc 994634fe2cc505101f4d406e24d85125fa0a284acadcbeb8e62672e996c142e1 # shrinks to meter = 0, bars = 3, gen_tuplets = [GenTuplet { actual: 2, normal: 1, unit: Half, parent: None }], gen_events = [GenEvent { bar: 1, offset: 11, base: Half, dots: 0, tuplet: None, rest: false, whole_bar: false }, GenEvent { bar: 1, offset: 10, base: Sixteenth, dots: 0, tuplet: None, rest: false, whole_bar: false }]
+cc 90a7d8783460d28499c0ef4ccdd9352164552645f6c1ace490da8870592cabd7 # shrinks to changes = [(0, 5, 0), (0, 1, 1)], queries = [(0, 5)]
+cc 23399e28556a4f313a988dbe0e69fecb6ec331cccb82f806eeda7c82bd1fe524 # shrinks to meter = 0, bars = 3, gen_tuplets = [], gen_events = [GenEvent { bar: 1, offset: 0, base: Half, dots: 0, tuplet: None, rest: true, whole_bar: true }, GenEvent { bar: 1, offset: 0, base: Half, dots: 0, tuplet: None, rest: false, whole_bar: false }]

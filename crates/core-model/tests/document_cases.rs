@@ -11,13 +11,24 @@
 )]
 
 use orchestra_core_model::{
-    BarId, DocumentBuilder, DocumentError, Interval, MAX_STAVES_PER_INSTRUMENT,
-    MAX_VOICES_PER_INSTRUMENT, Quality,
+    BarId, Clef, DocumentBuilder, DocumentError, Interval, Key, MAX_STAVES_PER_INSTRUMENT,
+    MAX_VOICES_PER_INSTRUMENT, Mode, Quality,
 };
 use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, MeterMap, Position, Rational,
     Tempo, TempoMap,
 };
+
+/// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
+/// care which clef each staff starts with, only how many staves there are).
+fn clefs(n: usize) -> Vec<Clef> {
+    vec![Clef::TREBLE; n]
+}
+
+/// C major: the initial key of every test document.
+fn c_major() -> Key {
+    Key::traditional(0, Mode::Major).unwrap()
+}
 
 /// The rational `n/d`.
 fn q(n: i64, d: i64) -> Rational {
@@ -39,7 +50,7 @@ fn builder(pickup: bool) -> DocumentBuilder {
             .unwrap();
     }
     let tempo = Tempo::new(Duration::from_rational(q(1, 4)), q(120, 1)).unwrap();
-    DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap())
+    DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), c_major())
 }
 
 /// The unison: the transposition of an instrument at concert pitch.
@@ -52,7 +63,7 @@ fn unison() -> Interval {
 fn empty_document() {
     let b = builder(false);
     let meters = b.document().meter_map().clone();
-    let document = b.build();
+    let document = b.build().unwrap();
     assert!(document.bars().is_empty());
     assert_eq!(document.bars().len(), 0);
     assert_eq!(document.tracks(), &[]);
@@ -65,9 +76,11 @@ fn empty_document() {
 fn ids_are_sequential_across_kinds() {
     let mut b = builder(false);
     let bar0 = b.add_bar().unwrap();
-    let piano = b.add_instrument_track("Piano", unison(), 2).unwrap();
+    let piano = b
+        .add_instrument_track("Piano", unison(), &clefs(2))
+        .unwrap();
     let bar1 = b.add_bar().unwrap();
-    let document = b.build();
+    let document = b.build().unwrap();
     assert_eq!(bar0.get(), 1);
     // Track 2, instrument 3, staves 4 and 5, voices 6 and 7.
     let track = document.track(piano).unwrap();
@@ -85,8 +98,10 @@ fn ids_are_sequential_across_kinds() {
 #[test]
 fn one_voice_per_staff_at_creation() {
     let mut b = builder(false);
-    let piano = b.add_instrument_track("Piano", unison(), 2).unwrap();
-    let document = b.build();
+    let piano = b
+        .add_instrument_track("Piano", unison(), &clefs(2))
+        .unwrap();
+    let document = b.build().unwrap();
     let instrument = document.track(piano).unwrap().instrument();
     assert_eq!(instrument.name(), "Piano");
     assert_eq!(instrument.staves().len(), 2);
@@ -101,12 +116,16 @@ fn one_voice_per_staff_at_creation() {
 #[test]
 fn extra_voices_and_lookups() {
     let mut b = builder(false);
-    let flute = b.add_instrument_track("Flute", unison(), 1).unwrap();
-    let piano = b.add_instrument_track("Piano", unison(), 2).unwrap();
+    let flute = b
+        .add_instrument_track("Flute", unison(), &clefs(1))
+        .unwrap();
+    let piano = b
+        .add_instrument_track("Piano", unison(), &clefs(2))
+        .unwrap();
     let upper = b.document().track(piano).unwrap().instrument().staves()[0].id();
     let third = b.add_voice(upper).unwrap();
     let fourth = b.add_voice(upper).unwrap();
-    let document = b.build();
+    let document = b.build().unwrap();
 
     let instrument = document.track(piano).unwrap().instrument();
     assert_eq!(instrument.voices().len(), 4);
@@ -137,9 +156,9 @@ fn transposition_is_kept() {
     let mut b = builder(false);
     let major_second_down = Interval::from_quality(Quality::Major, 2, true).unwrap();
     let clarinet = b
-        .add_instrument_track("Clarinet in B♭", major_second_down, 1)
+        .add_instrument_track("Clarinet in B♭", major_second_down, &clefs(1))
         .unwrap();
-    let document = b.build();
+    let document = b.build().unwrap();
     let instrument = document.track(clarinet).unwrap().instrument();
     assert_eq!(instrument.transposition(), major_second_down);
     assert_eq!(instrument.name(), "Clarinet in B♭");
@@ -151,7 +170,7 @@ fn transposition_is_kept() {
 fn bar_list_and_bar_starts() {
     let mut b = builder(true);
     let bars: Vec<BarId> = (0..3).map(|_| b.add_bar().unwrap()).collect();
-    let document = b.build();
+    let document = b.build().unwrap();
     assert_eq!(document.bars().ids(), bars.as_slice());
     for (i, &id) in bars.iter().enumerate() {
         let index = BarIndex::new(u32::try_from(i).unwrap());
@@ -178,7 +197,7 @@ fn unknown_bar() {
     let foreign = other.add_bar().unwrap();
     let mut b = builder(false);
     b.add_bar().unwrap();
-    let document = b.build();
+    let document = b.build().unwrap();
     assert_eq!(document.bars().index_of(foreign), None);
     assert_eq!(
         document.bar_start(foreign),
@@ -192,20 +211,20 @@ fn unknown_bar() {
 fn staff_limits() {
     let mut b = builder(false);
     assert_eq!(
-        b.add_instrument_track("Nothing", unison(), 0),
+        b.add_instrument_track("Nothing", unison(), &clefs(0)),
         Err(DocumentError::NoStaves)
     );
     assert_eq!(
-        b.add_instrument_track("Too many", unison(), MAX_STAVES_PER_INSTRUMENT + 1),
+        b.add_instrument_track("Too many", unison(), &clefs(MAX_STAVES_PER_INSTRUMENT + 1)),
         Err(DocumentError::TooManyStaves)
     );
     assert_eq!(b.document().tracks(), &[]);
     let wide = b
-        .add_instrument_track("Wide", unison(), MAX_STAVES_PER_INSTRUMENT)
+        .add_instrument_track("Wide", unison(), &clefs(MAX_STAVES_PER_INSTRUMENT))
         .unwrap();
     // No ID was consumed by the refusals: the track took the very first one.
     assert_eq!(wide.get(), 1);
-    let document = b.build();
+    let document = b.build().unwrap();
     let instrument = document.track(wide).unwrap().instrument();
     assert_eq!(instrument.staves().len(), MAX_STAVES_PER_INSTRUMENT);
     assert_eq!(instrument.voices().len(), MAX_STAVES_PER_INSTRUMENT);
@@ -216,8 +235,12 @@ fn staff_limits() {
 #[test]
 fn voice_limit() {
     let mut b = builder(false);
-    let piano = b.add_instrument_track("Piano", unison(), 2).unwrap();
-    let flute = b.add_instrument_track("Flute", unison(), 1).unwrap();
+    let piano = b
+        .add_instrument_track("Piano", unison(), &clefs(2))
+        .unwrap();
+    let flute = b
+        .add_instrument_track("Flute", unison(), &clefs(1))
+        .unwrap();
     let staff = b.document().track(piano).unwrap().instrument().staves()[1].id();
     let flute_staff = b.document().track(flute).unwrap().instrument().staves()[0].id();
     // The piano starts with two voices.
@@ -238,7 +261,7 @@ fn voice_limit() {
         .id();
     let flute_voice = b.add_voice(flute_staff).unwrap();
     assert_eq!(flute_voice.get(), last.get() + 1);
-    let document = b.build();
+    let document = b.build().unwrap();
     assert_eq!(
         document.track(piano).unwrap().instrument().voices().len(),
         MAX_VOICES_PER_INSTRUMENT
@@ -249,7 +272,9 @@ fn voice_limit() {
 #[test]
 fn unknown_staff() {
     let mut other = builder(false);
-    let foreign_track = other.add_instrument_track("Oboe", unison(), 1).unwrap();
+    let foreign_track = other
+        .add_instrument_track("Oboe", unison(), &clefs(1))
+        .unwrap();
     // Push the other document's counter forward, so its staff ID is unused in `b`.
     for _ in 0..10 {
         other.add_bar().unwrap();
@@ -277,10 +302,12 @@ fn building_is_deterministic() {
         for _ in 0..4 {
             b.add_bar().unwrap();
         }
-        let piano = b.add_instrument_track("Piano", unison(), 2).unwrap();
+        let piano = b
+            .add_instrument_track("Piano", unison(), &clefs(2))
+            .unwrap();
         let staff = b.document().track(piano).unwrap().instrument().staves()[0].id();
         b.add_voice(staff).unwrap();
-        b.build()
+        b.build().unwrap()
     };
     assert_eq!(make(), make());
 }

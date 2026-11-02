@@ -148,8 +148,26 @@ grace notes, markings, slurs, dynamics and hairpins, clefs and keys, tempo marks
 performance offsets. The owner approved every recommendation (C1–C9) and **ADR-0024 was
 Accepted** (2026-11-02). It amends ADR-0022 in two places: tuplet membership is recorded on the
 events (§6), and tempo changes become tempo marks at (bar, offset) from which the tempo map is
-derived, so they follow inserted bars by construction (§5). Next: the SCALETTA update for the
-split, then **F1.09b**.
+derived, so they follow inserted bars by construction (§5). SCALETTA v0.16 records the split.
+Step **F1.09b** (same branch, 2026-11-02). Before starting, the owner approved four implementation
+choices: the initial clef of a staff and the initial key of the document are fields of their owners
+(only the changes are marks at (bar, offset)), so `DocumentBuilder::new` takes the initial key and
+`add_instrument_track` one clef per staff; `build()` runs `Document::validate` and returns a
+`Result`; an instrument's key override is a signature, "no signature" (horns) or "follow the
+score"; a tie's target must start strictly later, in the same instrument, with the same sound.
+Implemented in `core-model`: `src/event.rs` (note values, rests with the whole-bar rest, tuplets,
+ties, notes, chords sorted by sound, events), `src/content.rs` (one `Arc` chunk per bar per voice,
+the tuplet table, the derived metric duration), `src/marks.rs` (clefs, key signatures and
+overrides, sorted mark lists with an O(log c) lookup), `src/validate.rs` (no overlap within a voice
+and bar, whole-bar rests alone, ties), five new ID kinds and the derived index from event and note
+IDs to their place. Every caller of the builder was updated. Tests: 16 hand-written cases (ADR-0024
+§13), an oracle with its own `i128` fractions for durations, validity and clef lookups (six
+injected bugs caught, one only by the oracle), allocation-free lookups and a single allocation in
+`validate`. Benchmarks (`benches/voice.rs`, 10 000 events): ≈ 320 instructions per duration while
+walking a system, 625 by event ID, 200 per event lookup, 470 per `clef_at`, 555 per
+`written_key_at`, ≈ 5.5 M for `validate` of the whole score. Next: **F1.09c** (grace notes,
+articulations, ornaments, fermatas, slurs, dynamics, hairpins, tempo marks with the derived tempo
+map, performance offsets); then the PR of F1.09 with CI on the three platforms.
 
 | Step | What | Status |
 |---|---|---|

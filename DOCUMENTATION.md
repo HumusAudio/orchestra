@@ -712,7 +712,8 @@ The one project document (ADR-0003): tracks, notes with their two layers (writte
 performance offsets, ADR-0004), the form of the piece, commands and the single undo/redo history.
 It knows nothing about views, layout, audio or files. Its architecture (stable IDs, events as
 bar-relative offsets in per-bar chunks, voices per instrument) is fixed by ADR-0022; the first
-parts implemented are the pitch module and the skeleton of the document.
+parts implemented are the pitch module, the skeleton of the document and the content of
+the voices (events, tuplets, ties, clefs and key signatures).
 
 #### Pitch, intervals and keys
 
@@ -790,7 +791,8 @@ interval and quality ≈ 800, spelling a MIDI key ≈ 100.
 #### The document skeleton
 
 `src/id.rs` and `src/document.rs` (step F1.08, ADR-0022 §1–3) hold the **structure** of the
-document, still without notes: these arrive in F1.09, the form in F1.10.
+document; the events inside the voices are described in the next section, the form arrives in
+F1.10.
 
 **IDs.** Every object that something else can point to has an ID: `TrackId`, `InstrumentId`,
 `StaffId`, `VoiceId`, `BarId` (later steps add events, noteheads and spanners). They are distinct
@@ -820,19 +822,23 @@ keys chosen by an attacker, while our keys come from our own counter.
 documents that do not exist yet (the file being opened, the reference score generator, tests and
 benchmarks), while an existing document will change only through the commands of F1.11
 (ADR-0003 §4). A new instrument gets **one voice per staff**, each at home on its own staff;
-`add_voice` adds more on any staff of the same instrument. There is no default meter or tempo: they
-are the caller's choice.
+`add_voice` adds more on any staff of the same instrument. There is no default meter, tempo or key:
+they are the caller's choice. Since F1.09b the builder takes the initial key (at concert pitch)
+and one clef per staff instead of a number of staves, so a staff without clef or a score without
+key cannot be built (owner's decision, 2026-11-02), and `build` returns a `Result`.
 
 ```rust
-let mut builder = DocumentBuilder::new(meter_map, tempo_map);
+let c_major = Key::traditional(0, Mode::Major)?;
+let mut builder = DocumentBuilder::new(meter_map, tempo_map, c_major);
 for _ in 0..8 {
     builder.add_bar()?;
 }
-// A piano: two staves, so two voices, one at home on each staff.
-let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
+// A piano: two staves with their clefs, so two voices, one at home on each staff.
+let unison = Interval::new(0, Rational::ZERO);
+let piano = builder.add_instrument_track("Piano", unison, &[Clef::TREBLE, Clef::BASS])?;
 let upper = builder.document().track(piano).unwrap().instrument().staves()[0].id();
 builder.add_voice(upper)?; // a second line in the right hand
-let document = builder.build();
+let document = builder.build()?; // build() validates the document (next section)
 assert_eq!(document.bars().len(), 8);
 ```
 
@@ -867,6 +873,99 @@ lookup allocates.
 20 instruments, 30 staves, 40 voices; batches of 64, instructions per call): `BarId` → index ≈ 42,
 bar start ≈ 510 (index plus meter map search among 20 segments), voice by ID with its instrument ≈
 280.
+
+#### The content of the voices
+
+`src/event.rs`, `src/content.rs`, `src/marks.rs` and `src/validate.rs` (step F1.09b, ADR-0024
+§1–§4 and §9) fill the voices with music. The markings (grace notes, articulations, slurs,
+dynamics, hairpins, tempo marks) and the performance offsets come in F1.09c.
+
+**Events.** A voice holds one **chunk** per bar, aligned with the bar list: a chunk is empty
+(`None`, no memory used) or an `Arc` of a vector of events sorted by their **offset** from the
+start of the bar (events at the same offset keep the order they were entered in). The `Arc` is for
+snapshots (ADR-0022 §7): a background reader shares the chunks, and an edit copies only the chunk
+it touches. An event is a `Chord` or a `Rest`, with its own `EventId` and the staff it is drawn on
+(by default the voice's home staff, any staff of the same instrument for cross-staff notes). A
+chord has one or more `Note`s, each with its own `NoteId`, its spelled pitch at concert pitch and
+its tie; the noteheads are kept sorted by sound (F♯4 before G♭4 by letter), and a single note
+costs no allocation of its own.
+
+**Note values.** What is stored is the written value: a `BaseValue` (maxima to 1024th) and up to
+four dots. The length in whole notes is **derived**, never stored: `NoteValue::length` builds it
+with shifts, `Voice::metric_duration` multiplies the ratio of each tuplet that contains the event.
+Storing the number too would be two copies of one fact (ADR-0003). A **whole-bar rest**
+(`RestValue::WholeBar`) lasts whatever its bar lasts in the meter map, pickup bars included, so a
+meter change cannot make it wrong.
+
+**Tuplets.** `Tuplet::new(3, 2, eighth)` is "three eighths in the time of two". Tuplets live in a
+table of their voice, and each event records the innermost tuplet that contains it; `parent` makes
+the nesting a chain of at most four (with terms up to 255 nothing can overflow). A tuplet may cross a
+barline: the note that would straddle it becomes two tied notes, both members of the same tuplet.
+An incomplete tuplet is a valid state (it happens while typing).
+
+**Ties.** A tie is a link stored on the notehead it starts from: `Tie::To(note)`, or
+`Tie::LetRing` for a laissez-vibrer. The target may be in another voice of the same instrument
+and spelled differently, as long as it sounds the same and comes later.
+
+**Clefs and key signatures.** They cannot be events of a voice: a staff carries several voices,
+and a voice may move between staves. Each staff has its initial clef and a list of clef changes at
+(bar, offset); the document has its initial key (at concert pitch) and a list of key changes; an
+instrument may override the key from a point on (`KeyOverride`: another signature, "no signature"
+for horns written without one, or back to the score's key). `clef_at`, `key_at`,
+`instrument_key_at` and `written_key_at` answer with a binary search; the written key of a
+transposing instrument is derived from its transposition (a B♭ clarinet in C major shows D major).
+
+```rust
+// A triplet of eighths on beat 1, then a dotted quarter from 5/8 to the barline, tied to an
+// eighth at the start of the next bar.
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let triplet = builder.add_tuplet(voice, Tuplet::new(3, 2, eighth)?, None)?;
+let g4 = Pitch::new(Step::G, Alteration::NATURAL, 4);
+for i in 0..3 {
+    // Offsets 0, 1/12 and 2/12 of a whole note.
+    let offset = Duration::from_rational(Rational::new(i, 12)?);
+    builder.add_chord(Placement::new(voice, bar0, offset).in_tuplet(triplet), eighth, &[g4])?;
+}
+let dotted_quarter = NoteValue::new(BaseValue::Quarter, 1)?;
+let five_eighths = Duration::from_rational(Rational::new(5, 8)?);
+let long = builder.add_chord(Placement::new(voice, bar0, five_eighths), dotted_quarter, &[g4])?;
+let next = builder.add_chord(Placement::new(voice, bar1, Duration::ZERO), eighth, &[g4])?;
+builder.set_tie(long.notes[0], Tie::To(next.notes[0]))?;
+let document = builder.build()?;
+// Derived, never stored: a dotted quarter lasts 3/8.
+assert_eq!(document.metric_duration(long.event)?, Duration::from_rational(Rational::new(3, 8)?));
+```
+
+**What `build` checks.** Each builder method checks what it can see locally before creating
+anything (the bar, voice, staff and tuplet exist and belong together, offsets are not negative,
+nesting is at most four deep). `Document::validate`, which `build` runs, checks the rules that need
+more: no two events of a voice overlap within a bar (gaps are fine, and an **overfull** bar is still
+valid: its last notes simply reach past the barline), a whole-bar rest is alone, and every tie goes
+to the same sound, later, in the same instrument. The first violation comes back as a typed
+`Violation` naming the event or notehead.
+
+**Lookups.** A derived index from `EventId` and `NoteId` to (voice, bar) finds any event or
+notehead: one hash lookup, the voice scan, a scan of one chunk. `events(voice, bar)` gives a
+chunk, `metric_duration` and `event_position` the derived time of an event. None of these
+allocates.
+
+**Tests.** `tests/voice_cases.rs` has 16 hand-written cases, one per case of ADR-0024 §13 in this
+step (enharmonic chord, nested tuplets with 1/12 and 1/30, incomplete tuplet, tuplet across a
+barline with a tied split, overfull bar, whole-bar rest after a pickup and a meter change, legal and
+illegal ties, clef changes mid-bar, keys of a B♭ clarinet, a horn without signature and a violin
+with an override, cross-staff notes, placement errors). `tests/voice_oracle.rs` compares random
+voices with random nested tuplets against an oracle with its own `i128` fractions: every duration,
+and whether `build` succeeds or which violation it reports; another property compares `clef_at`
+with a linear scan. Six injected bugs (a wrong length for double dots, the parent tuplet ignored,
+overlap at `<=`, the clef lookup off by one point, events at the same offset inserted in the wrong
+order, the whole-bar rule loosened) were all caught; the insertion order only by the oracle.
+`tests/voice_no_alloc.rs` checks that no lookup allocates and that `validate` makes a single
+allocation.
+
+**Benchmarks** (`benches/voice.rs`, 200 bars × 10 voices, 10 000 events with triplets and
+two-note chords; instructions per call): duration while walking a system ≈ 320, duration by event
+ID ≈ 625, event by ID ≈ 200, `clef_at` ≈ 470, `written_key_at` ≈ 555; `validate` of the whole
+score ≈ 5.5 million (≈ 550 per event, about 2 ms).
 
 ### orchestra-playback
 

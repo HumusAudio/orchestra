@@ -30,6 +30,11 @@
 //!   [`Staff`]s and [`Voice`]s (voices belong to the instrument and have a home staff), the
 //!   [`BarList`] of [`BarId`]s next to the shared meter and tempo maps — created with a
 //!   [`DocumentBuilder`].
+//! - [`event`], [`content`], [`marks`] and [`validate`] (SCALETTA F1.09b, ADR-0024 §1–§4 and §9):
+//!   the events of the voices ([`Chord`]s of [`Note`]s and [`Rest`]s, at an offset in their bar),
+//!   their written [`NoteValue`]s with the metric duration derived, [`Tuplet`]s, [`Tie`]s, the
+//!   [`Clef`]s of each staff and the key signatures of the document with the instruments'
+//!   overrides, and [`Document::validate`], which [`DocumentBuilder::build`] runs.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -47,15 +52,29 @@
 // out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
 #![deny(clippy::indexing_slicing)]
 
+pub mod content;
 pub mod document;
+pub mod event;
 pub mod id;
+pub mod marks;
 pub mod pitch;
+pub mod validate;
 
+pub use content::Chunk;
 pub use document::{
-    BarList, Document, DocumentBuilder, DocumentError, Instrument, MAX_STAVES_PER_INSTRUMENT,
-    MAX_VOICES_PER_INSTRUMENT, Staff, Track, Voice,
+    BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
+    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track, Voice,
 };
-pub use id::{BarId, InstrumentId, StaffId, TrackId, VoiceId};
+pub use event::{
+    BaseValue, Chord, Event, EventBody, MAX_DOTS, MAX_TUPLET_DEPTH, Note, NoteValue,
+    NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,
+    TupletNumber,
+};
+pub use id::{
+    BarId, ClefId, EventId, InstrumentId, KeyChangeId, NoteId, StaffId, TrackId, TupletId, VoiceId,
+};
+pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
+pub use validate::Violation;

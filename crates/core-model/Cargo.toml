@@ -32,5 +32,11 @@ harness = false
 name = "document"
 harness = false
 
+# Instruction-count benchmarks of the voices' content: metric durations, event lookup by ID, the
+# clef and key in force, and the validation of a whole document (SCALETTA F1.09b, ADR-0024).
+[[bench]]
+name = "voice"
+harness = false
+
 [lints]
 workspace = true

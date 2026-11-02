@@ -24,20 +24,31 @@
 )]
 
 use orchestra_core_model::{
-    BarId, Document, DocumentBuilder, DocumentError, Instrument, Interval,
-    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, StaffId, Track, TrackId, VoiceId,
+    BarId, Clef, Document, DocumentBuilder, DocumentError, Instrument, Interval, Key,
+    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Mode, StaffId, Track, TrackId, VoiceId,
 };
 use orchestra_core_time::{
     BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
 };
 use proptest::prelude::*;
 
+/// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
+/// care which clef each staff starts with, only how many staves there are).
+fn clefs(n: usize) -> Vec<Clef> {
+    vec![Clef::TREBLE; n]
+}
+
+/// C major: the initial key of every test document.
+fn c_major() -> Key {
+    Key::traditional(0, Mode::Major).unwrap()
+}
+
 /// One builder call, with its arguments chosen by proptest.
 #[derive(Debug, Clone)]
 enum Op {
     /// `add_bar()`.
     Bar,
-    /// `add_instrument_track(_, _, staves)`; 0 and 17 are included to hit the errors.
+    /// `add_instrument_track(_, _, &clefs(staves))`; 0 and 17 are included to hit the errors.
     Track(usize),
     /// `add_voice(staff)`, the staff picked as (track, staff) by index modulo the counts, or a
     /// staff ID that does not exist when there are no tracks.
@@ -81,7 +92,7 @@ fn builder() -> DocumentBuilder {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
     let tempo = Tempo::new(quarter, Rational::from_integer(60).unwrap()).unwrap();
-    DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap())
+    DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), c_major())
 }
 
 /// Applies `op` to both, and checks the result of the call against the oracle's expectation.
@@ -95,7 +106,7 @@ fn apply(builder: &mut DocumentBuilder, oracle: &mut Oracle, op: &Op) {
         }
         Op::Track(staves) => {
             let got = builder
-                .add_instrument_track("I", Interval::new(0, Rational::ZERO), staves)
+                .add_instrument_track("I", Interval::new(0, Rational::ZERO), &clefs(staves))
                 .map(TrackId::get);
             if staves == 0 {
                 assert_eq!(got, Err(DocumentError::NoStaves));
@@ -153,7 +164,7 @@ fn staff_id_not_in(document: &Document) -> StaffId {
         scratch.add_bar().unwrap();
     }
     let track = scratch
-        .add_instrument_track("X", Interval::new(0, Rational::ZERO), 1)
+        .add_instrument_track("X", Interval::new(0, Rational::ZERO), &clefs(1))
         .unwrap();
     scratch
         .document()
@@ -239,7 +250,7 @@ proptest! {
             apply(&mut b, &mut oracle, op);
             check(b.document(), &oracle);
         }
-        let document = b.build();
+        let document = b.build().unwrap();
         check(&document, &oracle);
     }
 }

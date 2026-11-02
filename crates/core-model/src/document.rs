@@ -1,20 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The skeleton of the document: tracks, instruments, staves, voices, bars, and the two time maps
-//! (ADR-0022 §1–3, SCALETTA F1.08).
+//! The document: tracks, instruments, staves, voices with their events, bars, clefs, key
+//! signatures and the two time maps (ADR-0022 §1–4, ADR-0024 §1–4 and §9; SCALETTA F1.08 and
+//! F1.09b).
 //!
 //! # What lives here
-//! - [`Document`]: the one project document of ADR-0003. Today it holds the structure only; the
-//!   events of the voices arrive in F1.09, the form in F1.10.
+//! - [`Document`]: the one project document of ADR-0003. It holds the structure (F1.08), the
+//!   events of every voice, the clefs and the key signatures (F1.09b); the other markings arrive
+//!   in F1.09c, the form in F1.10.
 //! - [`Track`] → [`Instrument`] → [`Staff`] and [`Voice`]: one instrument per instrument track,
 //!   one or more staves per instrument, voices that **belong to the instrument** and have a home
 //!   staff (ADR-0022 §2), so that a melody crossing from one staff to the other stays one voice.
+//!   A voice holds one chunk of events per bar and its tuplet table (`crate::content`).
 //! - [`BarList`]: the ordered list of [`BarId`]s (ADR-0022 §3). It says *which* bar is which and
 //!   how many bars there are, and nothing else: bar lengths live only in the [`MeterMap`].
 //! - [`DocumentBuilder`]: how a **new** document is created (by the file loader, the generator of
 //!   the reference score, tests and benchmarks). Owner's decision of 2026-11-02: an existing
 //!   document changes only through the commands of F1.11 (ADR-0003 §4); creating one is not
-//!   changing one, so the builder does not need commands.
+//!   changing one, so the builder does not need commands. [`DocumentBuilder::build`] runs
+//!   [`Document::validate`], so an invalid document cannot exist (owner's decision of 2026-11-02).
 //!
 //! # Limits
 //! At most [`MAX_STAVES_PER_INSTRUMENT`] staves and [`MAX_VOICES_PER_INSTRUMENT`] voices per
@@ -28,16 +32,29 @@
 //! Bars are many (thousands), so [`BarList`] keeps an `IdMap` from `BarId` to index: O(1) on
 //! average in both directions. Tracks, staves and voices are few (tens to a few hundred in a large
 //! orchestral score), so they are found by a linear scan: a few hundred comparisons of `u64`, which
-//! is cheaper than keeping a hash index in step with every structural change. ADR-0022 §1's
-//! `ID → location` index is for events, which are hundreds of thousands (F1.09).
+//! is cheaper than keeping a hash index in step with every structural change. Events and noteheads
+//! are hundreds of thousands, so the document keeps ADR-0022 §1's derived index from their IDs to
+//! where they are: one hash lookup, then the voice scan, then a scan of one chunk.
 
 use std::error::Error;
 use std::fmt;
 
-use orchestra_core_time::{BarIndex, MeterMap, MeterMapError, Position, TempoMap};
+use orchestra_core_time::{
+    BarIndex, Duration, MeterMap, MeterMapError, Position, Rational, RationalError, TempoMap,
+};
 
-use crate::id::{BarId, IdCounter, IdMap, InstrumentId, StaffId, TrackId, VoiceId};
-use crate::pitch::Interval;
+use crate::content::{Chunk, VoiceContent, metric_duration};
+use crate::event::{
+    Chord, Event, EventBody, MAX_TUPLET_DEPTH, Note, NoteValue, NoteValueError, PlacedEvent, Rest,
+    RestValue, Tie, Tuplet,
+};
+use crate::id::{
+    BarId, ClefId, EventId, IdCounter, IdMap, InstrumentId, KeyChangeId, NoteId, StaffId, TrackId,
+    TupletId, VoiceId,
+};
+use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList};
+use crate::pitch::{Interval, Key, Pitch, PitchError};
+use crate::validate::Violation;
 
 /// The most staves one instrument can have (owner's decision, 2026-11-02). Organ music uses
 /// three, some piano and harp writing four; 16 leaves ample room for unusual layouts.
@@ -51,7 +68,7 @@ pub const MAX_VOICES_PER_INSTRUMENT: usize = 256;
 // Errors
 // ------------------------------------------------------------------------------------------------
 
-/// Why building or querying the document skeleton failed.
+/// Why building or querying the document failed.
 ///
 /// The `Display` texts are English and meant for developers; the interface maps each variant to a
 /// Fluent key, like every other user-visible text (CLAUDE.md §7).
@@ -73,8 +90,42 @@ pub enum DocumentError {
     UnknownStaff(StaffId),
     /// No bar of the document has this ID.
     UnknownBar(BarId),
+    /// No voice of the document has this ID.
+    UnknownVoice(VoiceId),
+    /// No instrument of the document has this ID.
+    UnknownInstrument(InstrumentId),
+    /// No event of the document has this ID.
+    UnknownEvent(EventId),
+    /// No notehead of the document has this ID.
+    UnknownNote(NoteId),
+    /// The voice has no tuplet with this ID.
+    UnknownTuplet(TupletId),
+    /// An event's staff belongs to another instrument than its voice (ADR-0022 §2).
+    StaffOfAnotherInstrument(StaffId),
+    /// An offset before the start of its bar: offsets are ≥ 0 (ADR-0022 §4).
+    NegativeOffset,
+    /// A chord was requested without any notehead.
+    EmptyChord,
+    /// A whole-bar rest was put in a tuplet (ADR-0024 §2).
+    WholeBarRestInTuplet,
+    /// A tuplet would be nested deeper than [`MAX_TUPLET_DEPTH`] (ADR-0024 C3).
+    TupletTooDeep,
+    /// A notehead was tied to itself.
+    TieToItself,
+    /// A clef or key change was put where one already is (or where the initial clef or key is).
+    DuplicateMark,
+    /// A clef on a line outside 1–5 or with an octave shift outside ±2.
+    ClefOutOfRange,
+    /// A note value or a tuplet could not be built.
+    NoteValue(NoteValueError),
+    /// A pitch operation failed (sounding pitch, transposed key).
+    Pitch(PitchError),
+    /// Rational arithmetic overflowed (impossible within the bounds of ADR-0024, checked anyway).
+    Arithmetic(RationalError),
     /// A meter map lookup failed (only reachable with absurd meters, ADR-0018).
     MeterMap(MeterMapError),
+    /// The document breaks a rule that needs the whole document to check ([`Document::validate`]).
+    Invalid(Violation),
 }
 
 impl fmt::Display for DocumentError {
@@ -94,16 +145,47 @@ impl fmt::Display for DocumentError {
             Self::TooManyBars => f.write_str("the document has the most bars it can address"),
             Self::UnknownStaff(id) => write!(f, "no staff has the ID {}", id.get()),
             Self::UnknownBar(id) => write!(f, "no bar has the ID {}", id.get()),
+            Self::UnknownVoice(id) => write!(f, "no voice has the ID {}", id.get()),
+            Self::UnknownInstrument(id) => write!(f, "no instrument has the ID {}", id.get()),
+            Self::UnknownEvent(id) => write!(f, "no event has the ID {}", id.get()),
+            Self::UnknownNote(id) => write!(f, "no notehead has the ID {}", id.get()),
+            Self::UnknownTuplet(id) => {
+                write!(f, "the voice has no tuplet with the ID {}", id.get())
+            }
+            Self::StaffOfAnotherInstrument(id) => write!(
+                f,
+                "the staff {} belongs to another instrument than the voice",
+                id.get()
+            ),
+            Self::NegativeOffset => f.write_str("an offset in a bar cannot be negative"),
+            Self::EmptyChord => f.write_str("a chord needs at least one notehead"),
+            Self::WholeBarRestInTuplet => f.write_str("a whole-bar rest cannot be in a tuplet"),
+            Self::TupletTooDeep => {
+                write!(f, "tuplets can be nested at most {MAX_TUPLET_DEPTH} deep")
+            }
+            Self::TieToItself => f.write_str("a notehead cannot be tied to itself"),
+            Self::DuplicateMark => f.write_str("there is already a change at that point"),
+            Self::ClefOutOfRange => {
+                f.write_str("a clef sits on lines 1 to 5 with an octave shift of at most 2")
+            }
+            Self::NoteValue(e) => write!(f, "note value: {e}"),
+            Self::Pitch(e) => write!(f, "pitch: {e}"),
+            Self::Arithmetic(e) => write!(f, "arithmetic: {e}"),
             Self::MeterMap(e) => write!(f, "meter map: {e}"),
+            Self::Invalid(v) => write!(f, "invalid document: {v}"),
         }
     }
 }
 
 impl Error for DocumentError {
-    /// The underlying meter map error, if any.
+    /// The underlying error, if any.
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::NoteValue(e) => Some(e),
+            Self::Pitch(e) => Some(e),
+            Self::Arithmetic(e) => Some(e),
             Self::MeterMap(e) => Some(e),
+            Self::Invalid(e) => Some(e),
             _ => None,
         }
     }
@@ -116,19 +198,41 @@ impl From<MeterMapError> for DocumentError {
     }
 }
 
+impl From<RationalError> for DocumentError {
+    /// Wraps an arithmetic error, so that `?` works on rational operations.
+    fn from(e: RationalError) -> Self {
+        Self::Arithmetic(e)
+    }
+}
+
+impl From<PitchError> for DocumentError {
+    /// Wraps a pitch error, so that `?` works on pitch operations.
+    fn from(e: PitchError) -> Self {
+        Self::Pitch(e)
+    }
+}
+
+impl From<NoteValueError> for DocumentError {
+    /// Wraps a note value error, so that `?` works on note value and tuplet constructors.
+    fn from(e: NoteValueError) -> Self {
+        Self::NoteValue(e)
+    }
+}
+
 // ------------------------------------------------------------------------------------------------
 // Staves, voices, instruments, tracks
 // ------------------------------------------------------------------------------------------------
 
-/// A staff of an instrument (ADR-0022 §2).
-///
-/// Today a staff is only its identity and its place among the instrument's staves (top to
-/// bottom). Its clef and the changes of clef and key signature are designed with the events in
-/// F1.09 (owner's decision of 2026-11-02), because they change along the score like other marks.
+/// A staff of an instrument (ADR-0022 §2) with its clefs (ADR-0024 §9).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Staff {
     /// The staff's identity.
     id: StaffId,
+    /// The clef at the start of the score. Part of the staff, so a staff without clef cannot
+    /// exist (owner's decision of 2026-11-02).
+    initial_clef: Clef,
+    /// The clef changes after the start, sorted by (bar, offset).
+    clef_changes: MarkList<ClefId, Clef>,
 }
 
 impl Staff {
@@ -136,20 +240,32 @@ impl Staff {
     pub const fn id(&self) -> StaffId {
         self.id
     }
+
+    /// The clef at the start of the score. O(1).
+    pub const fn initial_clef(&self) -> Clef {
+        self.initial_clef
+    }
+
+    /// The clef changes after the start, in score order. O(1).
+    pub const fn clef_changes(&self) -> &MarkList<ClefId, Clef> {
+        &self.clef_changes
+    }
 }
 
-/// A voice of an instrument (ADR-0022 §2).
+/// A voice of an instrument (ADR-0022 §2) with its events and tuplets (ADR-0024 §1, §3).
 ///
 /// A voice is an independent line, with its own rhythm and stems. It belongs to the instrument,
 /// not to a staff: its **home staff** is where its events are drawn by default, and each event
-/// (F1.09) records the staff it is actually drawn on, so a melody passing from the right hand to
-/// the left hand of a piano part stays one voice.
+/// records the staff it is actually drawn on, so a melody passing from the right hand to the left
+/// hand of a piano part stays one voice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Voice {
     /// The voice's identity.
     id: VoiceId,
     /// The staff its events are drawn on by default: always a staff of the same instrument.
     home_staff: StaffId,
+    /// One chunk of events per bar, and the tuplet table.
+    content: VoiceContent,
 }
 
 impl Voice {
@@ -162,6 +278,42 @@ impl Voice {
     /// O(1).
     pub const fn home_staff(&self) -> StaffId {
         self.home_staff
+    }
+
+    /// The voice's events in the bar with this index, sorted by offset; empty if the voice has
+    /// nothing there or the index is past the end. O(1), never allocates.
+    pub fn events_at(&self, bar: BarIndex) -> &[PlacedEvent] {
+        usize::try_from(bar.get())
+            .ok()
+            .and_then(|i| self.content.chunks.get(i))
+            .map_or(&[], Chunk::events)
+    }
+
+    /// The tuplet with this ID, if the voice has it. O(1) on average.
+    pub fn tuplet(&self, id: TupletId) -> Option<&Tuplet> {
+        self.content.tuplets.get(&id)
+    }
+
+    /// How many tuplets the voice has. O(1).
+    pub fn tuplet_count(&self) -> usize {
+        self.content.tuplets.len()
+    }
+
+    /// The metric duration of one of the voice's events (ADR-0024 §2): its written length times
+    /// the ratios of the tuplets containing it, or `bar_length` for a whole-bar rest. Layout and
+    /// playback call this once per event while walking a bar, passing the bar's length they
+    /// already have. O(tuplet depth) ≤ 4 lookups, never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownTuplet`] if the event is not one of this voice's (its tuplet is in
+    /// another voice's table), [`DocumentError::Arithmetic`] on overflow (impossible within the
+    /// bounds of ADR-0024).
+    pub fn metric_duration(
+        &self,
+        event: &Event,
+        bar_length: Duration,
+    ) -> Result<Duration, DocumentError> {
+        metric_duration(&self.content.tuplets, event.body(), bar_length)
     }
 }
 
@@ -183,6 +335,8 @@ pub struct Instrument {
     /// The voices, in creation order; between 1 and [`MAX_VOICES_PER_INSTRUMENT`]. Each home
     /// staff is one of `staves`.
     voices: Vec<Voice>,
+    /// Where the instrument departs from the document's key (ADR-0024 §9, K1). Usually empty.
+    key_overrides: MarkList<KeyChangeId, KeyOverride>,
 }
 
 impl Instrument {
@@ -209,6 +363,11 @@ impl Instrument {
     /// The voices, in creation order (never empty). O(1).
     pub fn voices(&self) -> &[Voice] {
         &self.voices
+    }
+
+    /// The instrument's departures from the document's key, in score order. O(1).
+    pub const fn key_overrides(&self) -> &MarkList<KeyChangeId, KeyOverride> {
+        &self.key_overrides
     }
 
     /// The staff with this ID, if it belongs to this instrument. O(staves) ≤ 16 comparisons.
@@ -256,9 +415,9 @@ impl Track {
 /// Position `i` of the list is the bar with [`BarIndex`] `i` in the meter map. The list holds no
 /// length, no meter, no number: those are in the [`MeterMap`], and repeating them here would be
 /// the duplication ADR-0003 forbids. What it gives is a **stable identity** for each bar: what is
-/// attached to a bar (barlines, voltas, rehearsal marks, the event chunks of F1.09) is keyed by
-/// `BarId`, so inserting a bar (F1.11) shifts this list and the meter map's few entries, and
-/// nothing else.
+/// attached to a bar (barlines, voltas, rehearsal marks, the event chunks, clef and key changes)
+/// is keyed by `BarId`, so inserting a bar (F1.11) shifts this list and the meter map's few
+/// entries, and nothing else.
 ///
 /// # Invariant
 /// `index` is exactly the inverse of `order`: it has one entry per bar, `index[order[i]] == i`.
@@ -328,31 +487,87 @@ impl BarList {
 // The document
 // ------------------------------------------------------------------------------------------------
 
-/// The one project document (ADR-0003): today, its skeleton (ADR-0022 §1–3).
+/// Where an event is: its voice and its bar. The entry of the derived index of ADR-0022 §1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EventLocation {
+    /// The voice holding the event.
+    pub(crate) voice: VoiceId,
+    /// The bar whose chunk holds the event.
+    pub(crate) bar: BarId,
+}
+
+/// An event found by its ID, with where it is.
+#[derive(Debug, Clone, Copy)]
+pub struct EventRef<'a> {
+    /// The voice holding the event.
+    voice: VoiceId,
+    /// The bar whose chunk holds the event.
+    bar: BarId,
+    /// The event with its offset.
+    placed: &'a PlacedEvent,
+}
+
+impl<'a> EventRef<'a> {
+    /// The voice holding the event. O(1).
+    #[must_use]
+    pub const fn voice(&self) -> VoiceId {
+        self.voice
+    }
+
+    /// The bar holding the event. O(1).
+    #[must_use]
+    pub const fn bar(&self) -> BarId {
+        self.bar
+    }
+
+    /// The distance from the start of the bar. O(1).
+    #[must_use]
+    pub const fn offset(&self) -> Duration {
+        self.placed.offset()
+    }
+
+    /// The event. O(1).
+    #[must_use]
+    pub const fn event(&self) -> &'a Event {
+        self.placed.event()
+    }
+}
+
+/// The one project document (ADR-0003).
 ///
 /// Create one with a [`DocumentBuilder`]. Every reader (the views, playback, the file writer)
 /// reads it through the methods below; the commands of F1.11 will be the only way to change it.
 ///
 /// # Example
 /// ```
-/// use orchestra_core_model::{DocumentBuilder, Interval};
+/// use orchestra_core_model::{
+///     BaseValue, Clef, DocumentBuilder, Interval, Key, Mode, NoteValue, Pitch, Placement, Step,
+///     Alteration,
+/// };
 /// use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
 ///
 /// let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4)?))?;
 /// let quarter = Duration::from_rational(Rational::new(1, 4)?);
 /// let tempi = TempoMap::new(Tempo::new(quarter, Rational::from_integer(96)?)?)?;
 ///
-/// let mut builder = DocumentBuilder::new(meters, tempi);
-/// for _ in 0..8 {
-///     builder.add_bar()?;
-/// }
-/// // A piano: two staves, so two voices, one per staff.
-/// let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
-/// let document = builder.build();
+/// let mut builder = DocumentBuilder::new(meters, tempi, Key::traditional(0, Mode::Major)?);
+/// let bar = builder.add_bar()?;
+/// // A piano: two staves with their clefs, so two voices, one per staff.
+/// let piano = builder.add_instrument_track(
+///     "Piano",
+///     Interval::new(0, Rational::ZERO),
+///     &[Clef::TREBLE, Clef::BASS],
+/// )?;
+/// let right_hand = builder.document().track(piano).map(|t| t.instrument().voices()[0].id());
+/// let c4 = Pitch::new(Step::C, Alteration::NATURAL, 4);
+/// let chord = builder.add_chord(
+///     Placement::new(right_hand.ok_or("no voice")?, bar, Duration::ZERO),
+///     NoteValue::plain(BaseValue::Whole),
+///     &[c4],
+/// )?;
+/// let document = builder.build()?;
 ///
-/// assert_eq!(document.bars().len(), 8);
-/// let instrument = document.track(piano).map(|t| t.instrument());
-/// assert_eq!(instrument.map(|i| i.voices().len()), Some(2));
+/// assert_eq!(document.metric_duration(chord.event)?, Duration::from_rational(Rational::ONE));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -362,12 +577,21 @@ pub struct Document {
     /// The bar lengths, meters, beat groupings and numbering (ADR-0018, ADR-0019): the only place
     /// a bar's length is stored.
     meter_map: MeterMap,
-    /// The tempo changes on written positions (ADR-0020, ADR-0021).
+    /// The tempo changes on written positions (ADR-0020, ADR-0021). F1.09c derives it from tempo
+    /// marks (ADR-0024 §11).
     tempo_map: TempoMap,
+    /// The key at the start of the score, at concert pitch (ADR-0024 §9, K1).
+    initial_key: Key,
+    /// The key changes after the start, at concert pitch.
+    key_changes: MarkList<KeyChangeId, Key>,
     /// Which bar is which (ADR-0022 §3).
     bars: BarList,
     /// The tracks, top to bottom as the score lists them.
     tracks: Vec<Track>,
+    /// Derived index (ADR-0022 §1): where each event is. Rebuilt at load, never saved.
+    events: IdMap<EventId, EventLocation>,
+    /// Derived index: which event each notehead belongs to.
+    notes: IdMap<NoteId, EventId>,
 }
 
 impl Document {
@@ -379,6 +603,16 @@ impl Document {
     /// The tempo map, on written positions. O(1).
     pub const fn tempo_map(&self) -> &TempoMap {
         &self.tempo_map
+    }
+
+    /// The key at the start of the score, at concert pitch. O(1).
+    pub const fn initial_key(&self) -> Key {
+        self.initial_key
+    }
+
+    /// The key changes after the start, at concert pitch, in score order. O(1).
+    pub const fn key_changes(&self) -> &MarkList<KeyChangeId, Key> {
+        &self.key_changes
     }
 
     /// The bar list. O(1).
@@ -421,22 +655,260 @@ impl Document {
     /// [`DocumentError::UnknownBar`] if the bar does not belong to the document,
     /// [`DocumentError::MeterMap`] if the meter map arithmetic overflows (absurd meters only).
     pub fn bar_start(&self, id: BarId) -> Result<Position, DocumentError> {
-        let index = self
-            .bars
-            .index_of(id)
-            .ok_or(DocumentError::UnknownBar(id))?;
-        Ok(self.meter_map.bar_start(index)?)
+        Ok(self.meter_map.bar_start(self.bar_index(id)?)?)
+    }
+
+    /// The events of a voice in a bar, sorted by offset. O(voices) to find the voice, then O(1);
+    /// never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownVoice`] or [`DocumentError::UnknownBar`].
+    pub fn events(&self, voice: VoiceId, bar: BarId) -> Result<&[PlacedEvent], DocumentError> {
+        let index = self.bar_index(bar)?;
+        let (_, voice) = self
+            .voice(voice)
+            .ok_or(DocumentError::UnknownVoice(voice))?;
+        Ok(voice.events_at(index))
+    }
+
+    /// The event with this ID and where it is. O(1) average for the index, O(voices) for the
+    /// voice, O(k) for the scan of its chunk (k = events of that voice in that bar). Never
+    /// allocates.
+    pub fn event(&self, id: EventId) -> Option<EventRef<'_>> {
+        let location = *self.events.get(&id)?;
+        let index = self.bars.index_of(location.bar)?;
+        let (_, voice) = self.voice(location.voice)?;
+        let placed = voice
+            .events_at(index)
+            .iter()
+            .find(|e| e.event().id() == id)?;
+        Some(EventRef {
+            voice: location.voice,
+            bar: location.bar,
+            placed,
+        })
+    }
+
+    /// The notehead with this ID and the event it belongs to. As [`event`](Self::event), plus a
+    /// scan of the chord's noteheads. Never allocates.
+    pub fn note(&self, id: NoteId) -> Option<(EventRef<'_>, &Note)> {
+        let event = self.event(*self.notes.get(&id)?)?;
+        let note = event.event().chord()?.notes().find(|n| n.id() == id)?;
+        Some((event, note))
+    }
+
+    /// The metric duration of an event (ADR-0024 §2). As [`event`](Self::event), plus
+    /// [`Voice::metric_duration`]; the meter map is asked for the bar's length only for a
+    /// whole-bar rest. Never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`]; [`DocumentError::MeterMap`] or
+    /// [`DocumentError::Arithmetic`] on overflow (absurd meters only).
+    pub fn metric_duration(&self, id: EventId) -> Result<Duration, DocumentError> {
+        let found = self.event(id).ok_or(DocumentError::UnknownEvent(id))?;
+        let (_, voice) = self
+            .voice(found.voice)
+            .ok_or(DocumentError::UnknownVoice(found.voice))?;
+        let bar_length = if is_whole_bar_rest(found.event()) {
+            self.meter_map.bar_length(self.bar_index(found.bar)?)?
+        } else {
+            // Not read for any other event: any value would do.
+            Duration::ZERO
+        };
+        voice.metric_duration(found.event(), bar_length)
+    }
+
+    /// The absolute written position of an event: its bar's start plus its offset (ADR-0022 §4).
+    /// O(event lookup) + O(log m). Never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownEvent`]; [`DocumentError::MeterMap`] or
+    /// [`DocumentError::Arithmetic`] on overflow (absurd meters only).
+    pub fn event_position(&self, id: EventId) -> Result<Position, DocumentError> {
+        let found = self.event(id).ok_or(DocumentError::UnknownEvent(id))?;
+        Ok(self.bar_start(found.bar)?.checked_add(found.offset())?)
+    }
+
+    /// The clef in force on a staff at (bar, offset): the last clef change at or before the point,
+    /// or the staff's initial clef (ADR-0024 §9). O(staves) + O(log c); never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownStaff`] or [`DocumentError::UnknownBar`].
+    pub fn clef_at(
+        &self,
+        staff: StaffId,
+        bar: BarId,
+        offset: Duration,
+    ) -> Result<Clef, DocumentError> {
+        let index = self.bar_index(bar)?;
+        let (_, staff) = self
+            .staff(staff)
+            .ok_or(DocumentError::UnknownStaff(staff))?;
+        Ok(staff
+            .clef_changes
+            .in_force_at(&self.bars, index, offset)
+            .map_or(staff.initial_clef, Mark::value))
+    }
+
+    /// The document's key in force at (bar, offset), at concert pitch, ignoring the instruments'
+    /// overrides. O(log k); never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`].
+    pub fn key_at(&self, bar: BarId, offset: Duration) -> Result<Key, DocumentError> {
+        let index = self.bar_index(bar)?;
+        Ok(self
+            .key_changes
+            .in_force_at(&self.bars, index, offset)
+            .map_or(self.initial_key, Mark::value))
+    }
+
+    /// What an instrument shows at (bar, offset) **at concert pitch**: its override in force, if
+    /// it is a signature, otherwise the document's key (ADR-0024 §9, K1). O(tracks) + O(log k);
+    /// never allocates.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownInstrument`] or [`DocumentError::UnknownBar`].
+    pub fn instrument_key_at(
+        &self,
+        instrument: InstrumentId,
+        bar: BarId,
+        offset: Duration,
+    ) -> Result<KeySignature, DocumentError> {
+        let index = self.bar_index(bar)?;
+        let found = self
+            .instrument(instrument)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?;
+        match found
+            .key_overrides
+            .in_force_at(&self.bars, index, offset)
+            .map(Mark::value)
+        {
+            Some(KeyOverride::Signature(signature)) => Ok(signature),
+            Some(KeyOverride::FollowScore) | None => {
+                Ok(KeySignature::Key(self.key_at(bar, offset)?))
+            }
+        }
+    }
+
+    /// What an instrument's **written** part shows at (bar, offset): the concert signature moved
+    /// by the inverse of the instrument's transposition (ADR-0023 §7); "no signature" stays "no
+    /// signature". Derived, never stored (ADR-0004). As [`instrument_key_at`](Self::instrument_key_at)
+    /// plus O(1).
+    ///
+    /// # Errors
+    /// As [`instrument_key_at`](Self::instrument_key_at); [`DocumentError::Pitch`] if the written
+    /// key goes beyond fourteen sharps or flats, or the transposition is microtonal.
+    pub fn written_key_at(
+        &self,
+        instrument: InstrumentId,
+        bar: BarId,
+        offset: Duration,
+    ) -> Result<KeySignature, DocumentError> {
+        let concert = self.instrument_key_at(instrument, bar, offset)?;
+        let transposition = self
+            .instrument(instrument)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .transposition;
+        match concert {
+            // Written = concert moved by the inverse of the written-to-sounding interval.
+            KeySignature::Key(key) => {
+                Ok(KeySignature::Key(key.transposed(transposition.reversed())?))
+            }
+            KeySignature::NoSignature => Ok(KeySignature::NoSignature),
+        }
+    }
+
+    /// The index of a bar, or the typed error. O(1) average.
+    fn bar_index(&self, id: BarId) -> Result<BarIndex, DocumentError> {
+        self.bars.index_of(id).ok_or(DocumentError::UnknownBar(id))
     }
 
     /// Every instrument, in track order. O(1) to create, O(tracks) to exhaust.
-    fn instruments(&self) -> impl Iterator<Item = &Instrument> {
+    pub(crate) fn instruments(&self) -> impl Iterator<Item = &Instrument> {
         self.tracks.iter().map(|t| &t.instrument)
     }
+}
+
+/// Whether an event is a whole-bar rest, the only event whose metric duration needs its bar's
+/// length. O(1).
+pub(crate) const fn is_whole_bar_rest(event: &Event) -> bool {
+    matches!(
+        event.body(),
+        EventBody::Rest(r) if matches!(r.value(), RestValue::WholeBar)
+    )
 }
 
 // ------------------------------------------------------------------------------------------------
 // The builder
 // ------------------------------------------------------------------------------------------------
+
+/// Where a new event goes: its voice, its bar, its offset in the bar, and optionally another
+/// staff than the voice's home staff and the innermost tuplet containing it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Placement {
+    /// The voice.
+    pub voice: VoiceId,
+    /// The bar.
+    pub bar: BarId,
+    /// The offset from the start of the bar, ≥ 0 (it may reach past the bar's end: an overfull
+    /// bar, valid by ADR-0022 §4).
+    pub offset: Duration,
+    /// The staff to draw it on, if not the voice's home staff (a cross-staff note).
+    pub staff: Option<StaffId>,
+    /// The innermost tuplet containing it, a tuplet of the same voice.
+    pub tuplet: Option<TupletId>,
+}
+
+impl Placement {
+    /// An event of `voice` in `bar` at `offset`, on the home staff, in no tuplet. O(1).
+    #[must_use]
+    pub const fn new(voice: VoiceId, bar: BarId, offset: Duration) -> Self {
+        Self {
+            voice,
+            bar,
+            offset,
+            staff: None,
+            tuplet: None,
+        }
+    }
+
+    /// The same placement on another staff of the instrument. O(1).
+    #[must_use]
+    pub const fn on_staff(mut self, staff: StaffId) -> Self {
+        self.staff = Some(staff);
+        self
+    }
+
+    /// The same placement inside a tuplet of the voice. O(1).
+    #[must_use]
+    pub const fn in_tuplet(mut self, tuplet: TupletId) -> Self {
+        self.tuplet = Some(tuplet);
+        self
+    }
+}
+
+/// The IDs of a new chord: its event and its noteheads, **in the order the pitches were given**
+/// (the chord itself keeps them sorted by pitch).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChordIds {
+    /// The chord's event.
+    pub event: EventId,
+    /// One ID per given pitch, in the given order.
+    pub notes: Vec<NoteId>,
+}
+
+/// Where a placement was found: the track and voice positions and the bar index, checked.
+struct Resolved {
+    /// Position of the track in the document's track list.
+    track: usize,
+    /// Position of the voice in its instrument's voice list.
+    voice: usize,
+    /// Position of the bar's chunk in the voice's chunk list.
+    chunk: usize,
+    /// The staff the event is drawn on (the given one, or the voice's home staff).
+    staff: StaffId,
+}
 
 /// Creates a new [`Document`] (owner's decision of 2026-11-02).
 ///
@@ -447,13 +919,16 @@ impl Document {
 /// # Order of the IDs
 /// Every method takes its IDs from the document's single counter in the order it creates the
 /// objects: a bar takes one; an instrument track takes the track's, then the instrument's, then
-/// one per staff top to bottom, then one per voice. Two builders given the same calls therefore
-/// produce identical documents, IDs included, which keeps generated scores and golden files
-/// reproducible.
+/// one per staff top to bottom, then one per voice; a chord takes its event's, then one per
+/// notehead in the given order. Two builders given the same calls therefore produce identical
+/// documents, IDs included, which keeps generated scores and golden files reproducible.
 ///
-/// # Failures leave the builder unchanged
-/// Each method checks everything (limits, the staff, room in the counter) **before** creating
-/// anything, so an error never leaves a half-made instrument behind.
+/// # What is checked when
+/// Each method checks what it can see locally (the bar, voice, staff and tuplet exist and belong
+/// together, the offset is not negative, the counter has room) **before** creating anything, so an
+/// error never leaves a half-made object behind and never consumes an ID. The rules that need the
+/// whole document (no overlap within a voice, ties, whole-bar rests alone) are checked by
+/// [`build`](Self::build) through [`Document::validate`].
 #[derive(Debug, Clone)]
 pub struct DocumentBuilder {
     /// The document under construction.
@@ -461,25 +936,31 @@ pub struct DocumentBuilder {
 }
 
 impl DocumentBuilder {
-    /// Starts a document with these time maps, no bars and no tracks. O(1), does not allocate.
+    /// Starts a document with these time maps and this initial key (at concert pitch), no bars and
+    /// no tracks. O(1), does not allocate.
     ///
-    /// There is deliberately no default meter or tempo: they are the caller's choice (the
+    /// There is deliberately no default meter, tempo or key: they are the caller's choice (the
     /// interface's "new score" dialog, a file, the generator), not the model's.
     #[must_use]
-    pub fn new(meter_map: MeterMap, tempo_map: TempoMap) -> Self {
+    pub fn new(meter_map: MeterMap, tempo_map: TempoMap, initial_key: Key) -> Self {
         Self {
             doc: Document {
                 ids: IdCounter::new(),
                 meter_map,
                 tempo_map,
+                initial_key,
+                key_changes: MarkList::default(),
                 bars: BarList::new(),
                 tracks: Vec::new(),
+                events: IdMap::default(),
+                notes: IdMap::default(),
             },
         }
     }
 
     /// Appends a bar at the end of the bar list and returns its ID. Its length, meter and number
-    /// come from the meter map, as for every bar. O(1) amortised.
+    /// come from the meter map, as for every bar. Every voice gains an empty chunk for it.
+    /// O(voices) amortised; an empty chunk does not allocate.
     ///
     /// # Errors
     /// [`DocumentError::TooManyBars`] past 2³² − 1 bars, [`DocumentError::IdsExhausted`] when the
@@ -491,26 +972,35 @@ impl DocumentBuilder {
         }
         let id = BarId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
         self.doc.bars.push(id)?;
+        // Keep every voice's chunks aligned with the bar list.
+        for track in &mut self.doc.tracks {
+            for voice in &mut track.instrument.voices {
+                voice.content.chunks.push(Chunk::EMPTY);
+            }
+        }
         Ok(id)
     }
 
-    /// Appends an instrument track with `staves` staves and **one voice per staff**, each voice's
-    /// home staff being its staff (owner's decision of 2026-11-02): enough to write one part per
-    /// staff at once; [`add_voice`](Self::add_voice) adds more. O(staves).
+    /// Appends an instrument track with one staff per given clef (top to bottom, each starting
+    /// with its clef) and **one voice per staff**, each voice's home staff being its staff
+    /// (owner's decisions of 2026-11-02): enough to write one part per staff at once;
+    /// [`add_voice`](Self::add_voice) adds more. O(staves + staves × bars) for the voices' empty
+    /// chunks.
     ///
     /// `transposition` is the interval from written to sounding pitch (ADR-0023 §7): a unison
     /// (`Interval::new(0, Rational::ZERO)`) for an instrument at concert pitch.
     ///
     /// # Errors
-    /// [`DocumentError::NoStaves`] for 0 staves, [`DocumentError::TooManyStaves`] beyond
+    /// [`DocumentError::NoStaves`] for no clef, [`DocumentError::TooManyStaves`] beyond
     /// [`MAX_STAVES_PER_INSTRUMENT`], [`DocumentError::IdsExhausted`] when the counter cannot hand
-    /// out the 2 + 2 × `staves` IDs needed. The builder is unchanged on error.
+    /// out the 2 + 2 × staves IDs needed. The builder is unchanged on error.
     pub fn add_instrument_track(
         &mut self,
         name: impl Into<String>,
         transposition: Interval,
-        staves: usize,
+        clefs: &[Clef],
     ) -> Result<TrackId, DocumentError> {
+        let staves = clefs.len();
         if staves == 0 {
             return Err(DocumentError::NoStaves);
         }
@@ -530,14 +1020,19 @@ impl DocumentBuilder {
 
         // From here on every `next()` succeeds (checked just above); the `?` stays because the
         // compiler cannot know that, and an unwrap is not allowed in library code.
+        let bars = self.doc.bars.len();
         let ids = &mut self.doc.ids;
         let track_id = TrackId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
         let instrument_id =
             InstrumentId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
         let mut staff_list = Vec::with_capacity(staves);
-        for _ in 0..staves {
+        for &clef in clefs {
             let id = StaffId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
-            staff_list.push(Staff { id });
+            staff_list.push(Staff {
+                id,
+                initial_clef: clef,
+                clef_changes: MarkList::default(),
+            });
         }
         let mut voices = Vec::with_capacity(staves);
         for staff in &staff_list {
@@ -545,6 +1040,7 @@ impl DocumentBuilder {
             voices.push(Voice {
                 id,
                 home_staff: staff.id,
+                content: VoiceContent::with_bars(bars),
             });
         }
 
@@ -556,13 +1052,15 @@ impl DocumentBuilder {
                 transposition,
                 staves: staff_list,
                 voices,
+                key_overrides: MarkList::default(),
             },
         });
         Ok(track_id)
     }
 
     /// Adds a voice to the instrument that owns `home_staff`, with that staff as its home, and
-    /// returns its ID. O(staves of the document) to find the instrument.
+    /// returns its ID. O(staves of the document) to find the instrument, O(bars) for the empty
+    /// chunks.
     ///
     /// Only the staff is asked for: staff IDs are unique in the whole document, so the staff names
     /// its instrument too, and a voice can never be given the staff of another instrument.
@@ -582,6 +1080,7 @@ impl DocumentBuilder {
             .iter()
             .position(|t| t.instrument.staff(home_staff).is_some())
             .ok_or(DocumentError::UnknownStaff(home_staff))?;
+        let bars = self.doc.bars.len();
         let track = self
             .doc
             .tracks
@@ -592,7 +1091,278 @@ impl DocumentBuilder {
             return Err(DocumentError::TooManyVoices);
         }
         let id = VoiceId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
-        track.instrument.voices.push(Voice { id, home_staff });
+        track.instrument.voices.push(Voice {
+            id,
+            home_staff,
+            content: VoiceContent::with_bars(bars),
+        });
+        Ok(id)
+    }
+
+    /// Adds a tuplet to a voice, nested in `parent` (a tuplet of the same voice) or at top level,
+    /// and returns its ID (ADR-0024 §3). Its members are the events later placed in it. O(voices)
+    /// to find the voice, O(depth) to check the nesting.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownVoice`]; [`DocumentError::UnknownTuplet`] if the parent is not a
+    /// tuplet of this voice; [`DocumentError::TupletTooDeep`] beyond [`MAX_TUPLET_DEPTH`];
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_tuplet(
+        &mut self,
+        voice: VoiceId,
+        tuplet: Tuplet,
+        parent: Option<TupletId>,
+    ) -> Result<TupletId, DocumentError> {
+        let (t, v) = self.voice_position(voice)?;
+        let content = &self.voice_mut(t, v, voice)?.content;
+        if let Some(p) = parent {
+            if !content.tuplets.contains_key(&p) {
+                return Err(DocumentError::UnknownTuplet(p));
+            }
+            if content.depth_of(p) >= MAX_TUPLET_DEPTH {
+                return Err(DocumentError::TupletTooDeep);
+            }
+        }
+        let id = TupletId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let mut tuplet = tuplet;
+        tuplet.set_parent(parent);
+        self.voice_mut(t, v, voice)?
+            .content
+            .tuplets
+            .insert(id, tuplet);
+        Ok(id)
+    }
+
+    /// Adds a chord (a single note is a chord of one pitch) and returns its IDs (ADR-0024 §1).
+    ///
+    /// The noteheads are sorted by sounding pitch inside the chord; the returned note IDs follow
+    /// the order of `pitches`. O(voices) to find the voice, O(n log n) for n noteheads, O(k) to
+    /// insert into the chunk; one allocation for a chord of two or more noteheads.
+    ///
+    /// # Errors
+    /// [`DocumentError::EmptyChord`]; the placement errors of [`Placement`] (unknown voice, bar or
+    /// tuplet, a staff of another instrument, a negative offset); [`DocumentError::Pitch`] if a
+    /// sounding pitch overflows; [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_chord(
+        &mut self,
+        at: Placement,
+        value: NoteValue,
+        pitches: &[Pitch],
+    ) -> Result<ChordIds, DocumentError> {
+        if pitches.is_empty() {
+            return Err(DocumentError::EmptyChord);
+        }
+        let resolved = self.resolve(&at)?;
+        // The sort key of every notehead, computed before any ID is taken because it can fail:
+        // the exact sounding pitch, then the letter's place on the staff (F♯ before G♭).
+        let keys = pitches
+            .iter()
+            .map(|p| Ok((p.sounding()?, p.diatonic_index())))
+            .collect::<Result<Vec<(Rational, i64)>, PitchError>>()?;
+        let needed = u64::try_from(pitches.len())
+            .ok()
+            .and_then(|n| n.checked_add(1))
+            .ok_or(DocumentError::IdsExhausted)?;
+        if !self.doc.ids.has_room_for(needed) {
+            return Err(DocumentError::IdsExhausted);
+        }
+
+        let ids = &mut self.doc.ids;
+        let event_id = EventId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let note_ids = pitches
+            .iter()
+            .map(|_| ids.next().map(NoteId::from_counter))
+            .collect::<Option<Vec<NoteId>>>()
+            .ok_or(DocumentError::IdsExhausted)?;
+        // Pair each key with its notehead, then sort; `sort_by_key` is stable, so two noteheads with
+        // the same sound and letter (a doubled unison) keep the given order.
+        let mut keyed: Vec<((Rational, i64), Note)> = keys
+            .into_iter()
+            .zip(pitches.iter().zip(&note_ids))
+            .map(|(key, (&pitch, &id))| (key, Note::new(id, pitch)))
+            .collect();
+        keyed.sort_by_key(|k| k.0);
+        let mut sorted = keyed.into_iter().map(|(_, note)| note);
+        let lowest = sorted.next().ok_or(DocumentError::EmptyChord)?;
+        let upper: Box<[Note]> = sorted.collect();
+
+        let chord = Chord::from_sorted(value, at.tuplet, lowest, upper);
+        self.place(
+            &at,
+            &resolved,
+            Event::new(event_id, resolved.staff, EventBody::Chord(chord)),
+        )?;
+        for &note in &note_ids {
+            self.doc.notes.insert(note, event_id);
+        }
+        Ok(ChordIds {
+            event: event_id,
+            notes: note_ids,
+        })
+    }
+
+    /// Adds a rest and returns its event's ID (ADR-0024 §1–§2). Costs as
+    /// [`add_chord`](Self::add_chord) without the noteheads.
+    ///
+    /// # Errors
+    /// [`DocumentError::WholeBarRestInTuplet`]; the placement errors of [`Placement`];
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_rest(&mut self, at: Placement, value: RestValue) -> Result<EventId, DocumentError> {
+        if matches!(value, RestValue::WholeBar) && at.tuplet.is_some() {
+            return Err(DocumentError::WholeBarRestInTuplet);
+        }
+        let resolved = self.resolve(&at)?;
+        let id = EventId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let rest = Rest::new(value, at.tuplet);
+        self.place(
+            &at,
+            &resolved,
+            Event::new(id, resolved.staff, EventBody::Rest(rest)),
+        )?;
+        Ok(id)
+    }
+
+    /// Sets the tie that starts from a notehead (ADR-0024 §4). Whether the target is legal (same
+    /// instrument, same sound, later) is checked by [`build`](Self::build), which sees the whole
+    /// document. O(1) average + O(voices) + O(k).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownNote`] for either notehead, [`DocumentError::TieToItself`]. The
+    /// builder is unchanged on error.
+    pub fn set_tie(&mut self, note: NoteId, tie: Tie) -> Result<(), DocumentError> {
+        if let Tie::To(target) = tie {
+            if target == note {
+                return Err(DocumentError::TieToItself);
+            }
+            if !self.doc.notes.contains_key(&target) {
+                return Err(DocumentError::UnknownNote(target));
+            }
+        }
+        let event = *self
+            .doc
+            .notes
+            .get(&note)
+            .ok_or(DocumentError::UnknownNote(note))?;
+        let location = *self
+            .doc
+            .events
+            .get(&event)
+            .ok_or(DocumentError::UnknownEvent(event))?;
+        let chunk = self.chunk_mut(location)?;
+        let placed = chunk
+            .get_mut(event)
+            .ok_or(DocumentError::UnknownEvent(event))?;
+        match placed.event_mut().body_mut() {
+            EventBody::Chord(chord) => {
+                chord
+                    .note_mut(note)
+                    .ok_or(DocumentError::UnknownNote(note))?
+                    .set_tie(tie);
+                Ok(())
+            }
+            // A notehead always belongs to a chord: the index never points at a rest.
+            EventBody::Rest(_) => Err(DocumentError::UnknownNote(note)),
+        }
+    }
+
+    /// Adds a clef change on a staff at (bar, offset) and returns its ID (ADR-0024 §9). O(staves)
+    /// + O(c).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownStaff`], [`DocumentError::UnknownBar`],
+    /// [`DocumentError::NegativeOffset`], [`DocumentError::DuplicateMark`] (another change at the
+    /// point, or the very start, where the initial clef is), [`DocumentError::IdsExhausted`]. The
+    /// builder is unchanged on error.
+    pub fn add_clef_change(
+        &mut self,
+        staff: StaffId,
+        bar: BarId,
+        offset: Duration,
+        clef: Clef,
+    ) -> Result<ClefId, DocumentError> {
+        let index = self.check_point(bar, offset)?;
+        if index == BarIndex::FIRST && offset.is_zero() {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let Document {
+            ids, bars, tracks, ..
+        } = &mut self.doc;
+        let target = tracks
+            .iter_mut()
+            .flat_map(|t| t.instrument.staves.iter_mut())
+            .find(|s| s.id == staff)
+            .ok_or(DocumentError::UnknownStaff(staff))?;
+        if target.clef_changes.has_mark_at(bars, index, offset) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = ClefId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        target
+            .clef_changes
+            .insert(Mark::new(id, bar, offset, clef), bars)?;
+        Ok(id)
+    }
+
+    /// Adds a key change of the whole score at (bar, offset), at concert pitch, and returns its ID
+    /// (ADR-0024 §9, K1). O(k).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`], [`DocumentError::NegativeOffset`],
+    /// [`DocumentError::DuplicateMark`] (another change at the point, or the very start),
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_key_change(
+        &mut self,
+        bar: BarId,
+        offset: Duration,
+        key: Key,
+    ) -> Result<KeyChangeId, DocumentError> {
+        let index = self.check_point(bar, offset)?;
+        let Document {
+            ids,
+            bars,
+            key_changes,
+            ..
+        } = &mut self.doc;
+        if (index == BarIndex::FIRST && offset.is_zero())
+            || key_changes.has_mark_at(bars, index, offset)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = KeyChangeId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        key_changes.insert(Mark::new(id, bar, offset, key), bars)?;
+        Ok(id)
+    }
+
+    /// Adds an override of an instrument's key from (bar, offset) on, and returns its ID
+    /// (ADR-0024 §9, K1). Unlike the other changes it may sit at the very start: an instrument
+    /// written without signature overrides from bar 0. O(tracks) + O(o).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownInstrument`], [`DocumentError::UnknownBar`],
+    /// [`DocumentError::NegativeOffset`], [`DocumentError::DuplicateMark`],
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_key_override(
+        &mut self,
+        instrument: InstrumentId,
+        bar: BarId,
+        offset: Duration,
+        key_override: KeyOverride,
+    ) -> Result<KeyChangeId, DocumentError> {
+        let index = self.check_point(bar, offset)?;
+        let Document {
+            ids, bars, tracks, ..
+        } = &mut self.doc;
+        let target = tracks
+            .iter_mut()
+            .map(|t| &mut t.instrument)
+            .find(|i| i.id == instrument)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?;
+        if target.key_overrides.has_mark_at(bars, index, offset) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = KeyChangeId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        target
+            .key_overrides
+            .insert(Mark::new(id, bar, offset, key_override), bars)?;
         Ok(id)
     }
 
@@ -602,10 +1372,120 @@ impl DocumentBuilder {
         &self.doc
     }
 
-    /// Finishes the document. O(1).
-    #[must_use]
-    pub fn build(self) -> Document {
+    /// Finishes the document after checking it with [`Document::validate`] (owner's decision of
+    /// 2026-11-02: no invalid document can exist). O(n log m) for n events and m meter changes.
+    ///
+    /// # Errors
+    /// [`DocumentError::Invalid`] with the first rule broken, or the arithmetic errors of the
+    /// check (absurd meters only).
+    pub fn build(self) -> Result<Document, DocumentError> {
+        self.doc.validate()?;
+        Ok(self.doc)
+    }
+
+    /// Checks a (bar, offset) point for a mark: the bar exists and the offset is not negative.
+    /// Returns the bar's index. O(1) average.
+    fn check_point(&self, bar: BarId, offset: Duration) -> Result<BarIndex, DocumentError> {
+        let index = self.doc.bar_index(bar)?;
+        if offset.is_negative() {
+            return Err(DocumentError::NegativeOffset);
+        }
+        Ok(index)
+    }
+
+    /// The positions of a voice: its track in the document, itself in its instrument. O(voices).
+    fn voice_position(&self, voice: VoiceId) -> Result<(usize, usize), DocumentError> {
         self.doc
+            .tracks
+            .iter()
+            .enumerate()
+            .find_map(|(t, track)| {
+                track
+                    .instrument
+                    .voices
+                    .iter()
+                    .position(|v| v.id == voice)
+                    .map(|v| (t, v))
+            })
+            .ok_or(DocumentError::UnknownVoice(voice))
+    }
+
+    /// The voice at these positions, mutably. O(1).
+    fn voice_mut(&mut self, t: usize, v: usize, id: VoiceId) -> Result<&mut Voice, DocumentError> {
+        self.doc
+            .tracks
+            .get_mut(t)
+            .and_then(|track| track.instrument.voices.get_mut(v))
+            .ok_or(DocumentError::UnknownVoice(id))
+    }
+
+    /// The chunk at an event location, mutably. O(voices) + O(1).
+    fn chunk_mut(&mut self, location: EventLocation) -> Result<&mut Chunk, DocumentError> {
+        let index = self.doc.bar_index(location.bar)?;
+        let (t, v) = self.voice_position(location.voice)?;
+        let chunk = usize::try_from(index.get()).map_err(|_| DocumentError::TooManyBars)?;
+        self.voice_mut(t, v, location.voice)?
+            .content
+            .chunks
+            .get_mut(chunk)
+            .ok_or(DocumentError::UnknownBar(location.bar))
+    }
+
+    /// Checks a placement without changing anything: the voice and bar exist, the offset is not
+    /// negative, the staff belongs to the voice's instrument, the tuplet to the voice.
+    /// O(voices) + O(staves).
+    fn resolve(&self, at: &Placement) -> Result<Resolved, DocumentError> {
+        let index = self.check_point(at.bar, at.offset)?;
+        let (t, v) = self.voice_position(at.voice)?;
+        let track = self
+            .doc
+            .tracks
+            .get(t)
+            .ok_or(DocumentError::UnknownVoice(at.voice))?;
+        let voice = track
+            .instrument
+            .voices
+            .get(v)
+            .ok_or(DocumentError::UnknownVoice(at.voice))?;
+        let staff = at.staff.unwrap_or(voice.home_staff);
+        if track.instrument.staff(staff).is_none() {
+            return Err(DocumentError::StaffOfAnotherInstrument(staff));
+        }
+        if let Some(tuplet) = at.tuplet
+            && !voice.content.tuplets.contains_key(&tuplet)
+        {
+            return Err(DocumentError::UnknownTuplet(tuplet));
+        }
+        Ok(Resolved {
+            track: t,
+            voice: v,
+            chunk: usize::try_from(index.get()).map_err(|_| DocumentError::TooManyBars)?,
+            staff,
+        })
+    }
+
+    /// Inserts a resolved event into its chunk and the event index. O(k).
+    fn place(
+        &mut self,
+        at: &Placement,
+        resolved: &Resolved,
+        event: Event,
+    ) -> Result<(), DocumentError> {
+        let id = event.id();
+        self.voice_mut(resolved.track, resolved.voice, at.voice)?
+            .content
+            .chunks
+            .get_mut(resolved.chunk)
+            .ok_or(DocumentError::UnknownBar(at.bar))?
+            .insert(PlacedEvent::new(at.offset, event));
+        self.doc.events.insert(
+            id,
+            EventLocation {
+                voice: at.voice,
+                bar: at.bar,
+            },
+        );
+        Ok(())
     }
 }
 
@@ -613,16 +1493,21 @@ impl DocumentBuilder {
 mod tests {
     use std::num::NonZeroU64;
 
-    use orchestra_core_time::{Duration, Meter, MeterChange, Rational, Tempo};
+    use orchestra_core_time::{Meter, MeterChange, Tempo};
 
     use super::*;
+    use crate::pitch::Mode;
 
-    /// An empty builder in 4/4 at ♩ = 120.
+    /// An empty builder in 4/4 at ♩ = 120, in C major.
     fn builder() -> DocumentBuilder {
         let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
         let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
         let tempo = Tempo::new(quarter, Rational::from_integer(120).unwrap()).unwrap();
-        DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap())
+        DocumentBuilder::new(
+            meters,
+            TempoMap::new(tempo).unwrap(),
+            Key::traditional(0, Mode::Major).unwrap(),
+        )
     }
 
     /// With the counter near its end, an instrument that does not fit is refused without consuming
@@ -635,16 +1520,48 @@ mod tests {
         let unison = Interval::new(0, Rational::ZERO);
         let before = b.doc.clone();
         assert_eq!(
-            b.add_instrument_track("Organ", unison, 3),
+            b.add_instrument_track("Organ", unison, &[Clef::TREBLE, Clef::BASS, Clef::BASS]),
             Err(DocumentError::IdsExhausted)
         );
         assert_eq!(b.doc, before);
-        let piano = b.add_instrument_track("Piano", unison, 2).unwrap();
+        let piano = b
+            .add_instrument_track("Piano", unison, &[Clef::TREBLE, Clef::BASS])
+            .unwrap();
         assert_eq!(piano.get(), u64::MAX - 5);
         let staff = b.doc.tracks[0].instrument.staves[0].id;
         let before = b.doc.clone();
         assert_eq!(b.add_voice(staff), Err(DocumentError::IdsExhausted));
         assert_eq!(b.add_bar(), Err(DocumentError::IdsExhausted));
         assert_eq!(b.doc, before);
+    }
+
+    /// A chord that needs more IDs than are left is refused before anything is created.
+    #[test]
+    fn chord_exhaustion_leaves_the_builder_unchanged() {
+        let mut b = builder();
+        let bar = b.add_bar().unwrap();
+        let unison = Interval::new(0, Rational::ZERO);
+        b.add_instrument_track("Flute", unison, &[Clef::TREBLE])
+            .unwrap();
+        let voice = b.doc.tracks[0].instrument.voices[0].id;
+        // Room for exactly two IDs: a chord of two noteheads needs three.
+        b.doc.ids = IdCounter::starting_at(NonZeroU64::new(u64::MAX - 1).unwrap());
+        let c4 = Pitch::new(crate::Step::C, crate::Alteration::NATURAL, 4);
+        let e4 = Pitch::new(crate::Step::E, crate::Alteration::NATURAL, 4);
+        let before = b.doc.clone();
+        let quarter = NoteValue::plain(crate::BaseValue::Quarter);
+        assert_eq!(
+            b.add_chord(
+                Placement::new(voice, bar, Duration::ZERO),
+                quarter,
+                &[c4, e4]
+            ),
+            Err(DocumentError::IdsExhausted)
+        );
+        assert_eq!(b.doc, before);
+        assert!(
+            b.add_chord(Placement::new(voice, bar, Duration::ZERO), quarter, &[c4])
+                .is_ok()
+        );
     }
 }

@@ -752,8 +752,9 @@ L'unico documento di progetto (ADR-0003): tracce, note con i loro due strati (in
 scostamenti di esecuzione, ADR-0004), la forma del brano, i comandi e l'unica cronologia di
 annulla/ripristina. Non sa nulla di viste, impaginazione, audio o file. La sua architettura (ID
 stabili, eventi come scostamenti relativi alla battuta in blocchi per battuta, voci per strumento)
-è fissata da ADR-0022; le parti implementate sono il modulo delle altezze e lo scheletro del
-documento.
+è fissata da ADR-0022; le parti implementate sono il modulo delle altezze, lo scheletro del
+documento e il contenuto delle voci (eventi, gruppi irregolari, legature di valore, chiavi e
+armature).
 
 #### Altezze, intervalli e tonalità
 
@@ -835,7 +836,8 @@ trasposizione ≈ 560, intervallo e qualità ≈ 800, grafia di un tasto MIDI �
 #### Lo scheletro del documento
 
 `src/id.rs` e `src/document.rs` (passo F1.08, ADR-0022 §1–3) contengono la **struttura** del
-documento, ancora senza note: quelle arrivano in F1.09, la forma in F1.10.
+documento; gli eventi dentro le voci sono descritti nella sezione seguente, la forma arriva in
+F1.10.
 
 **ID.** Ogni oggetto a cui qualcos'altro può fare riferimento ha un ID: `TrackId`, `InstrumentId`,
 `StaffId`, `VoiceId`, `BarId` (i passi successivi aggiungono eventi, teste di nota e marcature
@@ -867,18 +869,23 @@ serve per i documenti che non esistono ancora (il file che si apre, il generator
 riferimento, test e benchmark), mentre un documento esistente cambierà solo con i comandi di F1.11
 (ADR-0003 §4). Uno strumento nuovo riceve **una voce per rigo**, ognuna con il proprio rigo come
 rigo di riferimento; `add_voice` ne aggiunge altre su qualunque rigo dello stesso strumento. Non
-esistono metro o tempo predefiniti: li sceglie chi crea il documento.
+esistono metro, tempo o tonalità predefiniti: li sceglie chi crea il documento. Da F1.09b il
+builder riceve l'armatura iniziale (in suoni reali) e una chiave per rigo al posto del numero di
+righi, così non si può costruire un rigo senza chiave né una partitura senza armatura (decisione
+del proprietario, 2026-11-02), e `build` restituisce un `Result`.
 
 ```rust
-let mut builder = DocumentBuilder::new(meter_map, tempo_map);
+let c_major = Key::traditional(0, Mode::Major)?;
+let mut builder = DocumentBuilder::new(meter_map, tempo_map, c_major);
 for _ in 0..8 {
     builder.add_bar()?;
 }
-// A piano: two staves, so two voices, one at home on each staff.
-let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
+// A piano: two staves with their clefs, so two voices, one at home on each staff.
+let unison = Interval::new(0, Rational::ZERO);
+let piano = builder.add_instrument_track("Piano", unison, &[Clef::TREBLE, Clef::BASS])?;
 let upper = builder.document().track(piano).unwrap().instrument().staves()[0].id();
 builder.add_voice(upper)?; // a second line in the right hand
-let document = builder.build();
+let document = builder.build()?; // build() validates the document (next section)
 assert_eq!(document.bars().len(), 8);
 ```
 
@@ -913,6 +920,106 @@ stati tutti scoperti. `tests/document_no_alloc.rs` controlla che nessuna ricerca
 1 000 battute, 20 strumenti, 30 righi, 40 voci; lotti da 64, istruzioni per chiamata): `BarId` →
 indice ≈ 42, inizio della battuta ≈ 510 (indice più ricerca nella mappa delle misure tra 20
 segmenti), voce per ID con il suo strumento ≈ 280.
+
+#### Il contenuto delle voci
+
+`src/event.rs`, `src/content.rs`, `src/marks.rs` e `src/validate.rs` (passo F1.09b, ADR-0024
+§1–§4 e §9) riempiono le voci di musica. Le marcature (abbellimenti, articolazioni, legature di
+portamento, dinamiche, forcelle, indicazioni di tempo) e gli scostamenti di esecuzione arrivano in
+F1.09c.
+
+**Eventi.** Una voce ha un **blocco** per battuta, allineato all'elenco delle battute: un blocco è
+vuoto (`None`, nessuna memoria usata) oppure un `Arc` di un vettore di eventi ordinati per
+**offset** dall'inizio della battuta (gli eventi allo stesso offset restano nell'ordine in cui sono
+stati inseriti). L'`Arc` serve alle istantanee (ADR-0022 §7): chi legge in background condivide i
+blocchi, e una modifica copia solo il blocco che tocca. Un evento è un `Chord` (accordo) o un `Rest`
+(pausa), con il suo `EventId` e il rigo su cui è disegnato (di norma il rigo di riferimento della
+voce, qualunque rigo dello stesso strumento per le note che passano all'altro rigo). Un accordo ha
+una o più `Note`, ognuna con il suo `NoteId`, la sua altezza con grafia in suoni reali e la sua
+legatura di valore; le teste di nota restano ordinate per suono (Fa♯4 prima di Sol♭4, per lettera),
+e una nota singola non costa nessuna allocazione propria.
+
+**Figure.** Si salva la figura scritta: un `BaseValue` (dalla massima alla 1024ª) e fino a quattro
+punti. La lunghezza in semibrevi è **ricavata**, mai salvata: `NoteValue::length` la costruisce con
+degli scorrimenti di bit, `Voice::metric_duration` moltiplica il rapporto di ogni gruppo irregolare
+che contiene l'evento. Salvare anche il numero vorrebbe dire due copie dello stesso fatto
+(ADR-0003). Una **pausa di battuta intera** (`RestValue::WholeBar`) dura quanto dura la sua battuta
+nella mappa delle misure, levare comprese, così un cambio di metro non può renderla sbagliata.
+
+**Gruppi irregolari.** `Tuplet::new(3, 2, croma)` vuol dire "tre crome nel tempo di due". I gruppi
+irregolari stanno in una tabella della loro voce, e ogni evento registra il gruppo più interno che
+lo contiene; `parent` fa dell'annidamento una catena di al massimo quattro (con termini fino a 255
+nulla può traboccare). Un gruppo irregolare può attraversare una stanghetta: la nota che starebbe a
+cavallo diventa due note legate, entrambe del gruppo. Un gruppo incompleto è uno stato valido
+(capita mentre si scrive).
+
+**Legature di valore.** Una legatura di valore è un collegamento salvato sulla testa di nota da cui
+parte: `Tie::To(nota)`, oppure `Tie::LetRing` per un laissez-vibrer. La nota di arrivo può stare in
+un'altra voce dello stesso strumento e avere un'altra grafia, purché suoni uguale e venga dopo.
+
+**Chiavi e armature.** Non possono essere eventi di una voce: un rigo porta più voci, e una voce può
+passare da un rigo all'altro. Ogni rigo ha la sua chiave iniziale e un elenco di cambi di chiave a
+(battuta, offset); il documento ha la sua armatura iniziale (in suoni reali) e un elenco di cambi;
+uno strumento può scostarsi dall'armatura da un punto in poi (`KeyOverride`: un'altra armatura,
+"nessuna armatura" per i corni scritti senza, oppure di nuovo quella della partitura). `clef_at`,
+`key_at`, `instrument_key_at` e `written_key_at` rispondono con una ricerca binaria; l'armatura
+scritta di uno strumento traspositore si ricava dalla sua trasposizione (un clarinetto in Si♭ in Do
+maggiore mostra Re maggiore).
+
+```rust
+// A triplet of eighths on beat 1, then a dotted quarter from 5/8 to the barline, tied to an
+// eighth at the start of the next bar.
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let triplet = builder.add_tuplet(voice, Tuplet::new(3, 2, eighth)?, None)?;
+let g4 = Pitch::new(Step::G, Alteration::NATURAL, 4);
+for i in 0..3 {
+    // Offsets 0, 1/12 and 2/12 of a whole note.
+    let offset = Duration::from_rational(Rational::new(i, 12)?);
+    builder.add_chord(Placement::new(voice, bar0, offset).in_tuplet(triplet), eighth, &[g4])?;
+}
+let dotted_quarter = NoteValue::new(BaseValue::Quarter, 1)?;
+let five_eighths = Duration::from_rational(Rational::new(5, 8)?);
+let long = builder.add_chord(Placement::new(voice, bar0, five_eighths), dotted_quarter, &[g4])?;
+let next = builder.add_chord(Placement::new(voice, bar1, Duration::ZERO), eighth, &[g4])?;
+builder.set_tie(long.notes[0], Tie::To(next.notes[0]))?;
+let document = builder.build()?;
+// Derived, never stored: a dotted quarter lasts 3/8.
+assert_eq!(document.metric_duration(long.event)?, Duration::from_rational(Rational::new(3, 8)?));
+```
+
+**Cosa controlla `build`.** Ogni metodo del builder controlla ciò che vede localmente prima di
+creare qualcosa (battuta, voce, rigo e gruppo irregolare esistono e stanno insieme, gli offset non
+sono negativi, l'annidamento è di al massimo quattro livelli). `Document::validate`, che `build`
+esegue, controlla le regole che chiedono di più: due eventi di una voce non si sovrappongono dentro
+una battuta (i vuoti vanno bene, e una battuta **troppo piena** resta valida: le sue ultime note
+vanno semplicemente oltre la stanghetta), una pausa di battuta intera è da sola, e ogni legatura di
+valore va allo stesso suono, più avanti, nello stesso strumento. La prima violazione torna come
+`Violation` tipizzata, con l'evento o la testa di nota.
+
+**Ricerche.** Un indice ricavato da `EventId` e `NoteId` a (voce, battuta) trova qualunque evento o
+testa di nota: una ricerca hash, lo scorrimento delle voci, lo scorrimento di un blocco.
+`events(voce, battuta)` dà un blocco, `metric_duration` ed `event_position` il tempo ricavato di un
+evento. Nessuna di queste alloca.
+
+**Test.** `tests/voice_cases.rs` ha 16 casi scritti a mano, uno per ciascun caso di ADR-0024 §13 di
+questo passo (accordo enarmonico, gruppi irregolari annidati con 1/12 e 1/30, gruppo incompleto,
+gruppo a cavallo della stanghetta con la nota divisa e legata, battuta troppo piena, pausa di
+battuta intera dopo una levare e un cambio di metro, legature di valore ammesse e vietate, cambi di
+chiave a metà battuta, armature di un clarinetto in Si♭, di un corno senza armatura e di un violino
+con un'eccezione, note sull'altro rigo, errori di posizionamento). `tests/voice_oracle.rs` confronta
+voci casuali con gruppi irregolari annidati casuali con un oracolo che ha le sue frazioni `i128`:
+ogni durata, e se `build` riesce o quale violazione riporta; un'altra proprietà confronta
+`clef_at` con uno scorrimento lineare. Sei bug iniettati apposta (lunghezza sbagliata con due
+punti, gruppo genitore ignorato, sovrapposizione con `<=`, ricerca della chiave sbagliata di un
+punto, eventi allo stesso offset inseriti nell'ordine sbagliato, regola della pausa di battuta
+allentata) sono stati tutti scoperti; quello dell'ordine di inserimento solo dall'oracolo.
+`tests/voice_no_alloc.rs` controlla che nessuna ricerca allochi e che `validate` faccia una sola
+allocazione.
+
+**Benchmark** (`benches/voice.rs`, 200 battute × 10 voci, 10 000 eventi con terzine e accordi di
+due note; istruzioni per chiamata): durata mentre si percorre un sistema ≈ 320, durata per ID
+dell'evento ≈ 625, evento per ID ≈ 200, `clef_at` ≈ 470, `written_key_at` ≈ 555; `validate`
+dell'intera partitura ≈ 5,5 milioni (≈ 550 per evento, circa 2 ms).
 
 ### orchestra-playback
 
