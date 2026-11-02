@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.14, approvata dal proprietario il 2026-11-01.**
+> **Stato di questo documento: v0.15, approvata dal proprietario il 2026-11-02.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -240,7 +240,7 @@ Dettagli:
 |---|---|---|---|
 | F1.06 | **ADR: architettura del modello** — identità degli oggetti, struttura in memoria, come sono organizzate voci e tracce | ✅ | 2 |
 | F1.07 | **Altezza con grafia, intervalli, trasposizione** (tipi puri, molto testati) | ✅ | 1–2 |
-| F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ⬜ | 2 |
+| F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ✅ PR #16 | 2 |
 | F1.09 | **Note a due strati** (ADR-0004): intento scritto + scostamenti; gruppi irregolari, legature di valore, abbellimenti, articolazioni, dinamiche e forcelle | ⬜ | 3–4 |
 | F1.10 | **Forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ⬜ | 1–2 |
 | F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
@@ -270,11 +270,17 @@ Dettagli:
 - **F1.08** Implementa ADR-0022 §1–3: contatore unico e ID tipizzati, tracce → strumento → righi
   e voci (le voci appartengono allo strumento, ogni evento ha il suo rigo), elenco delle battute
   con `BarId`.
+  **Fatto il 2026-11-02 (PR #16).** Decisioni del proprietario dello stesso giorno: i documenti
+  nuovi si creano con un `DocumentBuilder` pubblico (file, generatore, test, benchmark), mentre un
+  documento esistente cambierà solo con i comandi di F1.11 (ADR-0003 §4); chiave e armatura vanno
+  in F1.09; uno strumento nuovo ha una voce per rigo; al massimo 16 righi e 256 voci per strumento
+  (limiti tecnici contro i file corrotti, non musicali).
 - **F1.09** Tutti i "casi difficili" della tabella di ADR-0004 devono avere un test.
   Gli scostamenti sono **delta**, mai copie assolute. Vincoli di ADR-0022 §4 e §6: blocchi per
   battuta con offset, un ID per ogni testa di nota, la battuta troppo piena è uno stato valido,
   le note che attraversano una stanghetta diventano catene di note legate, marcature estese legate
-  alle note oppure a (battuta, offset).
+  alle note oppure a (battuta, offset). Da F1.08: la **chiave** iniziale di ogni rigo e i cambi di
+  chiave e di armatura.
 - **F1.11** Ogni comando reversibile; raggruppamento (una "transazione" = un passo di undo,
   es. incollare 200 note); notifiche che dicono **cosa** è cambiato, per l'aggiornamento
   incrementale di layout e playback (ADR-0003 §6, ADR-0007). Test di proprietà: per ogni
@@ -313,7 +319,10 @@ Dettagli:
   media. Criteri ADR-0010: robustezza, tempo di caricamento, confrontabilità, dimensione,
   facilità di migrazione, percorsi multipiattaforma. Rifiuto dei file "più nuovi" con errore
   tipizzato; politica sui campi sconosciuti. ❓ **Decisioni:** formato, contenitore, uso di
-  `serde` (dipendenza da valutare), estensione del file (`.orchestra`? ❓).
+  `serde` (dipendenza da valutare), estensione del file (`.orchestra`? ❓). Da F1.08: un tetto al
+  numero di tracce all'apertura di un file (righi e voci ce l'hanno già), e se rifiutare i cambi di
+  metro e di tempo oltre l'ultima battuta (oggi nessuno lo controlla; vale anche per i comandi di
+  F1.11).
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
   layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
   deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
@@ -561,3 +570,4 @@ raccomandato.
 | 2026-11-01 | 0.12 | F1.05b fatto (PR #13): indici esatti di campione e di fotogramma, nessun ripiego misurato; F1-A completata | proprietario |
 | 2026-11-01 | 0.13 | F1.06 fatto (ADR-0022 Accepted), D06 chiusa; nuova D21 (comportamento del cambio di metro) per F1.11; vincoli di ADR-0022 annotati in F1.08, F1.09, F1.11, F1.16 | proprietario |
 | 2026-11-01 | 0.14 | F1.07 fatto (ADR-0023 Accepted), D07 chiusa; nuova D22 (intonazione) per F1.13; armature non tradizionali da ricordare nel filone MusicXML, grafia dal contesto nel filone importazione MIDI, note di ADR-0023 in F2B | proprietario |
+| 2026-11-02 | 0.15 | F1.08 fatto (PR #16): builder pubblico, una voce per rigo, tetti di 16 righi e 256 voci per strumento; chiave e armatura spostate in F1.09; tetto delle tracce e cambi oltre l'ultima battuta annotati in F1.15 | proprietario |

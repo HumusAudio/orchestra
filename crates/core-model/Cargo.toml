@@ -26,5 +26,11 @@ gungraun.workspace = true
 name = "pitch"
 harness = false
 
+# Instruction-count benchmarks of the skeleton lookups every event access goes through (bar ID →
+# index and start position, voice by ID; SCALETTA F1.08, ADR-0022).
+[[bench]]
+name = "document"
+harness = false
+
 [lints]
 workspace = true

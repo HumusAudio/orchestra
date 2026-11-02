@@ -25,6 +25,11 @@
 //!   in semitones, scientific octave), the exact sounding pitch and the [`MidiNote`] it maps to,
 //!   [`Interval`] with its derived [`Quality`], traditional key signatures ([`Key`],
 //!   [`TraditionalKey`], [`Mode`]), the spelling of a MIDI key in a key, and transposition.
+//! - [`id`] and [`document`] (SCALETTA F1.08, ADR-0022 §1–3): the typed IDs from one counter per
+//!   document, and the skeleton of the [`Document`] — tracks, one [`Instrument`] per track with its
+//!   [`Staff`]s and [`Voice`]s (voices belong to the instrument and have a home staff), the
+//!   [`BarList`] of [`BarId`]s next to the shared meter and tempo maps — created with a
+//!   [`DocumentBuilder`].
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -42,8 +47,15 @@
 // out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
 #![deny(clippy::indexing_slicing)]
 
+pub mod document;
+pub mod id;
 pub mod pitch;
 
+pub use document::{
+    BarList, Document, DocumentBuilder, DocumentError, Instrument, MAX_STAVES_PER_INSTRUMENT,
+    MAX_VOICES_PER_INSTRUMENT, Staff, Track, Voice,
+};
+pub use id::{BarId, InstrumentId, StaffId, TrackId, VoiceId};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };

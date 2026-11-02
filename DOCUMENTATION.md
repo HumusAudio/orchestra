@@ -712,7 +712,7 @@ The one project document (ADR-0003): tracks, notes with their two layers (writte
 performance offsets, ADR-0004), the form of the piece, commands and the single undo/redo history.
 It knows nothing about views, layout, audio or files. Its architecture (stable IDs, events as
 bar-relative offsets in per-bar chunks, voices per instrument) is fixed by ADR-0022; the first
-part implemented is the pitch module.
+parts implemented are the pitch module and the skeleton of the document.
 
 #### Pitch, intervals and keys
 
@@ -786,6 +786,87 @@ bugs were caught; one of them (a wrong Lydian tonic) only after the tonic oracle
 **Benchmarks** (`benches/pitch.rs`, batches of 64, instructions per call): MIDI conversion ≈ 155 on a
 mix with one quarter tone in eight (≈ 650 before the chromatic fast path), transposition ≈ 560,
 interval and quality ≈ 800, spelling a MIDI key ≈ 100.
+
+#### The document skeleton
+
+`src/id.rs` and `src/document.rs` (step F1.08, ADR-0022 §1–3) hold the **structure** of the
+document, still without notes: these arrive in F1.09, the form in F1.10.
+
+**IDs.** Every object that something else can point to has an ID: `TrackId`, `InstrumentId`,
+`StaffId`, `VoiceId`, `BarId` (later steps add events, noteheads and spanners). They are distinct
+types, so the compiler rejects a staff where a voice is expected, but underneath they are all
+`u64` values from **one counter per document** that starts at 1 and only grows. An ID is never
+handed out twice, not even after an undo, so selections, caches and redo steps can never confuse
+two objects. The value is a `NonZeroU64`: 0 is never an ID, so an `Option<BarId>` takes 8 bytes
+and not 16. Running out of IDs (impossible in practice: a billion objects per second for 584
+years) is a typed error, never a wrap-around.
+
+**Structure.** Document → tracks (only instrument tracks for now) → one `Instrument` per track,
+with the name the user gave it (their own text, not a translation key), its transposition (the
+written-to-sounding interval of ADR-0023 §7) and its **staves** (a staff is the whole set of lines
+the notes are written on) and **voices**. A voice belongs to the instrument, not to a staff: it
+has a *home staff*, and from F1.09 each note records the staff it is drawn on, so a melody moving
+from the right hand to the left hand of a piano stays one voice.
+
+**Bars.** The `BarList` is the ordered list of `BarId`s: it says which bar is which and how many
+there are, and nothing else. Bar lengths, meters and numbers stay in the meter map, which the
+document holds next to the tempo map: repeating them here would be the duplication ADR-0003
+forbids. What is attached to a bar (from F1.09 the notes) is keyed by `BarId`, so inserting a bar
+will move nothing else. An inverse index (`BarId` → position) answers in O(1) on average, with our
+own hasher: one multiplication by 2⁶⁴/φ instead of the standard `SipHash`, which defends against
+keys chosen by an attacker, while our keys come from our own counter.
+
+**How a document is created.** With a `DocumentBuilder` (owner's decision, 2026-11-02): it is for
+documents that do not exist yet (the file being opened, the reference score generator, tests and
+benchmarks), while an existing document will change only through the commands of F1.11
+(ADR-0003 §4). A new instrument gets **one voice per staff**, each at home on its own staff;
+`add_voice` adds more on any staff of the same instrument. There is no default meter or tempo: they
+are the caller's choice.
+
+```rust
+let mut builder = DocumentBuilder::new(meter_map, tempo_map);
+for _ in 0..8 {
+    builder.add_bar()?;
+}
+// A piano: two staves, so two voices, one at home on each staff.
+let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
+let upper = builder.document().track(piano).unwrap().instrument().staves()[0].id();
+builder.add_voice(upper)?; // a second line in the right hand
+let document = builder.build();
+assert_eq!(document.bars().len(), 8);
+```
+
+The builder takes the IDs in a documented order (a bar one; an instrument track the track's, the
+instrument's, one per staff, one per voice), so the same calls always give the same document, IDs
+included. Every method checks everything **before** creating anything: an error leaves the builder
+as it was and consumes no ID.
+
+**Limits** (owner's decision, 2026-11-02): at most **16 staves** and **256 voices** per instrument.
+They are not musical limits (the interface may still offer four voices per staff, or any other
+number) but technical ones: no real score gets close, and they stop a corrupt or malicious file
+from asking for millions of voices when it is opened. Raising them changes a constant, not the file
+format.
+
+**Lookups.** Bars are many, so they have the hash index; tracks, staves and voices are few (a few
+hundred in a large orchestral score) and are found by a linear scan, which is cheaper than keeping
+another index up to date. The index from ID to location that ADR-0022 §1 describes is for events,
+which are hundreds of thousands (F1.09).
+
+**Tests.** `tests/document_cases.rs` has 12 hand-written cases (IDs in sequence across kinds, one
+voice per staff, extra voices, transposing instruments, bar starts after a pickup, the limits at 16
+and 256 with nothing consumed on refusal, unknown staves and bars, determinism, error texts);
+`src/id.rs` and `src/document.rs` test the exhaustion of the counter from the inside.
+`tests/document_oracle.rs` applies random sequences of builder calls to the library and to a naive
+oracle written in the test (a plain counter and vectors of numbers), comparing the whole document
+after every call, and checks that every ID is distinct and the bar index is the exact inverse of the
+list. Four injected bugs (voices on the wrong staff, the voice limit off by one, the counter room
+check removed, a wrong bar index) were all caught. `tests/document_no_alloc.rs` checks that no
+lookup allocates.
+
+**Benchmarks** (`benches/document.rs`, a skeleton the size of ADR-0022's heavy score: 1 000 bars,
+20 instruments, 30 staves, 40 voices; batches of 64, instructions per call): `BarId` → index ≈ 42,
+bar start ≈ 510 (index plus meter map search among 20 segments), voice by ID with its instrument ≈
+280.
 
 ### orchestra-playback
 

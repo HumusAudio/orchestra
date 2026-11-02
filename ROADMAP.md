@@ -128,7 +128,18 @@ injected bugs caught, one only after adding a tonic oracle), an allocation-free 
 transposition, 800 per interval and quality, 100 per spelling. SCALETTA v0.14 closes F1.07 and
 adds decision **D22** (in which step tuning is done). Errata: ADR-0022, ADR-0023 and a comment
 called the MusicXML import "F1.17", which is the phase close; the references now point to the
-MusicXML and MIDI import threads of SCALETTA §5. Next: **F1.08** (document skeleton).
+MusicXML and MIDI import threads of SCALETTA §5. Step **F1.08**
+(`feature/f1-08-document-skeleton`, 2026-11-02, PR #16): owner's decisions that day — documents are
+created with a public **`DocumentBuilder`** (an existing document will change only through F1.11's
+commands, ADR-0003 §4), clef and key signature go to F1.09, a new instrument gets **one voice per
+staff**, at most **16 staves and 256 voices per instrument** (technical limits against corrupt
+files, not musical ones). Implemented in `core-model`: `src/id.rs` (typed `NonZeroU64` IDs from one
+counter, typed error on exhaustion, multiplicative ID hasher) and `src/document.rs` (`Document` with
+the meter and tempo maps, `BarList` of `BarId`s with an inverse index, tracks → instrument → staves
+and voices with a home staff). Tests: 12 cases, exhaustion unit tests, a property test against a
+naive oracle (four injected bugs caught), allocation-free lookups; benchmarks ≈ 42 instructions per
+`BarId` → index, 510 per bar start, 280 per voice lookup. SCALETTA v0.15 closes F1.08 and moves clef
+and key signature to F1.09. Next: **F1.09** (two-layer notes).
 
 | Step | What | Status |
 |---|---|---|
@@ -200,6 +211,9 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
+- **For F1.11/F1.15 (from F1.08):** whether the model rejects meter map entries and tempo changes
+  beyond the last bar (today nothing checks it: the meter map covers infinitely many bars), and a
+  cap on the number of tracks when a file is loaded (staves and voices already have one).
 - **Possible tempo map optimisations, not urgent (F1.05b numbers):** `sample_at` at constant tempo
   (≈ 2300 instructions) costs more than `time_at` (≈ 900 on mixed points) because the exact time has
   large denominators (boundaries off the grid) and is then multiplied by the rate; computing in
