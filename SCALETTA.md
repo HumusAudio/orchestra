@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.15, approvata dal proprietario il 2026-11-02.**
+> **Stato di questo documento: v0.16, approvata dal proprietario il 2026-11-02.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -241,7 +241,9 @@ Dettagli:
 | F1.06 | **ADR: architettura del modello** — identità degli oggetti, struttura in memoria, come sono organizzate voci e tracce | ✅ | 2 |
 | F1.07 | **Altezza con grafia, intervalli, trasposizione** (tipi puri, molto testati) | ✅ | 1–2 |
 | F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ✅ PR #16 | 2 |
-| F1.09 | **Note a due strati** (ADR-0004): intento scritto + scostamenti; gruppi irregolari, legature di valore, abbellimenti, articolazioni, dinamiche e forcelle | ⬜ | 3–4 |
+| F1.09 | **ADR del contenuto di una voce** (note a due strati, ADR-0004) | ✅ ADR-0024 | 1 |
+| F1.09b | **Eventi, figure, gruppi irregolari, legature di valore, chiavi, armature**, `validate` | ⬜ | 2 |
+| F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ⬜ | 2 |
 | F1.10 | **Forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ⬜ | 1–2 |
 | F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
 
@@ -281,6 +283,19 @@ Dettagli:
   le note che attraversano una stanghetta diventano catene di note legate, marcature estese legate
   alle note oppure a (battuta, offset). Da F1.08: la **chiave** iniziale di ogni rigo e i cambi di
   chiave e di armatura.
+  **Fatto il 2026-11-02 (ADR-0024 Accepted):** il proprietario ha fissato l'ambito (corone e
+  ornamenti dentro, testo cantato in un passo suo) e ha approvato tutte le raccomandazioni C1–C9:
+  figura + punti salvati, durata ricavata; appartenenza ai gruppi irregolari sull'evento, al massimo
+  4 livelli e termini fino a 255; gruppi irregolari a cavallo della stanghetta ammessi; legature di
+  valore come collegamento in avanti; abbellimenti a durata metrica zero; chiavi per rigo, armature
+  per documento con eccezioni per strumento; scostamenti nella nota, in tempo musicale; indicazioni
+  di tempo a (battuta, offset) come fonte, mappa dei tempi ricavata. Emenda ADR-0022 §5 e §6.
+- **F1.09b** Implementa ADR-0024 §1–§4 e §9: `Event`, `Chord`, `Rest`, `Note`, `NoteValue`,
+  pausa di battuta intera, tabella dei gruppi irregolari per voce, legature di valore, chiavi per
+  rigo, armature; `validate`; test dei casi difficili di ADR-0024 §13 che li riguardano.
+- **F1.09c** Implementa ADR-0024 §5–§8, §10–§11. Il `DocumentBuilder` riceve le indicazioni di
+  tempo invece della mappa già fatta (cambio di API, chiamanti aggiornati nello stesso commit).
+  Misura della memoria per nota sulla partitura pesante (ADR-0007).
 - **F1.11** Ogni comando reversibile; raggruppamento (una "transazione" = un passo di undo,
   es. incollare 200 note); notifiche che dicono **cosa** è cambiato, per l'aggiornamento
   incrementale di layout e playback (ADR-0003 §6, ADR-0007). Test di proprietà: per ogni
@@ -288,10 +303,10 @@ Dettagli:
   della cronologia di undo (numero di passi o memoria), comandi "fusi" (trascinamento continuo =
   un solo passo). ❓ **Decisione D21:** comportamento predefinito di un cambio di metro
   (mantenere il contenuto delle battute, oppure riscrivere la musica fino al cambio di metro
-  successivo). Da ADR-0022 §5 e §8: i comandi che spostano l'inizio delle battute spostano anche
-  i cambi di tempo successivi, con un test di proprietà («i cambi di tempo restano nello stesso
-  punto scritto rispetto alle battute»); in `core-time` servono l'inserimento e la rimozione di
-  battute nella mappa dei metri e la modifica in blocco delle due mappe.
+  successivo). In `core-time` servono l'inserimento e la rimozione di battute nella mappa dei
+  metri (ADR-0022 §8). Da ADR-0024 §11: i cambi di tempo sono indicazioni a (battuta, offset) e
+  seguono le battute da soli, quindi non servono più lo spostamento dei cambi di tempo né il suo
+  test di proprietà; dopo ogni comando che li tocca la mappa dei tempi si ricalcola.
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -312,6 +327,10 @@ Dettagli:
   (ARCHITECTURE: `audio-engine` non vede `core-model`). Restano fuori dalla v0 l'**intonazione**
   (temperamenti, intonazione naturale) e i segni di comma (Helmholtz-Ellis, Sagittal): ADR-0023
   §2–§3 usa il 12-TET come riferimento. ❓ **Decisione D22:** in quale passo si fa l'intonazione.
+- **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
+  indice del passaggio).
+- **F1.13** (seguito) Da ADR-0024: pedale e glissando entrano con le regole di esecuzione che li
+  usano.
 - **F1.14** ❓ **Decisione:** valore di default della soglia (proposta di ADR-0004: 1/32) e se
   offrire da subito anche la variante in millisecondi.
 - **F1.15** Candidati da confrontare con i tipi veri: testo strutturato (JSON, RON o simili,
@@ -387,7 +406,7 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 | F2.16 | **ADR: architettura dell'incisione** — cache per battuta/sistema, invalidazione dalle notifiche del modello, cosa produce `notation-layout` (glifi posizionati, nessun disegno) | ⬜ | 2 |
 | F2.17 | **Metadati SMuFL di Bravura** e primitive (righi, chiavi, armature, indicazioni di metro) | ⬜ | 2 |
 | F2.18 | **Un rigo, una voce**: spaziatura orizzontale, gambi, travature, alterazioni, punti, pause | ⬜ | 4–5 |
-| F2.19 | **Legature (di valore e di portamento), gruppi irregolari, abbellimenti, articolazioni, dinamiche, forcelle** | ⬜ | 3–4 |
+| F2.19 | **Legature (di valore e di portamento), gruppi irregolari, abbellimenti, articolazioni, dinamiche, forcelle, linee d'ottava** (ADR-0024 C1) | ⬜ | 3–4 |
 | F2.20 | **Più voci, più righi, accollature, sistemi e interruzioni di riga** (incrementali) | ⬜ | 3–4 |
 | F2.21 | **Vista notazione**: scorrimento, zoom, selezione, pagina bianca opzionale (ADR-0014) | ⬜ | 2–3 |
 | F2.22 | **Inserimento note da tastiera** (step input) e modifica → comandi, undo/redo | ⬜ | 3 |
@@ -428,6 +447,8 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 | F3.10 | **Progetto di riferimento + benchmark**: callback ≤ 2,6 ms, zero xrun in 10 minuti | ⬜ | 2 |
 | F3.11 | **Chiusura fase** | ⬜ | 1–2 |
 
+- **F3.03** Da ADR-0024 §10: i dati di controller per nota (ADR-0004) arrivano con il primo
+  strumento che li usa.
 - ❓ **Decisione F3.03:** quali strumenti interni (sintetizzatore semplice? campionatore SFZ/SF2?)
   e **quali suoni**, con licenze compatibili: è una scelta che pesa sull'esperienza d'uso.
 - ❓ **Decisione F3.04:** crate esistente (es. `cpal`, da verificare) o backend nostri (ALSA /
@@ -446,7 +467,7 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 |---|---|---|
 | **Esportazione MIDI** | F1.18 (approvato) | Primo ascolto |
 | **Importazione MIDI** | dopo F3.06 | ADR-0004: va *dedotto* l'intento (quantizzazione, grafia, voci): difficile, merita un ADR. Grafia secondo il contesto melodico (ADR-0023 §6) |
-| **MusicXML import/export** | dopo F2B | Fondamentale per l'interoperabilità con gli altri software di notazione. **Da ricordare:** le armature non tradizionali (Bartók, klezmer, maqam e makam), rimandate dal proprietario, come secondo caso di `Key` con la loro regola di grafia (ADR-0023 §5) |
+| **MusicXML import/export** | dopo F2B | Fondamentale per l'interoperabilità con gli altri software di notazione. **Da ricordare:** le armature non tradizionali (Bartók, klezmer, maqam e makam), rimandate dal proprietario, come secondo caso di `Key` con la loro regola di grafia (ADR-0023 §5); le armature diverse per rigo (ADR-0024 C6) |
 | **Stampa ed esportazione PDF** | dopo F2B | Sempre in colori chiari (ADR-0014) |
 | **Parti staccate e strumenti traspositori in vista** | dopo F2B | Nessun dato duplicato (ADR-0004) |
 | **Accessibilità** | ogni passo UI | Nodi AccessKit fin dal primo widget; test con lettore di schermo a ogni tappa |
@@ -493,6 +514,9 @@ Dettaglio volutamente minore: si espande alla chiusura di F3, con quello che avr
 4. Politica di versionamento dell'applicazione (separata dalla versione del formato, ADR-0010).
 
 ### Oltre (idee da valutare, nessun impegno)
+
+Da collocare (ADR-0024 C9): tremolo tra due note, testo cantato (sillabe, strofe, allineamento),
+sigle degli accordi, diteggiature e indicazioni di tecnica.
 
 Scripting, tema ad alto contrasto, notazioni speciali (tablature, percussioni, notazione antica),
 collaborazione, supporto microtonale completo, internazionalizzazione oltre le 6 lingue.
@@ -571,3 +595,4 @@ raccomandato.
 | 2026-11-01 | 0.13 | F1.06 fatto (ADR-0022 Accepted), D06 chiusa; nuova D21 (comportamento del cambio di metro) per F1.11; vincoli di ADR-0022 annotati in F1.08, F1.09, F1.11, F1.16 | proprietario |
 | 2026-11-01 | 0.14 | F1.07 fatto (ADR-0023 Accepted), D07 chiusa; nuova D22 (intonazione) per F1.13; armature non tradizionali da ricordare nel filone MusicXML, grafia dal contesto nel filone importazione MIDI, note di ADR-0023 in F2B | proprietario |
 | 2026-11-02 | 0.15 | F1.08 fatto (PR #16): builder pubblico, una voce per rigo, tetti di 16 righi e 256 voci per strumento; chiave e armatura spostate in F1.09; tetto delle tracce e cambi oltre l'ultima battuta annotati in F1.15 | proprietario |
+| 2026-11-02 | 0.16 | F1.09 fatto (ADR-0024 Accepted, emenda ADR-0022 §5 e §6); nuovi F1.09b e F1.09c; F1.11 non sposta più i cambi di tempo; rimandi annotati in F1.12, F1.13, F2.19, F3.03, filone MusicXML e "Oltre" | proprietario |
