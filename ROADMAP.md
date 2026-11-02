@@ -139,7 +139,14 @@ the meter and tempo maps, `BarList` of `BarId`s with an inverse index, tracks �
 and voices with a home staff). Tests: 12 cases, exhaustion unit tests, a property test against a
 naive oracle (four injected bugs caught), allocation-free lookups; benchmarks ≈ 42 instructions per
 `BarId` → index, 510 per bar start, 280 per voice lookup. SCALETTA v0.15 closes F1.08 and moves clef
-and key signature to F1.09. Next: **F1.09** (two-layer notes).
+and key signature to F1.09. Step **F1.09** (`feature/f1-09-voice-content`, started 2026-11-02),
+split as proposed in the briefing into the ADR (F1.09), the events and tuplets (F1.09b) and the
+markings and offsets (F1.09c). With the owner's scope (fermatas and ornaments in, lyrics in a
+later step of their own) and after a search of MusicXML 4.0, MEI, Dorico and MuseScore, the draft
+**ADR-0024** (Proposed) covers event kinds, note values with derived durations, tuplets, ties,
+grace notes, markings, slurs, dynamics and hairpins, clefs and keys, tempo marks and the
+performance offsets, with nine choices (C1–C9) for the owner, two of which would amend ADR-0022
+(§6 tuplets, §5 tempo shift). **Waiting for the owner's review.**
 
 | Step | What | Status |
 |---|---|---|
