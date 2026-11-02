@@ -752,7 +752,8 @@ L'unico documento di progetto (ADR-0003): tracce, note con i loro due strati (in
 scostamenti di esecuzione, ADR-0004), la forma del brano, i comandi e l'unica cronologia di
 annulla/ripristina. Non sa nulla di viste, impaginazione, audio o file. La sua architettura (ID
 stabili, eventi come scostamenti relativi alla battuta in blocchi per battuta, voci per strumento)
-è fissata da ADR-0022; la prima parte implementata è il modulo delle altezze.
+è fissata da ADR-0022; le parti implementate sono il modulo delle altezze e lo scheletro del
+documento.
 
 #### Altezze, intervalli e tonalità
 
@@ -830,6 +831,88 @@ stati scoperti; uno (una tonica del lidio sbagliata) solo dopo aver aggiunto l'o
 **Benchmark** (`benches/pitch.rs`, lotti da 64, istruzioni per chiamata): conversione MIDI ≈ 155 su
 un insieme con un quarto di tono ogni otto note (≈ 650 prima della scorciatoia cromatica),
 trasposizione ≈ 560, intervallo e qualità ≈ 800, grafia di un tasto MIDI ≈ 100.
+
+#### Lo scheletro del documento
+
+`src/id.rs` e `src/document.rs` (passo F1.08, ADR-0022 §1–3) contengono la **struttura** del
+documento, ancora senza note: quelle arrivano in F1.09, la forma in F1.10.
+
+**ID.** Ogni oggetto a cui qualcos'altro può fare riferimento ha un ID: `TrackId`, `InstrumentId`,
+`StaffId`, `VoiceId`, `BarId` (i passi successivi aggiungono eventi, teste di nota e marcature
+estese). Sono tipi distinti, quindi il compilatore rifiuta un rigo dove serve una voce, ma sotto
+sono tutti valori `u64` presi da **un solo contatore per documento**, che parte da 1 e cresce
+soltanto. Un ID non viene mai dato due volte, nemmeno dopo un annulla, così selezioni, cache e passi
+di ripristino non possono mai confondere due oggetti. Il valore è un `NonZeroU64`: 0 non è mai un
+ID, quindi un `Option<BarId>` occupa 8 byte e non 16. Esaurire gli ID (impossibile in pratica: un
+miliardo di oggetti al secondo per 584 anni) è un errore tipizzato, mai un ritorno a capo.
+
+**Struttura.** Documento → tracce (per ora solo tracce di strumento) → uno `Instrument` per traccia,
+con il nome che gli ha dato l'utente (testo suo, non una chiave di traduzione), la sua trasposizione
+(l'intervallo da scritto a reale di ADR-0023 §7) e i suoi **righi** (un rigo è l'insieme delle righe
+su cui si scrivono le note) e le sue **voci**. Una voce appartiene allo strumento, non a un rigo: ha
+un *rigo di riferimento*, e da F1.09 ogni nota registra il rigo su cui è disegnata, così una melodia
+che passa dalla mano destra alla sinistra di un pianoforte resta una voce sola.
+
+**Battute.** La `BarList` è l'elenco ordinato dei `BarId`: dice quale battuta è quale e quante
+sono, e nient'altro. Lunghezze, metri e numeri delle battute restano nella mappa delle misure, che
+il documento tiene accanto alla mappa dei tempi: ripeterli qui sarebbe la duplicazione che ADR-0003
+vieta. Ciò che è attaccato a una battuta (da F1.09 le note) usa come chiave il `BarId`, così
+inserire una battuta non sposterà nient'altro. Un indice inverso (`BarId` → posizione) risponde in
+O(1) in media, con una funzione di hash nostra: una moltiplicazione per 2⁶⁴/φ invece del `SipHash`
+standard, che difende da chiavi scelte da un attaccante, mentre le nostre chiavi vengono dal nostro
+contatore.
+
+**Come si crea un documento.** Con un `DocumentBuilder` (decisione del proprietario, 2026-11-02):
+serve per i documenti che non esistono ancora (il file che si apre, il generatore della partitura di
+riferimento, test e benchmark), mentre un documento esistente cambierà solo con i comandi di F1.11
+(ADR-0003 §4). Uno strumento nuovo riceve **una voce per rigo**, ognuna con il proprio rigo come
+rigo di riferimento; `add_voice` ne aggiunge altre su qualunque rigo dello stesso strumento. Non
+esistono metro o tempo predefiniti: li sceglie chi crea il documento.
+
+```rust
+let mut builder = DocumentBuilder::new(meter_map, tempo_map);
+for _ in 0..8 {
+    builder.add_bar()?;
+}
+// A piano: two staves, so two voices, one at home on each staff.
+let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
+let upper = builder.document().track(piano).unwrap().instrument().staves()[0].id();
+builder.add_voice(upper)?; // a second line in the right hand
+let document = builder.build();
+assert_eq!(document.bars().len(), 8);
+```
+
+Il builder prende gli ID in un ordine documentato (una battuta uno; una traccia di strumento quello
+della traccia, quello dello strumento, uno per rigo, uno per voce), così le stesse chiamate danno
+sempre lo stesso documento, ID compresi. Ogni metodo controlla tutto **prima** di creare qualcosa:
+un errore lascia il builder com'era e non consuma nessun ID.
+
+**Limiti** (decisione del proprietario, 2026-11-02): al massimo **16 righi** e **256 voci** per
+strumento. Non sono limiti musicali (l'interfaccia potrà comunque offrire quattro voci per rigo, o
+qualunque altro numero) ma tecnici: nessuna partitura vera ci si avvicina, e impediscono a un file
+corrotto o malevolo di chiedere milioni di voci quando lo si apre. Alzarli cambia una costante, non
+il formato del file.
+
+**Ricerche.** Le battute sono molte, quindi hanno l'indice hash; tracce, righi e voci sono pochi
+(qualche centinaio in una grande partitura orchestrale) e si trovano scorrendoli, il che costa meno
+che tenere aggiornato un altro indice. L'indice da ID a posizione descritto da ADR-0022 §1 è per gli
+eventi, che sono centinaia di migliaia (F1.09).
+
+**Test.** `tests/document_cases.rs` ha 12 casi scritti a mano (ID in sequenza tra tipi diversi, una
+voce per rigo, voci aggiunte, strumenti traspositori, inizio delle battute dopo una levare, i limiti
+a 16 e 256 senza nulla consumato quando si rifiuta, righi e battute sconosciuti, determinismo, testi
+degli errori); `src/id.rs` e `src/document.rs` provano dall'interno l'esaurimento del contatore.
+`tests/document_oracle.rs` applica sequenze casuali di chiamate al builder sia alla libreria sia a un
+oracolo ingenuo scritto nel test (un semplice contatore e vettori di numeri), confronta l'intero
+documento dopo ogni chiamata e controlla che ogni ID sia distinto e che l'indice delle battute sia
+l'esatto inverso dell'elenco. Quattro bug iniettati apposta (voci sul rigo sbagliato, limite delle
+voci sbagliato di uno, controllo dello spazio nel contatore tolto, indice di battuta sbagliato) sono
+stati tutti scoperti. `tests/document_no_alloc.rs` controlla che nessuna ricerca allochi.
+
+**Benchmark** (`benches/document.rs`, uno scheletro grande come la partitura pesante di ADR-0022:
+1 000 battute, 20 strumenti, 30 righi, 40 voci; lotti da 64, istruzioni per chiamata): `BarId` →
+indice ≈ 42, inizio della battuta ≈ 510 (indice più ricerca nella mappa delle misure tra 20
+segmenti), voce per ID con il suo strumento ≈ 280.
 
 ### orchestra-playback
 
