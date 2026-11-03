@@ -214,8 +214,11 @@ music played only on some passes and jumps written as free text. After a search 
 MEI, Dorico and MuseScore, the draft **ADR-0025** (Proposed) puts the form markings on barlines in
 the document, jumps as "to / until / then" with IDs instead of labels, an explicit choice about
 repeats after a jump and the pass on which a jump inside a repeat is taken, bar repeats per staff
-that store no events, pass rules as ranges, and the unrolling rules F1.12 will follow. **Next:**
-the owner's choices F1–F10 of ADR-0025 §11, then F1.10b.
+that store no events, pass rules as ranges, and the unrolling rules F1.12 will follow. After
+examples of the numbering styles, the owner chose **one bar-numbering style per document**
+(`Continue` by default, `SameAsFirstLettered` 8a/8b, `SameAsFirst` 8/8; after the voltas the count
+continues from the longest one) and approved every other recommendation: **ADR-0025 Accepted**
+(2026-11-03). **Next:** the SCALETTA update (F1.10 split into ADR and F1.10b), then F1.10b.
 
 | Step | What | Status |
 |---|---|---|
