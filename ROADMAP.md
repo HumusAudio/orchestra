@@ -139,7 +139,75 @@ the meter and tempo maps, `BarList` of `BarId`s with an inverse index, tracks �
 and voices with a home staff). Tests: 12 cases, exhaustion unit tests, a property test against a
 naive oracle (four injected bugs caught), allocation-free lookups; benchmarks ≈ 42 instructions per
 `BarId` → index, 510 per bar start, 280 per voice lookup. SCALETTA v0.15 closes F1.08 and moves clef
-and key signature to F1.09. Next: **F1.09** (two-layer notes).
+and key signature to F1.09. Step **F1.09** (`feature/f1-09-voice-content`, started 2026-11-02),
+split as proposed in the briefing into the ADR (F1.09), the events and tuplets (F1.09b) and the
+markings and offsets (F1.09c). With the owner's scope (fermatas and ornaments in, lyrics in a
+later step of their own) and after a search of MusicXML 4.0, MEI, Dorico and MuseScore, the draft
+**ADR-0024** (Proposed) covers event kinds, note values with derived durations, tuplets, ties,
+grace notes, markings, slurs, dynamics and hairpins, clefs and keys, tempo marks and the
+performance offsets. The owner approved every recommendation (C1–C9) and **ADR-0024 was
+Accepted** (2026-11-02). It amends ADR-0022 in two places: tuplet membership is recorded on the
+events (§6), and tempo changes become tempo marks at (bar, offset) from which the tempo map is
+derived, so they follow inserted bars by construction (§5). SCALETTA v0.16 records the split.
+Step **F1.09b** (same branch, 2026-11-02). Before starting, the owner approved four implementation
+choices: the initial clef of a staff and the initial key of the document are fields of their owners
+(only the changes are marks at (bar, offset)), so `DocumentBuilder::new` takes the initial key and
+`add_instrument_track` one clef per staff; `build()` runs `Document::validate` and returns a
+`Result`; an instrument's key override is a signature, "no signature" (horns) or "follow the
+score"; a tie's target must start strictly later, in the same instrument, with the same sound.
+Implemented in `core-model`: `src/event.rs` (note values, rests with the whole-bar rest, tuplets,
+ties, notes, chords sorted by sound, events), `src/content.rs` (one `Arc` chunk per bar per voice,
+the tuplet table, the derived metric duration), `src/marks.rs` (clefs, key signatures and
+overrides, sorted mark lists with an O(log c) lookup), `src/validate.rs` (no overlap within a voice
+and bar, whole-bar rests alone, ties), five new ID kinds and the derived index from event and note
+IDs to their place. Every caller of the builder was updated. Tests: 16 hand-written cases (ADR-0024
+§13), an oracle with its own `i128` fractions for durations, validity and clef lookups (six
+injected bugs caught, one only by the oracle), allocation-free lookups and a single allocation in
+`validate`. Benchmarks (`benches/voice.rs`, 10 000 events): ≈ 320 instructions per duration while
+walking a system, 625 by event ID, 200 per event lookup, 470 per `clef_at`, 555 per
+`written_key_at`, ≈ 5.5 M for `validate` of the whole score. Step **F1.09c** (same branch,
+2026-11-02) is done in two sessions, as proposed in the briefing. Before starting, the owner
+approved the implementation choices E1–E7 (initial tempo as a non-removable mark at bar 0;
+text-only tempo marks do not change the tempo map; explicit end of a gradual change; the grace
+rules of `validate`; `add_grace_chord` and setters mirroring the future commands; the slur index
+built now; a memory test with a ceiling per note), and during the work the **score order**
+(position, then slot, then place in the chunk) for ties and slurs, so that an acciaccatura can be
+slurred or tied to its main note. **First part (session A, done):** `src/marking.rs` (grace chords
+with zero metric duration and the After < Before < main slot order in the chunks, the
+articulation bit set, ornaments with 1–4 tremolo strokes, fermatas on chords and rests,
+arpeggios, the performance offsets inline in every notehead), `src/slur.rs` (slurs per
+instrument sorted by ID, the derived index of the slurs at an event with up to two IDs inline),
+`Document::comes_before`, rules 4 (graces have their main event) and 5 (slurs) of `validate`, and
+the builder methods. Tests: 9 hand-written cases, an oracle counting in sixteenths (chunk order,
+validity, score order on every pair, the index; four injected bugs caught), allocation-free
+lookups. Benchmarks (`benches/marking.rs`): ≈ 48 instructions per `slurs_at`, 640 per slur by ID,
+1 670 per `comes_before`, ≈ 13.8 M for `validate` of 12 000 events and 4 500 slurs. A first
+version of rule 4 in a pass of its own doubled `validate` (+94%); folded into the pass of rule 1
+it costs +5% (5.49 → 5.76 M) on the score without graces, and every lookup stayed within ±0.5%,
+so no `Bench-regression` trailer was needed. **Second part (session B, done, 2026-11-03).** Before
+starting, the owner approved seven implementation choices: the initial tempo mark is a field of the
+document with its own ID (no bar exists yet when the builder is created); a mark's offset past the
+end of an overfull bar is **clamped to the barline** when the tempo map is derived, and at one
+position the later mark in score order wins (a gradual change shrunk to nothing is immediate); the
+map is derived again at every `add_tempo_mark`, all or nothing (the ID is peeked and taken only on
+success); at most one dynamic per scope at a point, overlapping hairpins of one scope refused by
+`validate`; free texts as non-empty `Box<str>`; a `bytes_deallocated` counter in `test-support`
+for the memory measurement, with a ceiling of the measure + ≈ 10%. Implemented: `src/dynamic.rs`
+(levels, marks, scope and staff, dynamics and hairpins per instrument), `src/tempo_mark.rs` (marks,
+the walk that checks them and derives the map), `ScorePoint` in `src/marks.rs`, three new ID kinds,
+rules 6 (hairpins) and 7 (tempo marks) of `validate`, `TempoMap::from_changes` in `core-time`
+(`TempoMapError::Unsorted`), `AllocationStats::net_bytes` in `test-support`.
+`DocumentBuilder::new(meter_map, initial_tempo_mark, key)` now returns a `Result`; every caller was
+updated and the initial mark takes ID 1. Tests: 18 hand-written cases, an oracle counting in eighths
+for marks and hairpins (seven injected bugs caught, six by the oracle), a bulk-vs-edits property
+test in `core-time`, allocation-free reads and `validate` with at most two allocations. **Memory:
+257 bytes per note** on a heavy-shaped score (221 169 noteheads, 56.9 MB), ceiling 285.
+Benchmarks (`benches/dynamic.rs`): ≈ 985 000 instructions to add a tempo mark among 250 (≈ 0.3 ms),
+≈ 620 for the mark in force at a point, ≈ 3.3 M for `validate` with 4 000 dynamics and hairpins;
+every existing benchmark within ±0.9%, but the counter's own benchmarks in `test-support` grew
+(+5% to +22%, one more field), accepted with the trailer `Bench-regression: accepted`, which must
+stay on the **head commit** of the PR. **Next:** the PR of F1.09 (F1.09, F1.09b, F1.09c) with CI on
+the three platforms, then F1.10 (the form).
 
 | Step | What | Status |
 |---|---|---|
@@ -211,6 +279,24 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
+- **From F1.09c (session B), to keep in mind:** which dynamic wins when an instrument dynamic and
+  a voice dynamic (or hairpin) apply at once is a playback rule for F1.13; the commands of F1.11
+  must derive the tempo map again after every edit of the tempo marks or of where bars start
+  (inserting a bar, a meter change), and the clamping means an overfull bar can silently move a
+  tempo change to its barline, which the interface should show; ID lookups of dynamics, hairpins
+  and tempo marks (today only the sorted lists) come with the first command that needs them.
+- **From F1.09c (session A), to keep in mind:** one ornament per chord (a set if the repertoire
+  ever needs two); an arpeggio spanning the two staves of a piano is one sign per chord today (a
+  cross-staff arpeggio line is an engraving question for F2B, or a spanner if it must be one
+  object); performance offsets are stored unclamped, so the playback rules of F1.13 must clamp the
+  results (start ≥ 0, a minimum length, the velocity scale).
+- **`cargo xtask bench --compare` bug (found 2026-11-02, not fixed):** the base commit is exported
+  with the commit's file times and built in the reused `target/bench-base-target/`, so after a
+  comparison with a *newer* base (e.g. `main`), comparing with an *older* one (e.g. `HEAD` of a
+  branch) makes cargo think the exported sources are up to date and reuse the other base's
+  library: the base build fails or measures the wrong code. Workaround: `rm -rf
+  target/bench-base-target` before switching base. Fix: touch the exported files, or key the
+  target directory by the base commit. CI is not affected (one comparison per fresh runner).
 - **For F1.11/F1.15 (from F1.08):** whether the model rejects meter map entries and tempo changes
   beyond the last bar (today nothing checks it: the meter map covers infinitely many bars), and a
   cap on the number of tracks when a file is loaded (staves and voices already have one).
@@ -254,6 +340,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - Benchmarks need Valgrind and `gungraun-runner` of exactly the `gungraun` version in Cargo.toml
   (both installed on the development machine on 2026-10-31). Inside the sandbox `/tmp` is not
   writable: `cargo xtask bench` forwards `TMPDIR` so that Valgrind can create its temporary files.
+  A plain `cargo bench --bench <name>` does not (Gungraun clears the environment): prefix it with
+  `GUNGRAUN_ENV_CLEAR=no`.
 - In `core-time`, clippy's `arithmetic_side_effects` also rejects `wrapping_div` (it may panic on a
   zero divisor) but accepts `wrapping_div_euclid`, `wrapping_neg/abs/shr/shl` and all `checked_*`.
   Helper functions in integration tests are not covered by clippy.toml's `allow-unwrap-in-tests`:

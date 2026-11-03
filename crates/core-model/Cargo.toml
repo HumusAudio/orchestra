@@ -32,5 +32,25 @@ harness = false
 name = "document"
 harness = false
 
+# Instruction-count benchmarks of the voices' content: metric durations, event lookup by ID, the
+# clef and key in force, and the validation of a whole document (SCALETTA F1.09b, ADR-0024).
+[[bench]]
+name = "voice"
+harness = false
+
+# Instruction-count benchmarks of the markings: the slurs at an event, a slur by ID, the score
+# order of two events, and the validation of a score with grace chords and slurs (SCALETTA F1.09c,
+# ADR-0024 §5–§7).
+[[bench]]
+name = "marking"
+harness = false
+
+# Instruction-count benchmarks of dynamics, hairpins and tempo marks: adding a tempo mark (which
+# derives the tempo map again), the tempo mark in force at a point, and the validation of a score
+# with a dynamic and a hairpin in every bar (SCALETTA F1.09c, ADR-0024 §8 and §11).
+[[bench]]
+name = "dynamic"
+harness = false
+
 [lints]
 workspace = true

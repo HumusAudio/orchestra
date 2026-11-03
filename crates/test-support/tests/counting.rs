@@ -53,10 +53,12 @@ fn one_vec_is_one_allocation_and_one_deallocation() {
             allocations: 1,
             reallocations: 0,
             deallocations: 1,
-            // 16 elements × 4 bytes per `u32`.
+            // 16 elements × 4 bytes per `u32`, given back by the drop.
             bytes_allocated: 64,
+            bytes_deallocated: 64,
         }
     );
+    assert_eq!(stats.net_bytes(), 0);
 }
 
 /// Growing a `Vec` beyond its capacity goes through `realloc`, which is counted as a
@@ -74,6 +76,11 @@ fn growing_a_vec_is_a_reallocation() {
     assert_eq!(stats.allocations, 0);
     assert_eq!(stats.reallocations, 1);
     assert_eq!(stats.deallocations, 0);
+    // The old block (1 byte) is given back and a larger one taken, so the live heap grew by the
+    // difference, whatever growth policy `Vec` uses.
+    let new_capacity = i128::try_from(v.capacity()).unwrap();
+    assert_eq!(stats.bytes_deallocated, 1);
+    assert_eq!(stats.net_bytes(), new_capacity - 1);
     // `v` is dropped here, after the measurement.
 }
 
@@ -145,6 +152,9 @@ proptest! {
         prop_assert_eq!(stats.reallocations, 0);
         prop_assert_eq!(stats.deallocations, 0);
         prop_assert_eq!(stats.bytes_allocated, expected_bytes as u64);
+        prop_assert_eq!(stats.bytes_deallocated, 0);
+        // Nothing was freed inside the window: the live heap grew by every buffer.
+        prop_assert_eq!(stats.net_bytes(), expected_bytes as i128);
         // `buffers` is dropped after the measurement.
     }
 }

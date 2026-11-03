@@ -38,10 +38,22 @@
 use std::hint::black_box;
 
 use gungraun::prelude::*;
-use orchestra_core_model::{BarId, Document, DocumentBuilder, Interval, Voice, VoiceId};
-use orchestra_core_time::{
-    BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
+use orchestra_core_model::{
+    BarId, Clef, Document, DocumentBuilder, Interval, Key, Metronome, Mode, TempoMark, Voice,
+    VoiceId,
 };
+use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
+
+/// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
+/// care which clef each staff starts with, only how many staves there are).
+fn clefs(n: usize) -> Vec<Clef> {
+    vec![Clef::TREBLE; n]
+}
+
+/// C major: the initial key of every test document.
+fn c_major() -> Key {
+    Key::traditional(0, Mode::Major).unwrap()
+}
 
 const BATCH: usize = 64;
 const BARS: usize = 1000;
@@ -63,20 +75,25 @@ fn skeleton() -> Document {
     }
     let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
     let tempo = Tempo::new(quarter, Rational::from_integer(100).unwrap()).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap());
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        c_major(),
+    )
+    .unwrap();
     for _ in 0..BARS {
         b.add_bar().unwrap();
     }
     let unison = Interval::new(0, Rational::ZERO);
     for i in 0..20 {
         let staves = if i < 10 { 1 } else { 2 };
-        let track = b.add_instrument_track("I", unison, staves).unwrap();
+        let track = b.add_instrument_track("I", unison, &clefs(staves)).unwrap();
         if staves == 2 {
             let staff = b.document().track(track).unwrap().instrument().staves()[0].id();
             b.add_voice(staff).unwrap();
         }
     }
-    b.build()
+    b.build().unwrap()
 }
 
 // 64 bars spread over the whole score (every 15th bar), with the document.

@@ -17,11 +17,22 @@
 
 use std::hint::black_box;
 
-use orchestra_core_model::{Document, DocumentBuilder, Interval, Staff, Track, Voice};
-use orchestra_core_time::{
-    BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
+use orchestra_core_model::{
+    Clef, Document, DocumentBuilder, Interval, Key, Metronome, Mode, Staff, TempoMark, Track, Voice,
 };
+use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_test_support::assert_no_allocations;
+
+/// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
+/// care which clef each staff starts with, only how many staves there are).
+fn clefs(n: usize) -> Vec<Clef> {
+    vec![Clef::TREBLE; n]
+}
+
+/// C major: the initial key of every test document.
+fn c_major() -> Key {
+    Key::traditional(0, Mode::Major).unwrap()
+}
 
 orchestra_test_support::install_counting_allocator!();
 
@@ -30,17 +41,22 @@ fn document() -> Document {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[3], 4).unwrap())).unwrap();
     let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
     let tempo = Tempo::new(quarter, Rational::from_integer(72).unwrap()).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap());
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        c_major(),
+    )
+    .unwrap();
     let unison = Interval::new(0, Rational::ZERO);
     for _ in 0..32 {
         b.add_bar().unwrap();
     }
-    b.add_instrument_track("Flute", unison, 1).unwrap();
-    let piano = b.add_instrument_track("Piano", unison, 2).unwrap();
+    b.add_instrument_track("Flute", unison, &clefs(1)).unwrap();
+    let piano = b.add_instrument_track("Piano", unison, &clefs(2)).unwrap();
     let staff = b.document().track(piano).unwrap().instrument().staves()[0].id();
     b.add_voice(staff).unwrap();
-    b.add_instrument_track("Organ", unison, 3).unwrap();
-    b.build()
+    b.add_instrument_track("Organ", unison, &clefs(3)).unwrap();
+    b.build().unwrap()
 }
 
 /// Every lookup, on hits and on misses (an index past the end, IDs of the wrong instrument).

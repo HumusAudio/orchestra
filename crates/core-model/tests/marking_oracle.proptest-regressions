@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a8a1f2c0fed8461dccac629caa7cbf1183b8f90a5807db6e93f438e7fe34f26f # shrinks to gen_events = [Grace { at: 6, after: true }, Grace { at: 6, after: true }], gen_slurs = []
+cc 39784757b5dcc502a848c0a5c00fbc64f26417a1d30ccc3d408b7e0198be839a # shrinks to gen_events = [Main { gap: 0, length: 1 }, Main { gap: 0, length: 1 }], gen_slurs = [(20, 13), (1, 2), (6, 29)]
+cc fd796d5840ca67f09ef1f36703ecadc644625ea5754d2bbeced94c94245b3167 # shrinks to gen_events = [Grace { at: 0, after: true }, Grace { at: 0, after: false }], gen_slurs = []
+cc 199518f7e6b7b90b6f0451d878b206f684f91515253b4921d2971110b764c69e # shrinks to gen_events = [Main { gap: 2, length: 4 }, Main { gap: 1, length: 1 }, Grace { at: 7, after: true }], gen_slurs = []

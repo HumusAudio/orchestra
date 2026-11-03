@@ -3,6 +3,8 @@
 - **Status:** Accepted (owner's decision, 2026-11-01; SCALETTA F1.06, decision D06). The owner
   chose the candidate P3 and voices per instrument before the text was written, then accepted the
   draft as it is.
+- **Amended by:** [ADR-0024](0024-voice-content.md) (§6 for tuplets: membership recorded on the
+  events; §5: tempo changes become tempo marks at (bar, offset) and the tempo map is derived)
 - **Date:** 2026-11-01
 - **Clarifies:** ADR-0004 ("position in its measure" is taken literally, §4). Does not change any
   Accepted decision.

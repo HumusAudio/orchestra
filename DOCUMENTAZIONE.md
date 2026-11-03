@@ -671,6 +671,22 @@ sostituiscono la mappa solo se va tutto bene (`TempoMapError`: `BeforeStart`, `N
 `GradualAtStart`, `NonPositiveGradual`, `ChangeInsideGradual`, `Arithmetic`) e restituiscono il
 valore precedente per l'annullamento.
 
+**Costruire in un colpo solo** (F1.09c, la modifica in blocco di ADR-0022 §8). Siccome il documento
+ricava la sua mappa dei tempi dalle indicazioni di tempo dopo ogni modifica che le tocca,
+`TempoMap::from_changes` costruisce una mappa da tutto l'elenco dei cambi in una volta: controlla che
+le posizioni crescano strettamente (altrimenti `TempoMapError::Unsorted`), poi applica esattamente le
+regole delle modifiche. Un test di proprietà ricostruisce ogni mappa modificata a caso dal suo stesso
+elenco di cambi e la trova identica.
+
+```rust
+// The document rebuilds its tempo map in one go from the changes derived from the tempo marks:
+// the same map as one `set_change` per change, in O(t) instead of O(t²).
+let map = TempoMap::from_changes(vec![
+    (Position::ZERO, TempoChange::Immediate(andante)),
+    (at(4, 1)?, TempoChange::Gradual(GradualChange { from: None, to: lento, end: at(5, 1)? })),
+])?;
+```
+
 **Test.** `tests/tempo_map_cases.rs` ha 12 casi calcolati a mano: il ritardando della tabella di
 ADR-0020 (32/3 s), posizioni dentro un cambio sulla griglia e fuori, confini arrotondati per
 difetto (♩ = 77) e per eccesso (♩ = 71) con il loro fermo ai bordi, il tempo di partenza
@@ -752,8 +768,9 @@ L'unico documento di progetto (ADR-0003): tracce, note con i loro due strati (in
 scostamenti di esecuzione, ADR-0004), la forma del brano, i comandi e l'unica cronologia di
 annulla/ripristina. Non sa nulla di viste, impaginazione, audio o file. La sua architettura (ID
 stabili, eventi come scostamenti relativi alla battuta in blocchi per battuta, voci per strumento)
-è fissata da ADR-0022; le parti implementate sono il modulo delle altezze e lo scheletro del
-documento.
+è fissata da ADR-0022; le parti implementate sono il modulo delle altezze, lo scheletro del
+documento, il contenuto delle voci (eventi, gruppi irregolari, legature di valore, chiavi e
+armature) e i segni sugli eventi con le legature di portamento.
 
 #### Altezze, intervalli e tonalità
 
@@ -835,7 +852,8 @@ trasposizione ≈ 560, intervallo e qualità ≈ 800, grafia di un tasto MIDI �
 #### Lo scheletro del documento
 
 `src/id.rs` e `src/document.rs` (passo F1.08, ADR-0022 §1–3) contengono la **struttura** del
-documento, ancora senza note: quelle arrivano in F1.09, la forma in F1.10.
+documento; gli eventi dentro le voci sono descritti nella sezione seguente, la forma arriva in
+F1.10.
 
 **ID.** Ogni oggetto a cui qualcos'altro può fare riferimento ha un ID: `TrackId`, `InstrumentId`,
 `StaffId`, `VoiceId`, `BarId` (i passi successivi aggiungono eventi, teste di nota e marcature
@@ -867,18 +885,25 @@ serve per i documenti che non esistono ancora (il file che si apre, il generator
 riferimento, test e benchmark), mentre un documento esistente cambierà solo con i comandi di F1.11
 (ADR-0003 §4). Uno strumento nuovo riceve **una voce per rigo**, ognuna con il proprio rigo come
 rigo di riferimento; `add_voice` ne aggiunge altre su qualunque rigo dello stesso strumento. Non
-esistono metro o tempo predefiniti: li sceglie chi crea il documento.
+esistono metro, tempo o tonalità predefiniti: li sceglie chi crea il documento. Da F1.09b il
+builder riceve l'armatura iniziale (in suoni reali) e una chiave per rigo al posto del numero di
+righi, così non si può costruire un rigo senza chiave né una partitura senza armatura (decisione
+del proprietario, 2026-11-02), e `build` restituisce un `Result`. Da F1.09c riceve l'**indicazione
+di tempo** iniziale al posto di una mappa dei tempi già fatta, e anche `new` restituisce un
+`Result`: la mappa dei tempi si ricava dalle indicazioni (sezioni seguenti).
 
 ```rust
-let mut builder = DocumentBuilder::new(meter_map, tempo_map);
+let c_major = Key::traditional(0, Mode::Major)?;
+let mut builder = DocumentBuilder::new(meter_map, initial_tempo_mark, c_major)?;
 for _ in 0..8 {
     builder.add_bar()?;
 }
-// A piano: two staves, so two voices, one at home on each staff.
-let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
+// A piano: two staves with their clefs, so two voices, one at home on each staff.
+let unison = Interval::new(0, Rational::ZERO);
+let piano = builder.add_instrument_track("Piano", unison, &[Clef::TREBLE, Clef::BASS])?;
 let upper = builder.document().track(piano).unwrap().instrument().staves()[0].id();
 builder.add_voice(upper)?; // a second line in the right hand
-let document = builder.build();
+let document = builder.build()?; // build() validates the document (next section)
 assert_eq!(document.bars().len(), 8);
 ```
 
@@ -913,6 +938,311 @@ stati tutti scoperti. `tests/document_no_alloc.rs` controlla che nessuna ricerca
 1 000 battute, 20 strumenti, 30 righi, 40 voci; lotti da 64, istruzioni per chiamata): `BarId` →
 indice ≈ 42, inizio della battuta ≈ 510 (indice più ricerca nella mappa delle misure tra 20
 segmenti), voce per ID con il suo strumento ≈ 280.
+
+#### Il contenuto delle voci
+
+`src/event.rs`, `src/content.rs`, `src/marks.rs` e `src/validate.rs` (passo F1.09b, ADR-0024
+§1–§4 e §9) riempiono le voci di musica. I segni sugli eventi, gli scostamenti di esecuzione e le
+legature di portamento sono nella sezione seguente, dinamiche, forcelle e indicazioni di tempo in
+quella dopo.
+
+**Eventi.** Una voce ha un **blocco** per battuta, allineato all'elenco delle battute: un blocco è
+vuoto (`None`, nessuna memoria usata) oppure un `Arc` di un vettore di eventi ordinati per
+**offset** dall'inizio della battuta (gli eventi allo stesso offset restano nell'ordine in cui sono
+stati inseriti). L'`Arc` serve alle istantanee (ADR-0022 §7): chi legge in background condivide i
+blocchi, e una modifica copia solo il blocco che tocca. Un evento è un `Chord` (accordo) o un `Rest`
+(pausa), con il suo `EventId` e il rigo su cui è disegnato (di norma il rigo di riferimento della
+voce, qualunque rigo dello stesso strumento per le note che passano all'altro rigo). Un accordo ha
+una o più `Note`, ognuna con il suo `NoteId`, la sua altezza con grafia in suoni reali e la sua
+legatura di valore; le teste di nota restano ordinate per suono (Fa♯4 prima di Sol♭4, per lettera),
+e una nota singola non costa nessuna allocazione propria.
+
+**Figure.** Si salva la figura scritta: un `BaseValue` (dalla massima alla 1024ª) e fino a quattro
+punti. La lunghezza in semibrevi è **ricavata**, mai salvata: `NoteValue::length` la costruisce con
+degli scorrimenti di bit, `Voice::metric_duration` moltiplica il rapporto di ogni gruppo irregolare
+che contiene l'evento. Salvare anche il numero vorrebbe dire due copie dello stesso fatto
+(ADR-0003). Una **pausa di battuta intera** (`RestValue::WholeBar`) dura quanto dura la sua battuta
+nella mappa delle misure, levare comprese, così un cambio di metro non può renderla sbagliata.
+
+**Gruppi irregolari.** `Tuplet::new(3, 2, croma)` vuol dire "tre crome nel tempo di due". I gruppi
+irregolari stanno in una tabella della loro voce, e ogni evento registra il gruppo più interno che
+lo contiene; `parent` fa dell'annidamento una catena di al massimo quattro (con termini fino a 255
+nulla può traboccare). Un gruppo irregolare può attraversare una stanghetta: la nota che starebbe a
+cavallo diventa due note legate, entrambe del gruppo. Un gruppo incompleto è uno stato valido
+(capita mentre si scrive).
+
+**Legature di valore.** Una legatura di valore è un collegamento salvato sulla testa di nota da cui
+parte: `Tie::To(nota)`, oppure `Tie::LetRing` per un laissez-vibrer. La nota di arrivo può stare in
+un'altra voce dello stesso strumento e avere un'altra grafia, purché suoni uguale e venga dopo
+nell'ordine di partitura (vedi "Ordine di partitura" più sotto).
+
+**Chiavi e armature.** Non possono essere eventi di una voce: un rigo porta più voci, e una voce può
+passare da un rigo all'altro. Ogni rigo ha la sua chiave iniziale e un elenco di cambi di chiave a
+(battuta, offset); il documento ha la sua armatura iniziale (in suoni reali) e un elenco di cambi;
+uno strumento può scostarsi dall'armatura da un punto in poi (`KeyOverride`: un'altra armatura,
+"nessuna armatura" per i corni scritti senza, oppure di nuovo quella della partitura). `clef_at`,
+`key_at`, `instrument_key_at` e `written_key_at` rispondono con una ricerca binaria; l'armatura
+scritta di uno strumento traspositore si ricava dalla sua trasposizione (un clarinetto in Si♭ in Do
+maggiore mostra Re maggiore).
+
+```rust
+// A triplet of eighths on beat 1, then a dotted quarter from 5/8 to the barline, tied to an
+// eighth at the start of the next bar.
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let triplet = builder.add_tuplet(voice, Tuplet::new(3, 2, eighth)?, None)?;
+let g4 = Pitch::new(Step::G, Alteration::NATURAL, 4);
+for i in 0..3 {
+    // Offsets 0, 1/12 and 2/12 of a whole note.
+    let offset = Duration::from_rational(Rational::new(i, 12)?);
+    builder.add_chord(Placement::new(voice, bar0, offset).in_tuplet(triplet), eighth, &[g4])?;
+}
+let dotted_quarter = NoteValue::new(BaseValue::Quarter, 1)?;
+let five_eighths = Duration::from_rational(Rational::new(5, 8)?);
+let long = builder.add_chord(Placement::new(voice, bar0, five_eighths), dotted_quarter, &[g4])?;
+let next = builder.add_chord(Placement::new(voice, bar1, Duration::ZERO), eighth, &[g4])?;
+builder.set_tie(long.notes[0], Tie::To(next.notes[0]))?;
+let document = builder.build()?;
+// Derived, never stored: a dotted quarter lasts 3/8.
+assert_eq!(document.metric_duration(long.event)?, Duration::from_rational(Rational::new(3, 8)?));
+```
+
+**Cosa controlla `build`.** Ogni metodo del builder controlla ciò che vede localmente prima di
+creare qualcosa (battuta, voce, rigo e gruppo irregolare esistono e stanno insieme, gli offset non
+sono negativi, l'annidamento è di al massimo quattro livelli). `Document::validate`, che `build`
+esegue, controlla le regole che chiedono di più: due eventi di una voce non si sovrappongono dentro
+una battuta (i vuoti vanno bene, e una battuta **troppo piena** resta valida: le sue ultime note
+vanno semplicemente oltre la stanghetta), una pausa di battuta intera è da sola, e ogni legatura di
+valore va allo stesso suono, più avanti, nello stesso strumento. La prima violazione torna come
+`Violation` tipizzata, con l'evento o la testa di nota.
+
+**Ricerche.** Un indice ricavato da `EventId` e `NoteId` a (voce, battuta) trova qualunque evento o
+testa di nota: una ricerca hash, lo scorrimento delle voci, lo scorrimento di un blocco.
+`events(voce, battuta)` dà un blocco, `metric_duration` ed `event_position` il tempo ricavato di un
+evento. Nessuna di queste alloca.
+
+**Test.** `tests/voice_cases.rs` ha 16 casi scritti a mano, uno per ciascun caso di ADR-0024 §13 di
+questo passo (accordo enarmonico, gruppi irregolari annidati con 1/12 e 1/30, gruppo incompleto,
+gruppo a cavallo della stanghetta con la nota divisa e legata, battuta troppo piena, pausa di
+battuta intera dopo una levare e un cambio di metro, legature di valore ammesse e vietate, cambi di
+chiave a metà battuta, armature di un clarinetto in Si♭, di un corno senza armatura e di un violino
+con un'eccezione, note sull'altro rigo, errori di posizionamento). `tests/voice_oracle.rs` confronta
+voci casuali con gruppi irregolari annidati casuali con un oracolo che ha le sue frazioni `i128`:
+ogni durata, e se `build` riesce o quale violazione riporta; un'altra proprietà confronta
+`clef_at` con uno scorrimento lineare. Sei bug iniettati apposta (lunghezza sbagliata con due
+punti, gruppo genitore ignorato, sovrapposizione con `<=`, ricerca della chiave sbagliata di un
+punto, eventi allo stesso offset inseriti nell'ordine sbagliato, regola della pausa di battuta
+allentata) sono stati tutti scoperti; quello dell'ordine di inserimento solo dall'oracolo.
+`tests/voice_no_alloc.rs` controlla che nessuna ricerca allochi e che `validate` faccia una sola
+allocazione.
+
+**Benchmark** (`benches/voice.rs`, 200 battute × 10 voci, 10 000 eventi con terzine e accordi di
+due note; istruzioni per chiamata): durata mentre si percorre un sistema ≈ 320, durata per ID
+dell'evento ≈ 625, evento per ID ≈ 200, `clef_at` ≈ 470, `written_key_at` ≈ 555; `validate`
+dell'intera partitura ≈ 5,5 milioni (≈ 550 per evento, circa 2 ms).
+
+#### Segni sugli eventi e legature di portamento
+
+`src/marking.rs` e `src/slur.rs` (prima parte del passo F1.09c, ADR-0024 §5–§7 e §10) aggiungono ciò
+che è scritto **sugli** eventi, e le legature di portamento. Dinamiche, forcelle e indicazioni di
+tempo sono nella sezione seguente.
+
+**Abbellimenti.** Un accordo d'abbellimento è un accordo con un `Grace`: un'acciaccatura o
+un'appoggiatura, messa **prima** dell'evento che orna (all'offset di quell'evento) oppure **dopo**
+l'evento che segue (all'offset in cui quell'evento finisce: il *Nachschlag*, o le note di chiusura di
+un trillo). Conserva la sua figura scritta (la croma che si disegna) ma la sua durata metrica è
+**zero**, quindi non sposta mai gli eventi successivi; quanto tempo toglie ai vicini quando suona è
+una regola di esecuzione (F1.13). Dato che ora più eventi possono stare allo stesso offset, un
+frammento è ordinato per (offset, **slot**): prima gli abbellimenti `After` dell'evento che finisce
+lì, poi gli abbellimenti `Before` dell'evento che comincia lì, poi quell'evento. Lo slot si ricava
+dall'abbellimento, non si salva. Gli abbellimenti non possono stare in un gruppo irregolare
+(`DocumentError::GraceInTuplet`).
+
+**Articolazioni, ornamenti, corone, arpeggi.** Appartengono all'accordo, perché si disegnano una
+volta per gambo: un `ArticulationSet` (un insieme di bit in un `u16`: accento, marcato, staccato,
+staccatissimo, spiccato, tenuto, portato, stress, unstress, accento morbido; il portato è un segno a
+sé, non staccato + tenuto), al massimo un `Ornament` (trillo con l'eventuale alterazione della nota
+ausiliaria, gruppetto, gruppetto rovesciato, mordente e mordente superiore, con i nomi di SMuFL
+perché quelli di MusicXML vengono spesso scambiati, tremolo su una nota con da 1 a 4 tagli), una
+`Fermata` (corona breve, normale, lunga, molto lunga; anche su una pausa, così una pausa generale è
+una pausa di battuta intera con la corona) e un `Arpeggio` (semplice, verso l'alto, verso il basso, o
+la parentesi di "non arpeggiato"). Mettere su una pausa uno dei segni riservati agli accordi dà
+`DocumentError::NotAChord`.
+
+**Scostamenti di esecuzione.** Ogni testa di nota porta i suoi `PerformanceOffsets` al proprio
+interno: `onset` e `length` come durate con segno in **tempo musicale** (una nota anticipata di un
+sessantaquattresimo ha `onset = −1/64`, così il "feeling" segue ogni cambio di tempo) e `velocity`
+come differenza con segno sulla scala a 16 bit di MIDI 2.0. Valgono zero per default e si salvano
+esattamente come arrivano: i limiti (una nota prima dello zero, una lunghezza negativa, una velocity
+fuori scala) li applica l'esecuzione al risultato, così non si perde nulla quando più avanti
+cambiano le dinamiche scritte.
+
+**Legature di portamento.** Uno `Slur` unisce un evento di partenza e uno di arrivo e sta nella
+tabella del suo **strumento**, ordinata per ID, perché può unire due voci dello strumento (una frase
+che passa da una mano all'altra del pianoforte). Le legature possono annidarsi e condividere gli
+estremi. Un indice derivato risponde a "quali legature cominciano o finiscono su questo evento"
+(`slurs_at`) con una sola ricerca nella tabella hash; fino a due legature per evento tiene gli ID al
+proprio interno, quindi non costa un'allocazione per voce dell'indice.
+
+**Ordine di partitura.** Con gli abbellimenti "dopo" non vuol più dire solo "in una posizione
+successiva": un'acciaccatura e la sua nota principale cominciano nello stesso punto.
+`Document::comes_before` confronta gli eventi per posizione, poi per slot, poi (dentro un frammento)
+per il loro posto nel frammento; due eventi di voci diverse con la stessa posizione e lo stesso slot
+sono simultanei. Le legature di valore e di portamento devono andare avanti in quest'ordine
+(decisione del proprietario del 2026-11-02), così un'acciaccatura può essere legata, di portamento o
+di valore, alla sua nota principale; per gli eventi senza abbellimenti la regola è la stessa di
+prima.
+
+```rust
+// An acciaccatura slurred to an accented quarter with a trill; the quarter played a 64th early.
+let quarter = NoteValue::plain(BaseValue::Quarter);
+let main = builder.add_chord(Placement::new(voice, bar, Duration::ZERO), quarter, &[g4])?;
+let grace = Grace { kind: GraceKind::Acciaccatura, attach: GraceAttach::Before };
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let a4 = Pitch::new(Step::A, Alteration::NATURAL, 4);
+let small = builder.add_grace_chord(Placement::new(voice, bar, Duration::ZERO), grace, eighth, &[a4])?;
+builder.set_articulations(main.event, ArticulationSet::EMPTY.with(Articulation::Accent))?;
+builder.set_ornament(main.event, Some(Ornament::Trill { auxiliary: None }))?;
+let early = PerformanceOffsets { onset: Duration::from_rational(Rational::new(-1, 64)?), ..PerformanceOffsets::NONE };
+builder.set_offsets(main.notes[0], early)?;
+let slur = builder.add_slur(small.event, main.event, SlurPlacement::Auto)?;
+let document = builder.build()?;
+// The grace lasts zero and comes first in score order, although both start at the same point.
+assert_eq!(document.metric_duration(small.event)?, Duration::ZERO);
+assert!(document.comes_before(small.event, main.event)?);
+assert_eq!(document.slurs_at(main.event), [slur]);
+```
+
+**Cosa aggiunge `validate`.** Regola 4: un abbellimento `Before` ha un evento principale al suo
+offset nella sua voce e battuta, un abbellimento `After` sta esattamente dove finisce l'evento
+principale precedente del suo frammento (anche più d'uno di fila); un abbellimento dentro un evento
+principale viene segnalato come sovrapposizione. Regola 5: i due estremi di una legatura di
+portamento esistono e appartengono al suo strumento, e l'arrivo viene dopo la partenza nell'ordine
+di partitura. Le due regole girano nella stessa unica passata sui frammenti e non aggiungono
+allocazioni.
+
+**Test.** `tests/marking_cases.rs` ha 9 casi scritti a mano (andata e ritorno delle articolazioni e
+il portato, abbellimenti di durata zero e il loro ordine per slot, un abbellimento rifiutato in un
+gruppo irregolare, abbellimenti senza il loro evento principale, ornamenti con i limiti del tremolo e
+corone sulle pause, scostamenti per testa di nota, legature che si annidano e passano da una voce
+all'altra con l'indice, ordine di partitura con abbellimenti e voci simultanee, errori sulle legature
+che non consumano ID). `tests/marking_oracle.rs` costruisce battute casuali di note principali e
+abbellimenti con legature casuali e le confronta con un oracolo che conta in sedicesimi come semplici
+interi: l'ordine del frammento, se `build` riesce, `comes_before` su ogni coppia, `slurs_at` su ogni
+evento e la durata zero degli abbellimenti. Quattro errori introdotti apposta (slot scambiati, la
+regola `After` spenta, lo spareggio dell'ordine di partitura dentro un frammento rovesciato, l'indice
+che perde la terza legatura) sono stati tutti scoperti dall'oracolo. `tests/marking_no_alloc.rs`
+controlla che nessuna ricerca allochi e che `validate` faccia ancora una sola allocazione.
+
+**Benchmark** (`benches/marking.rs`, 200 battute × 10 voci, 12 000 eventi con un abbellimento prima
+e dopo ogni battuta, 4 500 legature; istruzioni per chiamata): `slurs_at` ≈ 48, legatura per ID
+≈ 640, `comes_before` ≈ 1 670; `validate` dell'intera partitura ≈ 13,8 milioni (≈ 1 150 per evento,
+circa 4,5 ms). La regola 4 gira dentro la passata della regola 1 e ne riusa le durate già calcolate:
+una passata separata aveva raddoppiato il costo di `validate`. Sulla partitura di `benches/voice.rs`,
+che non ha abbellimenti né legature di portamento, `validate` è passato da ≈ 5,49 a ≈ 5,76 milioni
+(+5%, circa 27 istruzioni per evento per i controlli nuovi); tutte le ricerche sono rimaste entro
+±0,5%.
+
+#### Dinamiche, forcelle e indicazioni di tempo
+
+`src/dynamic.rs` e `src/tempo_mark.rs` (seconda parte del passo F1.09c, ADR-0024 §8 e §11)
+aggiungono quanto forte e quanto veloce la musica è scritta. Entrambe sono **ancorate a una
+posizione**: stanno in un `ScorePoint` (una battuta e un offset, nuovo in `src/marks.rs`), non su una
+nota, così un *p* sotto una pausa o un cambio di tempo a metà di un accordo tenuto sono scrittura
+normale, e seguono la loro battuta quando se ne inseriscono altre prima.
+
+**Dinamiche.** Una `Dynamic` dice un `DynamicMark`: un livello della scala (`DynamicLevel`, da
+*pppppp* a *ffffff*, ordinati dal piano al forte così che `Ord` risponda a "è più forte?"), uno degli
+accenti e delle combinazioni (*sf*, *sfz*, *sffz*, *fz*, *rf*, *rfz*, *fp*, *sfp*, *sfpp*, *pf*,
+*n*), oppure un testo libero (`OtherDynamic`, "subito p", con un livello facoltativo per
+l'esecuzione). I nomi standard sono italiani in tutte le lingue e si disegnano, non si traducono; il
+testo libero è dell'utente e non è mai vuoto (`DocumentError::EmptyText`). Ogni strumento tiene le
+sue dinamiche in un elenco ordinato secondo la partitura. Un `DynamicPlacement` contiene due cose
+distinte: l'**ambito** (tutto lo strumento, il caso normale, compresa la dinamica di un pianoforte
+fra i due righi, oppure una sola voce, per i divisi) e il **rigo** su cui è disegnata, che non cambia
+nulla nell'esecuzione. C'è al massimo una dinamica per ambito in un punto (`DuplicateMark`); una
+dinamica di strumento e una di voce possono condividerlo. Qui niente è una velocity: l'esecuzione
+(F1.13) ricava le velocity dalle dinamiche, e gli scostamenti di velocity delle note sono delta in
+più, perciò un test controlla che aggiungere dinamiche non tocchi mai una nota.
+
+**Forcelle.** Una `Hairpin` va da un punto d'inizio a un punto di fine **escluso**, con una
+`HairpinShape` (crescendo o diminuendo, a cuneo o a testo, *al niente*). Il builder rifiuta una
+forcella che non va in avanti (`HairpinNotForward`); `validate` (regola 6) rifiuta due forcelle dello
+stesso ambito che si sovrappongono, con una sola passata sull'elenco dello strumento ordinato per
+inizio, ricordando l'ultima fine per ambito. Toccarsi va bene ("cresc. fino a qui, dim. da qui"), e
+così una dinamica dentro una forcella.
+
+**Indicazioni di tempo** (scelta C5 = T2 di ADR-0024). Un `TempoMark` è ciò che si stampa, testo e/o
+un cambio: `TempoMarkChange::Immediate(Metronome)` (un tempo, stampato o nascosto: uno nascosto è
+l'automazione del tempo di chi usa la DAW) oppure `Gradual(GradualMark)` (verso un tempo, fino a un
+punto di fine esplicito, con un eventuale salto iniziale a un tempo di partenza). La **mappa dei
+tempi si ricava dalle indicazioni** e non si modifica mai direttamente, così la partitura non può
+dire 120 e suonare 90. Le regole approvate dal proprietario (E1–E3): l'indicazione iniziale è un
+campo del documento con il suo `TempoMarkId`, prende il primo ID del documento e deve fissare subito
+un tempo (`InitialTempoNotImmediate`); un'indicazione di solo testo non cambia nulla nella mappa; un
+cambio graduale finisce in un suo punto.
+
+Come si ricava la mappa (`Document::walk_tempo_marks`, poi `TempoMap::from_changes`): le indicazioni
+si leggono in ordine di partitura; un cambio graduale deve finire dopo l'inizio e nessun altro cambio
+può cominciare al suo interno, giudicati entrambi in ordine di partitura, su ciò che vede l'utente
+(`Violation::GradualTempoNotForward`, `Violation::TempoChangeInsideGradual`). Ogni punto diventa
+l'inizio della sua battuta più l'offset, **fermato alla stanghetta** (decisione del proprietario del
+2026-11-03): una battuta troppo piena è uno stato valido, e senza questo limite un'indicazione
+all'offset 5/4 di una battuta in 4/4 finirebbe dopo un'indicazione all'inizio della battuta seguente.
+Il limite mantiene l'ordine; due indicazioni possono allora cadere nella stessa posizione, e vince
+quella che viene dopo nella partitura (l'altra resta scritta); un cambio graduale ridotto a niente
+vale come cambio immediato al suo tempo d'arrivo. `add_tempo_mark` prova l'indicazione con l'ID che il
+contatore darebbe come prossimo (`IdCounter::peek`), ricava la mappa e, se qualcosa non va, la
+toglie di nuovo: tutto o niente, nessun ID consumato. `validate` (regola 7) fa lo stesso percorso
+senza costruire la mappa, quindi non alloca nulla di più.
+
+```rust
+// "Andante ♩ = 60" at the start, a ritardando over bar 4 and "a tempo" at bar 5.
+let quarter = Duration::from_rational(Rational::new(1, 4)?);
+let andante_tempo = Tempo::new(quarter, Rational::from_integer(60)?)?;
+let andante = TempoMark::immediate(Some("Andante"), Metronome::shown(andante_tempo))?;
+let mut builder = DocumentBuilder::new(meter_map, andante, c_major)?;
+let bars: Vec<BarId> = (0..8).map(|_| builder.add_bar()).collect::<Result<_, _>>()?;
+let rit = GradualMark { from: None, to: Tempo::new(quarter, Rational::from_integer(40)?)?, end: ScorePoint::start_of(bars[5]) };
+builder.add_tempo_mark(ScorePoint::start_of(bars[4]), TempoMark::new(Some("rit."), Some(TempoMarkChange::Gradual(rit)))?)?;
+builder.add_tempo_mark(ScorePoint::start_of(bars[5]), TempoMark::immediate(Some("a tempo"), Metronome::hidden(andante_tempo))?)?;
+// A p for the whole piano under the upper staff, and a crescendo over bar 2.
+builder.add_dynamic(piano, ScorePoint::start_of(bars[0]), DynamicPlacement::instrument(upper), DynamicMark::Level(DynamicLevel::P))?;
+builder.add_hairpin(piano, ScorePoint::start_of(bars[2]), ScorePoint::start_of(bars[3]), DynamicPlacement::instrument(upper), HairpinShape::CRESCENDO)?;
+let document = builder.build()?;
+// The tempo map is derived: 0 → ♩ = 60, 4 → rit. to ♩ = 40 until 5, 5 → ♩ = 60.
+assert_eq!(document.tempo_map().changes().len(), 3);
+```
+
+**Test.** `tests/dynamic_cases.rs` (7 casi: l'ordine dei livelli, l'ordinamento e una dinamica per
+ambito, i controlli di collocazione senza ID consumati, il testo libero, "una dinamica non tocca mai
+gli scostamenti di una nota" di ADR-0024 §13, forcelle che si toccano, sovrapposizioni solo dentro un
+ambito) e `tests/tempo_mark_cases.rs` (11 casi calcolati a mano: l'indicazione iniziale, le
+indicazioni vuote, quelle di solo testo e nascoste, un ritardando con "a tempo", un tempo di
+partenza, un cambio dentro un graduale rifiutato tutto o niente, cambi graduali che non vanno in
+avanti, i punti, i metri, il limite alla stanghetta con "vince la successiva", un cambio graduale
+ridotto a niente). `tests/tempo_mark_oracle.rs` confronta indicazioni e forcelle casuali su metri
+casuali con un oracolo che conta in crome: se ogni indicazione è accettata e con quale errore, il
+builder invariato dopo un rifiuto, la mappa ricavata e la prima sovrapposizione di forcelle che
+`build` segnala. Sette bug iniettati (niente limite alla stanghetta, vince l'indicazione precedente,
+un cambio graduale ridotto a niente tenuto, "dentro" con `<=`, forcelle che si toccano trattate come
+sovrapposte, ambiti fusi, dinamiche duplicate ammesse) sono stati tutti scoperti, i primi sei anche
+dall'oracolo. `tests/dynamic_no_alloc.rs` controlla che leggere gli elenchi, l'indicazione in vigore
+in un punto e la mappa ricavata non allochino mai, e che `validate` faccia al massimo due
+allocazioni.
+
+**Memoria per nota** (scelta E7 del proprietario). `tests/memory.rs` costruisce con il builder vero
+una partitura con la forma di quella pesante di `spikes/model/` (1 000 battute, 30 righi, 41 voci,
+221 169 teste di nota; niente gruppi irregolari) e misura ciò che il documento trattiene con il nuovo
+`net_bytes` di `orchestra-test-support`: **257 byte per nota** (56,9 MB), compresi eventi, indici
+ricavati e scostamenti in linea. Il test fallisce oltre **285** (la misura più circa il 10%), così che
+una struttura che cresce sia una decisione voluta.
+
+**Benchmark** (`benches/dynamic.rs`; istruzioni): aggiungere un'indicazione di tempo vicino all'inizio
+di 1 000 battute con 250 indicazioni, metà graduali, che ricava di nuovo tutta la mappa, ≈ 985 000
+(circa 0,3 ms, dentro la stima di 0,6 ms di ADR-0024); l'indicazione in vigore in un punto ≈ 620;
+`validate` di 200 battute × 10 strumenti con 8 000 eventi, 2 000 dinamiche e 2 000 forcelle ≈ 3,3
+milioni. Rispetto alla prima parte di F1.09c tutti i benchmark del programma già esistenti sono
+rimasti entro ±0,9%.
 
 ### orchestra-playback
 
@@ -968,8 +1298,9 @@ fn comparison_never_allocates() {
 }
 ```
 
-`count_allocations` restituisce il risultato insieme a un `AllocationStats` con quattro contatori:
-allocazioni, riallocazioni, deallocazioni e byte richiesti. Per esempio, da `tests/counting.rs`:
+`count_allocations` restituisce il risultato insieme a un `AllocationStats` con cinque contatori:
+allocazioni, riallocazioni, deallocazioni, byte richiesti e byte restituiti (una riallocazione
+restituisce il blocco vecchio e ne prende uno nuovo). Per esempio, da `tests/counting.rs`:
 
 ```rust
 let ((), stats) = count_allocations(|| {
@@ -996,6 +1327,22 @@ Tre dettagli che contano:
   minuscola allocazione di prova e controlla che il contatore si sia mosso; se no, restituisce
   `NotInstalledError` (e `assert_no_allocations` fa fallire il test). `tests/not_installed.rs` è un
   binario di test senza l'allocatore che verifica proprio questo.
+
+**Quanta memoria trattiene una struttura** (F1.09c). `net_bytes()` è la differenza fra i byte
+richiesti e quelli restituiti nella finestra misurata: la crescita della memoria viva, in cui i
+buffer temporanei si annullano. Il test di memoria di `core-model` lo usa per misurare i byte per nota
+della partitura pesante. Conta ciò che il programma chiede, non gli arrotondamenti dell'allocatore:
+un limite inferiore della memoria residente, uguale su ogni piattaforma. Il contatore in più rende
+più lenti i benchmark del contatore stesso (istantanee ≈ 1 167 → 1 423 istruzioni, un'allocazione
+contata ≈ 7 641 → 8 025): un costo che esiste solo nei test, accettato con il trailer
+`Bench-regression: accepted` di ADR-0017.
+
+```rust
+let (document, stats) = count_allocations(build_the_heavy_score).unwrap();
+// What the document keeps: allocated minus given back, temporary buffers cancel out.
+let per_note = stats.net_bytes() / i128::try_from(noteheads(&document)).unwrap();
+assert!(per_note <= CEILING_BYTES_PER_NOTE);
+```
 
 È il quarto crate in cui è ammesso `unsafe`, perché il trait `GlobalAlloc` è `unsafe` per
 definizione; le uniche operazioni unsafe sono le chiamate inoltrate all'allocatore di sistema,

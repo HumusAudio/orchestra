@@ -30,6 +30,19 @@
 //!   [`Staff`]s and [`Voice`]s (voices belong to the instrument and have a home staff), the
 //!   [`BarList`] of [`BarId`]s next to the shared meter and tempo maps — created with a
 //!   [`DocumentBuilder`].
+//! - [`event`], [`content`], [`marks`] and [`validate`] (SCALETTA F1.09b, ADR-0024 §1–§4 and §9):
+//!   the events of the voices ([`Chord`]s of [`Note`]s and [`Rest`]s, at an offset in their bar),
+//!   their written [`NoteValue`]s with the metric duration derived, [`Tuplet`]s, [`Tie`]s, the
+//!   [`Clef`]s of each staff and the key signatures of the document with the instruments'
+//!   overrides, and [`Document::validate`], which [`DocumentBuilder::build`] runs.
+//! - [`marking`] and [`slur`] (SCALETTA F1.09c, ADR-0024 §5–§7 and §10): grace chords
+//!   ([`Grace`]), [`ArticulationSet`]s, [`Ornament`]s, [`Fermata`]s and [`Arpeggio`]s on the
+//!   events, the [`PerformanceOffsets`] of every notehead, the [`Slur`]s of each instrument with
+//!   the derived index of the slurs at an event, and the score order of
+//!   [`Document::comes_before`] that ties and slurs follow.
+//! - [`dynamic`] and [`tempo_mark`] (SCALETTA F1.09c, ADR-0024 §8 and §11): the [`Dynamic`]s and
+//!   [`Hairpin`]s of each instrument, with their [`DynamicScope`] (the whole instrument or one
+//!   voice), and the [`TempoMark`]s of the document, from which the tempo map is derived.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -47,15 +60,44 @@
 // out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
 #![deny(clippy::indexing_slicing)]
 
+pub mod content;
 pub mod document;
+pub mod dynamic;
+pub mod event;
 pub mod id;
+pub mod marking;
+pub mod marks;
 pub mod pitch;
+pub mod slur;
+pub mod tempo_mark;
+pub mod validate;
 
+pub use content::Chunk;
 pub use document::{
-    BarList, Document, DocumentBuilder, DocumentError, Instrument, MAX_STAVES_PER_INSTRUMENT,
-    MAX_VOICES_PER_INSTRUMENT, Staff, Track, Voice,
+    BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
+    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track, Voice,
 };
-pub use id::{BarId, InstrumentId, StaffId, TrackId, VoiceId};
+pub use dynamic::{
+    Dynamic, DynamicLevel, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinKind,
+    HairpinShape, HairpinStyle, OtherDynamic,
+};
+pub use event::{
+    BaseValue, Chord, Event, EventBody, MAX_DOTS, MAX_TUPLET_DEPTH, Note, NoteValue,
+    NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,
+    TupletNumber,
+};
+pub use id::{
+    BarId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, KeyChangeId, NoteId, SlurId,
+    StaffId, TempoMarkId, TrackId, TupletId, VoiceId,
+};
+pub use marking::{
+    Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,
+    OrnamentError, PerformanceOffsets, TremoloStrokes,
+};
+pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList, ScorePoint};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
+pub use slur::{Slur, SlurPlacement};
+pub use tempo_mark::{GradualMark, Metronome, TempoMark, TempoMarkChange};
+pub use validate::Violation;

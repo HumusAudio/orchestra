@@ -633,6 +633,21 @@ source data, rebuild the segments and validate everything, replace the map only 
 (`TempoMapError`: `BeforeStart`, `NoTempoAtStart`, `GradualAtStart`, `NonPositiveGradual`,
 `ChangeInsideGradual`, `Arithmetic`) and return the previous value for undo.
 
+**Building in one go** (F1.09c, the bulk edit of ADR-0022 §8). Since the document derives its tempo
+map from the tempo marks after every edit that touches them, `TempoMap::from_changes` builds a map
+from the whole list of changes at once: it checks that the positions strictly increase
+(`TempoMapError::Unsorted` otherwise), then applies exactly the rules of the edits. A property test
+rebuilds every randomly edited map from its own list of changes and finds it identical.
+
+```rust
+// The document rebuilds its tempo map in one go from the changes derived from the tempo marks:
+// the same map as one `set_change` per change, in O(t) instead of O(t²).
+let map = TempoMap::from_changes(vec![
+    (Position::ZERO, TempoChange::Immediate(andante)),
+    (at(4, 1)?, TempoChange::Gradual(GradualChange { from: None, to: lento, end: at(5, 1)? })),
+])?;
+```
+
 **Tests.** `tests/tempo_map_cases.rs` has 12 hand-computed cases: the ritardando of ADR-0020's
 table (32/3 s), positions inside a change on and off the grid, boundaries rounded down (♩ = 77)
 and up (♩ = 71) with their clamping, the optional starting tempo, back-to-back changes, the
@@ -712,7 +727,9 @@ The one project document (ADR-0003): tracks, notes with their two layers (writte
 performance offsets, ADR-0004), the form of the piece, commands and the single undo/redo history.
 It knows nothing about views, layout, audio or files. Its architecture (stable IDs, events as
 bar-relative offsets in per-bar chunks, voices per instrument) is fixed by ADR-0022; the first
-parts implemented are the pitch module and the skeleton of the document.
+parts implemented are the pitch module, the skeleton of the document, the content of
+the voices (events, tuplets, ties, clefs and key signatures) and the markings on the events with
+the slurs.
 
 #### Pitch, intervals and keys
 
@@ -790,7 +807,8 @@ interval and quality ≈ 800, spelling a MIDI key ≈ 100.
 #### The document skeleton
 
 `src/id.rs` and `src/document.rs` (step F1.08, ADR-0022 §1–3) hold the **structure** of the
-document, still without notes: these arrive in F1.09, the form in F1.10.
+document; the events inside the voices are described in the next section, the form arrives in
+F1.10.
 
 **IDs.** Every object that something else can point to has an ID: `TrackId`, `InstrumentId`,
 `StaffId`, `VoiceId`, `BarId` (later steps add events, noteheads and spanners). They are distinct
@@ -820,19 +838,25 @@ keys chosen by an attacker, while our keys come from our own counter.
 documents that do not exist yet (the file being opened, the reference score generator, tests and
 benchmarks), while an existing document will change only through the commands of F1.11
 (ADR-0003 §4). A new instrument gets **one voice per staff**, each at home on its own staff;
-`add_voice` adds more on any staff of the same instrument. There is no default meter or tempo: they
-are the caller's choice.
+`add_voice` adds more on any staff of the same instrument. There is no default meter, tempo or key:
+they are the caller's choice. Since F1.09b the builder takes the initial key (at concert pitch)
+and one clef per staff instead of a number of staves, so a staff without clef or a score without
+key cannot be built (owner's decision, 2026-11-02), and `build` returns a `Result`. Since F1.09c it
+takes the initial **tempo mark** instead of a ready-made tempo map, and `new` returns a `Result`
+too: the tempo map is derived from the marks (next sections).
 
 ```rust
-let mut builder = DocumentBuilder::new(meter_map, tempo_map);
+let c_major = Key::traditional(0, Mode::Major)?;
+let mut builder = DocumentBuilder::new(meter_map, initial_tempo_mark, c_major)?;
 for _ in 0..8 {
     builder.add_bar()?;
 }
-// A piano: two staves, so two voices, one at home on each staff.
-let piano = builder.add_instrument_track("Piano", Interval::new(0, Rational::ZERO), 2)?;
+// A piano: two staves with their clefs, so two voices, one at home on each staff.
+let unison = Interval::new(0, Rational::ZERO);
+let piano = builder.add_instrument_track("Piano", unison, &[Clef::TREBLE, Clef::BASS])?;
 let upper = builder.document().track(piano).unwrap().instrument().staves()[0].id();
 builder.add_voice(upper)?; // a second line in the right hand
-let document = builder.build();
+let document = builder.build()?; // build() validates the document (next section)
 assert_eq!(document.bars().len(), 8);
 ```
 
@@ -867,6 +891,287 @@ lookup allocates.
 20 instruments, 30 staves, 40 voices; batches of 64, instructions per call): `BarId` → index ≈ 42,
 bar start ≈ 510 (index plus meter map search among 20 segments), voice by ID with its instrument ≈
 280.
+
+#### The content of the voices
+
+`src/event.rs`, `src/content.rs`, `src/marks.rs` and `src/validate.rs` (step F1.09b, ADR-0024
+§1–§4 and §9) fill the voices with music. The markings on the events, the performance offsets and
+the slurs are in the next section, dynamics, hairpins and tempo marks in the one after it.
+
+**Events.** A voice holds one **chunk** per bar, aligned with the bar list: a chunk is empty
+(`None`, no memory used) or an `Arc` of a vector of events sorted by their **offset** from the
+start of the bar (events at the same offset keep the order they were entered in). The `Arc` is for
+snapshots (ADR-0022 §7): a background reader shares the chunks, and an edit copies only the chunk
+it touches. An event is a `Chord` or a `Rest`, with its own `EventId` and the staff it is drawn on
+(by default the voice's home staff, any staff of the same instrument for cross-staff notes). A
+chord has one or more `Note`s, each with its own `NoteId`, its spelled pitch at concert pitch and
+its tie; the noteheads are kept sorted by sound (F♯4 before G♭4 by letter), and a single note
+costs no allocation of its own.
+
+**Note values.** What is stored is the written value: a `BaseValue` (maxima to 1024th) and up to
+four dots. The length in whole notes is **derived**, never stored: `NoteValue::length` builds it
+with shifts, `Voice::metric_duration` multiplies the ratio of each tuplet that contains the event.
+Storing the number too would be two copies of one fact (ADR-0003). A **whole-bar rest**
+(`RestValue::WholeBar`) lasts whatever its bar lasts in the meter map, pickup bars included, so a
+meter change cannot make it wrong.
+
+**Tuplets.** `Tuplet::new(3, 2, eighth)` is "three eighths in the time of two". Tuplets live in a
+table of their voice, and each event records the innermost tuplet that contains it; `parent` makes
+the nesting a chain of at most four (with terms up to 255 nothing can overflow). A tuplet may cross a
+barline: the note that would straddle it becomes two tied notes, both members of the same tuplet.
+An incomplete tuplet is a valid state (it happens while typing).
+
+**Ties.** A tie is a link stored on the notehead it starts from: `Tie::To(note)`, or
+`Tie::LetRing` for a laissez-vibrer. The target may be in another voice of the same instrument
+and spelled differently, as long as it sounds the same and comes later in score order (see
+"Score order" below).
+
+**Clefs and key signatures.** They cannot be events of a voice: a staff carries several voices,
+and a voice may move between staves. Each staff has its initial clef and a list of clef changes at
+(bar, offset); the document has its initial key (at concert pitch) and a list of key changes; an
+instrument may override the key from a point on (`KeyOverride`: another signature, "no signature"
+for horns written without one, or back to the score's key). `clef_at`, `key_at`,
+`instrument_key_at` and `written_key_at` answer with a binary search; the written key of a
+transposing instrument is derived from its transposition (a B♭ clarinet in C major shows D major).
+
+```rust
+// A triplet of eighths on beat 1, then a dotted quarter from 5/8 to the barline, tied to an
+// eighth at the start of the next bar.
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let triplet = builder.add_tuplet(voice, Tuplet::new(3, 2, eighth)?, None)?;
+let g4 = Pitch::new(Step::G, Alteration::NATURAL, 4);
+for i in 0..3 {
+    // Offsets 0, 1/12 and 2/12 of a whole note.
+    let offset = Duration::from_rational(Rational::new(i, 12)?);
+    builder.add_chord(Placement::new(voice, bar0, offset).in_tuplet(triplet), eighth, &[g4])?;
+}
+let dotted_quarter = NoteValue::new(BaseValue::Quarter, 1)?;
+let five_eighths = Duration::from_rational(Rational::new(5, 8)?);
+let long = builder.add_chord(Placement::new(voice, bar0, five_eighths), dotted_quarter, &[g4])?;
+let next = builder.add_chord(Placement::new(voice, bar1, Duration::ZERO), eighth, &[g4])?;
+builder.set_tie(long.notes[0], Tie::To(next.notes[0]))?;
+let document = builder.build()?;
+// Derived, never stored: a dotted quarter lasts 3/8.
+assert_eq!(document.metric_duration(long.event)?, Duration::from_rational(Rational::new(3, 8)?));
+```
+
+**What `build` checks.** Each builder method checks what it can see locally before creating
+anything (the bar, voice, staff and tuplet exist and belong together, offsets are not negative,
+nesting is at most four deep). `Document::validate`, which `build` runs, checks the rules that need
+more: no two events of a voice overlap within a bar (gaps are fine, and an **overfull** bar is still
+valid: its last notes simply reach past the barline), a whole-bar rest is alone, and every tie goes
+to the same sound, later, in the same instrument. The first violation comes back as a typed
+`Violation` naming the event or notehead.
+
+**Lookups.** A derived index from `EventId` and `NoteId` to (voice, bar) finds any event or
+notehead: one hash lookup, the voice scan, a scan of one chunk. `events(voice, bar)` gives a
+chunk, `metric_duration` and `event_position` the derived time of an event. None of these
+allocates.
+
+**Tests.** `tests/voice_cases.rs` has 16 hand-written cases, one per case of ADR-0024 §13 in this
+step (enharmonic chord, nested tuplets with 1/12 and 1/30, incomplete tuplet, tuplet across a
+barline with a tied split, overfull bar, whole-bar rest after a pickup and a meter change, legal and
+illegal ties, clef changes mid-bar, keys of a B♭ clarinet, a horn without signature and a violin
+with an override, cross-staff notes, placement errors). `tests/voice_oracle.rs` compares random
+voices with random nested tuplets against an oracle with its own `i128` fractions: every duration,
+and whether `build` succeeds or which violation it reports; another property compares `clef_at`
+with a linear scan. Six injected bugs (a wrong length for double dots, the parent tuplet ignored,
+overlap at `<=`, the clef lookup off by one point, events at the same offset inserted in the wrong
+order, the whole-bar rule loosened) were all caught; the insertion order only by the oracle.
+`tests/voice_no_alloc.rs` checks that no lookup allocates and that `validate` makes a single
+allocation.
+
+**Benchmarks** (`benches/voice.rs`, 200 bars × 10 voices, 10 000 events with triplets and
+two-note chords; instructions per call): duration while walking a system ≈ 320, duration by event
+ID ≈ 625, event by ID ≈ 200, `clef_at` ≈ 470, `written_key_at` ≈ 555; `validate` of the whole
+score ≈ 5.5 million (≈ 550 per event, about 2 ms).
+
+#### Markings on the events and slurs
+
+`src/marking.rs` and `src/slur.rs` (first part of step F1.09c, ADR-0024 §5–§7 and §10) add what is
+written **on** the events, and the slurs. Dynamics, hairpins and tempo marks are in the next
+section.
+
+**Grace notes.** A grace chord is a chord with a `Grace`: an acciaccatura or an appoggiatura,
+placed **before** the event it ornaments (at that event's offset) or **after** the event it
+follows (at the offset where that event ends: the *Nachschlag*, or the closing notes of a trill).
+It keeps its written value (the eighth that is drawn) but its metric duration is **zero**, so it
+never moves the following events; how much time it takes from its neighbours when played is a
+playback rule (F1.13). Since several events can now sit at one offset, a chunk is sorted by
+(offset, **slot**): first the `After` graces of the event that ends there, then the `Before` graces
+of the event that starts there, then that event. The slot is derived from the grace, never stored.
+Graces cannot be in a tuplet (`DocumentError::GraceInTuplet`).
+
+**Articulations, ornaments, fermatas, arpeggios.** They belong to the chord, drawn once per stem:
+an `ArticulationSet` (a bit set in a `u16`: accent, marcato, staccato, staccatissimo, spiccato,
+tenuto, portato, stress, unstress, soft accent; portato is its own mark, not staccato + tenuto), at
+most one `Ornament` (trill with the optional accidental of its auxiliary note, turn, inverted
+turn, mordent and upper mordent named after SMuFL because MusicXML's names are often swapped,
+single-note tremolo with 1 to 4 strokes), a `Fermata` (short, normal, long, very long; also on a
+rest, so a general pause is a whole-bar rest with a fermata) and an `Arpeggio` (plain, up, down, or
+the non-arpeggio bracket). Setting one of the chord-only markings on a rest is
+`DocumentError::NotAChord`.
+
+**Performance offsets.** Every notehead carries its `PerformanceOffsets` inline: `onset` and
+`length` as signed durations in **musical time** (a note a 64th early has `onset = −1/64`, so the
+feel follows any tempo change) and `velocity` as a signed delta on the 16-bit scale of MIDI 2.0.
+They are zero by default and stored exactly as given: clamping (a note before 0, a negative length,
+a velocity off the scale) is done by playback on the result, so that nothing is lost when the
+written dynamics change later.
+
+**Slurs.** A `Slur` joins a start event and an end event and is kept in its **instrument**'s table,
+sorted by ID, because it may join two voices of the instrument (a phrase passing between the hands
+of a piano). Slurs may nest and share ends. A derived index answers "which slurs start or end on
+this event" (`slurs_at`) with one hash lookup; up to two slurs per event it stores the IDs inline,
+so it costs no allocation per entry.
+
+**Score order.** With graces, "later" is no longer only "a later position": an acciaccatura and
+its main note start at the same point. `Document::comes_before` compares events by position, then
+by slot, then (inside one chunk) by their place in it; two events of different voices at the same
+position and slot are simultaneous. Ties and slurs must go forwards in this order (owner's decision
+of 2026-11-02), so an acciaccatura can be slurred or tied to its main note; for events without
+graces the rule is the same as before.
+
+```rust
+// An acciaccatura slurred to an accented quarter with a trill; the quarter played a 64th early.
+let quarter = NoteValue::plain(BaseValue::Quarter);
+let main = builder.add_chord(Placement::new(voice, bar, Duration::ZERO), quarter, &[g4])?;
+let grace = Grace { kind: GraceKind::Acciaccatura, attach: GraceAttach::Before };
+let eighth = NoteValue::plain(BaseValue::Eighth);
+let a4 = Pitch::new(Step::A, Alteration::NATURAL, 4);
+let small = builder.add_grace_chord(Placement::new(voice, bar, Duration::ZERO), grace, eighth, &[a4])?;
+builder.set_articulations(main.event, ArticulationSet::EMPTY.with(Articulation::Accent))?;
+builder.set_ornament(main.event, Some(Ornament::Trill { auxiliary: None }))?;
+let early = PerformanceOffsets { onset: Duration::from_rational(Rational::new(-1, 64)?), ..PerformanceOffsets::NONE };
+builder.set_offsets(main.notes[0], early)?;
+let slur = builder.add_slur(small.event, main.event, SlurPlacement::Auto)?;
+let document = builder.build()?;
+// The grace lasts zero and comes first in score order, although both start at the same point.
+assert_eq!(document.metric_duration(small.event)?, Duration::ZERO);
+assert!(document.comes_before(small.event, main.event)?);
+assert_eq!(document.slurs_at(main.event), [slur]);
+```
+
+**What `validate` adds.** Rule 4: a `Before` grace has a main event at its offset in its voice
+and bar, an `After` grace sits exactly where the previous main event of its chunk ends (several in
+a row are fine); a grace inside a main event is reported as an overlap. Rule 5: both ends of a slur
+exist and belong to its instrument, and the end comes after the start in score order. Both rules
+run in the same single pass over the chunks and add no allocation.
+
+**Tests.** `tests/marking_cases.rs` has 9 hand-written cases (articulation round trips and portato,
+graces with zero duration and their slot order, a grace refused in a tuplet, graces without their
+main event, ornaments with tremolo bounds and fermatas on rests, offsets per notehead, slurs that
+nest and cross voices with the index, score order with graces and simultaneous voices, slur
+errors that consume no ID). `tests/marking_oracle.rs` builds random bars of main notes and graces
+with random slurs and compares them with an oracle that counts in sixteenths as plain integers: the
+chunk order, whether `build` succeeds, `comes_before` on every pair, `slurs_at` on every event and
+the zero duration of graces. Four injected bugs (slots swapped, the `After` rule switched off, the
+chunk tie-break of the score order reversed, the index losing a third slur) were all caught by the
+oracle. `tests/marking_no_alloc.rs` checks that no lookup allocates and that `validate` still makes
+a single allocation.
+
+**Benchmarks** (`benches/marking.rs`, 200 bars × 10 voices, 12 000 events with a grace before and
+after each bar, 4 500 slurs; instructions per call): `slurs_at` ≈ 48, slur by ID ≈ 640,
+`comes_before` ≈ 1 670; `validate` of the whole score ≈ 13.8 million (≈ 1 150 per event, about
+4.5 ms). Rule 4 runs inside the pass of rule 1 and reuses the durations it computes: a separate
+pass had doubled the cost of `validate`. On the score of `benches/voice.rs`, which has no graces or
+slurs, `validate` went from ≈ 5.49 to ≈ 5.76 million (+5%, about 27 instructions per event for the
+new checks); every lookup stayed within ±0.5%.
+
+#### Dynamics, hairpins and tempo marks
+
+`src/dynamic.rs` and `src/tempo_mark.rs` (second part of step F1.09c, ADR-0024 §8 and §11) add how
+loud and how fast the music is written to be. Both are **position-anchored**: they sit at a
+`ScorePoint` (a bar and an offset, new in `src/marks.rs`), not on a note, so a *p* under a rest or a
+tempo change in the middle of a held chord is ordinary writing, and they follow their bar when bars
+are inserted before it.
+
+**Dynamics.** A `Dynamic` says a `DynamicMark`: a level of the scale (`DynamicLevel`, *pppppp* to
+*ffffff*, ordered soft to loud so that `Ord` answers "is this louder?"), one of the accents and
+combinations (*sf*, *sfz*, *sffz*, *fz*, *rf*, *rfz*, *fp*, *sfp*, *sfpp*, *pf*, *n*), or free text
+(`OtherDynamic`, "subito p", with an optional level for playback). The standard names are Italian
+in every language and are drawn, not translated; free text is the user's own and never empty
+(`DocumentError::EmptyText`). Each instrument keeps its dynamics in one list sorted in score order.
+A `DynamicPlacement` holds two separate things: the **scope** (the whole instrument, the usual case
+including a piano's dynamic between its staves, or one voice, for divisi) and the **staff** it is
+drawn on, which changes nothing in playback. There is at most one dynamic per scope at a point
+(`DuplicateMark`); an instrument dynamic and a voice dynamic may share one. Nothing here is a
+velocity: playback (F1.13) derives velocities from the dynamics, and the notes' velocity offsets are
+deltas on top, so a test checks that adding dynamics never touches a note.
+
+**Hairpins.** A `Hairpin` runs from a start point to an **excluded** end point, with a
+`HairpinShape` (crescendo or diminuendo, wedge or text, *al niente*). The builder refuses one that
+does not go forwards (`HairpinNotForward`); `validate` (rule 6) refuses two hairpins of the same
+scope that overlap, in one pass over the instrument's list sorted by start, remembering the last end
+per scope. Touching is fine ("cresc. up to here, dim. from here"), and so is a dynamic inside a
+hairpin.
+
+**Tempo marks** (choice C5 = T2 of ADR-0024). A `TempoMark` is what is printed, text and/or a
+change: `TempoMarkChange::Immediate(Metronome)` (a tempo, printed or hidden: a hidden one is a DAW
+user's tempo automation) or `Gradual(GradualMark)` (to a tempo, up to an explicit end point,
+optionally jumping first to a starting tempo). The **tempo map is derived from the marks** and never
+edited directly, so the score cannot say 120 and play 90. The rules approved by the owner (E1–E3):
+the initial mark is a field of the document with its own `TempoMarkId`, takes the document's first
+ID and must set a tempo at once (`InitialTempoNotImmediate`); a text-only mark changes nothing in
+the map; a gradual change ends at its own point.
+
+How the map is derived (`Document::walk_tempo_marks`, then `TempoMap::from_changes`): the marks are
+read in score order; a gradual change must end after it starts and no other change may start inside
+it, both judged in score order, on what the user sees (`Violation::GradualTempoNotForward`,
+`Violation::TempoChangeInsideGradual`). Each point becomes the start of its bar plus its offset,
+**clamped to the barline** (owner's decision of 2026-11-03): an overfull bar is a valid state, and
+without the clamp a mark at offset 5/4 of a 4/4 bar would land after a mark at the start of the
+next bar. Clamping keeps the order; two marks may then land on the same position, and the later
+one in score order wins (the other stays written); a gradual change shrunk to nothing acts as an
+immediate change to its target. `add_tempo_mark` tries the mark with the ID the counter would hand
+out next (`IdCounter::peek`), derives the map, and takes the mark out again on failure: all or
+nothing, no ID consumed. `validate` (rule 7) runs the same walk without building the map, so it
+allocates nothing more.
+
+```rust
+// "Andante ♩ = 60" at the start, a ritardando over bar 4 and "a tempo" at bar 5.
+let quarter = Duration::from_rational(Rational::new(1, 4)?);
+let andante_tempo = Tempo::new(quarter, Rational::from_integer(60)?)?;
+let andante = TempoMark::immediate(Some("Andante"), Metronome::shown(andante_tempo))?;
+let mut builder = DocumentBuilder::new(meter_map, andante, c_major)?;
+let bars: Vec<BarId> = (0..8).map(|_| builder.add_bar()).collect::<Result<_, _>>()?;
+let rit = GradualMark { from: None, to: Tempo::new(quarter, Rational::from_integer(40)?)?, end: ScorePoint::start_of(bars[5]) };
+builder.add_tempo_mark(ScorePoint::start_of(bars[4]), TempoMark::new(Some("rit."), Some(TempoMarkChange::Gradual(rit)))?)?;
+builder.add_tempo_mark(ScorePoint::start_of(bars[5]), TempoMark::immediate(Some("a tempo"), Metronome::hidden(andante_tempo))?)?;
+// A p for the whole piano under the upper staff, and a crescendo over bar 2.
+builder.add_dynamic(piano, ScorePoint::start_of(bars[0]), DynamicPlacement::instrument(upper), DynamicMark::Level(DynamicLevel::P))?;
+builder.add_hairpin(piano, ScorePoint::start_of(bars[2]), ScorePoint::start_of(bars[3]), DynamicPlacement::instrument(upper), HairpinShape::CRESCENDO)?;
+let document = builder.build()?;
+// The tempo map is derived: 0 → ♩ = 60, 4 → rit. to ♩ = 40 until 5, 5 → ♩ = 60.
+assert_eq!(document.tempo_map().changes().len(), 3);
+```
+
+**Tests.** `tests/dynamic_cases.rs` (7 cases: the order of the levels, sorting and one dynamic per
+scope, the placement checks with no ID consumed, free text, ADR-0024 §13's "a dynamic never touches
+a note's offsets", hairpins that touch, overlap only within a scope) and `tests/tempo_mark_cases.rs`
+(11 cases computed by hand: the initial mark, empty marks, text-only and hidden marks, a ritardando
+with "a tempo", a starting tempo, a change inside a gradual one refused all or nothing, gradual
+changes that do not go forwards, the points, meters, the clamping with "the later one wins", a
+gradual change shrunk to nothing). `tests/tempo_mark_oracle.rs` compares random marks and hairpins
+on random meters with an oracle that counts in eighths: whether each mark is accepted and with which
+error, the builder unchanged after a refusal, the derived map, and the first hairpin overlap that
+`build` reports. Seven injected bugs (no clamping, the earlier mark winning, a shrunk gradual change
+kept, "inside" with `<=`, touching hairpins as an overlap, scopes merged, duplicate dynamics
+allowed) were all caught, the first six by the oracle too. `tests/dynamic_no_alloc.rs` checks that
+reading the lists, the mark in force at a point and the derived map never allocate, and that
+`validate` makes at most two allocations.
+
+**Memory per note** (owner's choice E7). `tests/memory.rs` builds a score shaped like the heavy one
+of `spikes/model/` (1 000 bars, 30 staves, 41 voices, 221 169 noteheads; no tuplets) with the real
+builder and measures what the document keeps with the new `net_bytes` of `orchestra-test-support`:
+**257 bytes per note** (56.9 MB), events, derived indices and inline offsets included. The test fails
+above **285** (the measure plus about 10%), so that a structure that grows is a deliberate decision.
+
+**Benchmarks** (`benches/dynamic.rs`; instructions): adding a tempo mark near the start of 1 000 bars
+with 250 marks, half of them gradual, which derives the whole map again, ≈ 985 000 (about 0.3 ms,
+within ADR-0024's estimate of 0.6 ms); the tempo mark in force at a point ≈ 620; `validate` of 200
+bars × 10 instruments with 8 000 events, 2 000 dynamics and 2 000 hairpins ≈ 3.3 million. Against
+the first part of F1.09c every existing benchmark of the program stayed within ±0.9%.
 
 ### orchestra-playback
 
@@ -920,9 +1225,9 @@ fn comparison_never_allocates() {
 }
 ```
 
-`count_allocations` returns the result together with an `AllocationStats` with four counters:
-allocations, reallocations, deallocations and bytes requested. For example, from
-`tests/counting.rs`:
+`count_allocations` returns the result together with an `AllocationStats` with five counters:
+allocations, reallocations, deallocations, bytes requested and bytes given back (a reallocation
+gives back the old block and takes a new one). For example, from `tests/counting.rs`:
 
 ```rust
 let ((), stats) = count_allocations(|| {
@@ -949,6 +1254,21 @@ Three details that matter:
   tiny probe allocation and checks that the counter moved; if not, it returns
   `NotInstalledError` (and `assert_no_allocations` fails the test). `tests/not_installed.rs` is a
   test binary without the allocator that checks exactly this.
+
+**How much memory a structure keeps** (F1.09c). `net_bytes()` is the bytes requested minus the
+bytes given back over the measured window: the growth of the live heap, in which temporary buffers
+cancel out. `core-model`'s memory test uses it to measure the bytes per note of the heavy score.
+It counts what the program asks for, not the allocator's rounding: a lower bound of the resident
+memory, the same on every platform. The extra counter makes the counter's own benchmarks slower
+(snapshots ≈ 1 167 → 1 423 instructions, one counted allocation ≈ 7 641 → 8 025): a test-only cost,
+accepted with the `Bench-regression: accepted` trailer of ADR-0017.
+
+```rust
+let (document, stats) = count_allocations(build_the_heavy_score).unwrap();
+// What the document keeps: allocated minus given back, temporary buffers cancel out.
+let per_note = stats.net_bytes() / i128::try_from(noteheads(&document)).unwrap();
+assert!(per_note <= CEILING_BYTES_PER_NOTE);
+```
 
 It is the fourth crate allowed to contain `unsafe`, because the `GlobalAlloc` trait is `unsafe`
 by definition; the only unsafe operations are the forwarding calls to the system allocator, each
