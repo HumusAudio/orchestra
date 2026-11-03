@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.19, approvata dal proprietario il 2026-11-03.**
+> **Stato di questo documento: v0.20, approvata dal proprietario il 2026-11-03.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -245,7 +245,7 @@ Dettagli:
 | F1.09b | **Eventi, figure, gruppi irregolari, legature di valore, chiavi, armature**, `validate` | ✅ | 2 |
 | F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ✅ PR #17 | 2 |
 | F1.10 | **ADR della forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ✅ ADR-0025 | 1 |
-| F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ⬜ | 2 |
+| F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
 | F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
 
 Dettagli:
@@ -317,6 +317,14 @@ Dettagli:
 - **F1.10b** Implementa ADR-0025 §2–§8 (ID nuovi, elenchi della forma, `PassSet`, metodi del
   builder, regole 8–11 di `validate`, stile di numerazione) con i test dei casi difficili di §10,
   un oracolo e ricerche senza allocazioni.
+  **Fatto il 2026-11-03 (PR #18), in due sessioni.** Scelte del proprietario: le volte successive
+  più lunghe della prima proseguono la numerazione e dopo le volte si riparte dalla più lunga; lo
+  stile si applica sopra la numerazione di `core-time` e una ripartenza dentro le volte vince; con
+  le volte `times` vale 2 oppure n. Correzione di ADR-0025 §3: ogni volta tranne l'ultima finisce
+  con un ritornello ("1. :‖ 2. :‖ 3."). Precisazioni annotate in ADR-0025 §8: il "fino a" di un
+  salto sta fra il bersaglio e il salto; un segno d'inizio, uno di fine e un salto per battuta;
+  `OnPass(n)` solo dentro una sezione ripetuta; nessuna marcatura di forma dentro una ripetizione
+  di battuta; regole di passaggio entro le esecuzioni della sezione e senza sovrapposizioni.
 - **F1.11** Ogni comando reversibile; raggruppamento (una "transazione" = un passo di undo,
   es. incollare 200 note); notifiche che dicono **cosa** è cambiato, per l'aggiornamento
   incrementale di layout e playback (ADR-0003 §6, ADR-0007). Test di proprietà: per ogni
@@ -635,3 +643,4 @@ raccomandato.
 | 2026-11-02 | 0.17 | F1.09b fatto (eventi, gruppi irregolari, legature di valore, chiavi, armature, `validate`) | proprietario |
 | 2026-11-03 | 0.18 | F1.09c fatto (PR #17): dinamiche, forcelle, indicazioni di tempo con la mappa ricavata, limite alla stanghetta, tetto di memoria; note per F1.11, F1.13 e F2B | proprietario |
 | 2026-11-03 | 0.19 | F1.10 fatto (ADR-0025 Accepted, uno stile di numerazione per documento); nuovo F1.10b; note per F1.11, F1.12, F2B e "Oltre" | proprietario |
+| 2026-11-03 | 0.20 | F1.10b fatto (PR #18): ritornelli, volte, stile di numerazione, segni e salti, ripetizioni di battuta, regole di passaggio; ADR-0025 corretto (§3) e precisato (§8); F1-B resta con F1.11 | proprietario |

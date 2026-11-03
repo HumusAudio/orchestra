@@ -248,8 +248,8 @@ oracle for rules 10–11 (the first generator gave 109 valid cases out of 1 024;
 third; ten injected bugs caught, eight by the oracle), allocation-free reads. Benchmarks:
 `validate` with 50 jumps ≈ 933 000 instructions (≈ 15 000 per jump on an extreme score, from
 ≈ 1.96 M before the lookup was improved); every existing benchmark within ±0.5% of `main`.
-**Next:** the PR of F1.10 (ADR-0025, F1.10b) with CI on the three platforms, then F1.11
-(commands and undo).
+PR #18 (F1.10, F1.10b) with SCALETTA v0.20. **Next:** F1.11 (commands, unified undo/redo,
+change notifications), the last step of F1-B.
 
 | Step | What | Status |
 |---|---|---|
