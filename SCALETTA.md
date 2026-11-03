@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.18, approvata dal proprietario il 2026-11-03.**
+> **Stato di questo documento: v0.19, approvata dal proprietario il 2026-11-03.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -244,7 +244,8 @@ Dettagli:
 | F1.09 | **ADR del contenuto di una voce** (note a due strati, ADR-0004) | ✅ ADR-0024 | 1 |
 | F1.09b | **Eventi, figure, gruppi irregolari, legature di valore, chiavi, armature**, `validate` | ✅ | 2 |
 | F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ✅ PR #17 | 2 |
-| F1.10 | **Forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ⬜ | 1–2 |
+| F1.10 | **ADR della forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ✅ ADR-0025 | 1 |
+| F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ⬜ | 2 |
 | F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
 
 Dettagli:
@@ -303,6 +304,19 @@ Dettagli:
   immediato; la mappa si ricalcola a ogni indicazione aggiunta, tutto o niente; una dinamica per
   ambito in un punto, forcelle dello stesso ambito senza sovrapposizioni; tetto di memoria di 285
   byte per nota (misurati 257 su 221 169 note).
+- **F1.10** **Fatto il 2026-11-03 (ADR-0025 Accepted).** Ambito fissato dal proprietario: il nucleo
+  (stanghette di ritornello, volte, segno, coda, Fine, D.C./D.S. e varianti) più le ripetizioni di
+  battuta (%), la musica suonata solo in alcuni passaggi e i salti scritti come testo libero.
+  Scelte approvate (F1–F10): marcature solo sulle stanghette; ritornello senza inizio che torna
+  all'inizio della partitura; niente ritornelli annidati; per ogni salto la scelta se ripetere i
+  ritornelli dopo (di default no, con l'ultima volta); un salto dentro un ritornello all'ultimo
+  passaggio o al passaggio indicato; battute % senza note, suonate dall'origine, per rigo; regole
+  di passaggio come intervalli; al massimo 64 esecuzioni. Per F9 il proprietario ha scelto **uno
+  stile di numerazione per documento** (continua, stessi numeri con lettere, stessi numeri senza
+  lettere; dopo le volte si riparte dalla più lunga).
+- **F1.10b** Implementa ADR-0025 §2–§8 (ID nuovi, elenchi della forma, `PassSet`, metodi del
+  builder, regole 8–11 di `validate`, stile di numerazione) con i test dei casi difficili di §10,
+  un oracolo e ricerche senza allocazioni.
 - **F1.11** Ogni comando reversibile; raggruppamento (una "transazione" = un passo di undo,
   es. incollare 200 note); notifiche che dicono **cosa** è cambiato, per l'aggiornamento
   incrementale di layout e playback (ADR-0003 §6, ADR-0007). Test di proprietà: per ogni
@@ -315,7 +329,9 @@ Dettagli:
   seguono le battute da soli, quindi non servono più lo spostamento dei cambi di tempo né il suo
   test di proprietà; dopo ogni comando che li tocca la mappa dei tempi si ricalcola.
   Da F1.09c: la mappa dei tempi si ricalcola anche dopo ogni comando che cambia dove cominciano le
-  battute (inserire o togliere battute, cambi di metro).
+  battute (inserire o togliere battute, cambi di metro). Da ADR-0025: cancellare una battuta che
+  porta una marcatura di forma cancella la marcatura nello stesso comando, e ogni comando lascia la
+  forma valida.
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -337,7 +353,10 @@ Dettagli:
   (temperamenti, intonazione naturale) e i segni di comma (Helmholtz-Ellis, Sagittal): ADR-0023
   §2–§3 usa il 12-TET come riferimento. ❓ **Decisione D22:** in quale passo si fa l'intonazione.
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
-  indice del passaggio).
+  indice del passaggio). Da ADR-0025: lo srotolamento segue le regole di §5; l'indice di passaggio
+  di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
+  prima, da 0; le battute % si suonano dalle battute d'origine e le regole di passaggio filtrano le
+  note.
 - **F1.13** (seguito) Da ADR-0024: pedale e glissando entrano con le regole di esecuzione che li
   usano. Da F1.09c: quale dinamica (o forcella) prevale per una voce quando valgono insieme una di
   strumento e una di voce; gli scostamenti di esecuzione sono salvati senza limiti, quindi le regole
@@ -435,6 +454,8 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 - Da ADR-0023: il simbolo da disegnare per le alterazioni microtonali (Stein-Zimmermann, frecce
   di Gould…); la semplificazione enarmonica delle armature trasposte (9 diesis mostrati come
   3 bemolle); i nomi delle note nelle sei lingue, con il Si tedesco «H» (glossario).
+- Da ADR-0025: disegnare le lettere della numerazione nelle volte e i segni di ripetizione di
+  battuta (%).
 - Da F1.09c: l'interfaccia deve mostrare quando una battuta troppo piena porta un'indicazione di
   tempo sulla stanghetta (il modello la sposta lì senza segnalarlo).
 - Fuori da questa fase (vedi §5): parti staccate, stampa/PDF, MusicXML.
@@ -529,7 +550,9 @@ Dettaglio volutamente minore: si espande alla chiusura di F3, con quello che avr
 ### Oltre (idee da valutare, nessun impegno)
 
 Da collocare (ADR-0024 C9): tremolo tra due note, testo cantato (sillabe, strofe, allineamento),
-sigle degli accordi, diteggiature e indicazioni di tecnica.
+sigle degli accordi, diteggiature e indicazioni di tecnica. Da ADR-0025: le ripetizioni di
+movimento (un segno che ripete un movimento) e più movimenti in un solo file ("l'inizio della
+partitura" dei salti diventerà allora "l'inizio del movimento").
 
 Scripting, tema ad alto contrasto, notazioni speciali (tablature, percussioni, notazione antica),
 collaborazione, supporto microtonale completo, internazionalizzazione oltre le 6 lingue.
@@ -611,3 +634,4 @@ raccomandato.
 | 2026-11-02 | 0.16 | F1.09 fatto (ADR-0024 Accepted, emenda ADR-0022 §5 e §6); nuovi F1.09b e F1.09c; F1.11 non sposta più i cambi di tempo; rimandi annotati in F1.12, F1.13, F2.19, F3.03, filone MusicXML e "Oltre" | proprietario |
 | 2026-11-02 | 0.17 | F1.09b fatto (eventi, gruppi irregolari, legature di valore, chiavi, armature, `validate`) | proprietario |
 | 2026-11-03 | 0.18 | F1.09c fatto (PR #17): dinamiche, forcelle, indicazioni di tempo con la mappa ricavata, limite alla stanghetta, tetto di memoria; note per F1.11, F1.13 e F2B | proprietario |
+| 2026-11-03 | 0.19 | F1.10 fatto (ADR-0025 Accepted, uno stile di numerazione per documento); nuovo F1.10b; note per F1.11, F1.12, F2B e "Oltre" | proprietario |

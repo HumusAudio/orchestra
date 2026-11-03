@@ -218,7 +218,7 @@ that store no events, pass rules as ranges, and the unrolling rules F1.12 will f
 examples of the numbering styles, the owner chose **one bar-numbering style per document**
 (`Continue` by default, `SameAsFirstLettered` 8a/8b, `SameAsFirst` 8/8; after the voltas the count
 continues from the longest one) and approved every other recommendation: **ADR-0025 Accepted**
-(2026-11-03). **Next:** the SCALETTA update (F1.10 split into ADR and F1.10b), then F1.10b.
+(2026-11-03). SCALETTA v0.19 records it and adds step F1.10b. **Next:** F1.10b, the implementation of ADR-0025 §2–§8, on the same branch.
 
 | Step | What | Status |
 |---|---|---|
