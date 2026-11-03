@@ -52,5 +52,12 @@ harness = false
 name = "dynamic"
 harness = false
 
+# Instruction-count benchmarks of the form: the number shown above a bar in the plain and the
+# lettered numbering styles, and the validation of a score full of repeats and voltas (SCALETTA
+# F1.10b, ADR-0025 §2–§3).
+[[bench]]
+name = "form"
+harness = false
+
 [lints]
 workspace = true

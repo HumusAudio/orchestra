@@ -218,7 +218,24 @@ that store no events, pass rules as ranges, and the unrolling rules F1.12 will f
 examples of the numbering styles, the owner chose **one bar-numbering style per document**
 (`Continue` by default, `SameAsFirstLettered` 8a/8b, `SameAsFirst` 8/8; after the voltas the count
 continues from the longest one) and approved every other recommendation: **ADR-0025 Accepted**
-(2026-11-03). SCALETTA v0.19 records it and adds step F1.10b. **Next:** F1.10b, the implementation of ADR-0025 §2–§8, on the same branch.
+(2026-11-03). SCALETTA v0.19 records it and adds step F1.10b. Step **F1.10b** (same branch, 2026-11-03) in
+two sessions. Before starting, the owner approved: later voltas longer than the first continue
+the numbering (8a | 8b 9b) and the count after the group resumes from the longest volta; the
+style applies on top of `core-time`'s numbering, counting only counted bars, and a restart inside
+a group wins; `set_bar_numbering` on the builder (default `Continue`); with voltas `times` must be
+2 or n; duplicates are `DuplicateMark`. While writing rule 9 a gap in ADR-0025 §3 emerged
+("1. :‖ 2. :‖ 3." could not be written): the owner chose that **every volta but the last ends with
+an end repeat** of its section, and ADR-0025 was corrected. **First part (session A, done):**
+`src/form.rs` (`PassSet` in one `u64`, `MAX_PLAYS` = 64, `RepeatStart`/`RepeatEnd`, `Volta`,
+`BarNumbering`, `BarLabel`, `Form`), rules 8 and 9 of `validate` without allocations,
+`Document::bar_label`, the builder methods, two new ID kinds. Tests: 12 hand-written cases, an
+oracle that numbers the bars one by one (it found a first volta with only uncounted bars; nine
+injected bugs caught, two only after adding the mutations that produce them), allocation-free
+reads. Benchmarks (`benches/form.rs`): `bar_label` ≈ 112 instructions with `Continue`, ≈ 13 800
+with the lettered style after 25–50 volta groups (O(v log u), ≈ 275 per group; a derived index
+could make it O(log g) if F2B's layout benchmarks ever need it), `validate` of 150 voltas
+≈ 178 000. **Next (session B):** markers and jumps, bar repeats, pass rules, rules 10–11, then the
+PR of F1.10.
 
 | Step | What | Status |
 |---|---|---|

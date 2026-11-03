@@ -30,6 +30,12 @@
 //!    follows is a playback rule (F1.13), like for dynamics.
 //! 7. **Tempo marks** (ADR-0024 §11): a gradual change ends strictly after it starts, and no
 //!    other tempo change starts strictly inside it, both in score order (`crate::tempo_mark`).
+//! 8. **Repeats** (ADR-0025 §2): sections do not nest or overlap; an end repeat without a start
+//!    goes back to the start of the score, so only the first end of the score may lack one, apart
+//!    from the further ends of the voltas of one section.
+//! 9. **Voltas** (ADR-0025 §3): groups of at least two, consecutive, with ascending disjoint
+//!    passes that are exactly `1..=n`; every volta but the last ends with an end repeat of its
+//!    section whose `times` is 2 or n; no start repeat inside a group.
 //!
 //! `DocumentBuilder::build` calls it, so no invalid document can exist (owner's decision of
 //! 2026-11-02); the file loader of F1.15 builds through the builder and gets it for free.
@@ -43,7 +49,10 @@ use orchestra_core_time::{BarIndex, Duration};
 use crate::document::{Document, DocumentError, Instrument, is_whole_bar_rest};
 use crate::dynamic::DynamicScope;
 use crate::event::{EventBody, Note, PlacedEvent, Tie};
-use crate::id::{EventId, HairpinId, IdMap, InstrumentId, NoteId, SlurId, TempoMarkId, VoiceId};
+use crate::id::{
+    EventId, HairpinId, IdMap, InstrumentId, NoteId, RepeatId, SlurId, TempoMarkId, VoiceId,
+    VoltaId,
+};
 use crate::marking::GraceAttach;
 use crate::marks::point_key;
 
@@ -83,6 +92,20 @@ pub enum Violation {
     GradualTempoNotForward(TempoMarkId),
     /// This tempo change starts strictly inside a gradual tempo change.
     TempoChangeInsideGradual(TempoMarkId),
+    /// This repeat barline nests in or overlaps another repeated section.
+    RepeatsOverlap(RepeatId),
+    /// This end repeat's number of plays contradicts the voltas of its section.
+    RepeatTimesMismatch(RepeatId),
+    /// This volta starts before the previous one has ended.
+    VoltaOverlap(VoltaId),
+    /// This volta does not directly follow the previous volta of its group with higher passes, or
+    /// it starts a group without pass 1.
+    VoltaOrder(VoltaId),
+    /// The passes of the group starting at this volta are not exactly `1..=n`.
+    VoltaPassesIncomplete(VoltaId),
+    /// This volta lacks the end repeat it needs (every volta but the last of a group has one), or
+    /// is a group of its own.
+    VoltaWithoutRepeat(VoltaId),
 }
 
 impl fmt::Display for Violation {
@@ -154,6 +177,34 @@ impl fmt::Display for Violation {
             Self::TempoChangeInsideGradual(id) => write!(
                 f,
                 "tempo change {} starts inside a gradual tempo change",
+                id.get()
+            ),
+            Self::RepeatsOverlap(id) => write!(
+                f,
+                "repeat barline {} nests in or overlaps another repeated section",
+                id.get()
+            ),
+            Self::RepeatTimesMismatch(id) => write!(
+                f,
+                "end repeat {} has a number of plays that contradicts its voltas",
+                id.get()
+            ),
+            Self::VoltaOverlap(id) => {
+                write!(f, "volta {} starts before the previous one ends", id.get())
+            }
+            Self::VoltaOrder(id) => write!(
+                f,
+                "volta {} does not follow the previous volta of its group with higher passes",
+                id.get()
+            ),
+            Self::VoltaPassesIncomplete(id) => write!(
+                f,
+                "the voltas from {} do not cover the passes 1 to n exactly",
+                id.get()
+            ),
+            Self::VoltaWithoutRepeat(id) => write!(
+                f,
+                "volta {} lacks its end repeat or has no other volta",
                 id.get()
             ),
         }
@@ -252,6 +303,8 @@ impl Document {
         // itself is not rebuilt (the builder derived it when each mark was added), so nothing is
         // allocated.
         self.walk_tempo_marks(|_, _| {})?;
+        // Rules 8 and 9: the form.
+        self.check_form()?;
         Ok(())
     }
 

@@ -194,6 +194,14 @@ define_id!(
     /// text that can be selected and edited, even though it cannot be removed.
     TempoMarkId
 );
+define_id!(
+    /// The identity of a repeat barline of the document, start or end (ADR-0025 §2).
+    RepeatId
+);
+define_id!(
+    /// The identity of a volta of the document (ADR-0025 §3).
+    VoltaId
+);
 
 // ------------------------------------------------------------------------------------------------
 // The ID hash map

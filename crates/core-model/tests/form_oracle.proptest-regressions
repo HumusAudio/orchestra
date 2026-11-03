@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b08447968572b6ab0946a3fd88ad0e2f7f1d9fb3a7b668018e839eb946e08936 # shrinks to c = Case { bars: 14, starts: [0, 7], ends: [(3, 2), (4, 2), (9, 2), (11, 2)], voltas: [V { first: 2, last: 3, mask: 1 }, V { first: 4, last: 4, mask: 2 }, V { first: 5, last: 6, mask: 4 }, V { first: 9, last: 9, mask: 3 }, V { first: 10, last: 11, mask: 4 }, V { first: 12, last: 12, mask: 8 }], uncounted: [9], restart: Some((0, 30)), style: 1 }
+cc bb6cf8df4fda6253a9ab9522988b6a673343c818ee789d7889034f6c58c26d8a # shrinks to c = Case { bars: 6, starts: [2, 3], ends: [(1, 4), (4, 3)], voltas: [], uncounted: [], restart: Some((0, 30)), style: 0 }
+cc b73ca2ab39b5bf87ce5ea633c87c69e6134caf83cfa983acb294bee18d72acb0 # shrinks to c = Case { bars: 7, starts: [], ends: [(3, 2)], voltas: [V { first: 3, last: 3, mask: 1 }, V { first: 4, last: 5, mask: 2 }], uncounted: [], restart: Some((0, 30)), style: 1 }
+cc 582862252fbea5479418a6369f31e6897b560229daf29babcb7ff5c85b6aa70f # shrinks to c = Case { bars: 8, starts: [0], ends: [(4, 2), (5, 2)], voltas: [V { first: 3, last: 4, mask: 3 }, V { first: 5, last: 5, mask: 4 }, V { first: 6, last: 6, mask: 8 }], uncounted: [], restart: Some((3, 30)), style: 1 }
+cc a45857d7e25f99f26e30218d25daa6c256fc7ba18e23d0b8cedcafe327dbd852 # shrinks to c = Case { bars: 6, starts: [], ends: [(2, 2)], voltas: [V { first: 2, last: 2, mask: 1 }, V { first: 3, last: 4, mask: 4 }], uncounted: [], restart: Some((0, 30)), style: 0 }
+cc 05d0ed2c850829d33521e76775e24ec2364fac30ee8a34409126d249c1919dc5 # shrinks to c = Case { bars: 5, starts: [], ends: [(1, 2)], voltas: [V { first: 1, last: 1, mask: 1 }], uncounted: [], restart: Some((0, 30)), style: 0 }

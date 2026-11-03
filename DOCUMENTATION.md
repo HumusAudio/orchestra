@@ -1173,6 +1173,77 @@ within ADR-0024's estimate of 0.6 ms); the tempo mark in force at a point ≈ 62
 bars × 10 instruments with 8 000 events, 2 000 dynamics and 2 000 hairpins ≈ 3.3 million. Against
 the first part of F1.09c every existing benchmark of the program stayed within ±0.9%.
 
+#### The form: repeats and voltas
+
+`src/form.rs` (first part of step F1.10b, ADR-0025 §2–§3) adds the form of the piece: what is
+written once and **unrolled** later by `orchestra-playback` (F1.12) into what is played. Markers,
+jumps, bar repeats and pass rules come in the second part.
+
+**On barlines, in the document.** A `RepeatStart` (‖:) belongs to the start of a bar, a
+`RepeatEnd` (:‖) to its end, a `Volta` to a run of whole bars (ADR-0025 F1): nothing has an offset,
+so a played pass is always a run of whole bars. A repeat in the middle of a written bar is written
+by splitting the bar into two irregular bars, as ADR-0018 already allows. The form belongs to the
+**document** (`Document::form`), not to an instrument: a repeat barline crosses the whole system.
+
+**Passes.** A `PassSet` is a set of passes 1–64 in one `u64` (bit `k − 1` for pass `k`):
+membership, union, disjointness and "is it exactly 1..=n?" are single bit operations. 64 is
+`MAX_PLAYS`, the most times a section can be played (F10).
+
+**Repeats.** An end repeat carries `times`, the total number of plays (2 by default, 2–64). An end
+without a start goes back to the start of the score (F2); repeated sections never nest or overlap
+(F3). **Voltas** form groups: a group starts at the volta holding pass 1, the following voltas come
+right after it with higher passes, together they hold exactly 1..=n, there are at least two, and
+**every volta but the last ends with an end repeat** of the section ("1. :‖ 2. :‖ 3."; the owner
+corrected ADR-0025 on this point while it was being implemented). With voltas, `times` must be 2
+or n: a contradiction is refused, not ignored (owner's decision of 2026-11-03).
+
+**What `validate` adds.** Rule 8 merges the start and end repeats in score order and pairs them:
+a start must not find another one open; an end without an open start is fine only as the first end
+of the score, or as a further end of a volta group. Rule 9 reads the voltas once, splits them into
+groups and checks each one. Neither allocates.
+
+**Bar numbers** (`Document::bar_label`, ADR-0025 F9). One `BarNumbering` style per document:
+`Continue` (the default: the number is the written bar), `SameAsFirstLettered` ("8a", "8b") and
+`SameAsFirst` ("8", "8"). The plain number comes from the meter map with its uncounted bars and
+restarts; the two other styles change it on top: the bars of a later volta take the numbers of the
+first volta's counted bars (continuing if the later volta is longer: 8a | 8b 9b), the bars after a
+group go back by what the group adds beyond its longest volta, and a numbering restart inside a
+group wins over the style. The counted bars of a volta are counted with two binary searches in the
+list of uncounted bars, so a label costs O(v log u) for the v voltas before it.
+
+```rust
+// ‖: bars 1–7 [1. bar 8 :‖] [2. bar 9]: the first example of ADR-0025 §3.
+builder.add_repeat_start(bars[0])?;
+builder.add_volta(bars[7], bars[7], PassSet::range(1, 1)?, true, None)?;
+builder.add_repeat_end(bars[7], 2)?;
+builder.add_volta(bars[8], bars[8], PassSet::range(2, 2)?, false, None)?;
+builder.set_bar_numbering(BarNumbering::SameAsFirstLettered);
+let document = builder.build()?;
+// The second volta is "8b", and the bar after it is 9 again.
+let label = document.bar_label(bars[8])?.unwrap();
+assert_eq!((label.number, label.letter()), (8, Some('b')));
+assert_eq!(document.bar_label(bars[9])?.unwrap().number, 9);
+```
+
+**Tests.** `tests/form_cases.rs` has 12 hand-written cases: pass sets, simple repeats, nesting
+refused, voltas and "1.–3.", "1. :‖ 2. :‖ 3.", every volta rule, the builder's checks, and the bar
+numbers of ADR-0025's examples in the three styles, with longer later voltas, several groups,
+uncounted bars and restarts. `tests/form_oracle.rs` generates random sections, voltas and
+mutations (half of the cases valid, half not) and compares them with an oracle that states the
+rules again and numbers the bars **one by one** with a counter, as a copyist would, while the
+library computes each number on its own with shifts. The oracle found a real case: a first volta
+whose bars are all uncounted, where the library used the bar's own number; the voltas now start
+from the first counted bar of the group. Nine injected bugs were all caught, seven by the oracle
+from the start and the other two after adding the mutations that produce them (a group of one
+volta, a contradicting `times`). `tests/form_no_alloc.rs` checks that labels and the form lists
+never allocate and that rules 8 and 9 add no allocation to `validate`.
+
+**Benchmarks** (`benches/form.rs`, 400 bars in 50 sections with 150 voltas, far more than a real
+score; instructions per call): `bar_label` with `Continue` ≈ 112, with the lettered style ≈ 13 800
+for bars after 25–50 volta groups (about 275 per group: a real score has a handful), from ≈ 18 800
+before the counting with binary searches; `validate` of the form ≈ 178 000. Every existing benchmark
+stayed within ±0.01% of `main`.
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics

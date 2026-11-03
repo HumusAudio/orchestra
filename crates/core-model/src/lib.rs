@@ -43,6 +43,9 @@
 //! - [`dynamic`] and [`tempo_mark`] (SCALETTA F1.09c, ADR-0024 §8 and §11): the [`Dynamic`]s and
 //!   [`Hairpin`]s of each instrument, with their [`DynamicScope`] (the whole instrument or one
 //!   voice), and the [`TempoMark`]s of the document, from which the tempo map is derived.
+//! - [`form`] (SCALETTA F1.10b, ADR-0025 §2–§3): the [`Form`] of the document — [`RepeatStart`]s
+//!   and [`RepeatEnd`]s, [`Volta`]s with their [`PassSet`]s — and the [`BarNumbering`] style with
+//!   the [`BarLabel`] of every bar.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -64,6 +67,7 @@ pub mod content;
 pub mod document;
 pub mod dynamic;
 pub mod event;
+pub mod form;
 pub mod id;
 pub mod marking;
 pub mod marks;
@@ -86,9 +90,10 @@ pub use event::{
     NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,
     TupletNumber,
 };
+pub use form::{BarLabel, BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
 pub use id::{
-    BarId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, KeyChangeId, NoteId, SlurId,
-    StaffId, TempoMarkId, TrackId, TupletId, VoiceId,
+    BarId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, KeyChangeId, NoteId, RepeatId,
+    SlurId, StaffId, TempoMarkId, TrackId, TupletId, VoiceId, VoltaId,
 };
 pub use marking::{
     Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,

@@ -61,9 +61,10 @@ use crate::event::{
     Chord, Event, EventBody, MAX_TUPLET_DEPTH, Note, NoteValue, NoteValueError, PlacedEvent, Rest,
     RestValue, Tie, Tuplet,
 };
+use crate::form::{BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
 use crate::id::{
     BarId, ClefId, DynamicId, EventId, HairpinId, IdCounter, IdMap, InstrumentId, KeyChangeId,
-    NoteId, SlurId, StaffId, TempoMarkId, TrackId, TupletId, VoiceId,
+    NoteId, RepeatId, SlurId, StaffId, TempoMarkId, TrackId, TupletId, VoiceId, VoltaId,
 };
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint, point_key};
@@ -152,6 +153,14 @@ pub enum DocumentError {
     InitialTempoNotImmediate,
     /// A hairpin does not end after it starts in score order.
     HairpinNotForward,
+    /// A pass number outside 1–[`MAX_PLAYS`] (ADR-0025 F10).
+    PassOutOfRange(u8),
+    /// A repeat's number of plays outside 2–[`MAX_PLAYS`] (ADR-0025 §2).
+    PlaysOutOfRange(u8),
+    /// A volta without any pass.
+    EmptyPassSet,
+    /// A volta whose last bar comes before its first.
+    VoltaNotForward,
     /// A clef on a line outside 1–5 or with an octave shift outside ±2.
     ClefOutOfRange,
     /// A note value or a tuplet could not be built.
@@ -227,6 +236,12 @@ impl fmt::Display for DocumentError {
             Self::HairpinNotForward => {
                 f.write_str("a hairpin must end after it starts in score order")
             }
+            Self::PassOutOfRange(p) => write!(f, "pass {p} is outside 1 to {MAX_PLAYS}"),
+            Self::PlaysOutOfRange(n) => {
+                write!(f, "a section is played 2 to {MAX_PLAYS} times, not {n}")
+            }
+            Self::EmptyPassSet => f.write_str("a volta needs at least one pass"),
+            Self::VoltaNotForward => f.write_str("a volta's last bar cannot come before its first"),
             Self::ClefOutOfRange => {
                 f.write_str("a clef sits on lines 1 to 5 with an octave shift of at most 2")
             }
@@ -689,6 +704,8 @@ pub struct Document {
     initial_tempo: (TempoMarkId, TempoMark),
     /// The tempo marks after the start, at (bar, offset) points.
     tempo_marks: MarkList<TempoMarkId, TempoMark>,
+    /// The form markings and the bar-numbering style (ADR-0025).
+    form: Form,
     /// The key at the start of the score, at concert pitch (ADR-0024 §9, K1).
     initial_key: Key,
     /// The key changes after the start, at concert pitch.
@@ -725,6 +742,11 @@ impl Document {
     /// The tempo marks after the start, in score order. O(1).
     pub const fn tempo_marks(&self) -> &MarkList<TempoMarkId, TempoMark> {
         &self.tempo_marks
+    }
+
+    /// The form: repeats, voltas and the bar-numbering style (ADR-0025). O(1).
+    pub const fn form(&self) -> &Form {
+        &self.form
     }
 
     /// The key at the start of the score, at concert pitch. O(1).
@@ -1149,6 +1171,7 @@ impl DocumentBuilder {
                 tempo_map,
                 initial_tempo: (id, initial_tempo),
                 tempo_marks: MarkList::default(),
+                form: Form::default(),
                 initial_key,
                 key_changes: MarkList::default(),
                 bars: BarList::new(),
@@ -1885,6 +1908,110 @@ impl DocumentBuilder {
             return Err(DocumentError::VoiceOfAnotherInstrument(voice));
         }
         Ok(t)
+    }
+
+    /// Adds a start repeat (‖:) at the start of `bar` and returns its ID (ADR-0025 §2). How it
+    /// pairs with the end repeats is checked by [`build`](Self::build) (rule 8 of
+    /// [`Document::validate`]). O(log r) to find the place, O(r) to shift the later ones.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`] (another start repeat on
+    /// the bar), [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_repeat_start(&mut self, bar: BarId) -> Result<RepeatId, DocumentError> {
+        let at = self.doc.bar_index(bar)?.get();
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let place = form.repeat_starts.partition_point(|r| key(r.bar()) < at);
+        if form
+            .repeat_starts
+            .get(place)
+            .is_some_and(|r| key(r.bar()) == at)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = RepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.repeat_starts.insert(place, RepeatStart::new(id, bar));
+        Ok(id)
+    }
+
+    /// Adds an end repeat (:‖) at the end of `bar`, played `times` times in all, and returns its
+    /// ID (ADR-0025 §2). As [`add_repeat_start`](Self::add_repeat_start).
+    ///
+    /// # Errors
+    /// [`DocumentError::PlaysOutOfRange`] unless `times` is 2–[`MAX_PLAYS`];
+    /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`],
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_repeat_end(&mut self, bar: BarId, times: u8) -> Result<RepeatId, DocumentError> {
+        if !(2..=MAX_PLAYS).contains(&times) {
+            return Err(DocumentError::PlaysOutOfRange(times));
+        }
+        let at = self.doc.bar_index(bar)?.get();
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let place = form.repeat_ends.partition_point(|r| key(r.bar()) < at);
+        if form
+            .repeat_ends
+            .get(place)
+            .is_some_and(|r| key(r.bar()) == at)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = RepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.repeat_ends
+            .insert(place, RepeatEnd::new(id, bar, times));
+        Ok(id)
+    }
+
+    /// Adds a volta over `first..=last`, played on `passes`, and returns its ID (ADR-0025 §3).
+    /// How it fits with the other voltas and the repeats is checked by [`build`](Self::build)
+    /// (rule 9). O(log v) to find the place, O(v) to shift the later ones.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`] for either bar, [`DocumentError::VoltaNotForward`],
+    /// [`DocumentError::EmptyPassSet`], [`DocumentError::EmptyText`],
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_volta(
+        &mut self,
+        first: BarId,
+        last: BarId,
+        passes: PassSet,
+        closed: bool,
+        text: Option<&str>,
+    ) -> Result<VoltaId, DocumentError> {
+        let from = self.doc.bar_index(first)?.get();
+        let to = self.doc.bar_index(last)?.get();
+        if to < from {
+            return Err(DocumentError::VoltaNotForward);
+        }
+        if passes.is_empty() {
+            return Err(DocumentError::EmptyPassSet);
+        }
+        if text.is_some_and(|t| t.trim().is_empty()) {
+            return Err(DocumentError::EmptyText);
+        }
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        // After the voltas starting at or before `first`: at one first bar (an overlap, refused
+        // by `validate`), creation order.
+        let place = form.voltas.partition_point(|v| key(v.first()) <= from);
+        let id = VoltaId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.voltas.insert(
+            place,
+            Volta::new(id, first, last, passes, closed, text.map(Box::from)),
+        );
+        Ok(id)
+    }
+
+    /// Sets how the bars of later voltas are numbered (ADR-0025 F9); [`BarNumbering::Continue`]
+    /// until it is called. O(1).
+    pub const fn set_bar_numbering(&mut self, style: BarNumbering) {
+        self.doc.form.numbering = style;
     }
 
     /// The document as built so far, for callers that need to read it while building (a

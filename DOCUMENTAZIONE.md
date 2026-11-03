@@ -1244,6 +1244,82 @@ di 1 000 battute con 250 indicazioni, metà graduali, che ricava di nuovo tutta 
 milioni. Rispetto alla prima parte di F1.09c tutti i benchmark del programma già esistenti sono
 rimasti entro ±0,9%.
 
+#### La forma: ritornelli e volte
+
+`src/form.rs` (prima parte del passo F1.10b, ADR-0025 §2–§3) aggiunge la forma del brano: ciò che è
+scritto una volta e che `orchestra-playback` (F1.12) **srotolerà** in ciò che si suona. Segni, salti,
+ripetizioni di battuta e regole di passaggio arrivano nella seconda parte.
+
+**Sulle stanghette, nel documento.** Un `RepeatStart` (‖:) appartiene all'inizio di una battuta, un
+`RepeatEnd` (:‖) alla sua fine, una `Volta` a una serie di battute intere (ADR-0025 F1): niente ha
+un offset, quindi un passaggio suonato è sempre una serie di battute intere. Un ritornello a metà
+di una battuta scritta si scrive dividendo la battuta in due battute irregolari, come ADR-0018
+permette già. La forma appartiene al **documento** (`Document::form`), non a uno strumento: una
+stanghetta di ritornello attraversa tutto il sistema.
+
+**Passaggi.** Un `PassSet` è un insieme di passaggi 1–64 in un solo `u64` (il bit `k − 1` per il
+passaggio `k`): appartenenza, unione, disgiunzione e "è esattamente 1..=n?" sono singole operazioni
+sui bit. 64 è `MAX_PLAYS`, il massimo di esecuzioni di una sezione (F10).
+
+**Ritornelli.** Una fine di ritornello porta `times`, il numero totale di esecuzioni (2 di default,
+da 2 a 64). Una fine senza inizio torna all'inizio della partitura (F2); le sezioni ripetute non si
+annidano né si sovrappongono mai (F3). Le **volte** formano gruppi: un gruppo comincia dalla volta
+che contiene il passaggio 1, le volte seguenti vengono subito dopo con passaggi più alti, insieme
+contengono esattamente 1..=n, sono almeno due, e **ogni volta tranne l'ultima finisce con una fine
+di ritornello** della sezione ("1. :‖ 2. :‖ 3."; il proprietario ha corretto ADR-0025 su questo
+punto durante l'implementazione). Con le volte, `times` deve valere 2 oppure n: una contraddizione
+si rifiuta, non si ignora (decisione del proprietario del 2026-11-03).
+
+**Cosa aggiunge `validate`.** La regola 8 unisce gli inizi e le fini di ritornello in ordine di
+partitura e li accoppia: un inizio non deve trovarne un altro aperto; una fine senza un inizio
+aperto va bene solo come prima fine della partitura, o come fine successiva di un gruppo di volte.
+La regola 9 legge le volte una volta sola, le divide in gruppi e controlla ognuno. Nessuna delle due
+alloca.
+
+**Numeri di battuta** (`Document::bar_label`, ADR-0025 F9). Uno stile `BarNumbering` per documento:
+`Continue` (il default: il numero è la battuta scritta), `SameAsFirstLettered` ("8a", "8b") e
+`SameAsFirst` ("8", "8"). Il numero semplice viene dalla mappa delle misure con le sue battute non
+contate e le ripartenze; gli altri due stili lo modificano sopra: le battute di una volta successiva
+prendono i numeri delle battute contate della prima volta (proseguendo se la volta successiva è più
+lunga: 8a | 8b 9b), le battute dopo un gruppo tornano indietro di quanto il gruppo aggiunge oltre la
+sua volta più lunga, e una ripartenza della numerazione dentro un gruppo vince sullo stile. Le
+battute contate di una volta si contano con due ricerche binarie nell'elenco delle battute non
+contate, quindi un numero costa O(v log u) per le v volte che lo precedono.
+
+```rust
+// ‖: bars 1–7 [1. bar 8 :‖] [2. bar 9]: the first example of ADR-0025 §3.
+builder.add_repeat_start(bars[0])?;
+builder.add_volta(bars[7], bars[7], PassSet::range(1, 1)?, true, None)?;
+builder.add_repeat_end(bars[7], 2)?;
+builder.add_volta(bars[8], bars[8], PassSet::range(2, 2)?, false, None)?;
+builder.set_bar_numbering(BarNumbering::SameAsFirstLettered);
+let document = builder.build()?;
+// The second volta is "8b", and the bar after it is 9 again.
+let label = document.bar_label(bars[8])?.unwrap();
+assert_eq!((label.number, label.letter()), (8, Some('b')));
+assert_eq!(document.bar_label(bars[9])?.unwrap().number, 9);
+```
+
+**Test.** `tests/form_cases.rs` ha 12 casi scritti a mano: insiemi di passaggi, ritornelli
+semplici, annidamento rifiutato, volte e "1.–3.", "1. :‖ 2. :‖ 3.", ogni regola delle volte, i
+controlli del builder, e i numeri di battuta degli esempi di ADR-0025 nei tre stili, con volte
+successive più lunghe, più gruppi, battute non contate e ripartenze. `tests/form_oracle.rs` genera
+sezioni, volte e mutazioni casuali (metà dei casi validi, metà no) e le confronta con un oracolo che
+ridice le regole e numera le battute **una per una** con un contatore, come farebbe un copista,
+mentre la libreria calcola ogni numero da solo con degli spostamenti. L'oracolo ha trovato un caso
+vero: una prima volta con tutte le battute non contate, dove la libreria usava il numero della
+battuta stessa; ora le volte partono dalla prima battuta contata del gruppo. Nove bug iniettati
+sono stati tutti scoperti, sette dall'oracolo fin dall'inizio e gli altri due dopo aver aggiunto le
+mutazioni che li producono (un gruppo di una sola volta, un `times` contraddittorio).
+`tests/form_no_alloc.rs` controlla che i numeri e gli elenchi della forma non allochino mai e che le
+regole 8 e 9 non aggiungano allocazioni a `validate`.
+
+**Benchmark** (`benches/form.rs`, 400 battute in 50 sezioni con 150 volte, molto più di una
+partitura reale; istruzioni per chiamata): `bar_label` con `Continue` ≈ 112, con lo stile a lettere
+≈ 13 800 per battute dopo 25–50 gruppi di volte (circa 275 per gruppo: una partitura reale ne ha
+pochi), da ≈ 18 800 prima del conteggio con le ricerche binarie; `validate` della forma ≈ 178 000. Tutti i benchmark già
+esistenti sono rimasti entro ±0,01% rispetto a `main`.
+
 ### orchestra-playback
 
 Ricava ciò che si suona da ciò che è scritto: ritornelli e salti srotolati, legature di valore
