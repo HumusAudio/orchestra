@@ -206,8 +206,16 @@ Benchmarks (`benches/dynamic.rs`): ≈ 985 000 instructions to add a tempo mark 
 ≈ 620 for the mark in force at a point, ≈ 3.3 M for `validate` with 4 000 dynamics and hairpins;
 every existing benchmark within ±0.9%, but the counter's own benchmarks in `test-support` grew
 (+5% to +22%, one more field), accepted with the trailer `Bench-regression: accepted`, which must
-stay on the **head commit** of the PR. **Next:** the PR of F1.09 (F1.09, F1.09b, F1.09c) with CI on
-the three platforms, then F1.10 (the form).
+stay on the **head commit** of the PR. PR #17 (F1.09, F1.09b, F1.09c) merged with CI green on the
+three platforms; SCALETTA v0.18. Step **F1.10** (`feature/f1-10-form`, started 2026-11-03), split
+as proposed in the briefing into the ADR (F1.10) and the implementation (F1.10b). The owner set the
+scope: the core (repeat barlines, voltas, segno, coda, Fine, D.C./D.S.) plus bar repeats (%),
+music played only on some passes and jumps written as free text. After a search of MusicXML 4.0,
+MEI, Dorico and MuseScore, the draft **ADR-0025** (Proposed) puts the form markings on barlines in
+the document, jumps as "to / until / then" with IDs instead of labels, an explicit choice about
+repeats after a jump and the pass on which a jump inside a repeat is taken, bar repeats per staff
+that store no events, pass rules as ranges, and the unrolling rules F1.12 will follow. **Next:**
+the owner's choices F1–F10 of ADR-0025 §11, then F1.10b.
 
 | Step | What | Status |
 |---|---|---|
