@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.17, approvata dal proprietario il 2026-11-02.**
+> **Stato di questo documento: v0.18, approvata dal proprietario il 2026-11-03.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -243,7 +243,7 @@ Dettagli:
 | F1.08 | **Scheletro del documento**: progetto, tracce/strumenti/righi, voci, mappe del tempo condivise | ✅ PR #16 | 2 |
 | F1.09 | **ADR del contenuto di una voce** (note a due strati, ADR-0004) | ✅ ADR-0024 | 1 |
 | F1.09b | **Eventi, figure, gruppi irregolari, legature di valore, chiavi, armature**, `validate` | ✅ | 2 |
-| F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ⬜ | 2 |
+| F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ✅ PR #17 | 2 |
 | F1.10 | **Forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ⬜ | 1–2 |
 | F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
 
@@ -296,6 +296,13 @@ Dettagli:
 - **F1.09c** Implementa ADR-0024 §5–§8, §10–§11. Il `DocumentBuilder` riceve le indicazioni di
   tempo invece della mappa già fatta (cambio di API, chiamanti aggiornati nello stesso commit).
   Misura della memoria per nota sulla partitura pesante (ADR-0007).
+  **Fatto il 2026-11-03 (PR #17), in due sessioni.** Scelte del proprietario: E1–E7 (2026-11-02) e,
+  il 2026-11-03, l'indicazione di tempo iniziale come campo del documento con un suo ID; nel ricavare
+  la mappa dei tempi un offset oltre la stanghetta di una battuta troppo piena vale come la
+  stanghetta, nella stessa posizione vince l'indicazione successiva, un graduale ridotto a niente è
+  immediato; la mappa si ricalcola a ogni indicazione aggiunta, tutto o niente; una dinamica per
+  ambito in un punto, forcelle dello stesso ambito senza sovrapposizioni; tetto di memoria di 285
+  byte per nota (misurati 257 su 221 169 note).
 - **F1.11** Ogni comando reversibile; raggruppamento (una "transazione" = un passo di undo,
   es. incollare 200 note); notifiche che dicono **cosa** è cambiato, per l'aggiornamento
   incrementale di layout e playback (ADR-0003 §6, ADR-0007). Test di proprietà: per ogni
@@ -307,6 +314,8 @@ Dettagli:
   metri (ADR-0022 §8). Da ADR-0024 §11: i cambi di tempo sono indicazioni a (battuta, offset) e
   seguono le battute da soli, quindi non servono più lo spostamento dei cambi di tempo né il suo
   test di proprietà; dopo ogni comando che li tocca la mappa dei tempi si ricalcola.
+  Da F1.09c: la mappa dei tempi si ricalcola anche dopo ogni comando che cambia dove cominciano le
+  battute (inserire o togliere battute, cambi di metro).
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -330,7 +339,9 @@ Dettagli:
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
   indice del passaggio).
 - **F1.13** (seguito) Da ADR-0024: pedale e glissando entrano con le regole di esecuzione che li
-  usano.
+  usano. Da F1.09c: quale dinamica (o forcella) prevale per una voce quando valgono insieme una di
+  strumento e una di voce; gli scostamenti di esecuzione sono salvati senza limiti, quindi le regole
+  limitano i risultati (inizio ≥ 0, durata minima, scala della velocity).
 - **F1.14** ❓ **Decisione:** valore di default della soglia (proposta di ADR-0004: 1/32) e se
   offrire da subito anche la variante in millisecondi.
 - **F1.15** Candidati da confrontare con i tipi veri: testo strutturato (JSON, RON o simili,
@@ -424,6 +435,8 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 - Da ADR-0023: il simbolo da disegnare per le alterazioni microtonali (Stein-Zimmermann, frecce
   di Gould…); la semplificazione enarmonica delle armature trasposte (9 diesis mostrati come
   3 bemolle); i nomi delle note nelle sei lingue, con il Si tedesco «H» (glossario).
+- Da F1.09c: l'interfaccia deve mostrare quando una battuta troppo piena porta un'indicazione di
+  tempo sulla stanghetta (il modello la sposta lì senza segnalarlo).
 - Fuori da questa fase (vedi §5): parti staccate, stampa/PDF, MusicXML.
 
 **Tappa M2B.**
@@ -597,3 +610,4 @@ raccomandato.
 | 2026-11-02 | 0.15 | F1.08 fatto (PR #16): builder pubblico, una voce per rigo, tetti di 16 righi e 256 voci per strumento; chiave e armatura spostate in F1.09; tetto delle tracce e cambi oltre l'ultima battuta annotati in F1.15 | proprietario |
 | 2026-11-02 | 0.16 | F1.09 fatto (ADR-0024 Accepted, emenda ADR-0022 §5 e §6); nuovi F1.09b e F1.09c; F1.11 non sposta più i cambi di tempo; rimandi annotati in F1.12, F1.13, F2.19, F3.03, filone MusicXML e "Oltre" | proprietario |
 | 2026-11-02 | 0.17 | F1.09b fatto (eventi, gruppi irregolari, legature di valore, chiavi, armature, `validate`) | proprietario |
+| 2026-11-03 | 0.18 | F1.09c fatto (PR #17): dinamiche, forcelle, indicazioni di tempo con la mappa ricavata, limite alla stanghetta, tetto di memoria; note per F1.11, F1.13 e F2B | proprietario |
