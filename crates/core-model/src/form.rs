@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The form: repeats and voltas, with the bar-numbering style they imply (ADR-0025 §1–§3; SCALETTA
-//! F1.10b, first part). Markers, jumps, bar repeats and pass rules come in the second part.
+//! F1.10b). The document's markers and jumps are kept here too (their types are in
+//! `crate::jump`); bar repeats and pass rules belong to their staff and instrument
+//! (`crate::bar_repeat`).
 //!
 //! # On barlines, in the document
 //! A repeat or a volta belongs to a **barline** (ADR-0025 F1): a `RepeatStart` to the start of a
@@ -25,6 +27,7 @@ use orchestra_core_time::BarIndex;
 
 use crate::document::{BarList, Document, DocumentError};
 use crate::id::{BarId, RepeatId, VoltaId};
+use crate::jump::{Jump, Marker};
 use crate::validate::Violation;
 
 /// The most times a repeated section can be played (ADR-0025 F10): the size of a [`PassSet`]. A
@@ -362,6 +365,10 @@ pub struct Form {
     pub(crate) repeat_ends: Vec<RepeatEnd>,
     /// The voltas, sorted by first bar.
     pub(crate) voltas: Vec<Volta>,
+    /// The markers, sorted by bar (at one bar the start marker before the end marker).
+    pub(crate) markers: Vec<Marker>,
+    /// The jumps, sorted by bar.
+    pub(crate) jumps: Vec<Jump>,
     /// The bar-numbering style.
     pub(crate) numbering: BarNumbering,
 }
@@ -385,6 +392,18 @@ impl Form {
         &self.voltas
     }
 
+    /// The markers, in score order. O(1).
+    #[must_use]
+    pub fn markers(&self) -> &[Marker] {
+        &self.markers
+    }
+
+    /// The jumps, in score order. O(1).
+    #[must_use]
+    pub fn jumps(&self) -> &[Jump] {
+        &self.jumps
+    }
+
     /// The bar-numbering style. O(1).
     #[must_use]
     pub const fn numbering(&self) -> BarNumbering {
@@ -398,7 +417,7 @@ impl Form {
 
 /// The index of a bar, or `u32::MAX` for a bar the document does not have (which sorts after
 /// everything: the builder never lets one in, see `marks::point_key`). O(1) average.
-fn index(bars: &BarList, bar: BarId) -> u32 {
+pub(crate) fn index(bars: &BarList, bar: BarId) -> u32 {
     bars.index_of(bar).map_or(u32::MAX, BarIndex::get)
 }
 
@@ -723,7 +742,110 @@ impl Document {
     }
 }
 
+/// A repeated section of a valid document, as bar indices: from its first bar to the bar of its
+/// last end repeat (the further ends of its voltas included; the last volta, played once after
+/// it, is not part of it), with its number of plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Section {
+    /// Index of the first bar (0 for a section without a start repeat).
+    pub(crate) first: u32,
+    /// Index of the bar carrying the last end repeat.
+    pub(crate) last: u32,
+    /// How many times the section is played: the highest volta number if it has voltas, its
+    /// `times` otherwise.
+    pub(crate) plays: u8,
+}
+
+impl Document {
+    /// The repeated section containing the bar with index `at`, if any, in a document whose rules
+    /// 8 and 9 hold (ADR-0025 §2–§3). Used by rules 10 and 11.
+    ///
+    /// # How
+    /// The same merge of start and end repeats as rule 8: a start opens a section, an end closes
+    /// the open one (or one from bar 0 if none is open and none was closed yet), and a further end
+    /// of a volta group extends the section just closed. The walk stops at the first section
+    /// starting after the bar, and the number of plays is computed once, for the section found.
+    /// O(r + s + c·v) for r ends and s starts before the bar, the c further volta ends among them
+    /// and v voltas: tens. Never allocates.
+    pub(crate) fn section_at(&self, at: u32) -> Option<Section> {
+        let bars = self.bars();
+        let form = self.form();
+        let (starts, ends) = (form.repeat_starts(), form.repeat_ends());
+        // The section found so far: its first and last bar and the end repeat that closed it.
+        // Its number of plays is computed only for the section returned (`plays_of` is O(v)).
+        let found = |c: Option<(u32, u32, &RepeatEnd)>| {
+            c.filter(|&(first, last, _)| first <= at && at <= last)
+                .map(|(first, last, end)| Section {
+                    first,
+                    last,
+                    plays: self.plays_of(end),
+                })
+        };
+        let mut s = 0_usize;
+        let mut open: Option<u32> = None;
+        let mut current: Option<(u32, u32, &RepeatEnd)> = None;
+        for end in ends {
+            let end_at = index(bars, end.bar);
+            // Open the last start at or before this end (rule 8 guarantees at most one).
+            while let Some(start) = starts.get(s) {
+                let start_at = index(bars, start.bar);
+                if start_at > end_at {
+                    break;
+                }
+                open = Some(start_at);
+                s = s.saturating_add(1);
+            }
+            match open.take() {
+                Some(first) => {
+                    // A new section: the previous one is final. Once a section starts after the
+                    // bar, no later one can contain it.
+                    if first > at || current.is_some_and(|(f, l, _)| f <= at && at <= l) {
+                        return found(current);
+                    }
+                    current = Some((first, end_at, end));
+                }
+                None => match current.as_mut() {
+                    // A further end of a volta group: the section grows.
+                    Some(c) if self.is_volta_continuation(end) => c.1 = end_at,
+                    Some(c) => {
+                        if c.0 <= at && at <= c.1 {
+                            return found(current);
+                        }
+                        // Unreachable in a valid document (rule 8); keep the walk total.
+                        *c = (0, end_at, end);
+                    }
+                    // The first end of the score without a start: from bar 0.
+                    None => current = Some((0, end_at, end)),
+                },
+            }
+        }
+        found(current)
+    }
+
+    /// How many times the section of an end repeat is played: the highest pass of the volta group
+    /// whose volta it closes, or its own `times`. O(v).
+    fn plays_of(&self, end: &RepeatEnd) -> u8 {
+        let voltas = self.form().voltas();
+        let Some(i) = voltas.iter().position(|v| v.last == end.bar) else {
+            return end.times;
+        };
+        // Walk back to the group's first volta, then forward over the whole group.
+        let start = voltas
+            .get(..=i)
+            .and_then(|head| head.iter().rposition(|v| v.passes.contains(1)))
+            .unwrap_or(i);
+        let mut passes = PassSet::EMPTY;
+        for (k, v) in voltas.iter().enumerate().skip(start) {
+            if k > start && v.passes.contains(1) {
+                break;
+            }
+            passes = passes.union(v.passes);
+        }
+        passes.last().unwrap_or(end.times)
+    }
+}
+
 /// A violation as a document error. O(1).
-const fn invalid(violation: Violation) -> DocumentError {
+pub(crate) const fn invalid(violation: Violation) -> DocumentError {
     DocumentError::Invalid(violation)
 }

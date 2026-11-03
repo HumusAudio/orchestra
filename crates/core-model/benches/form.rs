@@ -10,6 +10,10 @@
 //!   near the end of a score with many groups.
 //! - `validate_with_form`: `validate` of a score whose cost is mostly rules 8 and 9 (no events),
 //!   part of the "open a score in ≤ 1 s" budget of ADR-0007.
+//! - `validate_with_jumps`: the same score with a segno, a Fine and a D.S. al Fine on pass 2 in
+//!   every section, so that rule 10 and its section lookups are measured too (O(j·(r + v))).
+//!   Rule 11 is linear in the bars of the bar repeats and in the pass rules and is not measured
+//!   apart.
 //!
 //! # The document
 //! 400 bars in 50 sections of 8: a start repeat, five bars, a "1. :‖ 2. :‖ 3." group of one-bar
@@ -40,7 +44,8 @@ use std::hint::black_box;
 
 use gungraun::prelude::*;
 use orchestra_core_model::{
-    BarId, BarNumbering, Document, DocumentBuilder, Key, Metronome, Mode, PassSet, TempoMark,
+    BarId, BarNumbering, Document, DocumentBuilder, JumpFires, JumpSpec, Key, MarkerKind,
+    Metronome, Mode, PassSet, TempoMark,
 };
 use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
@@ -52,6 +57,12 @@ const BARS: usize = 400;
 
 // The document described in the module comment, in the given numbering style, with its bars.
 fn score(style: BarNumbering) -> (Document, Vec<BarId>) {
+    let (b, bars) = builder(style);
+    (b.build().unwrap(), bars)
+}
+
+// The builder of `score`, before `build`.
+fn builder(style: BarNumbering) -> (DocumentBuilder, Vec<BarId>) {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(
         Duration::from_rational(Rational::new(1, 4).unwrap()),
@@ -83,7 +94,28 @@ fn score(style: BarNumbering) -> (Document, Vec<BarId>) {
         }
     }
     b.set_bar_numbering(style);
-    (b.build().unwrap(), bars)
+    (b, bars)
+}
+
+// `score` with, in every section, a segno on its first bar, a Fine at the end of its fourth bar
+// and a D.S. al Fine at the end of its fifth, taken on pass 2: 100 markers and 50 jumps, each
+// with a section lookup for its pass.
+fn score_with_jumps() -> Document {
+    let (mut b, bars) = builder(BarNumbering::Continue);
+    for section in (0..BARS).step_by(8) {
+        let segno = b
+            .add_marker(bars[section], MarkerKind::Segno, None)
+            .unwrap();
+        let fine = b
+            .add_marker(bars[section + 3], MarkerKind::Fine, None)
+            .unwrap();
+        let spec = JumpSpec {
+            fires: JumpFires::OnPass(2),
+            ..JumpSpec::dal_segno(segno).al_fine(fine)
+        };
+        b.add_jump(bars[section + 4], spec, None).unwrap();
+    }
+    b.build().unwrap()
 }
 
 // 64 bars spread over the second half of the score (the lettered style walks the groups before
@@ -121,9 +153,21 @@ fn validate_with_form(input: Document) -> Document {
     input
 }
 
+#[library_benchmark]
+#[bench::whole_score(score_with_jumps())]
+fn validate_with_jumps(input: Document) -> Document {
+    let _ = black_box(black_box(&input).validate());
+    input
+}
+
 library_benchmark_group!(
     name = form,
-    benchmarks = [bar_label_continue, bar_label_lettered, validate_with_form]
+    benchmarks = [
+        bar_label_continue,
+        bar_label_lettered,
+        validate_with_form,
+        validate_with_jumps
+    ]
 );
 
 main!(library_benchmark_groups = form);

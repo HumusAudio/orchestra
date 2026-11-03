@@ -2,7 +2,8 @@
 
 //! The reads of the form are allocation-free (ADR-0007 rule 1, ADR-0025): the bar number of a bar
 //! is asked by layout at every system start and by the DAW's bar ruler, the form lists by the
-//! unrolling of F1.12. Validating a document with repeats and voltas adds no allocation.
+//! unrolling of F1.12. Validating a document with repeats, voltas, markers, jumps and bar repeats
+//! adds no allocation.
 //!
 //! This file is its own test binary with the counting allocator installed (ADR-0016 §5). The
 //! inputs go through `black_box` so that the compiler cannot evaluate the lookups at compile time.
@@ -17,7 +18,8 @@
 use std::hint::black_box;
 
 use orchestra_core_model::{
-    BarId, BarNumbering, Document, DocumentBuilder, Key, Metronome, Mode, PassSet, TempoMark,
+    BarId, BarNumbering, BarRepeatSpan, Clef, Document, DocumentBuilder, Interval, JumpSpec, Key,
+    MarkerId, MarkerKind, Metronome, Mode, PassSet, TempoMark,
 };
 use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_test_support::assert_no_allocations;
@@ -25,8 +27,10 @@ use orchestra_test_support::assert_no_allocations;
 orchestra_test_support::install_counting_allocator!();
 
 /// 64 bars in sections of 8: a start repeat, five bars, a "1. :‖ 2. :‖ 3." group of one-bar
-/// voltas; an uncounted bar in the third section; the lettered style.
-fn document() -> (Document, Vec<BarId>) {
+/// voltas; an uncounted bar in the third section; the lettered style. A piano with a one-bar
+/// repeat at bar 2 of its lower staff; a segno at bar 9, a Fine at the end of bar 11 and a
+/// D.S. al Fine at the end of bar 12. Returns the document, its bars and the segno.
+fn document() -> (Document, Vec<BarId>, MarkerId) {
     let mut meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     meters.set_uncounted(BarIndex::new(19), true);
     let tempo = Tempo::new(
@@ -59,13 +63,27 @@ fn document() -> (Document, Vec<BarId>) {
         }
     }
     b.set_bar_numbering(BarNumbering::SameAsFirstLettered);
-    (b.build().unwrap(), bars)
+    let piano = b
+        .add_instrument_track(
+            "Piano",
+            Interval::new(0, Rational::ZERO),
+            &[Clef::TREBLE, Clef::BASS],
+        )
+        .unwrap();
+    let lower = b.document().track(piano).unwrap().instrument().staves()[1].id();
+    b.add_bar_repeat(lower, bars[2], 1, BarRepeatSpan::One)
+        .unwrap();
+    let segno = b.add_marker(bars[9], MarkerKind::Segno, None).unwrap();
+    let fine = b.add_marker(bars[11], MarkerKind::Fine, None).unwrap();
+    b.add_jump(bars[12], JumpSpec::dal_segno(segno).al_fine(fine), None)
+        .unwrap();
+    (b.build().unwrap(), bars, segno)
 }
 
 /// The bar number of every bar, and walking the form lists, never allocate.
 #[test]
 fn reads_do_not_allocate() {
-    let (document, bars) = document();
+    let (document, bars, segno) = document();
     assert_no_allocations(|| {
         for &bar in &bars {
             black_box(black_box(&document).bar_label(black_box(bar))).unwrap();
@@ -79,14 +97,21 @@ fn reads_do_not_allocate() {
             plays += u32::from(end.times());
         }
         black_box((plays, form.repeat_starts().len(), form.numbering()));
+        black_box(document.marker(black_box(segno))).unwrap();
+        for jump in form.jumps() {
+            black_box(jump.spec());
+        }
+        for track in document.tracks() {
+            black_box(track.instrument().bar_repeats().len());
+        }
     });
 }
 
-/// Rules 8 and 9 add no allocation to `validate` (still the voice → instrument map only, as there
-/// are no hairpins here).
+/// Rules 8 to 11 add no allocation to `validate` (still the voice → instrument map only, as there
+/// are neither hairpins nor pass rules here).
 #[test]
 fn validate_allocates_a_bounded_amount() {
-    let (document, _) = document();
+    let (document, _, _) = document();
     let ((), stats) = orchestra_test_support::count_allocations(|| {
         black_box(document.validate()).unwrap();
     })

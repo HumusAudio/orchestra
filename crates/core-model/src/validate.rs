@@ -36,6 +36,10 @@
 //! 9. **Voltas** (ADR-0025 §3): groups of at least two, consecutive, with ascending disjoint
 //!    passes that are exactly `1..=n`; every volta but the last ends with an end repeat of its
 //!    section whose `times` is 2 or n; no start repeat inside a group.
+//! 10. **Markers and jumps** (ADR-0025 §4): targets of the right kind, the "until" marker between
+//!     the target and the jump, `OnPass(n)` only inside a repeated section with at most n plays
+//!     (`crate::jump`).
+//! 11. **Bar repeats and pass rules** (ADR-0025 §6–§7): see `crate::bar_repeat`.
 //!
 //! `DocumentBuilder::build` calls it, so no invalid document can exist (owner's decision of
 //! 2026-11-02); the file loader of F1.15 builds through the builder and gets it for free.
@@ -50,8 +54,8 @@ use crate::document::{Document, DocumentError, Instrument, is_whole_bar_rest};
 use crate::dynamic::DynamicScope;
 use crate::event::{EventBody, Note, PlacedEvent, Tie};
 use crate::id::{
-    EventId, HairpinId, IdMap, InstrumentId, NoteId, RepeatId, SlurId, TempoMarkId, VoiceId,
-    VoltaId,
+    BarRepeatId, EventId, HairpinId, IdMap, InstrumentId, JumpId, NoteId, PassRuleId, RepeatId,
+    SlurId, TempoMarkId, VoiceId, VoltaId,
 };
 use crate::marking::GraceAttach;
 use crate::marks::point_key;
@@ -106,10 +110,34 @@ pub enum Violation {
     /// This volta lacks the end repeat it needs (every volta but the last of a group has one), or
     /// is a group of its own.
     VoltaWithoutRepeat(VoltaId),
+    /// A marker of this jump has the wrong kind, or `then` is missing or extra.
+    JumpTargetKind(JumpId),
+    /// The "until" marker of this jump is not between its target and the jump.
+    JumpUntilOutOfRange(JumpId),
+    /// This jump's `OnPass(n)` is outside a repeated section or beyond its plays.
+    JumpPassOutOfRange(JumpId),
+    /// This bar repeat has fewer bars before it than its span.
+    BarRepeatNoSource(BarRepeatId),
+    /// This bar repeat overlaps another one on the same staff.
+    BarRepeatOverlap(BarRepeatId),
+    /// The bars of this bar repeat hold events drawn on its staff.
+    BarRepeatNotEmpty(BarRepeatId),
+    /// A form marking lies between the source and the end of this bar repeat.
+    BarRepeatAcrossForm(BarRepeatId),
+    /// This pass rule is not inside one repeated section.
+    PassRuleOutsideRepeat(PassRuleId),
+    /// The passes of this pass rule go beyond the plays of its section.
+    PassRulePasses(PassRuleId),
+    /// This pass rule starts before the previous rule of its scope has ended.
+    PassRuleOverlap(PassRuleId),
 }
 
 impl fmt::Display for Violation {
     /// Writes a short English description of the violation, for developers.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm per violation: splitting the match would only scatter it"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Overlap(id) => write!(
@@ -207,6 +235,52 @@ impl fmt::Display for Violation {
                 "volta {} lacks its end repeat or has no other volta",
                 id.get()
             ),
+            Self::JumpTargetKind(id) => {
+                write!(f, "jump {} points at a marker of the wrong kind", id.get())
+            }
+            Self::JumpUntilOutOfRange(id) => write!(
+                f,
+                "the until marker of jump {} is not between its target and the jump",
+                id.get()
+            ),
+            Self::JumpPassOutOfRange(id) => write!(
+                f,
+                "jump {} fires on a pass its section does not have",
+                id.get()
+            ),
+            Self::BarRepeatNoSource(id) => {
+                write!(f, "bar repeat {} has no bars to repeat before it", id.get())
+            }
+            Self::BarRepeatOverlap(id) => write!(
+                f,
+                "bar repeat {} overlaps another one on its staff",
+                id.get()
+            ),
+            Self::BarRepeatNotEmpty(id) => write!(
+                f,
+                "the bars of bar repeat {} hold events on its staff",
+                id.get()
+            ),
+            Self::BarRepeatAcrossForm(id) => write!(
+                f,
+                "a form marking lies inside bar repeat {} and its source",
+                id.get()
+            ),
+            Self::PassRuleOutsideRepeat(id) => write!(
+                f,
+                "pass rule {} is not inside one repeated section",
+                id.get()
+            ),
+            Self::PassRulePasses(id) => write!(
+                f,
+                "pass rule {} names passes its section does not have",
+                id.get()
+            ),
+            Self::PassRuleOverlap(id) => write!(
+                f,
+                "pass rule {} starts before the previous rule of its scope ends",
+                id.get()
+            ),
         }
     }
 }
@@ -299,12 +373,18 @@ impl Document {
             // Rule 6, for every hairpin of the instrument.
             self.check_hairpins(instrument, &mut hairpin_ends)?;
         }
+        // Rules 8 and 9 (the form) come before the rules that look sections up.
+        self.check_form()?;
+        // Rule 10: markers and jumps.
+        self.check_jumps()?;
+        // Rule 11: bar repeats and pass rules, per instrument.
+        for instrument in self.instruments() {
+            self.check_bar_repeats_and_pass_rules(instrument)?;
+        }
         // Rule 7: the walk that derives the tempo map checks the rules of the marks. The map
         // itself is not rebuilt (the builder derived it when each mark was added), so nothing is
         // allocated.
         self.walk_tempo_marks(|_, _| {})?;
-        // Rules 8 and 9: the form.
-        self.check_form()?;
         Ok(())
     }
 

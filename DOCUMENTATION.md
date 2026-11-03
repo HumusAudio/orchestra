@@ -1177,7 +1177,7 @@ the first part of F1.09c every existing benchmark of the program stayed within �
 
 `src/form.rs` (first part of step F1.10b, ADR-0025 §2–§3) adds the form of the piece: what is
 written once and **unrolled** later by `orchestra-playback` (F1.12) into what is played. Markers,
-jumps, bar repeats and pass rules come in the second part.
+jumps, bar repeats and pass rules are in the next section.
 
 **On barlines, in the document.** A `RepeatStart` (‖:) belongs to the start of a bar, a
 `RepeatEnd` (:‖) to its end, a `Volta` to a run of whole bars (ADR-0025 F1): nothing has an offset,
@@ -1243,6 +1243,78 @@ score; instructions per call): `bar_label` with `Continue` ≈ 112, with the let
 for bars after 25–50 volta groups (about 275 per group: a real score has a handful), from ≈ 18 800
 before the counting with binary searches; `validate` of the form ≈ 178 000. Every existing benchmark
 stayed within ±0.01% of `main`.
+
+#### Markers, jumps, bar repeats and pass rules
+
+`src/jump.rs` and `src/bar_repeat.rs` (second part of step F1.10b, ADR-0025 §4 and §6–§7)
+complete the form.
+
+**Markers and jumps.** A `Marker` is a segno or a coda at the start of its bar, or a Fine or a
+"To Coda" at its end (`MarkerKind::at_start`). A `Jump`, at the end of its bar, is the triple that
+every notation program uses, "go to / play until / continue at", as a `JumpSpec`: `to` (the start
+of the score or a segno), `until` (a Fine or a "To Coda"), `then` (the coda after a "To Coda"),
+plus the two choices of ADR-0025: `RepeatsAfterJump` (`Skip` by default: every repeated section
+once, only its last volta; `Play`) and `JumpFires` (`AfterRepeats` by default: on the last pass
+of the section containing the jump; `OnPass(n)`). Markers are referenced by **ID**, never by a
+label, so a D.S.S. cannot point at the wrong segno. `JumpSpec::da_capo()`, `dal_segno(segno)`,
+`.al_fine(fine)` and `.al_coda(to_coda, coda)` build the usual ones; a `text` replaces the derived
+words for the jumps written as free text ("D.C. senza ritornelli"), and markers and voltas have
+one too. At most one start marker, one end marker and one jump per bar.
+
+**Bar repeats** (`BarRepeat`): `count` bars from `first`, on one **staff**, repeat the `span`
+bars before them (`BarRepeatSpan::One`, `Two`, `Four`); `count` is a positive multiple of the
+span. The repeated bars **store no events** on that staff: F1.12 will play the source bars, and an
+edit of the source reaches every repetition, because there is no copy. **Pass rules** (`PassRule`):
+a range of an instrument or a voice played only on the passes of a `PassSet` of the repeated
+section containing it ("1st time tacet" = {2}).
+
+**What `validate` adds.** Rule 10: the targets have the right kinds, the "until" marker lies
+between the target and the jump in score order (otherwise the jump never stops there), and
+`OnPass(n)` is only for a jump inside a repeated section with at least n plays. Rule 11: a bar
+repeat has its source bars, its bars hold no event on its staff, two of one staff do not overlap,
+and no form marking lies between its first source bar and its last repeated bar (otherwise "the
+previous bars" would depend on the path taken); a pass rule lies inside one repeated section, its
+passes are within the section's plays, and two of one scope do not overlap. Both need "the
+repeated section containing this bar": `Document::section_at` merges the repeat barlines like rule
+8, extends a section to the further ends of its voltas, stops at the first section after the bar
+and computes the number of plays only for the section found.
+
+```rust
+// Segno at bar 2, a repeated chorus 2–4 with "To Coda" at the end of bar 3, D.S. al Coda at the
+// end of bar 5, coda at bar 6: the jump is taken after the chorus's last pass, and the repeat is
+// skipped after it (the classical convention, ADR-0025 F4).
+let segno = builder.add_marker(bars[2], MarkerKind::Segno, None)?;
+builder.add_repeat_start(bars[2])?;
+let to_coda = builder.add_marker(bars[3], MarkerKind::ToCoda, None)?;
+builder.add_repeat_end(bars[4], 2)?;
+let coda = builder.add_marker(bars[6], MarkerKind::Coda, None)?;
+builder.add_jump(bars[5], JumpSpec::dal_segno(segno).al_coda(to_coda, coda), None)?;
+// Two bars of the piano's left hand repeated with the two-bar sign; the trumpet tacet the first
+// time through the chorus.
+builder.add_bar_repeat(lower_staff, bars[7], 2, BarRepeatSpan::Two)?;
+builder.add_pass_rule(trumpet, ScorePoint::start_of(bars[2]), ScorePoint::start_of(bars[5]),
+    DynamicScope::Instrument, PassSet::range(2, 2)?, Some("1st time tacet"))?;
+let document = builder.build()?;
+```
+
+**Tests.** `tests/jump_cases.rs` has 11 hand-written cases: a D.S. al Coda around a repeat, a D.C.
+al Fine with the repeats played and a free text, a jump on a chosen pass, two segni, the kinds of
+the targets, the "until" between target and jump, `OnPass` outside a section or beyond its plays,
+the builder's checks, bar repeats on the piano's lower staff with an overlap and a staff that is
+not empty, the source and the form markings of a bar repeat, pass rules with their violations, and
+a section with "1. :‖ 2. :‖ 3." that reaches its second volta. `tests/jump_oracle.rs` builds a
+valid form with random markers, jumps, bar repeats, pass rules and left-hand notes (each case with
+only some of them, about a third of the cases valid) and compares `build` with an oracle that
+states rules 10 and 11 on plain integers. Ten injected bugs were all caught, eight by the oracle;
+the generator first produced almost only invalid cases (109 valid out of 1 024, very few with
+jumps), and was made to lean towards valid objects. `tests/form_no_alloc.rs` now has markers, a
+jump and a bar repeat too: reading them never allocates, and `validate` still makes one allocation
+(the pass-rule check allocates a small list of scopes only when an instrument has pass rules).
+
+**Benchmarks** (`benches/form.rs`, same score): `validate` with a segno, a Fine and a D.S. al Fine
+on pass 2 in each of the 50 sections ≈ 933 000 instructions, about 15 000 per jump for the section
+lookup on a score far beyond real ones; it was ≈ 1.96 million before the lookup stopped at the
+first section after the bar and computed the plays only once.
 
 ### orchestra-playback
 

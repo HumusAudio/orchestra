@@ -202,6 +202,22 @@ define_id!(
     /// The identity of a volta of the document (ADR-0025 §3).
     VoltaId
 );
+define_id!(
+    /// The identity of a marker of the document: segno, coda, Fine, "To Coda" (ADR-0025 §4).
+    MarkerId
+);
+define_id!(
+    /// The identity of a jump of the document: D.C., D.S. and their variants (ADR-0025 §4).
+    JumpId
+);
+define_id!(
+    /// The identity of a bar repeat (%) on a staff (ADR-0025 §6).
+    BarRepeatId
+);
+define_id!(
+    /// The identity of a pass rule of an instrument ("tacet 1st time", ADR-0025 §7).
+    PassRuleId
+);
 
 // ------------------------------------------------------------------------------------------------
 // The ID hash map

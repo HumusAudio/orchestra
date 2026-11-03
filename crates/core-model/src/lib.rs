@@ -46,6 +46,9 @@
 //! - [`form`] (SCALETTA F1.10b, ADR-0025 §2–§3): the [`Form`] of the document — [`RepeatStart`]s
 //!   and [`RepeatEnd`]s, [`Volta`]s with their [`PassSet`]s — and the [`BarNumbering`] style with
 //!   the [`BarLabel`] of every bar.
+//! - [`jump`] and [`bar_repeat`] (SCALETTA F1.10b, ADR-0025 §4, §6–§7): [`Marker`]s and
+//!   [`Jump`]s ("go to / play until / continue at" by ID), the [`BarRepeat`]s (%) of each staff
+//!   and the [`PassRule`]s of each instrument.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -63,12 +66,14 @@
 // out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
 #![deny(clippy::indexing_slicing)]
 
+pub mod bar_repeat;
 pub mod content;
 pub mod document;
 pub mod dynamic;
 pub mod event;
 pub mod form;
 pub mod id;
+pub mod jump;
 pub mod marking;
 pub mod marks;
 pub mod pitch;
@@ -76,6 +81,7 @@ pub mod slur;
 pub mod tempo_mark;
 pub mod validate;
 
+pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 pub use content::Chunk;
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
@@ -92,9 +98,11 @@ pub use event::{
 };
 pub use form::{BarLabel, BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
 pub use id::{
-    BarId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, KeyChangeId, NoteId, RepeatId,
-    SlurId, StaffId, TempoMarkId, TrackId, TupletId, VoiceId, VoltaId,
+    BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, JumpId, KeyChangeId,
+    MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId, TrackId, TupletId,
+    VoiceId, VoltaId,
 };
+pub use jump::{Jump, JumpFires, JumpSpec, JumpTarget, Marker, MarkerKind, RepeatsAfterJump};
 pub use marking::{
     Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,
     OrnamentError, PerformanceOffsets, TremoloStrokes,

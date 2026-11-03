@@ -234,8 +234,22 @@ injected bugs caught, two only after adding the mutations that produce them), al
 reads. Benchmarks (`benches/form.rs`): `bar_label` ≈ 112 instructions with `Continue`, ≈ 13 800
 with the lettered style after 25–50 volta groups (O(v log u), ≈ 275 per group; a derived index
 could make it O(log g) if F2B's layout benchmarks ever need it), `validate` of 150 voltas
-≈ 178 000. **Next (session B):** markers and jumps, bar repeats, pass rules, rules 10–11, then the
-PR of F1.10.
+≈ 178 000. **Second part (session B, done, 2026-11-03).** Before starting, the owner approved:
+the "until" marker of a jump lies between its target and the jump; one start marker, one end
+marker and one jump per bar; `OnPass(n)` only inside a repeated section; a bar repeat covers a
+multiple of its span and no form marking lies between its source and its end; pass rules within
+their section's plays and not overlapping in a scope; after a D.C. without repeats a section is
+pass 1 (for F1.12). These precisions are recorded in ADR-0025 §8. Implemented: `src/jump.rs`
+(`Marker`, `MarkerKind`, `Jump` with `JumpSpec` — to / until / then by ID, `RepeatsAfterJump`,
+`JumpFires` — and rule 10), `src/bar_repeat.rs` (`BarRepeat` per staff, `PassRule` per instrument
+or voice, rule 11), `Document::section_at` (the repeated section of a bar, stopping early and
+computing the plays once), four new ID kinds, the builder methods. Tests: 11 hand-written cases, an
+oracle for rules 10–11 (the first generator gave 109 valid cases out of 1 024; biased, about a
+third; ten injected bugs caught, eight by the oracle), allocation-free reads. Benchmarks:
+`validate` with 50 jumps ≈ 933 000 instructions (≈ 15 000 per jump on an extreme score, from
+≈ 1.96 M before the lookup was improved); every existing benchmark within ±0.5% of `main`.
+**Next:** the PR of F1.10 (ADR-0025, F1.10b) with CI on the three platforms, then F1.11
+(commands and undo).
 
 | Step | What | Status |
 |---|---|---|
@@ -307,6 +321,12 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
+- **From F1.10b, to keep in mind:** the number of a bar in the lettered styles walks the volta
+  groups before it (≈ 275 instructions each), and finding the section of a jump or a pass rule
+  walks the repeat barlines: fine for real scores, and a derived index of the sections (rebuilt
+  with the commands of F1.11) would make both O(log) if F2B's layout or F1.12 ever need it; the
+  commands of F1.11 must keep the form valid when bars are inserted or deleted (a deleted bar takes
+  its form markings with it).
 - **From F1.09c (session B), to keep in mind:** which dynamic wins when an instrument dynamic and
   a voice dynamic (or hairpin) apply at once is a playback rule for F1.13; the commands of F1.11
   must derive the tempo map again after every edit of the tempo marks or of where bars start
