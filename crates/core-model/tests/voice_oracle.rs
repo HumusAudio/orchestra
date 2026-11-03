@@ -27,10 +27,10 @@
 use std::cmp::Ordering;
 
 use orchestra_core_model::{
-    Alteration, BaseValue, Clef, DocumentBuilder, DocumentError, EventId, Interval, Key, Mode,
-    NoteValue, Pitch, Placement, RestValue, Step, Tuplet, TupletId, Violation,
+    Alteration, BaseValue, Clef, DocumentBuilder, DocumentError, EventId, Interval, Key, Metronome,
+    Mode, NoteValue, Pitch, Placement, RestValue, Step, TempoMark, Tuplet, TupletId, Violation,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use proptest::prelude::*;
 
 // ------------------------------------------------------------------------------------------------
@@ -208,9 +208,10 @@ fn flute(
     .unwrap();
     let mut b = DocumentBuilder::new(
         meters,
-        TempoMap::new(tempo).unwrap(),
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
         Key::traditional(0, Mode::Major).unwrap(),
-    );
+    )
+    .unwrap();
     let ids = (0..bars).map(|_| b.add_bar().unwrap()).collect();
     let track = b
         .add_instrument_track("Flute", Interval::new(0, Rational::ZERO), &[Clef::TREBLE])

@@ -13,6 +13,7 @@
 //!   clef with an 8 below of tenors and guitars).
 //! - [`KeySignature`] and [`KeyOverride`]: what a staff shows (a key, or no signature at all), and
 //!   how an instrument departs from the document's key.
+//! - [`ScorePoint`]: a (bar, offset) point, where every position-anchored thing sits.
 //! - [`Mark`] and [`MarkList`]: a list of changes sorted by (bar, offset), with an O(log c)
 //!   lookup of the mark in force at a point. The *initial* clef of a staff and the initial key of
 //!   the document are fields of their owners, not marks (owner's decision of 2026-11-02): so a
@@ -156,6 +157,52 @@ pub enum KeyOverride {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Points of the score
+// ------------------------------------------------------------------------------------------------
+
+/// A point of the score: a bar and a distance from its start (ADR-0022 §6). Position-anchored
+/// things (clef, key and tempo changes, dynamics, the ends of hairpins and of gradual tempo
+/// changes) sit at one, so that they follow their bar when bars are inserted or deleted before it.
+///
+/// Plain data with public fields: whether the bar exists and the offset is not negative is
+/// checked by the document when something is placed there, as for every other ID it is given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScorePoint {
+    /// The bar.
+    pub bar: BarId,
+    /// The distance from the start of the bar (≥ 0 once placed in a document). It may reach past
+    /// the end of an overfull bar (ADR-0022 §4).
+    pub offset: Duration,
+}
+
+impl ScorePoint {
+    /// The point `offset` after the start of `bar`. O(1).
+    #[must_use]
+    pub const fn new(bar: BarId, offset: Duration) -> Self {
+        Self { bar, offset }
+    }
+
+    /// The point at the very start of `bar`. O(1).
+    #[must_use]
+    pub const fn start_of(bar: BarId) -> Self {
+        Self::new(bar, Duration::ZERO)
+    }
+}
+
+/// The sort key of a point in **score order** of points: its bar's index, then its offset.
+/// O(1) on average (one `BarId → index` lookup).
+///
+/// Every point stored in the document has a bar of the document (checked on insertion, and bars
+/// are never removed without what sits on them, F1.11). Should one be missing anyway, it sorts
+/// after everything, which keeps binary searches well-defined instead of panicking.
+pub(crate) fn point_key(bars: &BarList, point: ScorePoint) -> (u32, Duration) {
+    (
+        bars.index_of(point.bar).map_or(u32::MAX, BarIndex::get),
+        point.offset,
+    )
+}
+
+// ------------------------------------------------------------------------------------------------
 // Sorted lists of marks
 // ------------------------------------------------------------------------------------------------
 
@@ -172,7 +219,7 @@ pub struct Mark<I, T> {
     value: T,
 }
 
-impl<I: Copy, T: Copy> Mark<I, T> {
+impl<I: Copy, T> Mark<I, T> {
     /// A mark: only the document creates them, with an ID from its counter. O(1).
     pub(crate) const fn new(id: I, bar: BarId, offset: Duration, value: T) -> Self {
         Self {
@@ -199,8 +246,16 @@ impl<I: Copy, T: Copy> Mark<I, T> {
     }
 
     /// What changes there. O(1).
-    pub const fn value(&self) -> T {
-        self.value
+    ///
+    /// A reference rather than a copy: most values are small `Copy` types (clefs, keys), but a
+    /// tempo mark carries its printed text (ADR-0024 §11), which is not.
+    pub const fn value(&self) -> &T {
+        &self.value
+    }
+
+    /// The (bar, offset) point of the mark. O(1).
+    pub const fn point(&self) -> ScorePoint {
+        ScorePoint::new(self.bar, self.offset)
     }
 }
 
@@ -225,7 +280,7 @@ impl<I, T> Default for MarkList<I, T> {
     }
 }
 
-impl<I: Copy, T: Copy> MarkList<I, T> {
+impl<I: Copy + PartialEq, T> MarkList<I, T> {
     /// The marks in score order. O(1).
     pub fn as_slice(&self) -> &[Mark<I, T>] {
         &self.marks
@@ -241,13 +296,9 @@ impl<I: Copy, T: Copy> MarkList<I, T> {
         self.marks.is_empty()
     }
 
-    /// The sort key of a mark: its bar's index and its offset. O(1) on average.
-    ///
-    /// Every mark's bar belongs to the document (the document checks it on insertion and bars are
-    /// never removed without their marks, F1.11). Should one be missing anyway, it sorts after
-    /// everything, which keeps the binary search well-defined instead of panicking.
+    /// The sort key of a mark: its bar's index and its offset ([`point_key`]). O(1) on average.
     fn key(bars: &BarList, bar: BarId, offset: Duration) -> (u32, Duration) {
-        (bars.index_of(bar).map_or(u32::MAX, BarIndex::get), offset)
+        point_key(bars, ScorePoint::new(bar, offset))
     }
 
     /// Inserts a mark at its place. O(log c) to find it, O(c) to shift the later ones.
@@ -269,6 +320,14 @@ impl<I: Copy, T: Copy> MarkList<I, T> {
         }
         self.marks.insert(at, mark);
         Ok(())
+    }
+
+    /// Removes the mark with this ID and returns it. O(c): a linear search (marks are sorted by
+    /// point, not by ID) and the shift of the later ones. The builder uses it to take back a tempo
+    /// mark whose derived tempo map turned out invalid (all or nothing).
+    pub(crate) fn remove(&mut self, id: I) -> Option<Mark<I, T>> {
+        let at = self.marks.iter().position(|m| m.id == id)?;
+        Some(self.marks.remove(at))
     }
 
     /// Whether a mark is exactly at (`bar`, `offset`). O(log c). The document asks this before

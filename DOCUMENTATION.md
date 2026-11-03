@@ -633,6 +633,21 @@ source data, rebuild the segments and validate everything, replace the map only 
 (`TempoMapError`: `BeforeStart`, `NoTempoAtStart`, `GradualAtStart`, `NonPositiveGradual`,
 `ChangeInsideGradual`, `Arithmetic`) and return the previous value for undo.
 
+**Building in one go** (F1.09c, the bulk edit of ADR-0022 §8). Since the document derives its tempo
+map from the tempo marks after every edit that touches them, `TempoMap::from_changes` builds a map
+from the whole list of changes at once: it checks that the positions strictly increase
+(`TempoMapError::Unsorted` otherwise), then applies exactly the rules of the edits. A property test
+rebuilds every randomly edited map from its own list of changes and finds it identical.
+
+```rust
+// The document rebuilds its tempo map in one go from the changes derived from the tempo marks:
+// the same map as one `set_change` per change, in O(t) instead of O(t²).
+let map = TempoMap::from_changes(vec![
+    (Position::ZERO, TempoChange::Immediate(andante)),
+    (at(4, 1)?, TempoChange::Gradual(GradualChange { from: None, to: lento, end: at(5, 1)? })),
+])?;
+```
+
 **Tests.** `tests/tempo_map_cases.rs` has 12 hand-computed cases: the ritardando of ADR-0020's
 table (32/3 s), positions inside a change on and off the grid, boundaries rounded down (♩ = 77)
 and up (♩ = 71) with their clamping, the optional starting tempo, back-to-back changes, the
@@ -826,11 +841,13 @@ benchmarks), while an existing document will change only through the commands of
 `add_voice` adds more on any staff of the same instrument. There is no default meter, tempo or key:
 they are the caller's choice. Since F1.09b the builder takes the initial key (at concert pitch)
 and one clef per staff instead of a number of staves, so a staff without clef or a score without
-key cannot be built (owner's decision, 2026-11-02), and `build` returns a `Result`.
+key cannot be built (owner's decision, 2026-11-02), and `build` returns a `Result`. Since F1.09c it
+takes the initial **tempo mark** instead of a ready-made tempo map, and `new` returns a `Result`
+too: the tempo map is derived from the marks (next sections).
 
 ```rust
 let c_major = Key::traditional(0, Mode::Major)?;
-let mut builder = DocumentBuilder::new(meter_map, tempo_map, c_major);
+let mut builder = DocumentBuilder::new(meter_map, initial_tempo_mark, c_major)?;
 for _ in 0..8 {
     builder.add_bar()?;
 }
@@ -879,8 +896,7 @@ bar start ≈ 510 (index plus meter map search among 20 segments), voice by ID w
 
 `src/event.rs`, `src/content.rs`, `src/marks.rs` and `src/validate.rs` (step F1.09b, ADR-0024
 §1–§4 and §9) fill the voices with music. The markings on the events, the performance offsets and
-the slurs are in the next section; dynamics, hairpins and tempo marks come in the second part of
-F1.09c.
+the slurs are in the next section, dynamics, hairpins and tempo marks in the one after it.
 
 **Events.** A voice holds one **chunk** per bar, aligned with the bar list: a chunk is empty
 (`None`, no memory used) or an `Arc` of a vector of events sorted by their **offset** from the
@@ -973,8 +989,8 @@ score ≈ 5.5 million (≈ 550 per event, about 2 ms).
 #### Markings on the events and slurs
 
 `src/marking.rs` and `src/slur.rs` (first part of step F1.09c, ADR-0024 §5–§7 and §10) add what is
-written **on** the events, and the slurs. Dynamics, hairpins and tempo marks come in the second
-part of F1.09c.
+written **on** the events, and the slurs. Dynamics, hairpins and tempo marks are in the next
+section.
 
 **Grace notes.** A grace chord is a chord with a `Grace`: an acciaccatura or an appoggiatura,
 placed **before** the event it ornaments (at that event's offset) or **after** the event it
@@ -1062,6 +1078,101 @@ pass had doubled the cost of `validate`. On the score of `benches/voice.rs`, whi
 slurs, `validate` went from ≈ 5.49 to ≈ 5.76 million (+5%, about 27 instructions per event for the
 new checks); every lookup stayed within ±0.5%.
 
+#### Dynamics, hairpins and tempo marks
+
+`src/dynamic.rs` and `src/tempo_mark.rs` (second part of step F1.09c, ADR-0024 §8 and §11) add how
+loud and how fast the music is written to be. Both are **position-anchored**: they sit at a
+`ScorePoint` (a bar and an offset, new in `src/marks.rs`), not on a note, so a *p* under a rest or a
+tempo change in the middle of a held chord is ordinary writing, and they follow their bar when bars
+are inserted before it.
+
+**Dynamics.** A `Dynamic` says a `DynamicMark`: a level of the scale (`DynamicLevel`, *pppppp* to
+*ffffff*, ordered soft to loud so that `Ord` answers "is this louder?"), one of the accents and
+combinations (*sf*, *sfz*, *sffz*, *fz*, *rf*, *rfz*, *fp*, *sfp*, *sfpp*, *pf*, *n*), or free text
+(`OtherDynamic`, "subito p", with an optional level for playback). The standard names are Italian
+in every language and are drawn, not translated; free text is the user's own and never empty
+(`DocumentError::EmptyText`). Each instrument keeps its dynamics in one list sorted in score order.
+A `DynamicPlacement` holds two separate things: the **scope** (the whole instrument, the usual case
+including a piano's dynamic between its staves, or one voice, for divisi) and the **staff** it is
+drawn on, which changes nothing in playback. There is at most one dynamic per scope at a point
+(`DuplicateMark`); an instrument dynamic and a voice dynamic may share one. Nothing here is a
+velocity: playback (F1.13) derives velocities from the dynamics, and the notes' velocity offsets are
+deltas on top, so a test checks that adding dynamics never touches a note.
+
+**Hairpins.** A `Hairpin` runs from a start point to an **excluded** end point, with a
+`HairpinShape` (crescendo or diminuendo, wedge or text, *al niente*). The builder refuses one that
+does not go forwards (`HairpinNotForward`); `validate` (rule 6) refuses two hairpins of the same
+scope that overlap, in one pass over the instrument's list sorted by start, remembering the last end
+per scope. Touching is fine ("cresc. up to here, dim. from here"), and so is a dynamic inside a
+hairpin.
+
+**Tempo marks** (choice C5 = T2 of ADR-0024). A `TempoMark` is what is printed, text and/or a
+change: `TempoMarkChange::Immediate(Metronome)` (a tempo, printed or hidden: a hidden one is a DAW
+user's tempo automation) or `Gradual(GradualMark)` (to a tempo, up to an explicit end point,
+optionally jumping first to a starting tempo). The **tempo map is derived from the marks** and never
+edited directly, so the score cannot say 120 and play 90. The rules approved by the owner (E1–E3):
+the initial mark is a field of the document with its own `TempoMarkId`, takes the document's first
+ID and must set a tempo at once (`InitialTempoNotImmediate`); a text-only mark changes nothing in
+the map; a gradual change ends at its own point.
+
+How the map is derived (`Document::walk_tempo_marks`, then `TempoMap::from_changes`): the marks are
+read in score order; a gradual change must end after it starts and no other change may start inside
+it, both judged in score order, on what the user sees (`Violation::GradualTempoNotForward`,
+`Violation::TempoChangeInsideGradual`). Each point becomes the start of its bar plus its offset,
+**clamped to the barline** (owner's decision of 2026-11-03): an overfull bar is a valid state, and
+without the clamp a mark at offset 5/4 of a 4/4 bar would land after a mark at the start of the
+next bar. Clamping keeps the order; two marks may then land on the same position, and the later
+one in score order wins (the other stays written); a gradual change shrunk to nothing acts as an
+immediate change to its target. `add_tempo_mark` tries the mark with the ID the counter would hand
+out next (`IdCounter::peek`), derives the map, and takes the mark out again on failure: all or
+nothing, no ID consumed. `validate` (rule 7) runs the same walk without building the map, so it
+allocates nothing more.
+
+```rust
+// "Andante ♩ = 60" at the start, a ritardando over bar 4 and "a tempo" at bar 5.
+let quarter = Duration::from_rational(Rational::new(1, 4)?);
+let andante_tempo = Tempo::new(quarter, Rational::from_integer(60)?)?;
+let andante = TempoMark::immediate(Some("Andante"), Metronome::shown(andante_tempo))?;
+let mut builder = DocumentBuilder::new(meter_map, andante, c_major)?;
+let bars: Vec<BarId> = (0..8).map(|_| builder.add_bar()).collect::<Result<_, _>>()?;
+let rit = GradualMark { from: None, to: Tempo::new(quarter, Rational::from_integer(40)?)?, end: ScorePoint::start_of(bars[5]) };
+builder.add_tempo_mark(ScorePoint::start_of(bars[4]), TempoMark::new(Some("rit."), Some(TempoMarkChange::Gradual(rit)))?)?;
+builder.add_tempo_mark(ScorePoint::start_of(bars[5]), TempoMark::immediate(Some("a tempo"), Metronome::hidden(andante_tempo))?)?;
+// A p for the whole piano under the upper staff, and a crescendo over bar 2.
+builder.add_dynamic(piano, ScorePoint::start_of(bars[0]), DynamicPlacement::instrument(upper), DynamicMark::Level(DynamicLevel::P))?;
+builder.add_hairpin(piano, ScorePoint::start_of(bars[2]), ScorePoint::start_of(bars[3]), DynamicPlacement::instrument(upper), HairpinShape::CRESCENDO)?;
+let document = builder.build()?;
+// The tempo map is derived: 0 → ♩ = 60, 4 → rit. to ♩ = 40 until 5, 5 → ♩ = 60.
+assert_eq!(document.tempo_map().changes().len(), 3);
+```
+
+**Tests.** `tests/dynamic_cases.rs` (7 cases: the order of the levels, sorting and one dynamic per
+scope, the placement checks with no ID consumed, free text, ADR-0024 §13's "a dynamic never touches
+a note's offsets", hairpins that touch, overlap only within a scope) and `tests/tempo_mark_cases.rs`
+(11 cases computed by hand: the initial mark, empty marks, text-only and hidden marks, a ritardando
+with "a tempo", a starting tempo, a change inside a gradual one refused all or nothing, gradual
+changes that do not go forwards, the points, meters, the clamping with "the later one wins", a
+gradual change shrunk to nothing). `tests/tempo_mark_oracle.rs` compares random marks and hairpins
+on random meters with an oracle that counts in eighths: whether each mark is accepted and with which
+error, the builder unchanged after a refusal, the derived map, and the first hairpin overlap that
+`build` reports. Seven injected bugs (no clamping, the earlier mark winning, a shrunk gradual change
+kept, "inside" with `<=`, touching hairpins as an overlap, scopes merged, duplicate dynamics
+allowed) were all caught, the first six by the oracle too. `tests/dynamic_no_alloc.rs` checks that
+reading the lists, the mark in force at a point and the derived map never allocate, and that
+`validate` makes at most two allocations.
+
+**Memory per note** (owner's choice E7). `tests/memory.rs` builds a score shaped like the heavy one
+of `spikes/model/` (1 000 bars, 30 staves, 41 voices, 221 169 noteheads; no tuplets) with the real
+builder and measures what the document keeps with the new `net_bytes` of `orchestra-test-support`:
+**257 bytes per note** (56.9 MB), events, derived indices and inline offsets included. The test fails
+above **285** (the measure plus about 10%), so that a structure that grows is a deliberate decision.
+
+**Benchmarks** (`benches/dynamic.rs`; instructions): adding a tempo mark near the start of 1 000 bars
+with 250 marks, half of them gradual, which derives the whole map again, ≈ 985 000 (about 0.3 ms,
+within ADR-0024's estimate of 0.6 ms); the tempo mark in force at a point ≈ 620; `validate` of 200
+bars × 10 instruments with 8 000 events, 2 000 dynamics and 2 000 hairpins ≈ 3.3 million. Against
+the first part of F1.09c every existing benchmark of the program stayed within ±0.9%.
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics
@@ -1114,9 +1225,9 @@ fn comparison_never_allocates() {
 }
 ```
 
-`count_allocations` returns the result together with an `AllocationStats` with four counters:
-allocations, reallocations, deallocations and bytes requested. For example, from
-`tests/counting.rs`:
+`count_allocations` returns the result together with an `AllocationStats` with five counters:
+allocations, reallocations, deallocations, bytes requested and bytes given back (a reallocation
+gives back the old block and takes a new one). For example, from `tests/counting.rs`:
 
 ```rust
 let ((), stats) = count_allocations(|| {
@@ -1143,6 +1254,21 @@ Three details that matter:
   tiny probe allocation and checks that the counter moved; if not, it returns
   `NotInstalledError` (and `assert_no_allocations` fails the test). `tests/not_installed.rs` is a
   test binary without the allocator that checks exactly this.
+
+**How much memory a structure keeps** (F1.09c). `net_bytes()` is the bytes requested minus the
+bytes given back over the measured window: the growth of the live heap, in which temporary buffers
+cancel out. `core-model`'s memory test uses it to measure the bytes per note of the heavy score.
+It counts what the program asks for, not the allocator's rounding: a lower bound of the resident
+memory, the same on every platform. The extra counter makes the counter's own benchmarks slower
+(snapshots ≈ 1 167 → 1 423 instructions, one counted allocation ≈ 7 641 → 8 025): a test-only cost,
+accepted with the `Bench-regression: accepted` trailer of ADR-0017.
+
+```rust
+let (document, stats) = count_allocations(build_the_heavy_score).unwrap();
+// What the document keeps: allocated minus given back, temporary buffers cancel out.
+let per_note = stats.net_bytes() / i128::try_from(noteheads(&document)).unwrap();
+assert!(per_note <= CEILING_BYTES_PER_NOTE);
+```
 
 It is the fourth crate allowed to contain `unsafe`, because the `GlobalAlloc` trait is `unsafe`
 by definition; the only unsafe operations are the forwarding calls to the system allocator, each

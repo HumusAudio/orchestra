@@ -25,11 +25,10 @@
 
 use orchestra_core_model::{
     BarId, Clef, Document, DocumentBuilder, DocumentError, Instrument, Interval, Key,
-    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Mode, StaffId, Track, TrackId, VoiceId,
+    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Metronome, Mode, StaffId, TempoMark,
+    Track, TrackId, VoiceId,
 };
-use orchestra_core_time::{
-    BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
-};
+use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use proptest::prelude::*;
 
 /// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
@@ -92,7 +91,12 @@ fn builder() -> DocumentBuilder {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
     let tempo = Tempo::new(quarter, Rational::from_integer(60).unwrap()).unwrap();
-    DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), c_major())
+    DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        c_major(),
+    )
+    .unwrap()
 }
 
 /// Applies `op` to both, and checks the result of the call against the oracle's expectation.
@@ -245,7 +249,8 @@ proptest! {
     #[test]
     fn builder_matches_oracle(ops in prop::collection::vec(op(), 0..120)) {
         let mut b = builder();
-        let mut oracle = Oracle::default();
+        // The builder's initial tempo mark has already taken ID 1 (ADR-0024 §11, E1).
+        let mut oracle = Oracle { last_id: 1, ..Oracle::default() };
         for op in &ops {
             apply(&mut b, &mut oracle, op);
             check(b.document(), &oracle);

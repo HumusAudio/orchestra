@@ -19,10 +19,10 @@ use std::hint::black_box;
 
 use orchestra_core_model::{
     Alteration, Articulation, ArticulationSet, BaseValue, Clef, Document, DocumentBuilder, EventId,
-    Fermata, Grace, GraceAttach, GraceKind, Interval, Key, Mode, NoteId, NoteValue, Ornament,
-    PerformanceOffsets, Pitch, Placement, SlurId, SlurPlacement, Step,
+    Fermata, Grace, GraceAttach, GraceKind, Interval, Key, Metronome, Mode, NoteId, NoteValue,
+    Ornament, PerformanceOffsets, Pitch, Placement, SlurId, SlurPlacement, Step, TempoMark,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_test_support::assert_no_allocations;
 
 orchestra_test_support::install_counting_allocator!();
@@ -40,7 +40,12 @@ fn document() -> (Document, Vec<EventId>, Vec<NoteId>, Vec<SlurId>) {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(72).unwrap()).unwrap();
     let key = Key::traditional(0, Mode::Major).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), key);
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        key,
+    )
+    .unwrap();
     let bars: Vec<_> = (0..8).map(|_| b.add_bar().unwrap()).collect();
     let track = b
         .add_instrument_track("Flute", Interval::new(0, Rational::ZERO), &[Clef::TREBLE])

@@ -15,13 +15,13 @@
 
 use orchestra_core_model::{
     Alteration, BarId, BaseValue, Clef, ClefSign, Document, DocumentBuilder, DocumentError,
-    EventBody, Interval, Key, KeyOverride, KeySignature, MAX_TUPLET_DEPTH, Mode, NoteValue,
-    NoteValueError, Pitch, Placement, Quality, RestValue, Step, Tie, Tuplet, TupletBracket,
-    TupletDisplay, TupletNumber, Violation, VoiceId,
+    EventBody, Interval, Key, KeyOverride, KeySignature, MAX_TUPLET_DEPTH, Metronome, Mode,
+    NoteValue, NoteValueError, Pitch, Placement, Quality, RestValue, Step, TempoMark, Tie, Tuplet,
+    TupletBracket, TupletDisplay, TupletNumber, Violation, VoiceId,
 };
 use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, MeterMap, Position, Rational,
-    Tempo, TempoMap,
+    Tempo,
 };
 
 /// The rational `n/d`.
@@ -57,7 +57,12 @@ fn major(fifths: i8) -> Key {
 /// A builder in 4/4 at ♩ = 60, in C major, with `bars` bars.
 fn builder_with(meters: MeterMap, bars: usize) -> (DocumentBuilder, Vec<BarId>) {
     let tempo = Tempo::new(d(1, 4), q(60, 1)).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), major(0));
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        major(0),
+    )
+    .unwrap();
     let ids = (0..bars).map(|_| b.add_bar().unwrap()).collect();
     (b, ids)
 }
@@ -713,9 +718,14 @@ fn placement_errors_leave_the_builder_unchanged() {
         .unwrap();
     let mut other = DocumentBuilder::new(
         four_four(),
-        TempoMap::new(Tempo::new(d(1, 4), q(60, 1)).unwrap()).unwrap(),
+        TempoMark::immediate(
+            None,
+            Metronome::shown(Tempo::new(d(1, 4), q(60, 1)).unwrap()),
+        )
+        .unwrap(),
         major(0),
-    );
+    )
+    .unwrap();
     let foreign_bar = {
         other.add_bar().unwrap();
         other.add_bar().unwrap()

@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The document: tracks, instruments, staves, voices with their events, bars, clefs, key
-//! signatures, slurs and the two time maps (ADR-0022 §1–4, ADR-0024 §1–§7 and §9–§10; SCALETTA
-//! F1.08, F1.09b and F1.09c).
+//! signatures, slurs, dynamics, hairpins, tempo marks and the two time maps (ADR-0022 §1–4,
+//! ADR-0024 §1–§11; SCALETTA F1.08, F1.09b and F1.09c).
 //!
 //! # What lives here
 //! - [`Document`]: the one project document of ADR-0003. It holds the structure (F1.08), the
 //!   events of every voice, the clefs and the key signatures (F1.09b), the markings on the events
-//!   and the slurs of each instrument (F1.09c); dynamics, hairpins and tempo marks arrive in the
-//!   second part of F1.09c, the form in F1.10.
+//!   and the slurs, dynamics and hairpins of each instrument, the tempo marks with the tempo map
+//!   derived from them (F1.09c); the form arrives in F1.10.
 //! - [`Track`] → [`Instrument`] → [`Staff`] and [`Voice`]: one instrument per instrument track,
 //!   one or more staves per instrument, voices that **belong to the instrument** and have a home
 //!   staff (ADR-0022 §2), so that a melody crossing from one staff to the other stays one voice.
@@ -52,21 +52,24 @@ use std::fmt;
 
 use orchestra_core_time::{
     BarIndex, Duration, MeterMap, MeterMapError, Position, Rational, RationalError, TempoMap,
+    TempoMapError,
 };
 
 use crate::content::{Chunk, VoiceContent, metric_duration};
+use crate::dynamic::{Dynamic, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinShape};
 use crate::event::{
     Chord, Event, EventBody, MAX_TUPLET_DEPTH, Note, NoteValue, NoteValueError, PlacedEvent, Rest,
     RestValue, Tie, Tuplet,
 };
 use crate::id::{
-    BarId, ClefId, EventId, IdCounter, IdMap, InstrumentId, KeyChangeId, NoteId, SlurId, StaffId,
-    TrackId, TupletId, VoiceId,
+    BarId, ClefId, DynamicId, EventId, HairpinId, IdCounter, IdMap, InstrumentId, KeyChangeId,
+    NoteId, SlurId, StaffId, TempoMarkId, TrackId, TupletId, VoiceId,
 };
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
-use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList};
+use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint, point_key};
 use crate::pitch::{Interval, Key, Pitch, PitchError};
 use crate::slur::{Slur, SlurPlacement, SlurRefs};
+use crate::tempo_mark::{TempoMark, TempoMarkChange};
 use crate::validate::Violation;
 
 /// The most staves one instrument can have (owner's decision, 2026-11-02). Organ music uses
@@ -115,8 +118,11 @@ pub enum DocumentError {
     UnknownTuplet(TupletId),
     /// No slur of the document has this ID.
     UnknownSlur(SlurId),
-    /// An event's staff belongs to another instrument than its voice (ADR-0022 §2).
+    /// An event's staff belongs to another instrument than its voice (ADR-0022 §2), or a
+    /// dynamic's or hairpin's staff to another instrument than the dynamic.
     StaffOfAnotherInstrument(StaffId),
+    /// The voice of a dynamic's or hairpin's scope belongs to another instrument (ADR-0024 §8).
+    VoiceOfAnotherInstrument(VoiceId),
     /// An offset before the start of its bar: offsets are ≥ 0 (ADR-0022 §4).
     NegativeOffset,
     /// A chord was requested without any notehead.
@@ -134,8 +140,18 @@ pub enum DocumentError {
     TieToItself,
     /// A slur was requested from an event to the same event.
     SlurToItself,
-    /// A clef or key change was put where one already is (or where the initial clef or key is).
+    /// A clef, key or tempo change was put where one already is (or where the initial clef, key
+    /// or tempo is), or a dynamic where one of the same scope already is.
     DuplicateMark,
+    /// A free text (a dynamic, a tempo mark) is empty or only white space.
+    EmptyText,
+    /// A tempo mark has neither text nor tempo change: it would print and play nothing.
+    EmptyTempoMark,
+    /// The initial tempo mark does not set a tempo at once: some tempo must be in force from the
+    /// very start (ADR-0024 §11, E1).
+    InitialTempoNotImmediate,
+    /// A hairpin does not end after it starts in score order.
+    HairpinNotForward,
     /// A clef on a line outside 1–5 or with an octave shift outside ±2.
     ClefOutOfRange,
     /// A note value or a tuplet could not be built.
@@ -146,6 +162,9 @@ pub enum DocumentError {
     Arithmetic(RationalError),
     /// A meter map lookup failed (only reachable with absurd meters, ADR-0018).
     MeterMap(MeterMapError),
+    /// The tempo map derived from the tempo marks could not be built (absurd tempi only, once the
+    /// rules of the marks hold: ADR-0024 §11).
+    TempoMap(TempoMapError),
     /// The document breaks a rule that needs the whole document to check ([`Document::validate`]).
     Invalid(Violation),
 }
@@ -180,6 +199,11 @@ impl fmt::Display for DocumentError {
                 "the staff {} belongs to another instrument than the voice",
                 id.get()
             ),
+            Self::VoiceOfAnotherInstrument(id) => write!(
+                f,
+                "the voice {} belongs to another instrument than the dynamic",
+                id.get()
+            ),
             Self::NegativeOffset => f.write_str("an offset in a bar cannot be negative"),
             Self::EmptyChord => f.write_str("a chord needs at least one notehead"),
             Self::WholeBarRestInTuplet => f.write_str("a whole-bar rest cannot be in a tuplet"),
@@ -195,6 +219,14 @@ impl fmt::Display for DocumentError {
             Self::TieToItself => f.write_str("a notehead cannot be tied to itself"),
             Self::SlurToItself => f.write_str("a slur cannot start and end on the same event"),
             Self::DuplicateMark => f.write_str("there is already a change at that point"),
+            Self::EmptyText => f.write_str("a text cannot be empty"),
+            Self::EmptyTempoMark => f.write_str("a tempo mark needs a text or a tempo change"),
+            Self::InitialTempoNotImmediate => {
+                f.write_str("the initial tempo mark must set a tempo at once")
+            }
+            Self::HairpinNotForward => {
+                f.write_str("a hairpin must end after it starts in score order")
+            }
             Self::ClefOutOfRange => {
                 f.write_str("a clef sits on lines 1 to 5 with an octave shift of at most 2")
             }
@@ -202,6 +234,7 @@ impl fmt::Display for DocumentError {
             Self::Pitch(e) => write!(f, "pitch: {e}"),
             Self::Arithmetic(e) => write!(f, "arithmetic: {e}"),
             Self::MeterMap(e) => write!(f, "meter map: {e}"),
+            Self::TempoMap(e) => write!(f, "tempo map: {e}"),
             Self::Invalid(v) => write!(f, "invalid document: {v}"),
         }
     }
@@ -215,6 +248,7 @@ impl Error for DocumentError {
             Self::Pitch(e) => Some(e),
             Self::Arithmetic(e) => Some(e),
             Self::MeterMap(e) => Some(e),
+            Self::TempoMap(e) => Some(e),
             Self::Invalid(e) => Some(e),
             _ => None,
         }
@@ -371,6 +405,12 @@ pub struct Instrument {
     /// appended at the end and the order is also the creation order: deterministic for the file
     /// writer, searchable in O(log s).
     slurs: Vec<Slur>,
+    /// The instrument's dynamics (ADR-0024 §8), sorted by point in score order and, at one point,
+    /// by ID (creation order). A sorted vector: a few per bar at most, read in order by playback
+    /// and layout; inserting is O(log d) to find the place and O(d) to shift.
+    dynamics: Vec<Dynamic>,
+    /// The instrument's hairpins (ADR-0024 §8), sorted like `dynamics` by their start point.
+    hairpins: Vec<Hairpin>,
 }
 
 impl Instrument {
@@ -417,6 +457,17 @@ impl Instrument {
     /// The instrument's slurs, in creation order (which is ID order). O(1).
     pub fn slurs(&self) -> &[Slur] {
         &self.slurs
+    }
+
+    /// The instrument's dynamics, in score order (at one point, in creation order). O(1).
+    pub fn dynamics(&self) -> &[Dynamic] {
+        &self.dynamics
+    }
+
+    /// The instrument's hairpins, in score order of their starts (at one point, in creation
+    /// order). O(1).
+    pub fn hairpins(&self) -> &[Hairpin] {
+        &self.hairpins
     }
 
     /// The slur with this ID, if it belongs to this instrument. O(log s): a binary search in the
@@ -589,16 +640,20 @@ impl<'a> EventRef<'a> {
 /// # Example
 /// ```
 /// use orchestra_core_model::{
-///     BaseValue, Clef, DocumentBuilder, Interval, Key, Mode, NoteValue, Pitch, Placement, Step,
-///     Alteration,
+///     BaseValue, Clef, DocumentBuilder, Interval, Key, Metronome, Mode, NoteValue, Pitch,
+///     Placement, Step, TempoMark, Alteration,
 /// };
-/// use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+/// use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 ///
 /// let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4)?))?;
 /// let quarter = Duration::from_rational(Rational::new(1, 4)?);
-/// let tempi = TempoMap::new(Tempo::new(quarter, Rational::from_integer(96)?)?)?;
+/// // "Andante ♩ = 96": the initial tempo mark, from which the tempo map is derived.
+/// let andante = TempoMark::immediate(
+///     Some("Andante"),
+///     Metronome::shown(Tempo::new(quarter, Rational::from_integer(96)?)?),
+/// )?;
 ///
-/// let mut builder = DocumentBuilder::new(meters, tempi, Key::traditional(0, Mode::Major)?);
+/// let mut builder = DocumentBuilder::new(meters, andante, Key::traditional(0, Mode::Major)?)?;
 /// let bar = builder.add_bar()?;
 /// // A piano: two staves with their clefs, so two voices, one per staff.
 /// let piano = builder.add_instrument_track(
@@ -625,9 +680,15 @@ pub struct Document {
     /// The bar lengths, meters, beat groupings and numbering (ADR-0018, ADR-0019): the only place
     /// a bar's length is stored.
     meter_map: MeterMap,
-    /// The tempo changes on written positions (ADR-0020, ADR-0021). F1.09c derives it from tempo
-    /// marks (ADR-0024 §11).
+    /// The tempo changes on written positions (ADR-0020, ADR-0021): a **derived cache** of the
+    /// tempo marks (ADR-0024 §11), rebuilt by `Document::derive_tempo_map` after every edit that
+    /// touches them, never edited directly. Not saved (the file stores the marks).
     tempo_map: TempoMap,
+    /// The tempo mark at the very start of the score, with its ID (ADR-0024 §11, E1): it always
+    /// sets a tempo at once and cannot be removed.
+    initial_tempo: (TempoMarkId, TempoMark),
+    /// The tempo marks after the start, at (bar, offset) points.
+    tempo_marks: MarkList<TempoMarkId, TempoMark>,
     /// The key at the start of the score, at concert pitch (ADR-0024 §9, K1).
     initial_key: Key,
     /// The key changes after the start, at concert pitch.
@@ -651,9 +712,19 @@ impl Document {
         &self.meter_map
     }
 
-    /// The tempo map, on written positions. O(1).
+    /// The tempo map, on written positions, derived from the tempo marks. O(1).
     pub const fn tempo_map(&self) -> &TempoMap {
         &self.tempo_map
+    }
+
+    /// The tempo mark at the very start of the score, with its ID. O(1).
+    pub const fn initial_tempo(&self) -> (TempoMarkId, &TempoMark) {
+        (self.initial_tempo.0, &self.initial_tempo.1)
+    }
+
+    /// The tempo marks after the start, in score order. O(1).
+    pub const fn tempo_marks(&self) -> &MarkList<TempoMarkId, TempoMark> {
+        &self.tempo_marks
     }
 
     /// The key at the start of the score, at concert pitch. O(1).
@@ -798,7 +869,7 @@ impl Document {
         Ok(staff
             .clef_changes
             .in_force_at(&self.bars, index, offset)
-            .map_or(staff.initial_clef, Mark::value))
+            .map_or(staff.initial_clef, |mark| *mark.value()))
     }
 
     /// The document's key in force at (bar, offset), at concert pitch, ignoring the instruments'
@@ -811,7 +882,7 @@ impl Document {
         Ok(self
             .key_changes
             .in_force_at(&self.bars, index, offset)
-            .map_or(self.initial_key, Mark::value))
+            .map_or(self.initial_key, |mark| *mark.value()))
     }
 
     /// What an instrument shows at (bar, offset) **at concert pitch**: its override in force, if
@@ -833,7 +904,7 @@ impl Document {
         match found
             .key_overrides
             .in_force_at(&self.bars, index, offset)
-            .map(Mark::value)
+            .map(|mark| *mark.value())
         {
             Some(KeyOverride::Signature(signature)) => Ok(signature),
             Some(KeyOverride::FollowScore) | None => {
@@ -932,7 +1003,7 @@ impl Document {
     }
 
     /// The index of a bar, or the typed error. O(1) average.
-    fn bar_index(&self, id: BarId) -> Result<BarIndex, DocumentError> {
+    pub(crate) fn bar_index(&self, id: BarId) -> Result<BarIndex, DocumentError> {
         self.bars.index_of(id).ok_or(DocumentError::UnknownBar(id))
     }
 
@@ -1048,18 +1119,36 @@ pub struct DocumentBuilder {
 }
 
 impl DocumentBuilder {
-    /// Starts a document with these time maps and this initial key (at concert pitch), no bars and
-    /// no tracks. O(1), does not allocate.
+    /// Starts a document with this meter map, this initial tempo mark and this initial key (at
+    /// concert pitch), no bars and no tracks. The tempo map is derived from the tempo mark
+    /// (ADR-0024 §11); the mark takes the document's first ID. O(1) plus the small allocation of
+    /// the tempo map.
     ///
     /// There is deliberately no default meter, tempo or key: they are the caller's choice (the
     /// interface's "new score" dialog, a file, the generator), not the model's.
-    #[must_use]
-    pub fn new(meter_map: MeterMap, tempo_map: TempoMap, initial_key: Key) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// [`DocumentError::InitialTempoNotImmediate`] unless the mark sets a tempo at once (E1);
+    /// [`DocumentError::TempoMap`] for an absurd tempo.
+    pub fn new(
+        meter_map: MeterMap,
+        initial_tempo: TempoMark,
+        initial_key: Key,
+    ) -> Result<Self, DocumentError> {
+        let Some(TempoMarkChange::Immediate(metronome)) = initial_tempo.change() else {
+            return Err(DocumentError::InitialTempoNotImmediate);
+        };
+        let tempo_map = TempoMap::new(metronome.tempo).map_err(DocumentError::TempoMap)?;
+        let mut ids = IdCounter::new();
+        // A fresh counter always has room for its first ID.
+        let id = TempoMarkId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        Ok(Self {
             doc: Document {
-                ids: IdCounter::new(),
+                ids,
                 meter_map,
                 tempo_map,
+                initial_tempo: (id, initial_tempo),
+                tempo_marks: MarkList::default(),
                 initial_key,
                 key_changes: MarkList::default(),
                 bars: BarList::new(),
@@ -1068,7 +1157,7 @@ impl DocumentBuilder {
                 notes: IdMap::default(),
                 slur_index: IdMap::default(),
             },
-        }
+        })
     }
 
     /// Appends a bar at the end of the bar list and returns its ID. Its length, meter and number
@@ -1167,6 +1256,8 @@ impl DocumentBuilder {
                 voices,
                 key_overrides: MarkList::default(),
                 slurs: Vec::new(),
+                dynamics: Vec::new(),
+                hairpins: Vec::new(),
             },
         });
         Ok(track_id)
@@ -1620,6 +1711,182 @@ impl DocumentBuilder {
         Ok(id)
     }
 
+    /// Adds a tempo mark at a point and returns its ID (ADR-0024 §11), then derives the tempo map
+    /// again from all the marks, so that [`Document::tempo_map`] is always up to date while
+    /// building (owner's decision of 2026-11-03).
+    ///
+    /// # All or nothing
+    /// Whether the mark fits (a change inside a gradual one, a gradual change that does not go
+    /// forwards) is only known once it is among the others. So it is tried in place with the ID
+    /// the counter would hand out next ([`IdCounter::peek`]), the map is derived, and on failure
+    /// the mark is taken out again: the builder is unchanged and no ID is consumed.
+    ///
+    /// # Complexity
+    /// O(t) to insert among t marks, plus the derivation, O(t log m): building a score with t tempo
+    /// marks costs O(t² log m), negligible for the hundreds of marks of a real score.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`] or [`DocumentError::NegativeOffset`] for the point or the end
+    /// of a gradual change; [`DocumentError::DuplicateMark`] (another mark at the point, or the
+    /// very start, where the initial mark is); [`DocumentError::Invalid`] with the violations of
+    /// the marks; [`DocumentError::TempoMap`]; [`DocumentError::IdsExhausted`].
+    pub fn add_tempo_mark(
+        &mut self,
+        at: ScorePoint,
+        mark: TempoMark,
+    ) -> Result<TempoMarkId, DocumentError> {
+        let index = self.check_point(at.bar, at.offset)?;
+        if let Some(TempoMarkChange::Gradual(gradual)) = mark.change() {
+            self.check_point(gradual.end.bar, gradual.end.offset)?;
+        }
+        let Document {
+            ids,
+            bars,
+            tempo_marks,
+            ..
+        } = &mut self.doc;
+        if (index == BarIndex::FIRST && at.offset.is_zero())
+            || tempo_marks.has_mark_at(bars, index, at.offset)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = TempoMarkId::from_counter(ids.peek().ok_or(DocumentError::IdsExhausted)?);
+        tempo_marks.insert(Mark::new(id, at.bar, at.offset, mark), bars)?;
+        match self.doc.derive_tempo_map() {
+            Ok(map) => {
+                self.doc.tempo_map = map;
+                // Taken for good only now: `peek` returned exactly this value.
+                self.doc.ids.next();
+                Ok(id)
+            }
+            Err(e) => {
+                self.doc.tempo_marks.remove(id);
+                Err(e)
+            }
+        }
+    }
+
+    /// Adds a dynamic to an instrument at a point and returns its ID (ADR-0024 §8).
+    ///
+    /// # Complexity
+    /// O(tracks) to find the instrument, O(staves + voices) for the placement, O(log d) to find
+    /// the place among d dynamics, O(d) to shift the later ones.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownInstrument`], [`DocumentError::UnknownBar`],
+    /// [`DocumentError::NegativeOffset`], [`DocumentError::StaffOfAnotherInstrument`],
+    /// [`DocumentError::VoiceOfAnotherInstrument`], [`DocumentError::DuplicateMark`] (a dynamic of
+    /// the same scope at the point), [`DocumentError::IdsExhausted`]. The builder is unchanged on
+    /// error.
+    pub fn add_dynamic(
+        &mut self,
+        instrument: InstrumentId,
+        at: ScorePoint,
+        placement: DynamicPlacement,
+        mark: DynamicMark,
+    ) -> Result<DynamicId, DocumentError> {
+        self.check_point(at.bar, at.offset)?;
+        let t = self.check_dynamic_placement(instrument, placement)?;
+        let Document {
+            ids, bars, tracks, ..
+        } = &mut self.doc;
+        let target = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .instrument;
+        let key = point_key(bars, at);
+        // The dynamics at this point are a contiguous run of the sorted list: from the first one
+        // not before the point to the first one after it.
+        let first = target
+            .dynamics
+            .partition_point(|d| point_key(bars, d.at()) < key);
+        let after = target
+            .dynamics
+            .partition_point(|d| point_key(bars, d.at()) <= key);
+        if target
+            .dynamics
+            .get(first..after)
+            .is_some_and(|run| run.iter().any(|d| d.placement().scope == placement.scope))
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = DynamicId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        // At the end of the run: IDs only grow, so at one point the order is creation order.
+        target
+            .dynamics
+            .insert(after, Dynamic::new(id, at, placement, mark));
+        Ok(id)
+    }
+
+    /// Adds a hairpin to an instrument, from `start` (included) to `end` (excluded), and returns
+    /// its ID (ADR-0024 §8). That it does not overlap another hairpin of the same scope is checked
+    /// by [`build`](Self::build), which sees all of them (rule 6 of [`Document::validate`]).
+    ///
+    /// # Complexity
+    /// As [`add_dynamic`](Self::add_dynamic).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownInstrument`], [`DocumentError::UnknownBar`] or
+    /// [`DocumentError::NegativeOffset`] for either end, [`DocumentError::HairpinNotForward`],
+    /// [`DocumentError::StaffOfAnotherInstrument`], [`DocumentError::VoiceOfAnotherInstrument`],
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_hairpin(
+        &mut self,
+        instrument: InstrumentId,
+        start: ScorePoint,
+        end: ScorePoint,
+        placement: DynamicPlacement,
+        shape: HairpinShape,
+    ) -> Result<HairpinId, DocumentError> {
+        self.check_point(start.bar, start.offset)?;
+        self.check_point(end.bar, end.offset)?;
+        if point_key(&self.doc.bars, end) <= point_key(&self.doc.bars, start) {
+            return Err(DocumentError::HairpinNotForward);
+        }
+        let t = self.check_dynamic_placement(instrument, placement)?;
+        let Document {
+            ids, bars, tracks, ..
+        } = &mut self.doc;
+        let target = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .instrument;
+        let key = point_key(bars, start);
+        let after = target
+            .hairpins
+            .partition_point(|h| point_key(bars, h.start()) <= key);
+        let id = HairpinId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        target
+            .hairpins
+            .insert(after, Hairpin::new(id, start, end, placement, shape));
+        Ok(id)
+    }
+
+    /// Checks the placement of a dynamic or hairpin: the instrument exists, and the staff and the
+    /// voice of the scope belong to it. Returns the instrument's track position.
+    /// O(tracks) + O(staves + voices).
+    fn check_dynamic_placement(
+        &self,
+        instrument: InstrumentId,
+        placement: DynamicPlacement,
+    ) -> Result<usize, DocumentError> {
+        let (t, target) = self
+            .doc
+            .instruments()
+            .enumerate()
+            .find(|(_, i)| i.id == instrument)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?;
+        if target.staff(placement.staff).is_none() {
+            return Err(DocumentError::StaffOfAnotherInstrument(placement.staff));
+        }
+        if let DynamicScope::Voice(voice) = placement.scope
+            && target.voice(voice).is_none()
+        {
+            return Err(DocumentError::VoiceOfAnotherInstrument(voice));
+        }
+        Ok(t)
+    }
+
     /// The document as built so far, for callers that need to read it while building (a
     /// generator asking for the staves of the track it just added). O(1).
     pub const fn document(&self) -> &Document {
@@ -1788,6 +2055,7 @@ mod tests {
 
     use super::*;
     use crate::pitch::Mode;
+    use crate::tempo_mark::Metronome;
 
     /// An empty builder in 4/4 at ♩ = 120, in C major.
     fn builder() -> DocumentBuilder {
@@ -1796,9 +2064,10 @@ mod tests {
         let tempo = Tempo::new(quarter, Rational::from_integer(120).unwrap()).unwrap();
         DocumentBuilder::new(
             meters,
-            TempoMap::new(tempo).unwrap(),
+            TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
             Key::traditional(0, Mode::Major).unwrap(),
         )
+        .unwrap()
     }
 
     /// With the counter near its end, an instrument that does not fit is refused without consuming

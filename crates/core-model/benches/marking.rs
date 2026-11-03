@@ -48,10 +48,10 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::{
     Alteration, Articulation, ArticulationSet, BarId, BaseValue, Clef, Document, DocumentBuilder,
-    EventId, Grace, GraceAttach, GraceKind, Interval, Key, Mode, NoteValue, Ornament, Pitch,
-    Placement, SlurId, SlurPlacement, Step,
+    EventId, Grace, GraceAttach, GraceKind, Interval, Key, Metronome, Mode, NoteValue, Ornament,
+    Pitch, Placement, SlurId, SlurPlacement, Step, TempoMark,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
 const BATCH: usize = 64;
 const BARS: usize = 200;
@@ -67,7 +67,12 @@ fn score() -> (Document, Vec<EventId>, Vec<SlurId>) {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(100).unwrap()).unwrap();
     let key = Key::traditional(0, Mode::Major).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), key);
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        key,
+    )
+    .unwrap();
     let bars: Vec<BarId> = (0..BARS).map(|_| b.add_bar().unwrap()).collect();
     let unison = Interval::new(0, Rational::ZERO);
     let pitch = Pitch::new(Step::A, Alteration::NATURAL, 4);

@@ -82,6 +82,12 @@ pub struct AllocationStats {
     pub deallocations: u64,
     /// Bytes requested by `alloc`/`alloc_zeroed` plus the new sizes passed to `realloc`.
     pub bytes_allocated: u64,
+    /// Bytes given back by `dealloc` plus the old sizes of the blocks passed to `realloc`.
+    ///
+    /// A reallocation counts as giving back the old block and taking a new one, so that
+    /// `bytes_allocated − bytes_deallocated` is the growth of the live heap (see
+    /// [`AllocationStats::net_bytes`]) whether or not `System` grew the block in place.
+    pub bytes_deallocated: u64,
 }
 
 impl AllocationStats {
@@ -95,6 +101,7 @@ impl AllocationStats {
         reallocations: 0,
         deallocations: 0,
         bytes_allocated: 0,
+        bytes_deallocated: 0,
     };
 
     /// Returns `true` if there was no heap activity at all: no allocation, no reallocation and no
@@ -115,7 +122,27 @@ impl AllocationStats {
             reallocations: self.reallocations.wrapping_sub(earlier.reallocations),
             deallocations: self.deallocations.wrapping_sub(earlier.deallocations),
             bytes_allocated: self.bytes_allocated.wrapping_sub(earlier.bytes_allocated),
+            bytes_deallocated: self
+                .bytes_deallocated
+                .wrapping_sub(earlier.bytes_deallocated),
         }
+    }
+
+    /// How much the live heap of this thread grew over the measured window, in bytes: what was
+    /// allocated minus what was given back. Negative if more was freed than allocated.
+    ///
+    /// # What it measures
+    /// The memory a data structure built inside the window keeps (ADR-0007's RAM budget, the
+    /// memory per note of SCALETTA F1.09c): temporary buffers freed before the window ends cancel
+    /// out. It counts the sizes the program **requested**, not the allocator's own rounding and
+    /// bookkeeping, so it is a lower bound of the resident memory, and the same on every
+    /// platform.
+    ///
+    /// # Range
+    /// Computed in `i128`, where the difference of two `u64` never overflows. O(1).
+    #[must_use]
+    pub fn net_bytes(&self) -> i128 {
+        i128::from(self.bytes_allocated) - i128::from(self.bytes_deallocated)
     }
 }
 
@@ -206,16 +233,20 @@ unsafe impl GlobalAlloc for CountingAllocator {
         unsafe { System.alloc_zeroed(layout) }
     }
 
-    /// Counts one deallocation, then forwards to `System::dealloc`.
+    /// Counts one deallocation of `layout.size()` bytes, then forwards to `System::dealloc`.
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        record(|s| s.deallocations = s.deallocations.wrapping_add(1));
+        record(|s| {
+            s.deallocations = s.deallocations.wrapping_add(1);
+            s.bytes_deallocated = s.bytes_deallocated.wrapping_add(bytes(layout.size()));
+        });
         // SAFETY: the caller guarantees that `ptr` was allocated by this allocator with
         // `layout`; every block we hand out comes from `System`, so `ptr` was allocated by
         // `System` with that same layout, which is what `System::dealloc` requires.
         unsafe { System.dealloc(ptr, layout) }
     }
 
-    /// Counts one reallocation to `new_size` bytes, then forwards to `System::realloc`.
+    /// Counts one reallocation from `layout.size()` to `new_size` bytes, then forwards to
+    /// `System::realloc`.
     ///
     /// Overridden (instead of the default `alloc` + copy + `dealloc`) so that `System` can grow a
     /// block in place, and so that a reallocation is counted as one event, not as two.
@@ -223,6 +254,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
         record(|s| {
             s.reallocations = s.reallocations.wrapping_add(1);
             s.bytes_allocated = s.bytes_allocated.wrapping_add(bytes(new_size));
+            s.bytes_deallocated = s.bytes_deallocated.wrapping_add(bytes(layout.size()));
         });
         // SAFETY: the caller guarantees the `GlobalAlloc::realloc` requirements (`ptr` allocated
         // by us with `layout`, valid non-zero `new_size`); as in `dealloc`, `ptr` really comes

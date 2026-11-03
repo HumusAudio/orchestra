@@ -75,6 +75,16 @@ impl IdCounter {
         }
     }
 
+    /// The ID [`next`](Self::next) would hand out, without handing it out; `None` if the counter
+    /// is exhausted. O(1).
+    ///
+    /// For edits that can only be judged once the new object is in place (a tempo mark, whose
+    /// derived tempo map may turn out invalid): the object is tried with this ID, and the ID is
+    /// taken only if it stays, so that a rejected edit never consumes one.
+    pub(crate) const fn peek(&self) -> Option<NonZeroU64> {
+        self.next
+    }
+
     /// Hands out the next ID, or `None` if the counter is exhausted. O(1).
     pub(crate) fn next(&mut self) -> Option<NonZeroU64> {
         let id = self.next?;
@@ -169,6 +179,20 @@ define_id!(
 define_id!(
     /// The identity of a slur of an instrument (ADR-0024 §7).
     SlurId
+);
+define_id!(
+    /// The identity of a dynamic of an instrument (ADR-0024 §8).
+    DynamicId
+);
+define_id!(
+    /// The identity of a hairpin of an instrument (ADR-0024 §8).
+    HairpinId
+);
+define_id!(
+    /// The identity of a tempo mark of the document (ADR-0024 §11). Unlike the initial clef and
+    /// key, the initial tempo mark has one: "Allegro ♩ = 132" at the top of the score is printed
+    /// text that can be selected and edited, even though it cannot be removed.
+    TempoMarkId
 );
 
 // ------------------------------------------------------------------------------------------------

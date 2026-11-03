@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 86e921f69c15bdd2a101ce00fb5a98db53363afad83c19f5497510a5af8c45f0 # shrinks to bars = [M { beats: 1, unit: 4 }], edits = [Gen { bar: 0, offset: 3, kind: Now(0) }]
+cc c8c74c4ace682ebcabfd06a8885355fcf467a7c500ca2aec558bf176cbf9d077 # shrinks to bars = [M { beats: 1, unit: 4 }, M { beats: 1, unit: 4 }, M { beats: 1, unit: 4 }], edits = [Gen { bar: 7, offset: 2, kind: Now(0) }, Gen { bar: 1, offset: 3, kind: Now(1) }]
+cc 92030c525ac67287bb0fec9fd402c9a58b7999116b230f620ac781b067dbed12 # shrinks to bars = [M { beats: 1, unit: 4 }], edits = [Gen { bar: 0, offset: 2, kind: Gradual { from: None, to: 0, end: (0, 3) } }]
+cc 724214dfb43b4d00fcc9d73155dfe1b820f518ae4590bd1d7274c295adf8d6c5 # shrinks to bars = [M { beats: 1, unit: 4 }], edits = [Gen { bar: 0, offset: 1, kind: Gradual { from: None, to: 0, end: (0, 7) } }, Gen { bar: 0, offset: 7, kind: Now(0) }]

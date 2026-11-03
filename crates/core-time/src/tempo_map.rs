@@ -227,6 +227,12 @@ pub enum TempoMapError {
         /// The start of the gradual change it falls into.
         gradual: Position,
     },
+    /// The changes given to [`TempoMap::from_changes`] are not sorted by position, or two share a
+    /// position.
+    Unsorted {
+        /// The first position that is not after the one before it.
+        at: Position,
+    },
 }
 
 impl From<RationalError> for TempoMapError {
@@ -255,6 +261,10 @@ impl fmt::Display for TempoMapError {
             Self::ChangeInsideGradual { at, gradual } => write!(
                 f,
                 "the tempo change at {at:?} falls inside the gradual change starting at {gradual:?}"
+            ),
+            Self::Unsorted { at } => write!(
+                f,
+                "the tempo change at {at:?} is not after the change before it"
             ),
         }
     }
@@ -805,6 +815,37 @@ impl TempoMap {
     /// Arithmetic errors only, for absurd tempo values.
     pub fn new(initial: Tempo) -> Result<Self, TempoMapError> {
         let changes = vec![(Position::ZERO, TempoChange::Immediate(initial))];
+        let segments = build_segments(&changes)?;
+        Ok(Self { changes, segments })
+    }
+
+    /// A map built in one go from all its changes: the bulk edit of ADR-0022 §8.
+    ///
+    /// # Why a bulk constructor?
+    /// The document derives its tempo map from the tempo marks of the score (ADR-0024 §11) after
+    /// every edit that touches them or the bar starts. Rebuilding with one
+    /// [`set_change`](Self::set_change) per mark would rebuild the segments t times, O(t²); this
+    /// builds them once, O(t). The rules are exactly those of the edits, so a map built here is
+    /// the same as one built change by change.
+    ///
+    /// # Errors
+    /// [`TempoMapError::Unsorted`] unless the positions strictly increase;
+    /// [`TempoMapError::NoTempoAtStart`] if the first change is not at position 0 (or there is
+    /// none), [`TempoMapError::GradualAtStart`] if it is gradual; the errors of
+    /// [`set_change`](Self::set_change) for gradual changes; arithmetic errors.
+    ///
+    /// # Complexity
+    /// O(t) for t changes, plus the allocation of the segments.
+    pub fn from_changes(changes: Vec<(Position, TempoChange)>) -> Result<Self, TempoMapError> {
+        // Strictly increasing positions: sorted and no two at the same place. The first position
+        // is checked by `build_segments` (it must be 0, which also rules out negative ones).
+        for pair in changes.windows(2) {
+            if let [(before, _), (after, _)] = pair
+                && after <= before
+            {
+                return Err(TempoMapError::Unsorted { at: *after });
+            }
+        }
         let segments = build_segments(&changes)?;
         Ok(Self { changes, segments })
     }

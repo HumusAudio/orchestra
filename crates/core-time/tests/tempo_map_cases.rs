@@ -474,3 +474,68 @@ fn indices_of_a_change_shorter_than_a_frame() {
     // Position 1 is at 1 s: frame 24 covers [1, 1.0417) s, which contains the whole change.
     assert_eq!(map.frame_at(inside, film), Ok(IndexAt::Exact(24)));
 }
+
+/// The bulk constructor (ADR-0022 §8) checks the order of its input and the rules of the edits.
+#[test]
+fn from_changes_checks_its_input() {
+    let start = (at(0, 1), immediate(quarter(120)));
+    // A valid list gives the same map as the edits.
+    let list = vec![
+        start,
+        (at(1, 1), gradual(quarter(60), at(2, 1))),
+        (at(3, 1), immediate(quarter(90))),
+    ];
+    let mut by_edits = TempoMap::new(quarter(120)).unwrap();
+    by_edits
+        .set_change(at(1, 1), gradual(quarter(60), at(2, 1)))
+        .unwrap();
+    by_edits
+        .set_change(at(3, 1), immediate(quarter(90)))
+        .unwrap();
+    assert_eq!(TempoMap::from_changes(list).unwrap(), by_edits);
+
+    // Out of order, or two changes at one position.
+    let swapped = vec![
+        start,
+        (at(3, 1), immediate(quarter(90))),
+        (at(1, 1), immediate(quarter(60))),
+    ];
+    assert_eq!(
+        TempoMap::from_changes(swapped),
+        Err(TempoMapError::Unsorted { at: at(1, 1) })
+    );
+    let twice = vec![
+        start,
+        (at(1, 1), immediate(quarter(90))),
+        (at(1, 1), immediate(quarter(60))),
+    ];
+    assert_eq!(
+        TempoMap::from_changes(twice),
+        Err(TempoMapError::Unsorted { at: at(1, 1) })
+    );
+
+    // No change at 0, an empty list, a gradual start, a change inside a gradual one.
+    assert_eq!(
+        TempoMap::from_changes(vec![(at(1, 1), immediate(quarter(90)))]),
+        Err(TempoMapError::NoTempoAtStart)
+    );
+    assert_eq!(
+        TempoMap::from_changes(Vec::new()),
+        Err(TempoMapError::NoTempoAtStart)
+    );
+    assert_eq!(
+        TempoMap::from_changes(vec![(at(0, 1), gradual(quarter(60), at(1, 1)))]),
+        Err(TempoMapError::GradualAtStart)
+    );
+    assert_eq!(
+        TempoMap::from_changes(vec![
+            start,
+            (at(1, 1), gradual(quarter(60), at(2, 1))),
+            (at(3, 2), immediate(quarter(90))),
+        ]),
+        Err(TempoMapError::ChangeInsideGradual {
+            at: at(3, 2),
+            gradual: at(1, 1)
+        })
+    );
+}

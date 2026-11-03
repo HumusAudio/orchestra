@@ -39,11 +39,10 @@ use std::hint::black_box;
 
 use gungraun::prelude::*;
 use orchestra_core_model::{
-    BarId, Clef, Document, DocumentBuilder, Interval, Key, Mode, Voice, VoiceId,
+    BarId, Clef, Document, DocumentBuilder, Interval, Key, Metronome, Mode, TempoMark, Voice,
+    VoiceId,
 };
-use orchestra_core_time::{
-    BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
-};
+use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
 /// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
 /// care which clef each staff starts with, only how many staves there are).
@@ -76,7 +75,12 @@ fn skeleton() -> Document {
     }
     let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
     let tempo = Tempo::new(quarter, Rational::from_integer(100).unwrap()).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), c_major());
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        c_major(),
+    )
+    .unwrap();
     for _ in 0..BARS {
         b.add_bar().unwrap();
     }

@@ -671,6 +671,22 @@ sostituiscono la mappa solo se va tutto bene (`TempoMapError`: `BeforeStart`, `N
 `GradualAtStart`, `NonPositiveGradual`, `ChangeInsideGradual`, `Arithmetic`) e restituiscono il
 valore precedente per l'annullamento.
 
+**Costruire in un colpo solo** (F1.09c, la modifica in blocco di ADR-0022 §8). Siccome il documento
+ricava la sua mappa dei tempi dalle indicazioni di tempo dopo ogni modifica che le tocca,
+`TempoMap::from_changes` costruisce una mappa da tutto l'elenco dei cambi in una volta: controlla che
+le posizioni crescano strettamente (altrimenti `TempoMapError::Unsorted`), poi applica esattamente le
+regole delle modifiche. Un test di proprietà ricostruisce ogni mappa modificata a caso dal suo stesso
+elenco di cambi e la trova identica.
+
+```rust
+// The document rebuilds its tempo map in one go from the changes derived from the tempo marks:
+// the same map as one `set_change` per change, in O(t) instead of O(t²).
+let map = TempoMap::from_changes(vec![
+    (Position::ZERO, TempoChange::Immediate(andante)),
+    (at(4, 1)?, TempoChange::Gradual(GradualChange { from: None, to: lento, end: at(5, 1)? })),
+])?;
+```
+
 **Test.** `tests/tempo_map_cases.rs` ha 12 casi calcolati a mano: il ritardando della tabella di
 ADR-0020 (32/3 s), posizioni dentro un cambio sulla griglia e fuori, confini arrotondati per
 difetto (♩ = 77) e per eccesso (♩ = 71) con il loro fermo ai bordi, il tempo di partenza
@@ -872,11 +888,13 @@ rigo di riferimento; `add_voice` ne aggiunge altre su qualunque rigo dello stess
 esistono metro, tempo o tonalità predefiniti: li sceglie chi crea il documento. Da F1.09b il
 builder riceve l'armatura iniziale (in suoni reali) e una chiave per rigo al posto del numero di
 righi, così non si può costruire un rigo senza chiave né una partitura senza armatura (decisione
-del proprietario, 2026-11-02), e `build` restituisce un `Result`.
+del proprietario, 2026-11-02), e `build` restituisce un `Result`. Da F1.09c riceve l'**indicazione
+di tempo** iniziale al posto di una mappa dei tempi già fatta, e anche `new` restituisce un
+`Result`: la mappa dei tempi si ricava dalle indicazioni (sezioni seguenti).
 
 ```rust
 let c_major = Key::traditional(0, Mode::Major)?;
-let mut builder = DocumentBuilder::new(meter_map, tempo_map, c_major);
+let mut builder = DocumentBuilder::new(meter_map, initial_tempo_mark, c_major)?;
 for _ in 0..8 {
     builder.add_bar()?;
 }
@@ -925,8 +943,8 @@ segmenti), voce per ID con il suo strumento ≈ 280.
 
 `src/event.rs`, `src/content.rs`, `src/marks.rs` e `src/validate.rs` (passo F1.09b, ADR-0024
 §1–§4 e §9) riempiono le voci di musica. I segni sugli eventi, gli scostamenti di esecuzione e le
-legature di portamento sono nella sezione seguente; dinamiche, forcelle e indicazioni di tempo
-arrivano nella seconda parte di F1.09c.
+legature di portamento sono nella sezione seguente, dinamiche, forcelle e indicazioni di tempo in
+quella dopo.
 
 **Eventi.** Una voce ha un **blocco** per battuta, allineato all'elenco delle battute: un blocco è
 vuoto (`None`, nessuna memoria usata) oppure un `Arc` di un vettore di eventi ordinati per
@@ -1026,7 +1044,7 @@ dell'intera partitura ≈ 5,5 milioni (≈ 550 per evento, circa 2 ms).
 
 `src/marking.rs` e `src/slur.rs` (prima parte del passo F1.09c, ADR-0024 §5–§7 e §10) aggiungono ciò
 che è scritto **sugli** eventi, e le legature di portamento. Dinamiche, forcelle e indicazioni di
-tempo arrivano nella seconda parte di F1.09c.
+tempo sono nella sezione seguente.
 
 **Abbellimenti.** Un accordo d'abbellimento è un accordo con un `Grace`: un'acciaccatura o
 un'appoggiatura, messa **prima** dell'evento che orna (all'offset di quell'evento) oppure **dopo**
@@ -1124,6 +1142,108 @@ che non ha abbellimenti né legature di portamento, `validate` è passato da ≈
 (+5%, circa 27 istruzioni per evento per i controlli nuovi); tutte le ricerche sono rimaste entro
 ±0,5%.
 
+#### Dinamiche, forcelle e indicazioni di tempo
+
+`src/dynamic.rs` e `src/tempo_mark.rs` (seconda parte del passo F1.09c, ADR-0024 §8 e §11)
+aggiungono quanto forte e quanto veloce la musica è scritta. Entrambe sono **ancorate a una
+posizione**: stanno in un `ScorePoint` (una battuta e un offset, nuovo in `src/marks.rs`), non su una
+nota, così un *p* sotto una pausa o un cambio di tempo a metà di un accordo tenuto sono scrittura
+normale, e seguono la loro battuta quando se ne inseriscono altre prima.
+
+**Dinamiche.** Una `Dynamic` dice un `DynamicMark`: un livello della scala (`DynamicLevel`, da
+*pppppp* a *ffffff*, ordinati dal piano al forte così che `Ord` risponda a "è più forte?"), uno degli
+accenti e delle combinazioni (*sf*, *sfz*, *sffz*, *fz*, *rf*, *rfz*, *fp*, *sfp*, *sfpp*, *pf*,
+*n*), oppure un testo libero (`OtherDynamic`, "subito p", con un livello facoltativo per
+l'esecuzione). I nomi standard sono italiani in tutte le lingue e si disegnano, non si traducono; il
+testo libero è dell'utente e non è mai vuoto (`DocumentError::EmptyText`). Ogni strumento tiene le
+sue dinamiche in un elenco ordinato secondo la partitura. Un `DynamicPlacement` contiene due cose
+distinte: l'**ambito** (tutto lo strumento, il caso normale, compresa la dinamica di un pianoforte
+fra i due righi, oppure una sola voce, per i divisi) e il **rigo** su cui è disegnata, che non cambia
+nulla nell'esecuzione. C'è al massimo una dinamica per ambito in un punto (`DuplicateMark`); una
+dinamica di strumento e una di voce possono condividerlo. Qui niente è una velocity: l'esecuzione
+(F1.13) ricava le velocity dalle dinamiche, e gli scostamenti di velocity delle note sono delta in
+più, perciò un test controlla che aggiungere dinamiche non tocchi mai una nota.
+
+**Forcelle.** Una `Hairpin` va da un punto d'inizio a un punto di fine **escluso**, con una
+`HairpinShape` (crescendo o diminuendo, a cuneo o a testo, *al niente*). Il builder rifiuta una
+forcella che non va in avanti (`HairpinNotForward`); `validate` (regola 6) rifiuta due forcelle dello
+stesso ambito che si sovrappongono, con una sola passata sull'elenco dello strumento ordinato per
+inizio, ricordando l'ultima fine per ambito. Toccarsi va bene ("cresc. fino a qui, dim. da qui"), e
+così una dinamica dentro una forcella.
+
+**Indicazioni di tempo** (scelta C5 = T2 di ADR-0024). Un `TempoMark` è ciò che si stampa, testo e/o
+un cambio: `TempoMarkChange::Immediate(Metronome)` (un tempo, stampato o nascosto: uno nascosto è
+l'automazione del tempo di chi usa la DAW) oppure `Gradual(GradualMark)` (verso un tempo, fino a un
+punto di fine esplicito, con un eventuale salto iniziale a un tempo di partenza). La **mappa dei
+tempi si ricava dalle indicazioni** e non si modifica mai direttamente, così la partitura non può
+dire 120 e suonare 90. Le regole approvate dal proprietario (E1–E3): l'indicazione iniziale è un
+campo del documento con il suo `TempoMarkId`, prende il primo ID del documento e deve fissare subito
+un tempo (`InitialTempoNotImmediate`); un'indicazione di solo testo non cambia nulla nella mappa; un
+cambio graduale finisce in un suo punto.
+
+Come si ricava la mappa (`Document::walk_tempo_marks`, poi `TempoMap::from_changes`): le indicazioni
+si leggono in ordine di partitura; un cambio graduale deve finire dopo l'inizio e nessun altro cambio
+può cominciare al suo interno, giudicati entrambi in ordine di partitura, su ciò che vede l'utente
+(`Violation::GradualTempoNotForward`, `Violation::TempoChangeInsideGradual`). Ogni punto diventa
+l'inizio della sua battuta più l'offset, **fermato alla stanghetta** (decisione del proprietario del
+2026-11-03): una battuta troppo piena è uno stato valido, e senza questo limite un'indicazione
+all'offset 5/4 di una battuta in 4/4 finirebbe dopo un'indicazione all'inizio della battuta seguente.
+Il limite mantiene l'ordine; due indicazioni possono allora cadere nella stessa posizione, e vince
+quella che viene dopo nella partitura (l'altra resta scritta); un cambio graduale ridotto a niente
+vale come cambio immediato al suo tempo d'arrivo. `add_tempo_mark` prova l'indicazione con l'ID che il
+contatore darebbe come prossimo (`IdCounter::peek`), ricava la mappa e, se qualcosa non va, la
+toglie di nuovo: tutto o niente, nessun ID consumato. `validate` (regola 7) fa lo stesso percorso
+senza costruire la mappa, quindi non alloca nulla di più.
+
+```rust
+// "Andante ♩ = 60" at the start, a ritardando over bar 4 and "a tempo" at bar 5.
+let quarter = Duration::from_rational(Rational::new(1, 4)?);
+let andante_tempo = Tempo::new(quarter, Rational::from_integer(60)?)?;
+let andante = TempoMark::immediate(Some("Andante"), Metronome::shown(andante_tempo))?;
+let mut builder = DocumentBuilder::new(meter_map, andante, c_major)?;
+let bars: Vec<BarId> = (0..8).map(|_| builder.add_bar()).collect::<Result<_, _>>()?;
+let rit = GradualMark { from: None, to: Tempo::new(quarter, Rational::from_integer(40)?)?, end: ScorePoint::start_of(bars[5]) };
+builder.add_tempo_mark(ScorePoint::start_of(bars[4]), TempoMark::new(Some("rit."), Some(TempoMarkChange::Gradual(rit)))?)?;
+builder.add_tempo_mark(ScorePoint::start_of(bars[5]), TempoMark::immediate(Some("a tempo"), Metronome::hidden(andante_tempo))?)?;
+// A p for the whole piano under the upper staff, and a crescendo over bar 2.
+builder.add_dynamic(piano, ScorePoint::start_of(bars[0]), DynamicPlacement::instrument(upper), DynamicMark::Level(DynamicLevel::P))?;
+builder.add_hairpin(piano, ScorePoint::start_of(bars[2]), ScorePoint::start_of(bars[3]), DynamicPlacement::instrument(upper), HairpinShape::CRESCENDO)?;
+let document = builder.build()?;
+// The tempo map is derived: 0 → ♩ = 60, 4 → rit. to ♩ = 40 until 5, 5 → ♩ = 60.
+assert_eq!(document.tempo_map().changes().len(), 3);
+```
+
+**Test.** `tests/dynamic_cases.rs` (7 casi: l'ordine dei livelli, l'ordinamento e una dinamica per
+ambito, i controlli di collocazione senza ID consumati, il testo libero, "una dinamica non tocca mai
+gli scostamenti di una nota" di ADR-0024 §13, forcelle che si toccano, sovrapposizioni solo dentro un
+ambito) e `tests/tempo_mark_cases.rs` (11 casi calcolati a mano: l'indicazione iniziale, le
+indicazioni vuote, quelle di solo testo e nascoste, un ritardando con "a tempo", un tempo di
+partenza, un cambio dentro un graduale rifiutato tutto o niente, cambi graduali che non vanno in
+avanti, i punti, i metri, il limite alla stanghetta con "vince la successiva", un cambio graduale
+ridotto a niente). `tests/tempo_mark_oracle.rs` confronta indicazioni e forcelle casuali su metri
+casuali con un oracolo che conta in crome: se ogni indicazione è accettata e con quale errore, il
+builder invariato dopo un rifiuto, la mappa ricavata e la prima sovrapposizione di forcelle che
+`build` segnala. Sette bug iniettati (niente limite alla stanghetta, vince l'indicazione precedente,
+un cambio graduale ridotto a niente tenuto, "dentro" con `<=`, forcelle che si toccano trattate come
+sovrapposte, ambiti fusi, dinamiche duplicate ammesse) sono stati tutti scoperti, i primi sei anche
+dall'oracolo. `tests/dynamic_no_alloc.rs` controlla che leggere gli elenchi, l'indicazione in vigore
+in un punto e la mappa ricavata non allochino mai, e che `validate` faccia al massimo due
+allocazioni.
+
+**Memoria per nota** (scelta E7 del proprietario). `tests/memory.rs` costruisce con il builder vero
+una partitura con la forma di quella pesante di `spikes/model/` (1 000 battute, 30 righi, 41 voci,
+221 169 teste di nota; niente gruppi irregolari) e misura ciò che il documento trattiene con il nuovo
+`net_bytes` di `orchestra-test-support`: **257 byte per nota** (56,9 MB), compresi eventi, indici
+ricavati e scostamenti in linea. Il test fallisce oltre **285** (la misura più circa il 10%), così che
+una struttura che cresce sia una decisione voluta.
+
+**Benchmark** (`benches/dynamic.rs`; istruzioni): aggiungere un'indicazione di tempo vicino all'inizio
+di 1 000 battute con 250 indicazioni, metà graduali, che ricava di nuovo tutta la mappa, ≈ 985 000
+(circa 0,3 ms, dentro la stima di 0,6 ms di ADR-0024); l'indicazione in vigore in un punto ≈ 620;
+`validate` di 200 battute × 10 strumenti con 8 000 eventi, 2 000 dinamiche e 2 000 forcelle ≈ 3,3
+milioni. Rispetto alla prima parte di F1.09c tutti i benchmark del programma già esistenti sono
+rimasti entro ±0,9%.
+
 ### orchestra-playback
 
 Ricava ciò che si suona da ciò che è scritto: ritornelli e salti srotolati, legature di valore
@@ -1178,8 +1298,9 @@ fn comparison_never_allocates() {
 }
 ```
 
-`count_allocations` restituisce il risultato insieme a un `AllocationStats` con quattro contatori:
-allocazioni, riallocazioni, deallocazioni e byte richiesti. Per esempio, da `tests/counting.rs`:
+`count_allocations` restituisce il risultato insieme a un `AllocationStats` con cinque contatori:
+allocazioni, riallocazioni, deallocazioni, byte richiesti e byte restituiti (una riallocazione
+restituisce il blocco vecchio e ne prende uno nuovo). Per esempio, da `tests/counting.rs`:
 
 ```rust
 let ((), stats) = count_allocations(|| {
@@ -1206,6 +1327,22 @@ Tre dettagli che contano:
   minuscola allocazione di prova e controlla che il contatore si sia mosso; se no, restituisce
   `NotInstalledError` (e `assert_no_allocations` fa fallire il test). `tests/not_installed.rs` è un
   binario di test senza l'allocatore che verifica proprio questo.
+
+**Quanta memoria trattiene una struttura** (F1.09c). `net_bytes()` è la differenza fra i byte
+richiesti e quelli restituiti nella finestra misurata: la crescita della memoria viva, in cui i
+buffer temporanei si annullano. Il test di memoria di `core-model` lo usa per misurare i byte per nota
+della partitura pesante. Conta ciò che il programma chiede, non gli arrotondamenti dell'allocatore:
+un limite inferiore della memoria residente, uguale su ogni piattaforma. Il contatore in più rende
+più lenti i benchmark del contatore stesso (istantanee ≈ 1 167 → 1 423 istruzioni, un'allocazione
+contata ≈ 7 641 → 8 025): un costo che esiste solo nei test, accettato con il trailer
+`Bench-regression: accepted` di ADR-0017.
+
+```rust
+let (document, stats) = count_allocations(build_the_heavy_score).unwrap();
+// What the document keeps: allocated minus given back, temporary buffers cancel out.
+let per_note = stats.net_bytes() / i128::try_from(noteheads(&document)).unwrap();
+assert!(per_note <= CEILING_BYTES_PER_NOTE);
+```
 
 È il quarto crate in cui è ammesso `unsafe`, perché il trait `GlobalAlloc` è `unsafe` per
 definizione; le uniche operazioni unsafe sono le chiamate inoltrate all'allocatore di sistema,

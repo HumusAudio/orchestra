@@ -712,3 +712,18 @@ proptest! {
         }
     }
 }
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// The bulk constructor of ADR-0022 §8 builds the same map as the edits, change by change:
+    /// any map reached by random edits, rebuilt from its own list of changes, is identical
+    /// (source data and segments), so the document's derived tempo map cannot depend on which
+    /// path built it.
+    #[test]
+    fn from_changes_matches_the_edits(edits in prop::collection::vec(edit(), 0..24)) {
+        let map = build(&edits);
+        let rebuilt = TempoMap::from_changes(map.changes().to_vec()).unwrap();
+        prop_assert_eq!(rebuilt, map);
+    }
+}

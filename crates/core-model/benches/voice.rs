@@ -45,11 +45,9 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::{
     Alteration, BarId, BaseValue, Clef, Document, DocumentBuilder, EventId, InstrumentId, Interval,
-    Key, Mode, NoteValue, Pitch, Placement, StaffId, Step, Tuplet,
+    Key, Metronome, Mode, NoteValue, Pitch, Placement, StaffId, Step, TempoMark, Tuplet,
 };
-use orchestra_core_time::{
-    BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
-};
+use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
 const BATCH: usize = 64;
 const BARS: usize = 200;
@@ -64,7 +62,12 @@ fn score() -> Document {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(100).unwrap()).unwrap();
     let key = |fifths| Key::traditional(fifths, Mode::Major).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), key(0));
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        key(0),
+    )
+    .unwrap();
     let bars: Vec<BarId> = (0..BARS).map(|_| b.add_bar().unwrap()).collect();
     for i in 1..BARS / 20 {
         let fifths = i8::try_from(i % 7).unwrap() - 3;

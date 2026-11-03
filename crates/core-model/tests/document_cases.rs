@@ -12,11 +12,11 @@
 
 use orchestra_core_model::{
     BarId, Clef, DocumentBuilder, DocumentError, Interval, Key, MAX_STAVES_PER_INSTRUMENT,
-    MAX_VOICES_PER_INSTRUMENT, Mode, Quality,
+    MAX_VOICES_PER_INSTRUMENT, Metronome, Mode, Quality, TempoMark,
 };
 use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, MeterMap, Position, Rational,
-    Tempo, TempoMap,
+    Tempo,
 };
 
 /// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
@@ -50,7 +50,12 @@ fn builder(pickup: bool) -> DocumentBuilder {
             .unwrap();
     }
     let tempo = Tempo::new(Duration::from_rational(q(1, 4)), q(120, 1)).unwrap();
-    DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), c_major())
+    DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        c_major(),
+    )
+    .unwrap()
 }
 
 /// The unison: the transposition of an instrument at concert pitch.
@@ -71,27 +76,29 @@ fn empty_document() {
     assert_eq!(document.bars().id_at(BarIndex::FIRST), None);
 }
 
-/// IDs come from one counter starting at 1, in creation order, across every kind.
+/// IDs come from one counter starting at 1, in creation order, across every kind. The initial
+/// tempo mark takes ID 1 when the builder is created (ADR-0024 §11, E1).
 #[test]
 fn ids_are_sequential_across_kinds() {
     let mut b = builder(false);
+    assert_eq!(b.document().initial_tempo().0.get(), 1);
     let bar0 = b.add_bar().unwrap();
     let piano = b
         .add_instrument_track("Piano", unison(), &clefs(2))
         .unwrap();
     let bar1 = b.add_bar().unwrap();
     let document = b.build().unwrap();
-    assert_eq!(bar0.get(), 1);
-    // Track 2, instrument 3, staves 4 and 5, voices 6 and 7.
+    assert_eq!(bar0.get(), 2);
+    // Track 3, instrument 4, staves 5 and 6, voices 7 and 8.
     let track = document.track(piano).unwrap();
     let instrument = track.instrument();
-    assert_eq!(track.id().get(), 2);
-    assert_eq!(instrument.id().get(), 3);
+    assert_eq!(track.id().get(), 3);
+    assert_eq!(instrument.id().get(), 4);
     let staves: Vec<u64> = instrument.staves().iter().map(|s| s.id().get()).collect();
     let voices: Vec<u64> = instrument.voices().iter().map(|v| v.id().get()).collect();
-    assert_eq!(staves, [4, 5]);
-    assert_eq!(voices, [6, 7]);
-    assert_eq!(bar1.get(), 8);
+    assert_eq!(staves, [5, 6]);
+    assert_eq!(voices, [7, 8]);
+    assert_eq!(bar1.get(), 9);
 }
 
 /// A piano gets one voice per staff, each at home on its own staff, top to bottom.
@@ -222,8 +229,9 @@ fn staff_limits() {
     let wide = b
         .add_instrument_track("Wide", unison(), &clefs(MAX_STAVES_PER_INSTRUMENT))
         .unwrap();
-    // No ID was consumed by the refusals: the track took the very first one.
-    assert_eq!(wide.get(), 1);
+    // No ID was consumed by the refusals: the track took the first one after the initial tempo
+    // mark's.
+    assert_eq!(wide.get(), 2);
     let document = b.build().unwrap();
     let instrument = document.track(wide).unwrap().instrument();
     assert_eq!(instrument.staves().len(), MAX_STAVES_PER_INSTRUMENT);

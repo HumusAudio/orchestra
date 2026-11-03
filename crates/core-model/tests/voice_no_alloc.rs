@@ -17,10 +17,10 @@
 use std::hint::black_box;
 
 use orchestra_core_model::{
-    Alteration, BaseValue, Clef, Document, DocumentBuilder, EventId, Interval, Key, Mode, NoteId,
-    NoteValue, Pitch, Placement, Quality, Step, Tie, Tuplet,
+    Alteration, BaseValue, Clef, Document, DocumentBuilder, EventId, Interval, Key, Metronome,
+    Mode, NoteId, NoteValue, Pitch, Placement, Quality, Step, TempoMark, Tie, Tuplet,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_test_support::assert_no_allocations;
 
 orchestra_test_support::install_counting_allocator!();
@@ -36,9 +36,10 @@ fn document() -> (Document, Vec<EventId>, Vec<NoteId>) {
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(72).unwrap()).unwrap();
     let mut b = DocumentBuilder::new(
         meters,
-        TempoMap::new(tempo).unwrap(),
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
         Key::traditional(-2, Mode::Major).unwrap(),
-    );
+    )
+    .unwrap();
     let bars: Vec<_> = (0..8).map(|_| b.add_bar().unwrap()).collect();
     let down_second = Interval::from_quality(Quality::Major, 2, true).unwrap();
     b.add_instrument_track("Clarinet", down_second, &[Clef::TREBLE])

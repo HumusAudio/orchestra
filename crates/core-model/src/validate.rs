@@ -24,6 +24,12 @@
 //!    the previous main event of its chunk ends. Several graces in a row share one main event.
 //! 5. **Slurs** (ADR-0024 §7): both ends exist, belong to the slur's instrument, and the end
 //!    comes strictly after the start in score order.
+//! 6. **Hairpins** (ADR-0024 §8): each ends strictly after it starts, and two hairpins of the
+//!    same scope of one instrument never overlap (the end is exclusive, so touching is fine). A
+//!    hairpin of the whole instrument and one of a single voice may overlap: which one a voice
+//!    follows is a playback rule (F1.13), like for dynamics.
+//! 7. **Tempo marks** (ADR-0024 §11): a gradual change ends strictly after it starts, and no
+//!    other tempo change starts strictly inside it, both in score order (`crate::tempo_mark`).
 //!
 //! `DocumentBuilder::build` calls it, so no invalid document can exist (owner's decision of
 //! 2026-11-02); the file loader of F1.15 builds through the builder and gets it for free.
@@ -35,9 +41,11 @@ use std::hash::BuildHasherDefault;
 use orchestra_core_time::{BarIndex, Duration};
 
 use crate::document::{Document, DocumentError, Instrument, is_whole_bar_rest};
+use crate::dynamic::DynamicScope;
 use crate::event::{EventBody, Note, PlacedEvent, Tie};
-use crate::id::{EventId, IdMap, InstrumentId, NoteId, SlurId, VoiceId};
+use crate::id::{EventId, HairpinId, IdMap, InstrumentId, NoteId, SlurId, TempoMarkId, VoiceId};
 use crate::marking::GraceAttach;
+use crate::marks::point_key;
 
 /// The first rule of a valid document that a document breaks (see the module documentation).
 ///
@@ -67,6 +75,14 @@ pub enum Violation {
     SlurToAnotherInstrument(SlurId),
     /// The end of this slur does not come after its start in score order.
     SlurNotForward(SlurId),
+    /// The end of this hairpin does not come after its start in score order.
+    HairpinNotForward(HairpinId),
+    /// This hairpin starts before the previous hairpin of the same scope has ended.
+    HairpinOverlap(HairpinId),
+    /// The end of this gradual tempo change does not come after its start in score order.
+    GradualTempoNotForward(TempoMarkId),
+    /// This tempo change starts strictly inside a gradual tempo change.
+    TempoChangeInsideGradual(TempoMarkId),
 }
 
 impl fmt::Display for Violation {
@@ -120,6 +136,26 @@ impl fmt::Display for Violation {
                 "slur {} does not end after it starts in score order",
                 id.get()
             ),
+            Self::HairpinNotForward(id) => write!(
+                f,
+                "hairpin {} does not end after it starts in score order",
+                id.get()
+            ),
+            Self::HairpinOverlap(id) => write!(
+                f,
+                "hairpin {} starts before the previous hairpin of its scope ends",
+                id.get()
+            ),
+            Self::GradualTempoNotForward(id) => write!(
+                f,
+                "gradual tempo change {} does not end after it starts in score order",
+                id.get()
+            ),
+            Self::TempoChangeInsideGradual(id) => write!(
+                f,
+                "tempo change {} starts inside a gradual tempo change",
+                id.get()
+            ),
         }
     }
 }
@@ -132,8 +168,11 @@ impl Document {
     ///
     /// # Complexity
     /// O(n log m) for n events and m meter changes: every event is visited once, and every tie and
-    /// every slur costs two event lookups and two bar starts. It allocates one small map from
-    /// voices to instruments (a few hundred entries at most), sized up front: one allocation.
+    /// every slur costs two event lookups and two bar starts. Hairpins cost O(h · s) for h
+    /// hairpins and s scopes in use in their instrument (one or a few), tempo marks O(t log m). It
+    /// allocates one small map from voices to instruments (a few hundred entries at most), sized
+    /// up front, and, if there are hairpins, one list of their scopes, reused by every
+    /// instrument.
     ///
     /// # Errors
     /// [`DocumentError::Invalid`] with the first violation found, in score order of tracks, voices
@@ -149,6 +188,9 @@ impl Document {
                 owner.insert(voice.id(), instrument.id());
             }
         }
+
+        // Rule 6: the end of the last hairpin seen in each scope, reused by every instrument.
+        let mut hairpin_ends: Vec<(DynamicScope, (u32, Duration))> = Vec::new();
 
         for instrument in self.instruments() {
             for voice in instrument.voices() {
@@ -202,6 +244,48 @@ impl Document {
             // Rule 5, for every slur of the instrument.
             for slur in instrument.slurs() {
                 self.check_slur(&owner, instrument, slur.id(), slur.start(), slur.end())?;
+            }
+            // Rule 6, for every hairpin of the instrument.
+            self.check_hairpins(instrument, &mut hairpin_ends)?;
+        }
+        // Rule 7: the walk that derives the tempo map checks the rules of the marks. The map
+        // itself is not rebuilt (the builder derived it when each mark was added), so nothing is
+        // allocated.
+        self.walk_tempo_marks(|_, _| {})?;
+        Ok(())
+    }
+
+    /// Checks the hairpins of one instrument (rule 6). `ends` is scratch space, emptied first.
+    ///
+    /// # How one pass suffices
+    /// The hairpins are sorted by start. Within one scope, they do not overlap exactly when each
+    /// starts at or after the end of the previous one of that scope; and since the previous one
+    /// then ended before this one starts, this one's end is the latest so far. So one end per
+    /// scope is all that needs remembering. O(h · s) for h hairpins and s scopes (the scopes are
+    /// few, so a linear search beats a map), plus two O(1) bar lookups per hairpin.
+    fn check_hairpins(
+        &self,
+        instrument: &Instrument,
+        ends: &mut Vec<(DynamicScope, (u32, Duration))>,
+    ) -> Result<(), DocumentError> {
+        ends.clear();
+        for hairpin in instrument.hairpins() {
+            let start = point_key(self.bars(), hairpin.start());
+            let end = point_key(self.bars(), hairpin.end());
+            if end <= start {
+                return Err(DocumentError::Invalid(Violation::HairpinNotForward(
+                    hairpin.id(),
+                )));
+            }
+            let scope = hairpin.placement().scope;
+            match ends.iter_mut().find(|(s, _)| *s == scope) {
+                Some((_, previous)) if start < *previous => {
+                    return Err(DocumentError::Invalid(Violation::HairpinOverlap(
+                        hairpin.id(),
+                    )));
+                }
+                Some((_, previous)) => *previous = end,
+                None => ends.push((scope, end)),
             }
         }
         Ok(())

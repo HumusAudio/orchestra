@@ -16,10 +16,11 @@
 use orchestra_core_model::{
     Alteration, Arpeggio, Articulation, ArticulationSet, BarId, BaseValue, ChordIds, Clef,
     DocumentBuilder, DocumentError, EventId, Fermata, Grace, GraceAttach, GraceKind, Interval, Key,
-    Mode, NoteId, NoteValue, Ornament, OrnamentError, PerformanceOffsets, Pitch, Placement,
-    RestValue, Slur, SlurPlacement, Step, Tie, TremoloStrokes, Tuplet, Violation, VoiceId,
+    Metronome, Mode, NoteId, NoteValue, Ornament, OrnamentError, PerformanceOffsets, Pitch,
+    Placement, RestValue, Slur, SlurPlacement, Step, TempoMark, Tie, TremoloStrokes, Tuplet,
+    Violation, VoiceId,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
 /// The duration `n/d` of a whole note.
 fn d(n: i64, den: i64) -> Duration {
@@ -46,7 +47,12 @@ fn builder(bars: usize) -> (DocumentBuilder, Vec<BarId>) {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(60).unwrap()).unwrap();
     let key = Key::traditional(0, Mode::Major).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), key);
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        key,
+    )
+    .unwrap();
     let ids = (0..bars).map(|_| b.add_bar().unwrap()).collect();
     (b, ids)
 }

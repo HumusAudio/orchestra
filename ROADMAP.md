@@ -184,10 +184,30 @@ lookups. Benchmarks (`benches/marking.rs`): ≈ 48 instructions per `slurs_at`, 
 1 670 per `comes_before`, ≈ 13.8 M for `validate` of 12 000 events and 4 500 slurs. A first
 version of rule 4 in a pass of its own doubled `validate` (+94%); folded into the pass of rule 1
 it costs +5% (5.49 → 5.76 M) on the score without graces, and every lookup stayed within ±0.5%,
-so no `Bench-regression` trailer was needed. **Next (session B):** dynamics, hairpins, tempo marks
-with `TempoMap::from_changes` and the derived tempo map (the `DocumentBuilder::new` API change),
-the memory measurement per note on the heavy score; then the PR of F1.09 with CI on the three
-platforms.
+so no `Bench-regression` trailer was needed. **Second part (session B, done, 2026-11-03).** Before
+starting, the owner approved seven implementation choices: the initial tempo mark is a field of the
+document with its own ID (no bar exists yet when the builder is created); a mark's offset past the
+end of an overfull bar is **clamped to the barline** when the tempo map is derived, and at one
+position the later mark in score order wins (a gradual change shrunk to nothing is immediate); the
+map is derived again at every `add_tempo_mark`, all or nothing (the ID is peeked and taken only on
+success); at most one dynamic per scope at a point, overlapping hairpins of one scope refused by
+`validate`; free texts as non-empty `Box<str>`; a `bytes_deallocated` counter in `test-support`
+for the memory measurement, with a ceiling of the measure + ≈ 10%. Implemented: `src/dynamic.rs`
+(levels, marks, scope and staff, dynamics and hairpins per instrument), `src/tempo_mark.rs` (marks,
+the walk that checks them and derives the map), `ScorePoint` in `src/marks.rs`, three new ID kinds,
+rules 6 (hairpins) and 7 (tempo marks) of `validate`, `TempoMap::from_changes` in `core-time`
+(`TempoMapError::Unsorted`), `AllocationStats::net_bytes` in `test-support`.
+`DocumentBuilder::new(meter_map, initial_tempo_mark, key)` now returns a `Result`; every caller was
+updated and the initial mark takes ID 1. Tests: 18 hand-written cases, an oracle counting in eighths
+for marks and hairpins (seven injected bugs caught, six by the oracle), a bulk-vs-edits property
+test in `core-time`, allocation-free reads and `validate` with at most two allocations. **Memory:
+257 bytes per note** on a heavy-shaped score (221 169 noteheads, 56.9 MB), ceiling 285.
+Benchmarks (`benches/dynamic.rs`): ≈ 985 000 instructions to add a tempo mark among 250 (≈ 0.3 ms),
+≈ 620 for the mark in force at a point, ≈ 3.3 M for `validate` with 4 000 dynamics and hairpins;
+every existing benchmark within ±0.9%, but the counter's own benchmarks in `test-support` grew
+(+5% to +22%, one more field), accepted with the trailer `Bench-regression: accepted`, which must
+stay on the **head commit** of the PR. **Next:** the PR of F1.09 (F1.09, F1.09b, F1.09c) with CI on
+the three platforms, then F1.10 (the form).
 
 | Step | What | Status |
 |---|---|---|
@@ -259,6 +279,12 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
+- **From F1.09c (session B), to keep in mind:** which dynamic wins when an instrument dynamic and
+  a voice dynamic (or hairpin) apply at once is a playback rule for F1.13; the commands of F1.11
+  must derive the tempo map again after every edit of the tempo marks or of where bars start
+  (inserting a bar, a meter change), and the clamping means an overfull bar can silently move a
+  tempo change to its barline, which the interface should show; ID lookups of dynamics, hairpins
+  and tempo marks (today only the sorted lists) come with the first command that needs them.
 - **From F1.09c (session A), to keep in mind:** one ornament per chord (a set if the repertoire
   ever needs two); an arpeggio spanning the two staves of a piano is one sign per chord today (a
   cross-staff arpeggio line is an engraving question for F2B, or a spanner if it must be one

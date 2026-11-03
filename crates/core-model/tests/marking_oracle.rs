@@ -33,9 +33,9 @@
 
 use orchestra_core_model::{
     Alteration, BaseValue, Clef, DocumentBuilder, EventId, Grace, GraceAttach, GraceKind, Interval,
-    Key, Mode, NoteValue, Pitch, Placement, SlurId, SlurPlacement, Step,
+    Key, Metronome, Mode, NoteValue, Pitch, Placement, SlurId, SlurPlacement, Step, TempoMark,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap};
+use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use proptest::prelude::*;
 
 /// What the oracle knows of one event.
@@ -120,7 +120,12 @@ fn flute() -> (
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(sixteenths(4), Rational::from_integer(60).unwrap()).unwrap();
     let key = Key::traditional(0, Mode::Major).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), key);
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        key,
+    )
+    .unwrap();
     let bar = b.add_bar().unwrap();
     let track = b
         .add_instrument_track("Flute", Interval::new(0, Rational::ZERO), &[Clef::TREBLE])

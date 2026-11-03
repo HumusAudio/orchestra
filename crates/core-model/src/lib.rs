@@ -40,6 +40,9 @@
 //!   events, the [`PerformanceOffsets`] of every notehead, the [`Slur`]s of each instrument with
 //!   the derived index of the slurs at an event, and the score order of
 //!   [`Document::comes_before`] that ties and slurs follow.
+//! - [`dynamic`] and [`tempo_mark`] (SCALETTA F1.09c, ADR-0024 §8 and §11): the [`Dynamic`]s and
+//!   [`Hairpin`]s of each instrument, with their [`DynamicScope`] (the whole instrument or one
+//!   voice), and the [`TempoMark`]s of the document, from which the tempo map is derived.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -59,12 +62,14 @@
 
 pub mod content;
 pub mod document;
+pub mod dynamic;
 pub mod event;
 pub mod id;
 pub mod marking;
 pub mod marks;
 pub mod pitch;
 pub mod slur;
+pub mod tempo_mark;
 pub mod validate;
 
 pub use content::Chunk;
@@ -72,22 +77,27 @@ pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
     MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track, Voice,
 };
+pub use dynamic::{
+    Dynamic, DynamicLevel, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinKind,
+    HairpinShape, HairpinStyle, OtherDynamic,
+};
 pub use event::{
     BaseValue, Chord, Event, EventBody, MAX_DOTS, MAX_TUPLET_DEPTH, Note, NoteValue,
     NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,
     TupletNumber,
 };
 pub use id::{
-    BarId, ClefId, EventId, InstrumentId, KeyChangeId, NoteId, SlurId, StaffId, TrackId, TupletId,
-    VoiceId,
+    BarId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, KeyChangeId, NoteId, SlurId,
+    StaffId, TempoMarkId, TrackId, TupletId, VoiceId,
 };
 pub use marking::{
     Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,
     OrnamentError, PerformanceOffsets, TremoloStrokes,
 };
-pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList};
+pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList, ScorePoint};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
 pub use slur::{Slur, SlurPlacement};
+pub use tempo_mark::{GradualMark, Metronome, TempoMark, TempoMarkChange};
 pub use validate::Violation;

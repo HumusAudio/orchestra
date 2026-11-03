@@ -18,11 +18,9 @@
 use std::hint::black_box;
 
 use orchestra_core_model::{
-    Clef, Document, DocumentBuilder, Interval, Key, Mode, Staff, Track, Voice,
+    Clef, Document, DocumentBuilder, Interval, Key, Metronome, Mode, Staff, TempoMark, Track, Voice,
 };
-use orchestra_core_time::{
-    BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo, TempoMap,
-};
+use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_test_support::assert_no_allocations;
 
 /// `n` treble clefs: the initial clefs of an instrument with `n` staves (the skeleton tests do not
@@ -43,7 +41,12 @@ fn document() -> Document {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[3], 4).unwrap())).unwrap();
     let quarter = Duration::from_rational(Rational::new(1, 4).unwrap());
     let tempo = Tempo::new(quarter, Rational::from_integer(72).unwrap()).unwrap();
-    let mut b = DocumentBuilder::new(meters, TempoMap::new(tempo).unwrap(), c_major());
+    let mut b = DocumentBuilder::new(
+        meters,
+        TempoMark::immediate(None, Metronome::shown(tempo)).unwrap(),
+        c_major(),
+    )
+    .unwrap();
     let unison = Interval::new(0, Rational::ZERO);
     for _ in 0..32 {
         b.add_bar().unwrap();

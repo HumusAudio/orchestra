@@ -45,5 +45,12 @@ harness = false
 name = "marking"
 harness = false
 
+# Instruction-count benchmarks of dynamics, hairpins and tempo marks: adding a tempo mark (which
+# derives the tempo map again), the tempo mark in force at a point, and the validation of a score
+# with a dynamic and a hairpin in every bar (SCALETTA F1.09c, ADR-0024 §8 and §11).
+[[bench]]
+name = "dynamic"
+harness = false
+
 [lints]
 workspace = true
