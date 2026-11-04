@@ -348,7 +348,7 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - **From F1.11b part 1, to keep in mind:** while a transaction is open the tempo map is the one
   from before (it is derived once, at the end): gestures (part 2) must derive it after each live
   update if the views need it; the meter-map bulk edit of ADR-0022 §8 is left to F1.11c (the only
-  user); interface choices made provisionally, to confirm with the owner before the PR: `Edit`,
+  user); interface choices confirmed by the owner (2026-11-04, SCALETTA v0.22): `Edit`,
   `Object` and `Transaction::apply` are public (raw edits keep only the structure, the musical
   invariants are the caller's), `Transaction::new_id` returns a raw `NonZeroU64` because the typed ID
   constructors stay crate-private, the editor's tests live inside the crate (`src/editor_tests.rs`).

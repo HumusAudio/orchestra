@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.21, approvata dal proprietario il 2026-11-04.**
+> **Stato di questo documento: v0.22, approvata dal proprietario il 2026-11-04.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -247,7 +247,7 @@ Dettagli:
 | F1.10 | **ADR della forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ✅ ADR-0025 | 1 |
 | F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
 | F1.11 | **ADR dei comandi, dell'undo/redo unico e delle notifiche di modifica a grana fine** | ✅ ADR-0026 | 1 |
-| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | ⬜ | 2–3 |
+| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | 🔄 parte 1 fatta | 2–3 |
 | F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | ⬜ | 1–2 |
 
 Dettagli:
@@ -359,6 +359,16 @@ Dettagli:
   aggiornati incrementalmente coincidono con quelli ricostruiti da zero; una transazione fallita non
   cambia nulla. Benchmark a lotti sulla partitura normale e pesante (una nota ≤ 1 ms), memoria per
   passo della cronologia.
+  **Parte 1 fatta il 2026-11-04:** in `core-time` inserimento e cancellazione di battute
+  (`BarSpan`, l'una l'inversa esatta dell'altra); in `core-model` le modifiche elementari con
+  inversa, l'insieme delle modifiche, l'`Editor` (transazioni, cronologia, undo/redo, revisione) e
+  il test di proprietà sulle fotografie. Scelte d'interfaccia confermate dal proprietario lo stesso
+  giorno: `Edit`, `Object` e `Transaction::apply` pubblici (chi usa le modifiche elementari a mano
+  risponde delle regole musicali); `Transaction::new_id` restituisce un `NonZeroU64` (i costruttori
+  degli ID tipizzati restano interni); i test dell'editor dentro il crate (`src/editor_tests.rs`).
+  La modifica in blocco della mappa dei metri passa a F1.11c, l'unico che la usa. **Parte 2:** gesti,
+  comandi, `validate` dopo ogni comando nei test di proprietà, benchmark dell'editor (spostati dalla
+  parte 1) e memoria per passo, PR.
 - **F1.11c** Implementa ADR-0026 §7: `Rewrite` (catene di note legate, battuta irregolare finale,
   divisione delle battute sotto le marcature di forma, pause di battuta intera) e `KeepBars`, con
   casi scritti a mano, test di proprietà e benchmark; le regole di §7 si possono precisare con
@@ -668,3 +678,4 @@ raccomandato.
 | 2026-11-03 | 0.19 | F1.10 fatto (ADR-0025 Accepted, uno stile di numerazione per documento); nuovo F1.10b; note per F1.11, F1.12, F2B e "Oltre" | proprietario |
 | 2026-11-03 | 0.20 | F1.10b fatto (PR #18): ritornelli, volte, stile di numerazione, segni e salti, ripetizioni di battuta, regole di passaggio; ADR-0025 corretto (§3) e precisato (§8); F1-B resta con F1.11 | proprietario |
 | 2026-11-04 | 0.21 | F1.11 fatto (ADR-0026 Accepted), D08 e D21 chiuse; F1.11 diviso in F1.11b (il motore dei comandi) e F1.11c (il cambio di metro) | proprietario |
+| 2026-11-04 | 0.22 | F1.11b in corso, parte 1 fatta (modifiche elementari, editor, cronologia); confermate le scelte d'interfaccia; benchmark dell'editor spostati nella parte 2, modifica in blocco della mappa dei metri in F1.11c | proprietario |
