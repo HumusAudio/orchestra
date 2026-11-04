@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.20, approvata dal proprietario il 2026-11-03.**
+> **Stato di questo documento: v0.21, approvata dal proprietario il 2026-11-04.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -246,7 +246,9 @@ Dettagli:
 | F1.09c | **Abbellimenti, articolazioni, ornamenti, corone, legature di portamento, dinamiche, forcelle, indicazioni di tempo, scostamenti**, benchmark | ✅ PR #17 | 2 |
 | F1.10 | **ADR della forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ✅ ADR-0025 | 1 |
 | F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
-| F1.11 | **ADR + implementazione: comandi, undo/redo unico, notifiche di modifica a grana fine** | ⬜ | 3–4 |
+| F1.11 | **ADR dei comandi, dell'undo/redo unico e delle notifiche di modifica a grana fine** | ✅ ADR-0026 | 1 |
+| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | ⬜ | 2–3 |
+| F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | ⬜ | 1–2 |
 
 Dettagli:
 
@@ -340,6 +342,27 @@ Dettagli:
   battute (inserire o togliere battute, cambi di metro). Da ADR-0025: cancellare una battuta che
   porta una marcatura di forma cancella la marcatura nello stesso comando, e ogni comando lascia la
   forma valida.
+  **Fatto il 2026-11-04 (ADR-0026 Accepted):** il proprietario ha approvato tutte le
+  raccomandazioni U1–U11 e la divisione del passo. Modifiche elementari che restituiscono la propria
+  inversa, comandi come dati, transazioni tutto-o-niente; cronologia lineare limitata in memoria
+  (128 MB di default, l'ultimo passo sempre tenuto, non salvata nel file: D08); gesti espliciti per
+  i trascinamenti; un insieme delle modifiche restituito da ogni transazione, undo e redo, più un
+  numero di revisione. Battute inserite: prendono ciò che vale prima di loro; rifiutato dentro una
+  ripetizione di battuta. Battute cancellate: metro, chiave, armatura e tempo passano alla battuta
+  successiva, le dinamiche si cancellano, gli intervalli si accorciano, le marcature di forma rese
+  non valide si cancellano a cascata, resta almeno una battuta. **D21:** il cambio di metro
+  **riscrive** la musica fino al cambio di metro successivo (la musica resta dove suona, si spostano
+  le stanghette), con "battute mantenute" come modalità esplicita.
+- **F1.11b** Implementa ADR-0026 §1–§6, §8 e §9 (tutto tranne il cambio di metro). Test di
+  proprietà: dopo ogni transazione `validate` passa; fare-poi-annullare dà il documento identico
+  tranne il contatore degli ID, indici derivati compresi; fare-annullare-ripetere dà fare; gli indici
+  aggiornati incrementalmente coincidono con quelli ricostruiti da zero; una transazione fallita non
+  cambia nulla. Benchmark a lotti sulla partitura normale e pesante (una nota ≤ 1 ms), memoria per
+  passo della cronologia.
+- **F1.11c** Implementa ADR-0026 §7: `Rewrite` (catene di note legate, battuta irregolare finale,
+  divisione delle battute sotto le marcature di forma, pause di battuta intera) e `KeepBars`, con
+  casi scritti a mano, test di proprietà e benchmark; le regole di §7 si possono precisare con
+  l'ok del proprietario.
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -595,7 +618,7 @@ modifica.
 | D05 | Cambi di tempo graduali: lineari in quale grandezza | F1.05 | chiusa: nel tempo reale (ADR-0020) |
 | D06 | Architettura del modello (ID, strutture, battute memorizzate o derivate) | F1.06 | **chiusa** 2026-11-01: ADR-0022 |
 | D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | **chiusa** 2026-11-01: ADR-0023 (alterazione razionale in semitoni; l'intonazione è rimandata) |
-| D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | aperta |
+| D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | **chiusa** 2026-11-04: ADR-0026 (memoria, 128 MB; gesti espliciti) |
 | D09 | Soglia di tolleranza di default; variante in ms | F1.14 | aperta (esiste già nella ROADMAP) |
 | D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | aperta |
 | D11 | Esportazione MIDI anticipata (F1.18) | fine F1-B | **chiusa** 2026-10-30: sì |
@@ -608,7 +631,7 @@ modifica.
 | D18 | Accesso a macchine Windows/macOS per prove manuali | F2A | aperta |
 | D19 | Lingua della scaletta: italiano (attuale) o inglese come gli altri documenti di progetto | F0.17 | **chiusa** 2026-10-30: italiano |
 | D20 | Ordine alternativo: incisione headless (F2B in PNG) **prima** delle fondamenta UI (F2A) | F0.17 | **chiusa** 2026-10-30: F2A poi F2B |
-| D21 | Cambio di metro: mantenere le battute o riscrivere la musica | F1.11 | aperta |
+| D21 | Cambio di metro: mantenere le battute o riscrivere la musica | F1.11 | **chiusa** 2026-11-04: ADR-0026 (riscrivere di default, mantenere come modalità) |
 | D22 | Intonazione (temperamenti, intonazione naturale, segni di comma): in quale passo | F1.13 | aperta |
 
 Nota su **D20**: `notation-layout` non dipende da `ui`, quindi in teoria si potrebbe incidere la
@@ -644,3 +667,4 @@ raccomandato.
 | 2026-11-03 | 0.18 | F1.09c fatto (PR #17): dinamiche, forcelle, indicazioni di tempo con la mappa ricavata, limite alla stanghetta, tetto di memoria; note per F1.11, F1.13 e F2B | proprietario |
 | 2026-11-03 | 0.19 | F1.10 fatto (ADR-0025 Accepted, uno stile di numerazione per documento); nuovo F1.10b; note per F1.11, F1.12, F2B e "Oltre" | proprietario |
 | 2026-11-03 | 0.20 | F1.10b fatto (PR #18): ritornelli, volte, stile di numerazione, segni e salti, ripetizioni di battuta, regole di passaggio; ADR-0025 corretto (§3) e precisato (§8); F1-B resta con F1.11 | proprietario |
+| 2026-11-04 | 0.21 | F1.11 fatto (ADR-0026 Accepted), D08 e D21 chiuse; F1.11 diviso in F1.11b (il motore dei comandi) e F1.11c (il cambio di metro) | proprietario |
