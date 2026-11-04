@@ -1471,7 +1471,9 @@ The commands of part 2a:
 - `DeleteBars { at, count }`: the events go (as `DeleteEvent`), the dynamics too; the meter, clef,
   key and tempo last in force inside the run move to the first bar after it (at the start of the
   score they become the initial values); hairpins, pass rules, voltas, bar repeats and gradual
-  tempo changes are **clipped** (W4); then a **cascade** (W5) runs the form checks of `validate`
+  tempo changes are **clipped** (W4: if the run starts the score in the middle of a gradual change,
+  the score starts at the tempo the change arrives at, because a gradual change cannot open the
+  score); then a **cascade** (W5) runs the form checks of `validate`
   again and deletes the marking each one reports, until the form is valid. At least one bar stays.
 
 **Atomic commands.** A command that fails is reverted at once, even inside a larger transaction:
@@ -1510,14 +1512,14 @@ replaced in the same gesture is dropped, so a 200-update drag keeps one old valu
 1 KB of history). A refused update is reverted alone and the gesture stays open; the tempo map is
 derived again after every update that moves it.
 
-**Tests** (`src/command_tests.rs`): eighteen hand-written cases, one per rule above, and a property
+**Tests** (`src/command_tests.rs`): nineteen hand-written cases, one per rule above, and a property
 test: random sequences of random commands on the rich document of `editor_tests`, with undos and
 redos; after **every** command the full `validate` must pass and the indices agree with a rebuild,
 a refused command must change nothing, and undoing everything must give back the original. In
 one run (proptest picks new cases each time): 892 commands carried out and 332 refused, with 13
-different kinds of refusal. Six injected bugs (ties into a deleted note not cleared, no compaction, clef not carried,
-no cascade, the local check skipping slurs or arriving ties, grace notes not deleted) were all
-caught.
+different kinds of refusal. Seven injected bugs (ties into a deleted note not cleared, no compaction, clef not carried,
+no cascade, the local check skipping slurs or arriving ties, grace notes not deleted, the wrong tempo at
+the start after a cut accelerando) were all caught.
 
 ### orchestra-playback
 

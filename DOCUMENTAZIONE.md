@@ -1567,7 +1567,9 @@ I comandi della parte 2a:
 - `DeleteBars { at, count }`: gli eventi se ne vanno (come con `DeleteEvent`), le dinamiche anche;
   il metro, la chiave, l'armatura e il tempo in vigore per ultimi dentro le battute passano alla
   prima battuta dopo (all'inizio della partitura diventano i valori iniziali); forcelle, regole di
-  passaggio, volte, ripetizioni di battuta e cambi di tempo graduali si **accorciano** (W4); poi una
+  passaggio, volte, ripetizioni di battuta e cambi di tempo graduali si **accorciano** (W4: se le
+  battute cancellate aprono la partitura nel mezzo di un cambio graduale, la partitura parte dal
+  tempo d'arrivo del cambio, perché un cambio graduale non può aprire la partitura); poi una
   **cascata** (W5) ripete i controlli della forma di `validate` e cancella la marcatura che ciascuno
   indica, finché la forma è valida. Resta sempre almeno una battuta.
 
@@ -1610,14 +1612,15 @@ sostituito nello stesso gesto viene scartata, quindi un trascinamento di 200 pas
 valore vecchio (misurato: meno di 1 KB di cronologia). Un passo rifiutato si annulla da solo e il
 gesto resta aperto; la mappa dei tempi si ricalcola dopo ogni passo che la sposta.
 
-**Test** (`src/command_tests.rs`): diciotto casi scritti a mano, uno per ogni regola qui sopra, e un
+**Test** (`src/command_tests.rs`): diciannove casi scritti a mano, uno per ogni regola qui sopra, e un
 test di proprietà: sequenze casuali di comandi casuali sul documento ricco di `editor_tests`, con
 undo e redo; dopo **ogni** comando deve passare il `validate` completo e gli indici devono coincidere
 con una ricostruzione, un comando rifiutato non deve cambiare nulla, e annullare tutto deve ridare
 l'originale. In un'esecuzione (proptest sceglie casi nuovi ogni volta): 892 comandi eseguiti e 332 rifiutati,
-con 13 tipi di rifiuto diversi. Sei bug iniettati (legature verso una nota cancellata non tolte, niente
+con 13 tipi di rifiuto diversi. Sette bug iniettati (legature verso una nota cancellata non tolte, niente
 compattazione, chiave non trasportata, niente cascata, la verifica locale che salta le legature di
-portamento o quelle in arrivo, abbellimenti non cancellati) sono stati tutti presi.
+portamento o quelle in arrivo, abbellimenti non cancellati, il tempo sbagliato
+all'inizio dopo un accelerando tagliato) sono stati tutti presi.
 
 ### orchestra-playback
 

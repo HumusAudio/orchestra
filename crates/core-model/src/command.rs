@@ -1537,8 +1537,12 @@ fn carry_marks<I: Copy, T: Clone>(
 ///
 ///   At the start of the score it becomes the initial tempo mark instead (which must be
 ///   immediate). A gradual change going on past the run cannot start the score (ADR-0021: the
-///   first tempo is immediate): the score then starts at the tempo the change started from, and
-///   the change is deleted.
+///   first tempo is immediate): the score then starts at the tempo the change **arrives at**, and
+///   the change is deleted (owner's choice, 2026-11-04). Only the rest of the change plays at
+///   the wrong tempo (too fast for an accelerando, too slow for a rallentando); from its end on
+///   the music plays as before, as it does when a change lies wholly inside the run. Starting at
+///   the tempo the change started from would instead leave everything after it at that tempo,
+///   up to the next tempo mark.
 /// - Every other mark starting inside the run (text-only marks included) is deleted.
 ///
 /// # Complexity
@@ -1552,24 +1556,11 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
     let bars = doc.bars();
     let marks = doc.tempo_marks().as_slice();
     let mut edits = Vec::new();
-    // The tempo in force before each mark, walking in score order: what a clipped gradual change
-    // started from, if it does not say.
+    // The initial mark: its text stays when a carried tempo replaces it.
     let initial = doc.initial_tempo().1;
-    let mut in_force = match initial.change() {
-        Some(TempoMarkChange::Immediate(m)) => m.tempo,
-        _ => return Err(DocumentError::InitialTempoNotImmediate.into()),
-    };
-    let mut carried: Option<(
-        &Mark<crate::id::TempoMarkId, TempoMark>,
-        orchestra_core_time::Tempo,
-    )> = None;
+    // The last mark starting inside the run that changes the tempo, so far.
+    let mut carried: Option<&Mark<crate::id::TempoMarkId, TempoMark>> = None;
     for mark in marks {
-        let before = in_force;
-        match mark.value().change() {
-            Some(TempoMarkChange::Immediate(m)) => in_force = m.tempo,
-            Some(TempoMarkChange::Gradual(g)) => in_force = g.to,
-            None => {}
-        }
         if !cut.has(mark.bar()) {
             // Starts outside: only a gradual change ending inside the run is touched (clipped).
             if let Some(TempoMarkChange::Gradual(g)) = mark.value().change()
@@ -1588,7 +1579,7 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
         }
         // Starts inside: deleted, unless it is the last one that changes the tempo.
         if mark.value().change().is_some() {
-            if let Some((previous, _)) = carried.replace((mark, before)) {
+            if let Some(previous) = carried.replace(mark) {
                 edits.push(Edit::Remove(ObjectRef::TempoMark(previous.id())));
             }
         } else {
@@ -1601,7 +1592,7 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
             .iter()
             .find(|m| m.bar() == next && m.offset().is_zero())
     });
-    if let Some((last, before)) = carried {
+    if let Some(last) = carried {
         let remove = Edit::Remove(ObjectRef::TempoMark(last.id()));
         match (cut.next, last.value().change()) {
             // No bar after the run: nothing to carry.
@@ -1611,10 +1602,10 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
                 if point_key(bars, g.end) > point_key(bars, ScorePoint::start_of(next)) =>
             {
                 if at_start {
-                    let tempo = g.from.map_or(before, |m| m.tempo);
+                    // It cannot start the score: the score starts at the tempo it arrives at.
                     edits.push(Edit::SetInitial(Initial::Tempo(TempoMark::immediate(
                         initial.text(),
-                        Metronome::shown(tempo),
+                        Metronome::shown(g.to),
                     )?)));
                     edits.push(remove);
                 } else {

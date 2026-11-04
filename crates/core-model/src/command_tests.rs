@@ -1048,3 +1048,51 @@ fn the_tie_index_survives_undo() {
     );
     let _ = i.fl_staff;
 }
+
+/// Deleting the first bars in the middle of a gradual tempo change: the change cannot start the
+/// score (ADR-0021), so the score starts at the tempo it **arrives at**, keeping the initial
+/// mark's text, and the change is deleted (W4, owner's choice of 2026-11-04).
+#[test]
+fn deleting_the_start_of_a_gradual_change_starts_at_its_target() {
+    let mut editor = Editor::new(rich());
+    let i = ids(editor.document());
+    // Stretch the accelerando of bar 5 (to ♩ = 132) so that it ends at the start of bar 7.
+    let mark = editor.document().tempo_marks().as_slice()[1].clone();
+    let Some(TempoMarkChange::Gradual(mut gradual)) = mark.value().change() else {
+        panic!("the rich document's second tempo mark is gradual");
+    };
+    gradual.end = crate::marks::ScorePoint::start_of(i.bars[7]);
+    editor
+        .transact(|tx| {
+            tx.apply(crate::edit::Edit::Replace(crate::edit::Object::TempoMark(
+                crate::marks::Mark::new(
+                    mark.id(),
+                    mark.bar(),
+                    mark.offset(),
+                    TempoMark::new(mark.value().text(), Some(TempoMarkChange::Gradual(gradual)))
+                        .unwrap(),
+                ),
+            )))
+        })
+        .unwrap();
+    editor.document().validate().unwrap();
+    // Bars 0–5 go: the accelerando started in bar 5 and goes on to bar 7.
+    execute_checked(
+        &mut editor,
+        &Command::DeleteBars {
+            at: BarIndex::FIRST,
+            count: 6,
+        },
+    );
+    let doc = editor.document();
+    let (_, initial) = doc.initial_tempo();
+    assert_eq!(initial.text(), Some("Allegro"));
+    let Some(TempoMarkChange::Immediate(m)) = initial.change() else {
+        panic!("the initial tempo is always immediate");
+    };
+    assert_eq!(
+        m.tempo,
+        Tempo::new(d(1, 4), Rational::from_integer(132).unwrap()).unwrap()
+    );
+    assert_eq!(doc.tempo_marks().len(), 0, "the accelerando is gone");
+}

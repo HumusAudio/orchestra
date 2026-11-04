@@ -284,7 +284,8 @@ into free space; tie chains across barlines written with the longest values firs
 across a barline refused until F1.11c; free bars grow; a deletion leaves a gap and takes along the
 grace notes, slurs and empty tuplets; a move never splits; a new pitch follows the tie chain;
 nothing entered past the last bar; deleting bars clips gradual tempo changes and carries the tempo
-as an immediate mark; a cascade by the form checks; no insertion from a bar repeat's source to its
+as an immediate mark (at the start of the score, a gradual change cut in the middle gives its
+target tempo: owner's choice after a first draft used its starting tempo); a cascade by the form checks; no insertion from a bar repeat's source to its
 end). Implemented in `core-model`: the module `command` (`Command`: `EnterEvent`, `DeleteEvent`,
 `ChangeEvent` with `EventChange`, `InsertBars`, `DeleteBars`), `Transaction::execute` and
 `Editor::execute` with atomic commands, the gestures (`begin_gesture`/`update_gesture`/
@@ -294,10 +295,10 @@ event change can break, on the touched cells only; `validate` split into `check_
 **backward tie index** (`tie_index`, `Document::ties_into`) on the generic `IdRefs<T>` (the former
 `SlurRefs`), the internal `ChangeSet::notes_gone`, new typed errors (`PastLastBar`,
 `TupletAcrossBarline`, `StartsPastBarline`, `NotWritable`, `InsideBarRepeat`, `NoBarsLeft`). Tests
-in `src/command_tests.rs`: 18 hand-written cases and a property test with the full `validate` after
-every random command (six injected bugs caught). **Known limit (W4):** deleting the first bars in
-the middle of a gradual tempo change starts the score at the tempo the change started from, and the
-change is deleted. **Next: F1.11b part 2b**: the commands on marks and form markings (set, move,
+in `src/command_tests.rs`: 19 hand-written cases and a property test with the full `validate` after
+every random command (seven injected bugs caught). **Known limit (W4):** deleting the first bars in
+the middle of a gradual tempo change starts the score at the tempo the change arrives at, and the
+change is deleted (a gradual change cannot open the score, ADR-0021). **Next: F1.11b part 2b**: the commands on marks and form markings (set, move,
 remove every mark, dynamic, hairpin, slur, tuplet and form marking, keeping the form valid), the
 benchmarks of the editor on the normal and heavy scores (a note ≤ 1 ms, a 200-note paste undone,
 inserting and deleting a bar, a 1 000-update gesture) and the memory per history step, then the PR
