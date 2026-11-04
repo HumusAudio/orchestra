@@ -1173,6 +1173,149 @@ within ADR-0024's estimate of 0.6 ms); the tempo mark in force at a point ≈ 62
 bars × 10 instruments with 8 000 events, 2 000 dynamics and 2 000 hairpins ≈ 3.3 million. Against
 the first part of F1.09c every existing benchmark of the program stayed within ±0.9%.
 
+#### The form: repeats and voltas
+
+`src/form.rs` (first part of step F1.10b, ADR-0025 §2–§3) adds the form of the piece: what is
+written once and **unrolled** later by `orchestra-playback` (F1.12) into what is played. Markers,
+jumps, bar repeats and pass rules are in the next section.
+
+**On barlines, in the document.** A `RepeatStart` (‖:) belongs to the start of a bar, a
+`RepeatEnd` (:‖) to its end, a `Volta` to a run of whole bars (ADR-0025 F1): nothing has an offset,
+so a played pass is always a run of whole bars. A repeat in the middle of a written bar is written
+by splitting the bar into two irregular bars, as ADR-0018 already allows. The form belongs to the
+**document** (`Document::form`), not to an instrument: a repeat barline crosses the whole system.
+
+**Passes.** A `PassSet` is a set of passes 1–64 in one `u64` (bit `k − 1` for pass `k`):
+membership, union, disjointness and "is it exactly 1..=n?" are single bit operations. 64 is
+`MAX_PLAYS`, the most times a section can be played (F10).
+
+**Repeats.** An end repeat carries `times`, the total number of plays (2 by default, 2–64). An end
+without a start goes back to the start of the score (F2); repeated sections never nest or overlap
+(F3). **Voltas** form groups: a group starts at the volta holding pass 1, the following voltas come
+right after it with higher passes, together they hold exactly 1..=n, there are at least two, and
+**every volta but the last ends with an end repeat** of the section ("1. :‖ 2. :‖ 3."; the owner
+corrected ADR-0025 on this point while it was being implemented). With voltas, `times` must be 2
+or n: a contradiction is refused, not ignored (owner's decision of 2026-11-03).
+
+**What `validate` adds.** Rule 8 merges the start and end repeats in score order and pairs them:
+a start must not find another one open; an end without an open start is fine only as the first end
+of the score, or as a further end of a volta group. Rule 9 reads the voltas once, splits them into
+groups and checks each one. Neither allocates.
+
+**Bar numbers** (`Document::bar_label`, ADR-0025 F9). One `BarNumbering` style per document:
+`Continue` (the default: the number is the written bar), `SameAsFirstLettered` ("8a", "8b") and
+`SameAsFirst` ("8", "8"). The plain number comes from the meter map with its uncounted bars and
+restarts; the two other styles change it on top: the bars of a later volta take the numbers of the
+first volta's counted bars (continuing if the later volta is longer: 8a | 8b 9b), the bars after a
+group go back by what the group adds beyond its longest volta, and a numbering restart inside a
+group wins over the style. The counted bars of a volta are counted with two binary searches in the
+list of uncounted bars, so a label costs O(v log u) for the v voltas before it.
+
+```rust
+// ‖: bars 1–7 [1. bar 8 :‖] [2. bar 9]: the first example of ADR-0025 §3.
+builder.add_repeat_start(bars[0])?;
+builder.add_volta(bars[7], bars[7], PassSet::range(1, 1)?, true, None)?;
+builder.add_repeat_end(bars[7], 2)?;
+builder.add_volta(bars[8], bars[8], PassSet::range(2, 2)?, false, None)?;
+builder.set_bar_numbering(BarNumbering::SameAsFirstLettered);
+let document = builder.build()?;
+// The second volta is "8b", and the bar after it is 9 again.
+let label = document.bar_label(bars[8])?.unwrap();
+assert_eq!((label.number, label.letter()), (8, Some('b')));
+assert_eq!(document.bar_label(bars[9])?.unwrap().number, 9);
+```
+
+**Tests.** `tests/form_cases.rs` has 12 hand-written cases: pass sets, simple repeats, nesting
+refused, voltas and "1.–3.", "1. :‖ 2. :‖ 3.", every volta rule, the builder's checks, and the bar
+numbers of ADR-0025's examples in the three styles, with longer later voltas, several groups,
+uncounted bars and restarts. `tests/form_oracle.rs` generates random sections, voltas and
+mutations (half of the cases valid, half not) and compares them with an oracle that states the
+rules again and numbers the bars **one by one** with a counter, as a copyist would, while the
+library computes each number on its own with shifts. The oracle found a real case: a first volta
+whose bars are all uncounted, where the library used the bar's own number; the voltas now start
+from the first counted bar of the group. Nine injected bugs were all caught, seven by the oracle
+from the start and the other two after adding the mutations that produce them (a group of one
+volta, a contradicting `times`). `tests/form_no_alloc.rs` checks that labels and the form lists
+never allocate and that rules 8 and 9 add no allocation to `validate`.
+
+**Benchmarks** (`benches/form.rs`, 400 bars in 50 sections with 150 voltas, far more than a real
+score; instructions per call): `bar_label` with `Continue` ≈ 112, with the lettered style ≈ 13 800
+for bars after 25–50 volta groups (about 275 per group: a real score has a handful), from ≈ 18 800
+before the counting with binary searches; `validate` of the form ≈ 178 000. Every existing benchmark
+stayed within ±0.01% of `main`.
+
+#### Markers, jumps, bar repeats and pass rules
+
+`src/jump.rs` and `src/bar_repeat.rs` (second part of step F1.10b, ADR-0025 §4 and §6–§7)
+complete the form.
+
+**Markers and jumps.** A `Marker` is a segno or a coda at the start of its bar, or a Fine or a
+"To Coda" at its end (`MarkerKind::at_start`). A `Jump`, at the end of its bar, is the triple that
+every notation program uses, "go to / play until / continue at", as a `JumpSpec`: `to` (the start
+of the score or a segno), `until` (a Fine or a "To Coda"), `then` (the coda after a "To Coda"),
+plus the two choices of ADR-0025: `RepeatsAfterJump` (`Skip` by default: every repeated section
+once, only its last volta; `Play`) and `JumpFires` (`AfterRepeats` by default: on the last pass
+of the section containing the jump; `OnPass(n)`). Markers are referenced by **ID**, never by a
+label, so a D.S.S. cannot point at the wrong segno. `JumpSpec::da_capo()`, `dal_segno(segno)`,
+`.al_fine(fine)` and `.al_coda(to_coda, coda)` build the usual ones; a `text` replaces the derived
+words for the jumps written as free text ("D.C. senza ritornelli"), and markers and voltas have
+one too. At most one start marker, one end marker and one jump per bar.
+
+**Bar repeats** (`BarRepeat`): `count` bars from `first`, on one **staff**, repeat the `span`
+bars before them (`BarRepeatSpan::One`, `Two`, `Four`); `count` is a positive multiple of the
+span. The repeated bars **store no events** on that staff: F1.12 will play the source bars, and an
+edit of the source reaches every repetition, because there is no copy. **Pass rules** (`PassRule`):
+a range of an instrument or a voice played only on the passes of a `PassSet` of the repeated
+section containing it ("1st time tacet" = {2}).
+
+**What `validate` adds.** Rule 10: the targets have the right kinds, the "until" marker lies
+between the target and the jump in score order (otherwise the jump never stops there), and
+`OnPass(n)` is only for a jump inside a repeated section with at least n plays. Rule 11: a bar
+repeat has its source bars, its bars hold no event on its staff, two of one staff do not overlap,
+and no form marking lies between its first source bar and its last repeated bar (otherwise "the
+previous bars" would depend on the path taken); a pass rule lies inside one repeated section, its
+passes are within the section's plays, and two of one scope do not overlap. Both need "the
+repeated section containing this bar": `Document::section_at` merges the repeat barlines like rule
+8, extends a section to the further ends of its voltas, stops at the first section after the bar
+and computes the number of plays only for the section found.
+
+```rust
+// Segno at bar 2, a repeated chorus 2–4 with "To Coda" at the end of bar 3, D.S. al Coda at the
+// end of bar 5, coda at bar 6: the jump is taken after the chorus's last pass, and the repeat is
+// skipped after it (the classical convention, ADR-0025 F4).
+let segno = builder.add_marker(bars[2], MarkerKind::Segno, None)?;
+builder.add_repeat_start(bars[2])?;
+let to_coda = builder.add_marker(bars[3], MarkerKind::ToCoda, None)?;
+builder.add_repeat_end(bars[4], 2)?;
+let coda = builder.add_marker(bars[6], MarkerKind::Coda, None)?;
+builder.add_jump(bars[5], JumpSpec::dal_segno(segno).al_coda(to_coda, coda), None)?;
+// Two bars of the piano's left hand repeated with the two-bar sign; the trumpet tacet the first
+// time through the chorus.
+builder.add_bar_repeat(lower_staff, bars[7], 2, BarRepeatSpan::Two)?;
+builder.add_pass_rule(trumpet, ScorePoint::start_of(bars[2]), ScorePoint::start_of(bars[5]),
+    DynamicScope::Instrument, PassSet::range(2, 2)?, Some("1st time tacet"))?;
+let document = builder.build()?;
+```
+
+**Tests.** `tests/jump_cases.rs` has 11 hand-written cases: a D.S. al Coda around a repeat, a D.C.
+al Fine with the repeats played and a free text, a jump on a chosen pass, two segni, the kinds of
+the targets, the "until" between target and jump, `OnPass` outside a section or beyond its plays,
+the builder's checks, bar repeats on the piano's lower staff with an overlap and a staff that is
+not empty, the source and the form markings of a bar repeat, pass rules with their violations, and
+a section with "1. :‖ 2. :‖ 3." that reaches its second volta. `tests/jump_oracle.rs` builds a
+valid form with random markers, jumps, bar repeats, pass rules and left-hand notes (each case with
+only some of them, about a third of the cases valid) and compares `build` with an oracle that
+states rules 10 and 11 on plain integers. Ten injected bugs were all caught, eight by the oracle;
+the generator first produced almost only invalid cases (109 valid out of 1 024, very few with
+jumps), and was made to lean towards valid objects. `tests/form_no_alloc.rs` now has markers, a
+jump and a bar repeat too: reading them never allocates, and `validate` still makes one allocation
+(the pass-rule check allocates a small list of scopes only when an instrument has pass rules).
+
+**Benchmarks** (`benches/form.rs`, same score): `validate` with a segno, a Fine and a D.S. al Fine
+on pass 2 in each of the 50 sections ≈ 933 000 instructions, about 15 000 per jump for the section
+lookup on a score far beyond real ones; it was ≈ 1.96 million before the lookup stopped at the
+first section after the bar and computed the plays only once.
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics

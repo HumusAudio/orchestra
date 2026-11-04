@@ -206,8 +206,50 @@ Benchmarks (`benches/dynamic.rs`): ≈ 985 000 instructions to add a tempo mark 
 ≈ 620 for the mark in force at a point, ≈ 3.3 M for `validate` with 4 000 dynamics and hairpins;
 every existing benchmark within ±0.9%, but the counter's own benchmarks in `test-support` grew
 (+5% to +22%, one more field), accepted with the trailer `Bench-regression: accepted`, which must
-stay on the **head commit** of the PR. **Next:** the PR of F1.09 (F1.09, F1.09b, F1.09c) with CI on
-the three platforms, then F1.10 (the form).
+stay on the **head commit** of the PR. PR #17 (F1.09, F1.09b, F1.09c) merged with CI green on the
+three platforms; SCALETTA v0.18. Step **F1.10** (`feature/f1-10-form`, started 2026-11-03), split
+as proposed in the briefing into the ADR (F1.10) and the implementation (F1.10b). The owner set the
+scope: the core (repeat barlines, voltas, segno, coda, Fine, D.C./D.S.) plus bar repeats (%),
+music played only on some passes and jumps written as free text. After a search of MusicXML 4.0,
+MEI, Dorico and MuseScore, the draft **ADR-0025** (Proposed) puts the form markings on barlines in
+the document, jumps as "to / until / then" with IDs instead of labels, an explicit choice about
+repeats after a jump and the pass on which a jump inside a repeat is taken, bar repeats per staff
+that store no events, pass rules as ranges, and the unrolling rules F1.12 will follow. After
+examples of the numbering styles, the owner chose **one bar-numbering style per document**
+(`Continue` by default, `SameAsFirstLettered` 8a/8b, `SameAsFirst` 8/8; after the voltas the count
+continues from the longest one) and approved every other recommendation: **ADR-0025 Accepted**
+(2026-11-03). SCALETTA v0.19 records it and adds step F1.10b. Step **F1.10b** (same branch, 2026-11-03) in
+two sessions. Before starting, the owner approved: later voltas longer than the first continue
+the numbering (8a | 8b 9b) and the count after the group resumes from the longest volta; the
+style applies on top of `core-time`'s numbering, counting only counted bars, and a restart inside
+a group wins; `set_bar_numbering` on the builder (default `Continue`); with voltas `times` must be
+2 or n; duplicates are `DuplicateMark`. While writing rule 9 a gap in ADR-0025 §3 emerged
+("1. :‖ 2. :‖ 3." could not be written): the owner chose that **every volta but the last ends with
+an end repeat** of its section, and ADR-0025 was corrected. **First part (session A, done):**
+`src/form.rs` (`PassSet` in one `u64`, `MAX_PLAYS` = 64, `RepeatStart`/`RepeatEnd`, `Volta`,
+`BarNumbering`, `BarLabel`, `Form`), rules 8 and 9 of `validate` without allocations,
+`Document::bar_label`, the builder methods, two new ID kinds. Tests: 12 hand-written cases, an
+oracle that numbers the bars one by one (it found a first volta with only uncounted bars; nine
+injected bugs caught, two only after adding the mutations that produce them), allocation-free
+reads. Benchmarks (`benches/form.rs`): `bar_label` ≈ 112 instructions with `Continue`, ≈ 13 800
+with the lettered style after 25–50 volta groups (O(v log u), ≈ 275 per group; a derived index
+could make it O(log g) if F2B's layout benchmarks ever need it), `validate` of 150 voltas
+≈ 178 000. **Second part (session B, done, 2026-11-03).** Before starting, the owner approved:
+the "until" marker of a jump lies between its target and the jump; one start marker, one end
+marker and one jump per bar; `OnPass(n)` only inside a repeated section; a bar repeat covers a
+multiple of its span and no form marking lies between its source and its end; pass rules within
+their section's plays and not overlapping in a scope; after a D.C. without repeats a section is
+pass 1 (for F1.12). These precisions are recorded in ADR-0025 §8. Implemented: `src/jump.rs`
+(`Marker`, `MarkerKind`, `Jump` with `JumpSpec` — to / until / then by ID, `RepeatsAfterJump`,
+`JumpFires` — and rule 10), `src/bar_repeat.rs` (`BarRepeat` per staff, `PassRule` per instrument
+or voice, rule 11), `Document::section_at` (the repeated section of a bar, stopping early and
+computing the plays once), four new ID kinds, the builder methods. Tests: 11 hand-written cases, an
+oracle for rules 10–11 (the first generator gave 109 valid cases out of 1 024; biased, about a
+third; ten injected bugs caught, eight by the oracle), allocation-free reads. Benchmarks:
+`validate` with 50 jumps ≈ 933 000 instructions (≈ 15 000 per jump on an extreme score, from
+≈ 1.96 M before the lookup was improved); every existing benchmark within ±0.5% of `main`.
+PR #18 (F1.10, F1.10b) with SCALETTA v0.20. **Next:** F1.11 (commands, unified undo/redo,
+change notifications), the last step of F1-B.
 
 | Step | What | Status |
 |---|---|---|
@@ -279,6 +321,12 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
 - **Concrete project file format** (ADR-0010, Phase 1).
+- **From F1.10b, to keep in mind:** the number of a bar in the lettered styles walks the volta
+  groups before it (≈ 275 instructions each), and finding the section of a jump or a pass rule
+  walks the repeat barlines: fine for real scores, and a derived index of the sections (rebuilt
+  with the commands of F1.11) would make both O(log) if F2B's layout or F1.12 ever need it; the
+  commands of F1.11 must keep the form valid when bars are inserted or deleted (a deleted bar takes
+  its form markings with it).
 - **From F1.09c (session B), to keep in mind:** which dynamic wins when an instrument dynamic and
   a voice dynamic (or hairpin) apply at once is a playback rule for F1.13; the commands of F1.11
   must derive the tempo map again after every edit of the tempo marks or of where bars start

@@ -30,6 +30,16 @@
 //!    follows is a playback rule (F1.13), like for dynamics.
 //! 7. **Tempo marks** (ADR-0024 §11): a gradual change ends strictly after it starts, and no
 //!    other tempo change starts strictly inside it, both in score order (`crate::tempo_mark`).
+//! 8. **Repeats** (ADR-0025 §2): sections do not nest or overlap; an end repeat without a start
+//!    goes back to the start of the score, so only the first end of the score may lack one, apart
+//!    from the further ends of the voltas of one section.
+//! 9. **Voltas** (ADR-0025 §3): groups of at least two, consecutive, with ascending disjoint
+//!    passes that are exactly `1..=n`; every volta but the last ends with an end repeat of its
+//!    section whose `times` is 2 or n; no start repeat inside a group.
+//! 10. **Markers and jumps** (ADR-0025 §4): targets of the right kind, the "until" marker between
+//!     the target and the jump, `OnPass(n)` only inside a repeated section with at most n plays
+//!     (`crate::jump`).
+//! 11. **Bar repeats and pass rules** (ADR-0025 §6–§7): see `crate::bar_repeat`.
 //!
 //! `DocumentBuilder::build` calls it, so no invalid document can exist (owner's decision of
 //! 2026-11-02); the file loader of F1.15 builds through the builder and gets it for free.
@@ -43,7 +53,10 @@ use orchestra_core_time::{BarIndex, Duration};
 use crate::document::{Document, DocumentError, Instrument, is_whole_bar_rest};
 use crate::dynamic::DynamicScope;
 use crate::event::{EventBody, Note, PlacedEvent, Tie};
-use crate::id::{EventId, HairpinId, IdMap, InstrumentId, NoteId, SlurId, TempoMarkId, VoiceId};
+use crate::id::{
+    BarRepeatId, EventId, HairpinId, IdMap, InstrumentId, JumpId, NoteId, PassRuleId, RepeatId,
+    SlurId, TempoMarkId, VoiceId, VoltaId,
+};
 use crate::marking::GraceAttach;
 use crate::marks::point_key;
 
@@ -83,10 +96,48 @@ pub enum Violation {
     GradualTempoNotForward(TempoMarkId),
     /// This tempo change starts strictly inside a gradual tempo change.
     TempoChangeInsideGradual(TempoMarkId),
+    /// This repeat barline nests in or overlaps another repeated section.
+    RepeatsOverlap(RepeatId),
+    /// This end repeat's number of plays contradicts the voltas of its section.
+    RepeatTimesMismatch(RepeatId),
+    /// This volta starts before the previous one has ended.
+    VoltaOverlap(VoltaId),
+    /// This volta does not directly follow the previous volta of its group with higher passes, or
+    /// it starts a group without pass 1.
+    VoltaOrder(VoltaId),
+    /// The passes of the group starting at this volta are not exactly `1..=n`.
+    VoltaPassesIncomplete(VoltaId),
+    /// This volta lacks the end repeat it needs (every volta but the last of a group has one), or
+    /// is a group of its own.
+    VoltaWithoutRepeat(VoltaId),
+    /// A marker of this jump has the wrong kind, or `then` is missing or extra.
+    JumpTargetKind(JumpId),
+    /// The "until" marker of this jump is not between its target and the jump.
+    JumpUntilOutOfRange(JumpId),
+    /// This jump's `OnPass(n)` is outside a repeated section or beyond its plays.
+    JumpPassOutOfRange(JumpId),
+    /// This bar repeat has fewer bars before it than its span.
+    BarRepeatNoSource(BarRepeatId),
+    /// This bar repeat overlaps another one on the same staff.
+    BarRepeatOverlap(BarRepeatId),
+    /// The bars of this bar repeat hold events drawn on its staff.
+    BarRepeatNotEmpty(BarRepeatId),
+    /// A form marking lies between the source and the end of this bar repeat.
+    BarRepeatAcrossForm(BarRepeatId),
+    /// This pass rule is not inside one repeated section.
+    PassRuleOutsideRepeat(PassRuleId),
+    /// The passes of this pass rule go beyond the plays of its section.
+    PassRulePasses(PassRuleId),
+    /// This pass rule starts before the previous rule of its scope has ended.
+    PassRuleOverlap(PassRuleId),
 }
 
 impl fmt::Display for Violation {
     /// Writes a short English description of the violation, for developers.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm per violation: splitting the match would only scatter it"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Overlap(id) => write!(
@@ -154,6 +205,80 @@ impl fmt::Display for Violation {
             Self::TempoChangeInsideGradual(id) => write!(
                 f,
                 "tempo change {} starts inside a gradual tempo change",
+                id.get()
+            ),
+            Self::RepeatsOverlap(id) => write!(
+                f,
+                "repeat barline {} nests in or overlaps another repeated section",
+                id.get()
+            ),
+            Self::RepeatTimesMismatch(id) => write!(
+                f,
+                "end repeat {} has a number of plays that contradicts its voltas",
+                id.get()
+            ),
+            Self::VoltaOverlap(id) => {
+                write!(f, "volta {} starts before the previous one ends", id.get())
+            }
+            Self::VoltaOrder(id) => write!(
+                f,
+                "volta {} does not follow the previous volta of its group with higher passes",
+                id.get()
+            ),
+            Self::VoltaPassesIncomplete(id) => write!(
+                f,
+                "the voltas from {} do not cover the passes 1 to n exactly",
+                id.get()
+            ),
+            Self::VoltaWithoutRepeat(id) => write!(
+                f,
+                "volta {} lacks its end repeat or has no other volta",
+                id.get()
+            ),
+            Self::JumpTargetKind(id) => {
+                write!(f, "jump {} points at a marker of the wrong kind", id.get())
+            }
+            Self::JumpUntilOutOfRange(id) => write!(
+                f,
+                "the until marker of jump {} is not between its target and the jump",
+                id.get()
+            ),
+            Self::JumpPassOutOfRange(id) => write!(
+                f,
+                "jump {} fires on a pass its section does not have",
+                id.get()
+            ),
+            Self::BarRepeatNoSource(id) => {
+                write!(f, "bar repeat {} has no bars to repeat before it", id.get())
+            }
+            Self::BarRepeatOverlap(id) => write!(
+                f,
+                "bar repeat {} overlaps another one on its staff",
+                id.get()
+            ),
+            Self::BarRepeatNotEmpty(id) => write!(
+                f,
+                "the bars of bar repeat {} hold events on its staff",
+                id.get()
+            ),
+            Self::BarRepeatAcrossForm(id) => write!(
+                f,
+                "a form marking lies inside bar repeat {} and its source",
+                id.get()
+            ),
+            Self::PassRuleOutsideRepeat(id) => write!(
+                f,
+                "pass rule {} is not inside one repeated section",
+                id.get()
+            ),
+            Self::PassRulePasses(id) => write!(
+                f,
+                "pass rule {} names passes its section does not have",
+                id.get()
+            ),
+            Self::PassRuleOverlap(id) => write!(
+                f,
+                "pass rule {} starts before the previous rule of its scope ends",
                 id.get()
             ),
         }
@@ -247,6 +372,14 @@ impl Document {
             }
             // Rule 6, for every hairpin of the instrument.
             self.check_hairpins(instrument, &mut hairpin_ends)?;
+        }
+        // Rules 8 and 9 (the form) come before the rules that look sections up.
+        self.check_form()?;
+        // Rule 10: markers and jumps.
+        self.check_jumps()?;
+        // Rule 11: bar repeats and pass rules, per instrument.
+        for instrument in self.instruments() {
+            self.check_bar_repeats_and_pass_rules(instrument)?;
         }
         // Rule 7: the walk that derives the tempo map checks the rules of the marks. The map
         // itself is not rebuilt (the builder derived it when each mark was added), so nothing is

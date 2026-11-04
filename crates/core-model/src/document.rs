@@ -55,16 +55,20 @@ use orchestra_core_time::{
     TempoMapError,
 };
 
+use crate::bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 use crate::content::{Chunk, VoiceContent, metric_duration};
 use crate::dynamic::{Dynamic, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinShape};
 use crate::event::{
     Chord, Event, EventBody, MAX_TUPLET_DEPTH, Note, NoteValue, NoteValueError, PlacedEvent, Rest,
     RestValue, Tie, Tuplet,
 };
+use crate::form::{BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
 use crate::id::{
-    BarId, ClefId, DynamicId, EventId, HairpinId, IdCounter, IdMap, InstrumentId, KeyChangeId,
-    NoteId, SlurId, StaffId, TempoMarkId, TrackId, TupletId, VoiceId,
+    BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdCounter, IdMap, InstrumentId,
+    JumpId, KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId,
+    TrackId, TupletId, VoiceId, VoltaId,
 };
+use crate::jump::{Jump, JumpSpec, JumpTarget, Marker, MarkerKind};
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint, point_key};
 use crate::pitch::{Interval, Key, Pitch, PitchError};
@@ -152,6 +156,20 @@ pub enum DocumentError {
     InitialTempoNotImmediate,
     /// A hairpin does not end after it starts in score order.
     HairpinNotForward,
+    /// A pass number outside 1–[`MAX_PLAYS`] (ADR-0025 F10).
+    PassOutOfRange(u8),
+    /// A repeat's number of plays outside 2–[`MAX_PLAYS`] (ADR-0025 §2).
+    PlaysOutOfRange(u8),
+    /// A volta without any pass.
+    EmptyPassSet,
+    /// A volta whose last bar comes before its first.
+    VoltaNotForward,
+    /// No marker of the document has this ID.
+    UnknownMarker(MarkerId),
+    /// A bar repeat whose count is not a positive multiple of its span.
+    BarRepeatCount,
+    /// A pass rule that does not end after it starts in score order.
+    PassRuleNotForward,
     /// A clef on a line outside 1–5 or with an octave shift outside ±2.
     ClefOutOfRange,
     /// A note value or a tuplet could not be built.
@@ -226,6 +244,19 @@ impl fmt::Display for DocumentError {
             }
             Self::HairpinNotForward => {
                 f.write_str("a hairpin must end after it starts in score order")
+            }
+            Self::PassOutOfRange(p) => write!(f, "pass {p} is outside 1 to {MAX_PLAYS}"),
+            Self::PlaysOutOfRange(n) => {
+                write!(f, "a section is played 2 to {MAX_PLAYS} times, not {n}")
+            }
+            Self::EmptyPassSet => f.write_str("a volta needs at least one pass"),
+            Self::VoltaNotForward => f.write_str("a volta's last bar cannot come before its first"),
+            Self::UnknownMarker(id) => write!(f, "no marker has the ID {}", id.get()),
+            Self::BarRepeatCount => {
+                f.write_str("a bar repeat covers a positive multiple of its span of bars")
+            }
+            Self::PassRuleNotForward => {
+                f.write_str("a pass rule must end after it starts in score order")
             }
             Self::ClefOutOfRange => {
                 f.write_str("a clef sits on lines 1 to 5 with an octave shift of at most 2")
@@ -411,6 +442,10 @@ pub struct Instrument {
     dynamics: Vec<Dynamic>,
     /// The instrument's hairpins (ADR-0024 §8), sorted like `dynamics` by their start point.
     hairpins: Vec<Hairpin>,
+    /// The bar repeats (%) on the instrument's staves (ADR-0025 §6), sorted by first bar.
+    bar_repeats: Vec<BarRepeat>,
+    /// The instrument's pass rules (ADR-0025 §7), sorted by start point.
+    pass_rules: Vec<PassRule>,
 }
 
 impl Instrument {
@@ -468,6 +503,16 @@ impl Instrument {
     /// order). O(1).
     pub fn hairpins(&self) -> &[Hairpin] {
         &self.hairpins
+    }
+
+    /// The bar repeats on the instrument's staves, in score order of their first bars. O(1).
+    pub fn bar_repeats(&self) -> &[BarRepeat] {
+        &self.bar_repeats
+    }
+
+    /// The instrument's pass rules, in score order of their starts. O(1).
+    pub fn pass_rules(&self) -> &[PassRule] {
+        &self.pass_rules
     }
 
     /// The slur with this ID, if it belongs to this instrument. O(log s): a binary search in the
@@ -689,6 +734,8 @@ pub struct Document {
     initial_tempo: (TempoMarkId, TempoMark),
     /// The tempo marks after the start, at (bar, offset) points.
     tempo_marks: MarkList<TempoMarkId, TempoMark>,
+    /// The form markings and the bar-numbering style (ADR-0025).
+    form: Form,
     /// The key at the start of the score, at concert pitch (ADR-0024 §9, K1).
     initial_key: Key,
     /// The key changes after the start, at concert pitch.
@@ -725,6 +772,11 @@ impl Document {
     /// The tempo marks after the start, in score order. O(1).
     pub const fn tempo_marks(&self) -> &MarkList<TempoMarkId, TempoMark> {
         &self.tempo_marks
+    }
+
+    /// The form: repeats, voltas and the bar-numbering style (ADR-0025). O(1).
+    pub const fn form(&self) -> &Form {
+        &self.form
     }
 
     /// The key at the start of the score, at concert pitch. O(1).
@@ -1149,6 +1201,7 @@ impl DocumentBuilder {
                 tempo_map,
                 initial_tempo: (id, initial_tempo),
                 tempo_marks: MarkList::default(),
+                form: Form::default(),
                 initial_key,
                 key_changes: MarkList::default(),
                 bars: BarList::new(),
@@ -1258,6 +1311,8 @@ impl DocumentBuilder {
                 slurs: Vec::new(),
                 dynamics: Vec::new(),
                 hairpins: Vec::new(),
+                bar_repeats: Vec::new(),
+                pass_rules: Vec::new(),
             },
         });
         Ok(track_id)
@@ -1885,6 +1940,288 @@ impl DocumentBuilder {
             return Err(DocumentError::VoiceOfAnotherInstrument(voice));
         }
         Ok(t)
+    }
+
+    /// Adds a start repeat (‖:) at the start of `bar` and returns its ID (ADR-0025 §2). How it
+    /// pairs with the end repeats is checked by [`build`](Self::build) (rule 8 of
+    /// [`Document::validate`]). O(log r) to find the place, O(r) to shift the later ones.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`] (another start repeat on
+    /// the bar), [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_repeat_start(&mut self, bar: BarId) -> Result<RepeatId, DocumentError> {
+        let at = self.doc.bar_index(bar)?.get();
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let place = form.repeat_starts.partition_point(|r| key(r.bar()) < at);
+        if form
+            .repeat_starts
+            .get(place)
+            .is_some_and(|r| key(r.bar()) == at)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = RepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.repeat_starts.insert(place, RepeatStart::new(id, bar));
+        Ok(id)
+    }
+
+    /// Adds an end repeat (:‖) at the end of `bar`, played `times` times in all, and returns its
+    /// ID (ADR-0025 §2). As [`add_repeat_start`](Self::add_repeat_start).
+    ///
+    /// # Errors
+    /// [`DocumentError::PlaysOutOfRange`] unless `times` is 2–[`MAX_PLAYS`];
+    /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`],
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_repeat_end(&mut self, bar: BarId, times: u8) -> Result<RepeatId, DocumentError> {
+        if !(2..=MAX_PLAYS).contains(&times) {
+            return Err(DocumentError::PlaysOutOfRange(times));
+        }
+        let at = self.doc.bar_index(bar)?.get();
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let place = form.repeat_ends.partition_point(|r| key(r.bar()) < at);
+        if form
+            .repeat_ends
+            .get(place)
+            .is_some_and(|r| key(r.bar()) == at)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = RepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.repeat_ends
+            .insert(place, RepeatEnd::new(id, bar, times));
+        Ok(id)
+    }
+
+    /// Adds a volta over `first..=last`, played on `passes`, and returns its ID (ADR-0025 §3).
+    /// How it fits with the other voltas and the repeats is checked by [`build`](Self::build)
+    /// (rule 9). O(log v) to find the place, O(v) to shift the later ones.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`] for either bar, [`DocumentError::VoltaNotForward`],
+    /// [`DocumentError::EmptyPassSet`], [`DocumentError::EmptyText`],
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_volta(
+        &mut self,
+        first: BarId,
+        last: BarId,
+        passes: PassSet,
+        closed: bool,
+        text: Option<&str>,
+    ) -> Result<VoltaId, DocumentError> {
+        let from = self.doc.bar_index(first)?.get();
+        let to = self.doc.bar_index(last)?.get();
+        if to < from {
+            return Err(DocumentError::VoltaNotForward);
+        }
+        if passes.is_empty() {
+            return Err(DocumentError::EmptyPassSet);
+        }
+        if text.is_some_and(|t| t.trim().is_empty()) {
+            return Err(DocumentError::EmptyText);
+        }
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        // After the voltas starting at or before `first`: at one first bar (an overlap, refused
+        // by `validate`), creation order.
+        let place = form.voltas.partition_point(|v| key(v.first()) <= from);
+        let id = VoltaId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.voltas.insert(
+            place,
+            Volta::new(id, first, last, passes, closed, text.map(Box::from)),
+        );
+        Ok(id)
+    }
+
+    /// Adds a marker on a barline and returns its ID (ADR-0025 §4): a segno or a coda at the start
+    /// of `bar`, a Fine or a "To Coda" at its end. O(log m) + O(m).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`] (another marker on the
+    /// same side of the bar), [`DocumentError::EmptyText`], [`DocumentError::IdsExhausted`]. The
+    /// builder is unchanged on error.
+    pub fn add_marker(
+        &mut self,
+        bar: BarId,
+        kind: MarkerKind,
+        text: Option<&str>,
+    ) -> Result<MarkerId, DocumentError> {
+        let at = self.doc.bar_index(bar)?.get();
+        if text.is_some_and(|t| t.trim().is_empty()) {
+            return Err(DocumentError::EmptyText);
+        }
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        // Score order of markers: bar, then the start side (0) before the end side (1).
+        let key = |b: BarId, k: MarkerKind| {
+            (
+                bars.index_of(b).map_or(u32::MAX, BarIndex::get),
+                u8::from(!k.at_start()),
+            )
+        };
+        let own = (at, u8::from(!kind.at_start()));
+        let place = form
+            .markers
+            .partition_point(|m| key(m.bar(), m.kind()) < own);
+        if form
+            .markers
+            .get(place)
+            .is_some_and(|m| key(m.bar(), m.kind()) == own)
+        {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = MarkerId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.markers
+            .insert(place, Marker::new(id, bar, kind, text.map(Box::from)));
+        Ok(id)
+    }
+
+    /// Adds a jump at the end of `bar` and returns its ID (ADR-0025 §4). That its markers have the
+    /// right kinds and places is checked by [`build`](Self::build) (rule 10). O(m) + O(j).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`], [`DocumentError::UnknownMarker`] for a marker the document
+    /// does not have, [`DocumentError::DuplicateMark`] (another jump on the bar),
+    /// [`DocumentError::EmptyText`], [`DocumentError::IdsExhausted`]. The builder is unchanged on
+    /// error.
+    pub fn add_jump(
+        &mut self,
+        bar: BarId,
+        spec: JumpSpec,
+        text: Option<&str>,
+    ) -> Result<JumpId, DocumentError> {
+        let at = self.doc.bar_index(bar)?.get();
+        if text.is_some_and(|t| t.trim().is_empty()) {
+            return Err(DocumentError::EmptyText);
+        }
+        let target = match spec.to {
+            JumpTarget::Start => None,
+            JumpTarget::Marker(id) => Some(id),
+        };
+        for id in [target, spec.until, spec.then].into_iter().flatten() {
+            if self.doc.marker(id).is_none() {
+                return Err(DocumentError::UnknownMarker(id));
+            }
+        }
+        let Document {
+            ids, bars, form, ..
+        } = &mut self.doc;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let place = form.jumps.partition_point(|j| key(j.bar()) < at);
+        if form.jumps.get(place).is_some_and(|j| key(j.bar()) == at) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let id = JumpId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        form.jumps
+            .insert(place, Jump::new(id, bar, spec, text.map(Box::from)));
+        Ok(id)
+    }
+
+    /// Adds a bar repeat (%) on `staff`: `count` bars from `first` repeat the `span` bars before
+    /// them (ADR-0025 §6). Whether the bars are empty, the source exists and no form marking is in
+    /// the way is checked by [`build`](Self::build) (rule 11). O(tracks + staves) + O(b).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownStaff`], [`DocumentError::UnknownBar`],
+    /// [`DocumentError::BarRepeatCount`] unless `count` is a positive multiple of the span,
+    /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
+    pub fn add_bar_repeat(
+        &mut self,
+        staff: StaffId,
+        first: BarId,
+        count: u32,
+        span: BarRepeatSpan,
+    ) -> Result<BarRepeatId, DocumentError> {
+        let at = self.doc.bar_index(first)?.get();
+        if count == 0 || !count.is_multiple_of(span.bars()) {
+            return Err(DocumentError::BarRepeatCount);
+        }
+        let Document {
+            ids, bars, tracks, ..
+        } = &mut self.doc;
+        let target = tracks
+            .iter_mut()
+            .map(|t| &mut t.instrument)
+            .find(|i| i.staff(staff).is_some())
+            .ok_or(DocumentError::UnknownStaff(staff))?;
+        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let place = target.bar_repeats.partition_point(|r| key(r.first()) <= at);
+        let id = BarRepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        target
+            .bar_repeats
+            .insert(place, BarRepeat::new(id, staff, first, count, span));
+        Ok(id)
+    }
+
+    /// Adds a pass rule to an instrument: the passage from `start` (included) to `end` (excluded)
+    /// is played only on the passes in `plays` of the repeated section containing it (ADR-0025
+    /// §7). That it lies inside one section, with passes within its plays and without overlapping
+    /// another rule of the scope, is checked by [`build`](Self::build) (rule 11).
+    /// O(tracks + voices) + O(p).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownInstrument`], [`DocumentError::UnknownBar`] or
+    /// [`DocumentError::NegativeOffset`] for either end, [`DocumentError::PassRuleNotForward`],
+    /// [`DocumentError::VoiceOfAnotherInstrument`], [`DocumentError::EmptyPassSet`],
+    /// [`DocumentError::EmptyText`], [`DocumentError::IdsExhausted`]. The builder is unchanged on
+    /// error.
+    pub fn add_pass_rule(
+        &mut self,
+        instrument: InstrumentId,
+        start: ScorePoint,
+        end: ScorePoint,
+        scope: DynamicScope,
+        plays: PassSet,
+        text: Option<&str>,
+    ) -> Result<PassRuleId, DocumentError> {
+        self.check_point(start.bar, start.offset)?;
+        self.check_point(end.bar, end.offset)?;
+        if point_key(&self.doc.bars, end) <= point_key(&self.doc.bars, start) {
+            return Err(DocumentError::PassRuleNotForward);
+        }
+        if plays.is_empty() {
+            return Err(DocumentError::EmptyPassSet);
+        }
+        if text.is_some_and(|t| t.trim().is_empty()) {
+            return Err(DocumentError::EmptyText);
+        }
+        let Document {
+            ids, bars, tracks, ..
+        } = &mut self.doc;
+        let target = tracks
+            .iter_mut()
+            .map(|t| &mut t.instrument)
+            .find(|i| i.id == instrument)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?;
+        if let DynamicScope::Voice(voice) = scope
+            && target.voice(voice).is_none()
+        {
+            return Err(DocumentError::VoiceOfAnotherInstrument(voice));
+        }
+        let key = point_key(bars, start);
+        let place = target
+            .pass_rules
+            .partition_point(|r| point_key(bars, r.start()) <= key);
+        let id = PassRuleId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        target.pass_rules.insert(
+            place,
+            PassRule::new(id, start, end, scope, plays, text.map(Box::from)),
+        );
+        Ok(id)
+    }
+
+    /// Sets how the bars of later voltas are numbered (ADR-0025 F9); [`BarNumbering::Continue`]
+    /// until it is called. O(1).
+    pub const fn set_bar_numbering(&mut self, style: BarNumbering) {
+        self.doc.form.numbering = style;
     }
 
     /// The document as built so far, for callers that need to read it while building (a
