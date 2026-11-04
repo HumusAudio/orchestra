@@ -518,6 +518,43 @@ edit_meter_change 97488 for one edit (clone, rebuild, validation)
 Most of the cost is the exact rational arithmetic (the gcds), not the search. A lookup of about a
 thousand instructions is well under a microsecond on the reference hardware.
 
+#### Inserting and deleting bars
+
+The commands of F1.11b insert and delete bars (ADR-0022 §8, ADR-0026 §1), so the meter map has
+two operations that are **exact inverses** of each other. `insert_bars(at, &span)` inserts the
+bars of a `BarSpan` before bar `at` and moves every source entry from `at` on later by that many
+bars; `remove_bars(at, count)` takes `count` bars out, returns what they carried (meter changes,
+pickups, groupings, uncounted bars, numbering restarts, at indices relative to the span) and
+moves the later entries back. Inserting the returned span gives back the very same map, which is
+what an undo needs.
+
+```rust
+let mut map = MeterMap::new(MeterChange::new(Meter::new(&[4], 4)?))?;
+map.set_meter_change(BarIndex::new(4), MeterChange::new(Meter::new(&[3], 4)?))?;
+// Two empty 4/4 bars before bar 2: the 3/4 moves to bar 6, still on the same written bar.
+map.insert_bars(BarIndex::new(2), &BarSpan::empty(2))?;
+// Taking them out again returns what they carried (nothing) and gives back the same map.
+let span = map.remove_bars(BarIndex::new(2), 2)?;
+assert!(span.has_no_entries());
+```
+
+The new bars are exactly what the span says: with `BarSpan::empty(n)` they follow the meter in force
+just before `at`, and an entry that was at `at` moves with its bar. Inserting at bar 0 moves the meter
+change of bar 0 as well, so the span must then bring its own (the map always needs one at bar 0);
+removing bars may drop the meter change that was in force after them. Deciding what the remaining
+music should keep is the document command's job (ADR-0026 §6), not the map's. Both operations are
+all or nothing and cost O(n log n) in the source entries, whatever the number of bars.
+
+**Tests** (`tests/meter_map_bars.rs`): eight hand-written cases (new bars follow the meter in
+force, an entry at the insertion point moves with its bar, inserting at the start needs a meter,
+an entry outside its span is refused, removed entries leave with their bars, removing the start
+needs a meter after it, past the last bar, zero bars) and two property tests against an oracle that
+moves the entries one by one in `BTreeMap`s, checking that the bars before the edit point do not
+move and that each operation undoes the other. Two injected bugs (an entry at the insertion point
+left behind; the entries after a removal not moved back) were caught. **Benchmarks** (same file as
+the lookups): inserting four bars in the middle of the reference map ≈ 95 000 instructions, removing
+four ≈ 94 700, about one meter change.
+
 #### Tempo, seconds, samples and frames
 
 `src/tempo.rs` and `src/clock.rs` hold the units of real time that the tempo map (step F1.05b)
@@ -1315,6 +1352,79 @@ jump and a bar repeat too: reading them never allocates, and `validate` still ma
 on pass 2 in each of the 50 sections ≈ 933 000 instructions, about 15 000 per jump for the section
 lookup on a score far beyond real ones; it was ≈ 1.96 million before the lookup stopped at the
 first section after the bar and computed the plays only once.
+
+#### Edits, transactions and undo
+
+Since F1.11b part 1 an existing document changes only through an **`Editor`** (ADR-0003 §4,
+ADR-0026): the document, its one undo history and the transaction in progress. Four new modules:
+
+- `edit`: the **primitive edits**, three verbs over one enum of object kinds plus the bar and meter
+  operations and the values the document has once:
+
+  ```text
+  Edit = Insert(Object) | Remove(ObjectRef) | Replace(Object)
+       | InsertBars { at, ids, meter } | RemoveBars { at, count }
+       | Meter(MeterEdit) | SetInitial(Initial)
+  ```
+
+  Applying an edit (`Document::apply_edit`, crate-private) returns its **exact inverse**: an
+  `Insert` gives the `Remove` of the same ID, a `Remove` the `Insert` of the whole object with its
+  exact place, a `Replace` a `Replace` with the old content, `InsertBars` gives `RemoveBars` and
+  back. Undo applies the inverses in reverse order, and what it returns is exactly the redo.
+- `change`: the **`ChangeSet`** every transaction, undo and redo returns: the (voice, bar) cells
+  whose events changed, the objects inserted, removed and replaced (bars included), the first bar
+  from which the meter map may answer differently, the first position from which the tempo map
+  differs, and whether the form changed. Each edit records its own entries, so no notification can
+  be forgotten; the lists are sorted and deduplicated once at the end.
+- `editor`: `Editor::transact` runs a closure as **one transaction = one step of undo**; if the
+  closure returns an error, every edit it applied is reverted. The tempo map is derived again once,
+  at the end, and only if a tempo mark or a bar start changed; if it fails, the transaction is
+  reverted too. The history is **linear** and bounded by **memory** (`DEFAULT_HISTORY_LIMIT`,
+  128 MB, the most recent step always kept), and the document gains a **revision** number.
+- `editor_tests` (tests only, see below).
+
+```rust
+let mut editor = Editor::new(document);
+// One transaction = one step of undo. `?` on a refused edit reverts the whole transaction.
+let changes = editor.transact(|tx| {
+    tx.apply(Edit::Remove(ObjectRef::Event(grace)))?;
+    tx.apply(Edit::Remove(ObjectRef::Slur(slur)))
+})?;
+assert_eq!(changes.removed().len(), 2);
+editor.undo()?;   // both come back, with the same IDs and in the same places
+editor.redo()?;   // and go again
+```
+
+**What an edit checks.** The structure: the right container, sorted lists, derived indices in
+step, IDs unique and already handed out by the counter (an ID not handed out yet would collide with
+a later object). The musical invariants (no overlaps in a voice, ties to the same pitch, a valid
+form) are the commands' job, in part 2. One rule follows: **an insertion checks only what no other
+edit can take away**. Bars can only be removed when nothing refers to them (`BarsNotEmpty`),
+tuplets only when no event uses them (`TupletInUse`); a slur, on the other hand, does not check
+that its events exist, nor a jump that its markers do, because a later edit of the same
+transaction may have removed them, and then undo would fail.
+
+**Orders that do not depend on history.** Where a list may hold several objects at one point
+(dynamics, hairpins, voltas, bar repeats, pass rules) they are sorted by (point, ID), and the
+"slurs at an event" index by ID: removing an object and inserting it back gives an identical list.
+Events are the exception, because at one (offset, slot) their order is musical (grace notes in a
+row): a removed event remembers its place in the chunk (`Chunk::remove` and `Chunk::insert_at`).
+An emptied chunk goes back to "no allocation", so it compares equal to a chunk that never held
+anything. `Document::same_content` compares two documents ignoring the ID counter and the revision,
+which only grow; `Document::indices_are_consistent` rebuilds every derived index and compares.
+
+**Tests** (`src/editor_tests.rs`, inside the crate because the objects' constructors are
+crate-private): nine hand-written cases (grace notes back in their order after an undo, a failed
+transaction, an empty transaction, the change sets of the two maps, busy bars, IDs never handed
+out, the bounded and linear history, structural refusals) and a property test: a rich document (every
+kind of object) receives random transactions of random edits, many of them refused, interleaved with
+undos and redos, against a model made of one snapshot per step of the history; after every step
+the indices must agree with a rebuild from scratch and the tempo map with the marks. The test found
+at once that a transaction may also fail at the end, when a moved tempo mark lands inside a gradual
+change: the model now expects that. Five injected bugs (undo in the wrong order, notehead index left
+behind by a replacement, slur index entry left behind, no chunks for new bars, a removed event
+forgetting its place) were all caught; the second one only after the generator learned to change
+the noteheads of a chord. The benchmarks of the editor come with the commands (part 2).
 
 ### orchestra-playback
 

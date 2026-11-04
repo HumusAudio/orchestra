@@ -61,7 +61,7 @@ pub mod tempo_map;
 pub use clock::{ClockError, FrameRate, SampleRate, Seconds};
 pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};
 pub use meter_map::{
-    BarIndex, BarKind, BarPosition, BeatPosition, IrregularBar, MeterChange, MeterMap,
+    BarIndex, BarKind, BarPosition, BarSpan, BeatPosition, IrregularBar, MeterChange, MeterMap,
     MeterMapError,
 };
 pub use position::{Duration, Position};

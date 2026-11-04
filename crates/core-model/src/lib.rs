@@ -67,9 +67,14 @@
 #![deny(clippy::indexing_slicing)]
 
 pub mod bar_repeat;
+pub mod change;
 pub mod content;
 pub mod document;
 pub mod dynamic;
+pub mod edit;
+pub mod editor;
+#[cfg(test)]
+mod editor_tests;
 pub mod event;
 pub mod form;
 pub mod id;
@@ -82,6 +87,7 @@ pub mod tempo_mark;
 pub mod validate;
 
 pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
+pub use change::ChangeSet;
 pub use content::Chunk;
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
@@ -91,6 +97,8 @@ pub use dynamic::{
     Dynamic, DynamicLevel, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinKind,
     HairpinShape, HairpinStyle, OtherDynamic,
 };
+pub use edit::{Edit, Initial, MeterEdit, Object, ObjectRef};
+pub use editor::{CommandError, DEFAULT_HISTORY_LIMIT, Editor, Transaction};
 pub use event::{
     BaseValue, Chord, Event, EventBody, MAX_DOTS, MAX_TUPLET_DEPTH, Note, NoteValue,
     NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,

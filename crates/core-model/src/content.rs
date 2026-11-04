@@ -58,6 +58,59 @@ impl Chunk {
         events.insert(at, placed);
     }
 
+    /// Inserts an event at exactly place `index` of the chunk, if that place keeps the chunk
+    /// sorted: every event before it has a key not later than its own, every event after it a key
+    /// not earlier. Returns `false` (and changes nothing) otherwise.
+    ///
+    /// # Why an exact place?
+    /// Events with the same (offset, slot) key keep the order they were entered in, and that order
+    /// is meaningful (three `Before` graces are played in that order). Undoing the removal of the
+    /// middle one must put it back in the middle, not after the others, or undo would not give
+    /// back the same document (ADR-0026 §8). The removal reports the place
+    /// ([`remove`](Self::remove)); its inverse passes it here.
+    ///
+    /// O(k) to shift the later events, plus a copy of the chunk if a snapshot still shares it.
+    pub(crate) fn insert_at(&mut self, index: usize, placed: PlacedEvent) -> bool {
+        let events = self.events();
+        let key = placed.order_key();
+        let fits = index <= events.len()
+            && index
+                .checked_sub(1)
+                .and_then(|i| events.get(i))
+                .is_none_or(|before| before.order_key() <= key)
+            && events
+                .get(index)
+                .is_none_or(|after| key <= after.order_key());
+        if fits {
+            Arc::make_mut(self.events.get_or_insert_with(Arc::default)).insert(index, placed);
+        }
+        fits
+    }
+
+    /// Removes the event with this ID and returns its place in the chunk with it, or `None` if
+    /// the chunk does not hold it. An emptied chunk goes back to `None`, so that it does not keep
+    /// an allocation and compares equal to a chunk that never held anything. O(k), plus a copy of
+    /// the chunk if a snapshot still shares it.
+    pub(crate) fn remove(&mut self, id: EventId) -> Option<(usize, PlacedEvent)> {
+        let index = self.events().iter().position(|e| e.event().id() == id)?;
+        let events = Arc::make_mut(self.events.as_mut()?);
+        let placed = events.remove(index);
+        if events.is_empty() {
+            self.events = None;
+        }
+        Some((index, placed))
+    }
+
+    /// The place of the event with this ID in the chunk, if it holds it. O(k).
+    pub(crate) fn position_of(&self, id: EventId) -> Option<usize> {
+        self.events().iter().position(|e| e.event().id() == id)
+    }
+
+    /// Whether the chunk holds no event. O(1).
+    pub(crate) const fn is_empty(&self) -> bool {
+        self.events.is_none()
+    }
+
     /// The entry of this event, mutably (copying the chunk first if a snapshot shares it).
     /// O(k): a linear scan, since chunks hold a handful of events.
     pub(crate) fn get_mut(&mut self, id: EventId) -> Option<&mut PlacedEvent> {

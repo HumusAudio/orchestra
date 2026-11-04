@@ -396,8 +396,9 @@ struct Segment {
 /// The source data of the map: what the document stores and the commands edit.
 ///
 /// Every list is sorted by bar with at most one entry per bar; `meter_changes` always has an
-/// entry for bar 0.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// entry for bar 0 (except inside a [`BarSpan`], where the indices are relative to the span and
+/// any list may be empty).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 struct Sources {
     /// Meter changes, each with an optional section grouping.
     meter_changes: Vec<(BarIndex, MeterChange)>,
@@ -409,6 +410,168 @@ struct Sources {
     uncounted: Vec<BarIndex>,
     /// Bars where the displayed numbering restarts, with their number.
     restarts: Vec<(BarIndex, u32)>,
+}
+
+impl Sources {
+    /// The highest bar any list mentions, or `None` if every list is empty. O(1): each list is
+    /// sorted, so its last entry is its highest bar.
+    fn last_bar(&self) -> Option<BarIndex> {
+        [
+            self.meter_changes.last().map(|(b, _)| *b),
+            self.irregular_bars.last().map(|(b, _)| *b),
+            self.bar_groupings.last().map(|(b, _)| *b),
+            self.uncounted.last().copied(),
+            self.restarts.last().map(|(b, _)| *b),
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+    }
+}
+
+/// The source data of a run of consecutive bars, outside any map: what
+/// [`MeterMap::remove_bars`] takes out and [`MeterMap::insert_bars`] puts in (ADR-0026 §1).
+///
+/// The bars inside a span are numbered from 0 (its first bar), whatever their place in the map
+/// was or will be. A span is plain data: it is checked against the map only when it is inserted.
+///
+/// # Why a span and not just a count?
+/// So that the two operations are exact inverses of each other: removing bars that carry a
+/// pickup, a meter change or a numbering restart and inserting them back must give the very same
+/// map, which an undo needs (ADR-0003 §4). A span of empty bars is the common case of inserting
+/// new bars.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+pub struct BarSpan {
+    /// How many bars the span has.
+    count: u32,
+    /// Their source entries, at indices `0..count` relative to the span.
+    sources: Sources,
+}
+
+impl BarSpan {
+    /// `count` bars with no entry of their own: they follow whatever is in force where they are
+    /// inserted. Does not allocate. O(1).
+    #[must_use]
+    pub fn empty(count: u32) -> Self {
+        Self {
+            count,
+            sources: Sources::default(),
+        }
+    }
+
+    /// How many bars the span has. O(1).
+    #[must_use]
+    pub const fn count(&self) -> u32 {
+        self.count
+    }
+
+    /// Whether no bar of the span has an entry of its own. O(1).
+    #[must_use]
+    pub fn has_no_entries(&self) -> bool {
+        self.sources.last_bar().is_none()
+    }
+
+    /// Sets the meter change of the span's bar `bar` (relative to the span); returns the previous
+    /// one. Used by a command that inserts bars at bar 0, where the map needs a meter change.
+    /// Not checked here: [`MeterMap::insert_bars`] checks the span against the map. O(n).
+    pub fn set_meter_change(&mut self, bar: BarIndex, change: MeterChange) -> Option<MeterChange> {
+        upsert(&mut self.sources.meter_changes, bar, change)
+    }
+
+    /// The meter changes of the span, at bars relative to it, sorted. O(1).
+    #[must_use]
+    pub fn meter_changes(&self) -> &[(BarIndex, MeterChange)] {
+        &self.sources.meter_changes
+    }
+
+    /// The irregular bars of the span, relative to it, sorted. O(1).
+    #[must_use]
+    pub fn irregular_bars(&self) -> &[(BarIndex, IrregularBar)] {
+        &self.sources.irregular_bars
+    }
+
+    /// The per-bar beat groupings of the span, relative to it, sorted. O(1).
+    #[must_use]
+    pub fn bar_groupings(&self) -> &[(BarIndex, BeatGrouping)] {
+        &self.sources.bar_groupings
+    }
+
+    /// The uncounted bars of the span, relative to it, sorted. O(1).
+    #[must_use]
+    pub fn uncounted_bars(&self) -> &[BarIndex] {
+        &self.sources.uncounted
+    }
+
+    /// The numbering restarts of the span, relative to it, sorted. O(1).
+    #[must_use]
+    pub fn numbering_restarts(&self) -> &[(BarIndex, u32)] {
+        &self.sources.restarts
+    }
+}
+
+/// A sorted list of the map with `count` new bars inserted before `at`: the entries before `at`,
+/// then the span's entries moved to `at + relative bar`, then the old entries from `at` on moved
+/// `count` bars later. All three runs are sorted and lie in disjoint ranges of bars, so the result
+/// is sorted with at most one entry per bar.
+///
+/// O(n + s) for n entries in the list and s in the span; allocates the new list.
+///
+/// # Errors
+/// [`MeterMapError::IndexOutOfRange`] if a moved index passes `u32::MAX`.
+fn spliced_in<V: Clone>(
+    list: &[(BarIndex, V)],
+    at: BarIndex,
+    count: u32,
+    span: &[(BarIndex, V)],
+) -> Result<Vec<(BarIndex, V)>, MeterMapError> {
+    let moved = |bar: BarIndex, by: u32| {
+        bar.0
+            .checked_add(by)
+            .map(BarIndex)
+            .ok_or(MeterMapError::IndexOutOfRange)
+    };
+    let split = list.partition_point(|(bar, _)| *bar < at);
+    let (before, after) = list.split_at(split);
+    let mut out = Vec::with_capacity(list.len().saturating_add(span.len()));
+    out.extend_from_slice(before);
+    for (bar, value) in span {
+        out.push((moved(*bar, at.0)?, value.clone()));
+    }
+    for (bar, value) in after {
+        out.push((moved(*bar, count)?, value.clone()));
+    }
+    Ok(out)
+}
+
+/// A list of source entries: (bar, value) pairs sorted by bar, at most one per bar.
+type Entries<V> = Vec<(BarIndex, V)>;
+
+/// A sorted list of the map split around the removed bars `at..end` (with `end = at + count`):
+/// returns the entries that stay (those after the run moved `count` bars earlier) and the entries
+/// of the run (at bars relative to `at`). Both stay sorted. O(n); allocates the two lists.
+///
+/// Cannot fail: every moved index decreases and stays ≥ `at` (or ≥ 0 inside the span), because
+/// the entries after the run have bars ≥ `end`.
+fn spliced_out<V: Clone>(
+    list: &[(BarIndex, V)],
+    at: BarIndex,
+    end: u32,
+    count: u32,
+) -> (Entries<V>, Entries<V>) {
+    let mut kept = Vec::with_capacity(list.len());
+    let mut taken = Vec::new();
+    for (bar, value) in list {
+        if bar.0 < at.0 {
+            kept.push((*bar, value.clone()));
+        } else if bar.0 < end {
+            // `bar ≥ at` here, so the subtraction never saturates.
+            taken.push((BarIndex(bar.0.saturating_sub(at.0)), value.clone()));
+        } else {
+            // `bar ≥ end = at + count ≥ count`, so the subtraction never saturates.
+            kept.push((BarIndex(bar.0.saturating_sub(count)), value.clone()));
+        }
+    }
+    (kept, taken)
 }
 
 /// The meter map of a project (ADR-0005 §2, ADR-0018, ADR-0019).
@@ -734,6 +897,126 @@ impl MeterMap {
             Some(number) => upsert(&mut self.sources.restarts, bar, number),
             None => remove(&mut self.sources.restarts, bar),
         }
+    }
+
+    // --------------------------------------------------------------------------------------------
+    // Inserting and deleting bars (ADR-0022 §8, ADR-0026 §1)
+    // --------------------------------------------------------------------------------------------
+
+    /// Inserts `span.count()` bars before `at`, with the source data `span` carries, and shifts
+    /// every entry at or after `at` later by that many bars. [`remove_bars`](Self::remove_bars) is
+    /// its exact inverse: it takes the same bars out again and returns the same span.
+    ///
+    /// # What the new bars are
+    /// Exactly what `span` says, and nothing else: with an empty span ([`BarSpan::empty`]) they
+    /// are regular bars of the meter in force just before `at`, because no entry of theirs
+    /// interrupts it. An entry that was at `at` (a meter change, a pickup) moves with its bar to
+    /// `at + count`: it stays attached to the same written bar. Inserting at bar 0 shifts the
+    /// meter change of bar 0 too, so the span must then carry a meter change at its own bar 0
+    /// (the map always needs one there): the document's command decides which (ADR-0026 §6).
+    ///
+    /// # Complexity
+    /// O(n log n) in the number of source entries, and allocates: editing path only. It does not
+    /// depend on the number of bars inserted.
+    ///
+    /// # Errors
+    /// [`MeterMapError::IndexOutOfRange`] if an entry of the span lies outside its bars or a
+    /// shifted entry would pass the last representable bar; any validation error of the resulting
+    /// map (e.g. [`MeterMapError::NoMeterAtStart`]). The map is then unchanged.
+    pub fn insert_bars(&mut self, at: BarIndex, span: &BarSpan) -> Result<(), MeterMapError> {
+        let count = span.count;
+        // Every entry of the span must belong to one of its own bars, or it would land on an
+        // existing bar and silently replace (or duplicate) that bar's entry.
+        if span.sources.last_bar().is_some_and(|last| last.0 >= count) {
+            return Err(MeterMapError::IndexOutOfRange);
+        }
+        // Build the new lists first, then rebuild: a failure in either step leaves `self` alone.
+        let mut sources = Sources::default();
+        sources.meter_changes = spliced_in(
+            &self.sources.meter_changes,
+            at,
+            count,
+            &span.sources.meter_changes,
+        )?;
+        sources.irregular_bars = spliced_in(
+            &self.sources.irregular_bars,
+            at,
+            count,
+            &span.sources.irregular_bars,
+        )?;
+        sources.bar_groupings = spliced_in(
+            &self.sources.bar_groupings,
+            at,
+            count,
+            &span.sources.bar_groupings,
+        )?;
+        sources.restarts = spliced_in(&self.sources.restarts, at, count, &span.sources.restarts)?;
+        // The uncounted bars are a list of bare indices: give them a unit value to reuse the
+        // same splicing, then drop it again.
+        let unit = |list: &[BarIndex]| list.iter().map(|&b| (b, ())).collect::<Vec<_>>();
+        sources.uncounted = spliced_in(
+            &unit(&self.sources.uncounted),
+            at,
+            count,
+            &unit(&span.sources.uncounted),
+        )?
+        .into_iter()
+        .map(|(bar, ())| bar)
+        .collect();
+        let segments = build_segments(&sources)?;
+        self.sources = sources;
+        self.segments = segments;
+        Ok(())
+    }
+
+    /// Removes the `count` bars from `at` on: takes their source entries out (returned in a
+    /// [`BarSpan`], at their bars' places inside it) and shifts every later entry earlier by
+    /// `count` bars. [`insert_bars`](Self::insert_bars) with the returned span is its exact
+    /// inverse.
+    ///
+    /// # What happens to the bars after
+    /// They keep their own entries. They lose those of the removed bars, so if a meter change
+    /// inside the removed run was the one in force after it, the later bars now follow the meter
+    /// in force before the run. Keeping the meaning of the remaining music (moving that meter
+    /// change to the first remaining bar) is the document command's job (ADR-0026 §6), done with
+    /// an ordinary [`set_meter_change`](Self::set_meter_change) before this call.
+    ///
+    /// # Complexity
+    /// As [`insert_bars`](Self::insert_bars): O(n log n) in the source entries, independent of
+    /// `count`; allocates.
+    ///
+    /// # Errors
+    /// [`MeterMapError::IndexOutOfRange`] if `at + count` passes the last representable bar;
+    /// [`MeterMapError::NoMeterAtStart`] if the removal starts at bar 0 and no meter change is
+    /// left there (the first remaining bar has none of its own); any other validation error of
+    /// the resulting map. The map is then unchanged.
+    pub fn remove_bars(&mut self, at: BarIndex, count: u32) -> Result<BarSpan, MeterMapError> {
+        let end =
+            at.0.checked_add(count)
+                .ok_or(MeterMapError::IndexOutOfRange)?;
+        let mut sources = Sources::default();
+        let mut span = BarSpan::empty(count);
+        (sources.meter_changes, span.sources.meter_changes) =
+            spliced_out(&self.sources.meter_changes, at, end, count);
+        (sources.irregular_bars, span.sources.irregular_bars) =
+            spliced_out(&self.sources.irregular_bars, at, end, count);
+        (sources.bar_groupings, span.sources.bar_groupings) =
+            spliced_out(&self.sources.bar_groupings, at, end, count);
+        (sources.restarts, span.sources.restarts) =
+            spliced_out(&self.sources.restarts, at, end, count);
+        let unit = self
+            .sources
+            .uncounted
+            .iter()
+            .map(|&b| (b, ()))
+            .collect::<Vec<_>>();
+        let (kept, taken) = spliced_out(&unit, at, end, count);
+        sources.uncounted = kept.into_iter().map(|(bar, ())| bar).collect();
+        span.sources.uncounted = taken.into_iter().map(|(bar, ())| bar).collect();
+        let segments = build_segments(&sources)?;
+        self.sources = sources;
+        self.segments = segments;
+        Ok(span)
     }
 
     // --------------------------------------------------------------------------------------------

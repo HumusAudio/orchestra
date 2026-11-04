@@ -263,10 +263,26 @@ bar, dynamics deleted, ranges clipped, invalid form markings deleted in cascade,
 left); a **meter change rewrites the music by default** up to the next meter change (music stays
 in time, barlines move, notes split into tie chains, an irregular last bar so nothing after moves,
 form markings inside a bar split it), with `KeepBars` as an explicit mode. Sources: Dorico, MuseScore,
-Sibelius (a course summary only), Logic, Cubase/Nuendo. SCALETTA v0.21 splits the step: **Next:**
-F1.11b (the engine — edits, transactions, editor, history, gestures, change sets, the `core-time`
-bar insertion/deletion and bulk edits — and the commands on events, marks, form markings and
-bars), then F1.11c (the meter change in both modes).
+Sibelius (a course summary only), Logic, Cubase/Nuendo. SCALETTA v0.21 splits the step into F1.11b (the engine
+and the commands on events, marks, form markings and bars) and F1.11c (the meter change in both
+modes). **F1.11b part 1 done** (2026-11-04, same branch, not yet in a PR): in `core-time`,
+`MeterMap::insert_bars`/`remove_bars` with `BarSpan`, exact inverses of each other (oracle property
+tests, two injected bugs caught, ≈ 95 000 instructions for four bars); in `core-model`, the modules
+`edit` (primitive edits `Insert`/`Remove`/`Replace` over `Object`/`ObjectRef`, `InsertBars`/
+`RemoveBars`, `MeterEdit`, `Initial`, each returning its exact inverse, with structural checks only
+and the rule "an insertion checks only what no other edit can take away"), `change` (`ChangeSet`),
+`editor` (`Editor::transact`, linear history bounded by memory, undo/redo, revision number,
+`CommandError`), plus `Document::same_content` and `Document::indices_are_consistent`; history-free
+orders (dynamics, hairpins, voltas, bar repeats, pass rules by (point, ID); slur index by ID; events
+remember their place in the chunk). Tests in `src/editor_tests.rs` (nine cases and a snapshot-model
+property test over random transactions, undos and redos; five injected bugs caught). The tempo-map
+"bulk edit" of ADR-0022 §8 already exists (the map is derived from all marks at once); the meter-map
+bulk edit is needed only by the rewrite of F1.11c and comes there. **Next: F1.11b part 2**: gestures
+(open transaction, compaction, cancel), the commands (enter events with tie chains and free-bar
+growth, delete events with their slurs and ties, marks and form markings, insert and delete bars
+with the rules of ADR-0026 §6, at least one bar left), `validate` after every command in the
+property tests, benchmarks on the normal and heavy scores (a note ≤ 1 ms) and the memory per history
+step, then the PR (F1.10 docs are already merged; this PR carries ADR-0026 and F1.11b).
 
 | Step | What | Status |
 |---|---|---|
@@ -329,9 +345,13 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   conversion uses 12-TET as the reference (ADR-0023 §3).
 - **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
   window, whatever its signature; to revisit if open signatures with accidentals turn out common.
-- **`core-time` work required by ADR-0022 §8, in F1.11b (ADR-0026):** inserting and
-  deleting bars in the meter map, and a bulk edit on both maps (shifting t tempo changes is now t
-  rebuilds, O(t²)).
+- **From F1.11b part 1, to keep in mind:** while a transaction is open the tempo map is the one
+  from before (it is derived once, at the end): gestures (part 2) must derive it after each live
+  update if the views need it; the meter-map bulk edit of ADR-0022 §8 is left to F1.11c (the only
+  user); interface choices made provisionally, to confirm with the owner before the PR: `Edit`,
+  `Object` and `Transaction::apply` are public (raw edits keep only the structure, the musical
+  invariants are the caller's), `Transaction::new_id` returns a raw `NonZeroU64` because the typed ID
+  constructors stay crate-private, the editor's tests live inside the crate (`src/editor_tests.rs`).
 - **Possible model optimisations, not urgent (F1.06 numbers):** a whole-score iteration with
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.

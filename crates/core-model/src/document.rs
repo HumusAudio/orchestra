@@ -58,6 +58,7 @@ use orchestra_core_time::{
 use crate::bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 use crate::content::{Chunk, VoiceContent, metric_duration};
 use crate::dynamic::{Dynamic, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinShape};
+use crate::edit::ObjectRef;
 use crate::event::{
     Chord, Event, EventBody, MAX_TUPLET_DEPTH, Note, NoteValue, NoteValueError, PlacedEvent, Rest,
     RestValue, Tie, Tuplet,
@@ -185,6 +186,28 @@ pub enum DocumentError {
     TempoMap(TempoMapError),
     /// The document breaks a rule that needs the whole document to check ([`Document::validate`]).
     Invalid(Violation),
+    /// An edit inserts an object whose ID is already in use, or was not handed out by the
+    /// document's counter (ADR-0026 §1). Also reported for a notehead ID of an event.
+    DuplicateObject(ObjectRef),
+    /// An edit names an object the document does not have.
+    UnknownObject(ObjectRef),
+    /// An edit tries to remove what cannot be removed this way: a bar (removed with
+    /// `RemoveBars`) or a value the document always has (the initial tempo, key, clefs, the
+    /// numbering style), which can only be set.
+    NotRemovable(ObjectRef),
+    /// A tuplet still used by an event or by a nested tuplet cannot be removed.
+    TupletInUse(TupletId),
+    /// An event's exact place in its chunk would break the chunk's order (only an undo gives a
+    /// place, and it always fits).
+    PlaceOutOfOrder,
+    /// The meter map data given with new bars covers another number of bars.
+    BarSpanMismatch,
+    /// Bars to be removed still hold an event or carry something anchored on them; the bar named
+    /// is the first one found.
+    BarsNotEmpty(BarId),
+    /// A position or a derived index disagreed with the content: a bug of the model, reported
+    /// instead of panicking. Never expected.
+    Inconsistent,
 }
 
 impl fmt::Display for DocumentError {
@@ -267,6 +290,22 @@ impl fmt::Display for DocumentError {
             Self::MeterMap(e) => write!(f, "meter map: {e}"),
             Self::TempoMap(e) => write!(f, "tempo map: {e}"),
             Self::Invalid(v) => write!(f, "invalid document: {v}"),
+            Self::DuplicateObject(o) => write!(f, "{o:?} is already in use or was never issued"),
+            Self::UnknownObject(o) => write!(f, "the document has no {o:?}"),
+            Self::NotRemovable(o) => write!(f, "{o:?} cannot be removed, only set or moved"),
+            Self::TupletInUse(id) => write!(f, "tuplet {} is still in use", id.get()),
+            Self::PlaceOutOfOrder => f.write_str("that place would break the order of the chunk"),
+            Self::BarSpanMismatch => {
+                f.write_str("the meter data of the new bars covers another number of bars")
+            }
+            Self::BarsNotEmpty(id) => {
+                write!(
+                    f,
+                    "bar {} still holds something and cannot be removed",
+                    id.get()
+                )
+            }
+            Self::Inconsistent => f.write_str("the document is inconsistent (a bug of the model)"),
         }
     }
 }
@@ -322,12 +361,12 @@ impl From<NoteValueError> for DocumentError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Staff {
     /// The staff's identity.
-    id: StaffId,
+    pub(crate) id: StaffId,
     /// The clef at the start of the score. Part of the staff, so a staff without clef cannot
     /// exist (owner's decision of 2026-11-02).
-    initial_clef: Clef,
+    pub(crate) initial_clef: Clef,
     /// The clef changes after the start, sorted by (bar, offset).
-    clef_changes: MarkList<ClefId, Clef>,
+    pub(crate) clef_changes: MarkList<ClefId, Clef>,
 }
 
 impl Staff {
@@ -356,11 +395,11 @@ impl Staff {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Voice {
     /// The voice's identity.
-    id: VoiceId,
+    pub(crate) id: VoiceId,
     /// The staff its events are drawn on by default: always a staff of the same instrument.
-    home_staff: StaffId,
+    pub(crate) home_staff: StaffId,
     /// One chunk of events per bar, and the tuplet table.
-    content: VoiceContent,
+    pub(crate) content: VoiceContent,
 }
 
 impl Voice {
@@ -416,36 +455,36 @@ impl Voice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instrument {
     /// The instrument's identity.
-    id: InstrumentId,
+    pub(crate) id: InstrumentId,
     /// The name the user gave it ("Flute", "Clarinetto in Si♭ 1"…). It is the user's own text,
     /// not a Fluent key: it is shown as written, in whatever language the user wrote it. Default
     /// names in the interface language come with the interface (F2), not from the model.
-    name: String,
+    pub(crate) name: String,
     /// The interval from written to sounding pitch (ADR-0023 §7): a major second down for a B♭
     /// clarinet, a unison for a concert-pitch instrument. Pitches are stored at concert pitch and
     /// the written ones derived (ADR-0004), so this is the only place the transposition lives.
-    transposition: Interval,
+    pub(crate) transposition: Interval,
     /// The staves, top to bottom; between 1 and [`MAX_STAVES_PER_INSTRUMENT`].
-    staves: Vec<Staff>,
+    pub(crate) staves: Vec<Staff>,
     /// The voices, in creation order; between 1 and [`MAX_VOICES_PER_INSTRUMENT`]. Each home
     /// staff is one of `staves`.
-    voices: Vec<Voice>,
+    pub(crate) voices: Vec<Voice>,
     /// Where the instrument departs from the document's key (ADR-0024 §9, K1). Usually empty.
-    key_overrides: MarkList<KeyChangeId, KeyOverride>,
+    pub(crate) key_overrides: MarkList<KeyChangeId, KeyOverride>,
     /// The instrument's slurs, sorted by ID (ADR-0024 §7). IDs only grow, so a new slur is always
     /// appended at the end and the order is also the creation order: deterministic for the file
     /// writer, searchable in O(log s).
-    slurs: Vec<Slur>,
+    pub(crate) slurs: Vec<Slur>,
     /// The instrument's dynamics (ADR-0024 §8), sorted by point in score order and, at one point,
     /// by ID (creation order). A sorted vector: a few per bar at most, read in order by playback
     /// and layout; inserting is O(log d) to find the place and O(d) to shift.
-    dynamics: Vec<Dynamic>,
+    pub(crate) dynamics: Vec<Dynamic>,
     /// The instrument's hairpins (ADR-0024 §8), sorted like `dynamics` by their start point.
-    hairpins: Vec<Hairpin>,
+    pub(crate) hairpins: Vec<Hairpin>,
     /// The bar repeats (%) on the instrument's staves (ADR-0025 §6), sorted by first bar.
-    bar_repeats: Vec<BarRepeat>,
+    pub(crate) bar_repeats: Vec<BarRepeat>,
     /// The instrument's pass rules (ADR-0025 §7), sorted by start point.
-    pass_rules: Vec<PassRule>,
+    pub(crate) pass_rules: Vec<PassRule>,
 }
 
 impl Instrument {
@@ -533,9 +572,9 @@ impl Instrument {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Track {
     /// The track's identity.
-    id: TrackId,
+    pub(crate) id: TrackId,
     /// The instrument the track plays.
-    instrument: Instrument,
+    pub(crate) instrument: Instrument,
 }
 
 impl Track {
@@ -569,9 +608,9 @@ impl Track {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BarList {
     /// The bars in score order.
-    order: Vec<BarId>,
+    pub(crate) order: Vec<BarId>,
     /// The inverse of `order`: the index of each bar. Rebuilt when bars move.
-    index: IdMap<BarId, u32>,
+    pub(crate) index: IdMap<BarId, u32>,
 }
 
 impl BarList {
@@ -624,6 +663,47 @@ impl BarList {
         self.order.push(id);
         self.index.insert(id, index);
         Ok(())
+    }
+
+    /// Inserts `ids` before the bar at position `at` (`at == len` appends). The caller has
+    /// checked that the IDs are new and distinct. O(B) for B bars: the later bars move one place
+    /// each in `order`, and their entries in the inverse index are rewritten.
+    ///
+    /// # Errors
+    /// [`DocumentError::TooManyBars`] for an `at` past the end or a count that would no longer fit
+    /// a `u32`; the list is then unchanged.
+    pub(crate) fn insert(&mut self, at: usize, ids: &[BarId]) -> Result<(), DocumentError> {
+        let total = self.order.len().checked_add(ids.len());
+        // The count must fit a `u32` with the last index below `u32::MAX` (see `push`).
+        if at > self.order.len() || total.is_none_or(|n| u32::try_from(n).is_err()) {
+            return Err(DocumentError::TooManyBars);
+        }
+        self.order.splice(at..at, ids.iter().copied());
+        self.reindex_from(at);
+        Ok(())
+    }
+
+    /// Removes the `count` bars from position `at` on and returns their IDs in order. The caller
+    /// has checked that the range lies inside the list. O(B), as [`insert`](Self::insert).
+    pub(crate) fn remove(&mut self, at: usize, count: usize) -> Vec<BarId> {
+        let end = at.saturating_add(count).min(self.order.len());
+        let start = at.min(end);
+        let removed: Vec<BarId> = self.order.drain(start..end).collect();
+        for id in &removed {
+            self.index.remove(id);
+        }
+        self.reindex_from(start);
+        removed
+    }
+
+    /// Rewrites the inverse index of every bar from position `from` on. O(B − from).
+    fn reindex_from(&mut self, from: usize) {
+        for (i, id) in self.order.iter().enumerate().skip(from) {
+            // Every position fits a `u32`: `insert` and `push` keep the count within it.
+            if let Ok(index) = u32::try_from(i) {
+                self.index.insert(*id, index);
+            }
+        }
     }
 }
 
@@ -721,39 +801,159 @@ impl<'a> EventRef<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
     /// Where every ID of this document comes from (saved in the file, F1.15).
-    ids: IdCounter,
+    pub(crate) ids: IdCounter,
     /// The bar lengths, meters, beat groupings and numbering (ADR-0018, ADR-0019): the only place
     /// a bar's length is stored.
-    meter_map: MeterMap,
+    pub(crate) meter_map: MeterMap,
     /// The tempo changes on written positions (ADR-0020, ADR-0021): a **derived cache** of the
     /// tempo marks (ADR-0024 §11), rebuilt by `Document::derive_tempo_map` after every edit that
     /// touches them, never edited directly. Not saved (the file stores the marks).
-    tempo_map: TempoMap,
+    pub(crate) tempo_map: TempoMap,
     /// The tempo mark at the very start of the score, with its ID (ADR-0024 §11, E1): it always
     /// sets a tempo at once and cannot be removed.
-    initial_tempo: (TempoMarkId, TempoMark),
+    pub(crate) initial_tempo: (TempoMarkId, TempoMark),
     /// The tempo marks after the start, at (bar, offset) points.
-    tempo_marks: MarkList<TempoMarkId, TempoMark>,
+    pub(crate) tempo_marks: MarkList<TempoMarkId, TempoMark>,
     /// The form markings and the bar-numbering style (ADR-0025).
-    form: Form,
+    pub(crate) form: Form,
     /// The key at the start of the score, at concert pitch (ADR-0024 §9, K1).
-    initial_key: Key,
+    pub(crate) initial_key: Key,
     /// The key changes after the start, at concert pitch.
-    key_changes: MarkList<KeyChangeId, Key>,
+    pub(crate) key_changes: MarkList<KeyChangeId, Key>,
     /// Which bar is which (ADR-0022 §3).
-    bars: BarList,
+    pub(crate) bars: BarList,
     /// The tracks, top to bottom as the score lists them.
-    tracks: Vec<Track>,
+    pub(crate) tracks: Vec<Track>,
     /// Derived index (ADR-0022 §1): where each event is. Rebuilt at load, never saved.
-    events: IdMap<EventId, EventLocation>,
+    pub(crate) events: IdMap<EventId, EventLocation>,
     /// Derived index: which event each notehead belongs to.
-    notes: IdMap<NoteId, EventId>,
+    pub(crate) notes: IdMap<NoteId, EventId>,
     /// Derived index (ADR-0024 §7): the slurs that start or end on each event. Events touched by
     /// no slur have no entry. Rebuilt at load, never saved.
-    slur_index: IdMap<EventId, SlurRefs>,
+    pub(crate) slur_index: IdMap<EventId, SlurRefs>,
+    /// How many transactions, undos and redos have changed the document since it was built
+    /// (ADR-0026 §5): a background reader holding a snapshot compares it to know whether it is
+    /// stale, and the interface to know whether there are unsaved changes. Not saved.
+    pub(crate) revision: u64,
 }
 
 impl Document {
+    /// How many transactions, undos and redos have changed the document since it was built: 0
+    /// for a new document, one more after each change through the editor (ADR-0026 §5). O(1).
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Whether two documents hold the same music: equal in everything **except the ID counter
+    /// and the revision**, which only grow (ADR-0022 §1, ADR-0026 §2). Doing a transaction and
+    /// undoing it gives a document with the same content as before, and that is what this
+    /// compares; the derived indices are compared too, since they must be identical as well.
+    ///
+    /// O(size of the document); allocates nothing.
+    pub fn same_content(&self, other: &Self) -> bool {
+        // Destructuring both documents makes this method fail to compile when a field is added,
+        // so it can never silently forget one.
+        let Self {
+            ids: _,
+            revision: _,
+            meter_map,
+            tempo_map,
+            initial_tempo,
+            tempo_marks,
+            form,
+            initial_key,
+            key_changes,
+            bars,
+            tracks,
+            events,
+            notes,
+            slur_index,
+        } = self;
+        let Self {
+            ids: _,
+            revision: _,
+            meter_map: other_meter_map,
+            tempo_map: other_tempo_map,
+            initial_tempo: other_initial_tempo,
+            tempo_marks: other_tempo_marks,
+            form: other_form,
+            initial_key: other_initial_key,
+            key_changes: other_key_changes,
+            bars: other_bars,
+            tracks: other_tracks,
+            events: other_events,
+            notes: other_notes,
+            slur_index: other_slur_index,
+        } = other;
+        meter_map == other_meter_map
+            && tempo_map == other_tempo_map
+            && initial_tempo == other_initial_tempo
+            && tempo_marks == other_tempo_marks
+            && form == other_form
+            && initial_key == other_initial_key
+            && key_changes == other_key_changes
+            && bars == other_bars
+            && tracks == other_tracks
+            && events == other_events
+            && notes == other_notes
+            && slur_index == other_slur_index
+    }
+
+    /// Whether every derived index agrees with the content it is derived from (ADR-0022 §1,
+    /// ADR-0024 §7): the inverse of the bar list, the event → location and note → event indices,
+    /// the slur index, and one chunk per bar in every voice. The edits keep them up to date one
+    /// entry at a time; this rebuilds them from scratch and compares, so that the property tests
+    /// can check that no edit ever lets them drift (ADR-0026 §8).
+    ///
+    /// O(events + noteheads + slurs + bars); allocates the rebuilt indices.
+    pub fn indices_are_consistent(&self) -> bool {
+        let bars = self.bars.len();
+        let bar_index_ok = self.bars.index.len() == bars
+            && self
+                .bars
+                .order
+                .iter()
+                .enumerate()
+                .all(|(i, id)| self.bars.index_of(*id).map(|b| b.get() as usize) == Some(i));
+        let mut events: IdMap<EventId, EventLocation> = IdMap::default();
+        let mut notes: IdMap<NoteId, EventId> = IdMap::default();
+        let mut slurs: IdMap<EventId, SlurRefs> = IdMap::default();
+        let mut chunks_ok = true;
+        for instrument in self.instruments() {
+            for voice in &instrument.voices {
+                chunks_ok &= voice.content.chunks.len() == bars;
+                for (bar, chunk) in self.bars.order.iter().zip(&voice.content.chunks) {
+                    for placed in chunk.events() {
+                        let id = placed.event().id();
+                        events.insert(
+                            id,
+                            EventLocation {
+                                voice: voice.id,
+                                bar: *bar,
+                            },
+                        );
+                        for note in placed.event().chord().into_iter().flat_map(Chord::notes) {
+                            notes.insert(note.id(), id);
+                        }
+                    }
+                }
+            }
+            for slur in &instrument.slurs {
+                for end in [slur.start(), slur.end()] {
+                    slurs
+                        .entry(end)
+                        .and_modify(|refs| refs.insert(slur.id()))
+                        .or_insert_with(|| SlurRefs::one(slur.id()));
+                }
+            }
+        }
+        bar_index_ok
+            && chunks_ok
+            && events == self.events
+            && notes == self.notes
+            && slurs == self.slur_index
+    }
+
     /// The meter map: bar lengths, meters, beat groupings, numbering. O(1).
     pub const fn meter_map(&self) -> &MeterMap {
         &self.meter_map
@@ -1000,7 +1200,7 @@ impl Document {
             .find_map(|i| i.slur(id).map(|slur| (i, slur)))
     }
 
-    /// The slurs that start or end on this event, in the order they were added; empty if none
+    /// The slurs that start or end on this event, in ID order (creation order); empty if none
     /// does or the event does not exist (ADR-0024 §7). One hash lookup, O(1) on average; never
     /// allocates.
     ///
@@ -1209,6 +1409,7 @@ impl DocumentBuilder {
                 events: IdMap::default(),
                 notes: IdMap::default(),
                 slur_index: IdMap::default(),
+                revision: 0,
             },
         })
     }
@@ -1659,7 +1860,7 @@ impl DocumentBuilder {
         for event in [start, end] {
             slur_index
                 .entry(event)
-                .and_modify(|refs| refs.push(id))
+                .and_modify(|refs| refs.insert(id))
                 .or_insert_with(|| SlurRefs::one(id));
         }
         Ok(id)

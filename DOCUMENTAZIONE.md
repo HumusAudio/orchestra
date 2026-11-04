@@ -547,6 +547,46 @@ edit_meter_change 97488 for one edit (clone, rebuild, validation)
 Gran parte del costo è l'aritmetica razionale esatta (i massimi comun divisori), non la ricerca.
 Una ricerca da circa mille istruzioni sta ben sotto il microsecondo sull'hardware di riferimento.
 
+#### Inserire e cancellare battute
+
+I comandi di F1.11b inseriscono e cancellano battute (ADR-0022 §8, ADR-0026 §1), quindi la mappa
+delle misure ha due operazioni che sono l'una l'**inversa esatta** dell'altra.
+`insert_bars(at, &span)` inserisce le battute di un `BarSpan` prima della battuta `at` e sposta in
+avanti di altrettante battute ogni voce dei dati di origine da `at` in poi; `remove_bars(at, count)`
+toglie `count` battute, restituisce ciò che portavano (cambi di metro, battute in levare,
+suddivisioni, battute non contate, ripartenze della numerazione, a indici relativi allo span) e
+riporta indietro le voci successive. Reinserire lo span restituito ridà la stessa identica mappa,
+che è ciò che serve all'undo.
+
+```rust
+let mut map = MeterMap::new(MeterChange::new(Meter::new(&[4], 4)?))?;
+map.set_meter_change(BarIndex::new(4), MeterChange::new(Meter::new(&[3], 4)?))?;
+// Two empty 4/4 bars before bar 2: the 3/4 moves to bar 6, still on the same written bar.
+map.insert_bars(BarIndex::new(2), &BarSpan::empty(2))?;
+// Taking them out again returns what they carried (nothing) and gives back the same map.
+let span = map.remove_bars(BarIndex::new(2), 2)?;
+assert!(span.has_no_entries());
+```
+
+Le battute nuove sono esattamente ciò che dice lo span: con `BarSpan::empty(n)` seguono il metro in
+vigore subito prima di `at`, e una voce che stava in `at` si sposta con la sua battuta. Inserire alla
+battuta 0 sposta anche il cambio di metro della battuta 0, quindi lo span deve portarne uno suo (la
+mappa ne vuole sempre uno alla battuta 0); togliere battute può far sparire il cambio di metro che
+era in vigore dopo di loro. Decidere che cosa deve conservare la musica che resta è compito del
+comando del documento (ADR-0026 §6), non della mappa. Entrambe le operazioni sono tutto-o-niente e
+costano O(n log n) nelle voci dei dati di origine, qualunque sia il numero di battute.
+
+**Test** (`tests/meter_map_bars.rs`): otto casi scritti a mano (le battute nuove seguono il metro in
+vigore, una voce nel punto d'inserimento si sposta con la sua battuta, inserire all'inizio richiede un
+metro, una voce fuori dal suo span è rifiutata, le voci tolte se ne vanno con le loro battute,
+togliere l'inizio richiede un metro dopo, oltre l'ultima battuta, zero battute) e due test di
+proprietà contro un oracolo che sposta le voci una per una in `BTreeMap`, controllando che le battute
+prima del punto di modifica non si muovano e che ogni operazione annulli l'altra. Due bug iniettati
+(una voce nel punto d'inserimento lasciata indietro; le voci dopo una rimozione non riportate
+indietro) sono stati presi. **Benchmark** (stesso file delle ricerche): inserire quattro battute a
+metà della mappa di riferimento ≈ 95 000 istruzioni, toglierne quattro ≈ 94 700, circa quanto un
+cambio di metro.
+
 #### Tempo, secondi, campioni e fotogrammi
 
 `src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che usa la mappa dei tempi
@@ -1396,6 +1436,88 @@ quando uno strumento ha regole di passaggio).
 Fine al passaggio 2 in ognuna delle 50 sezioni ≈ 933 000 istruzioni, circa 15 000 per salto per la
 ricerca della sezione su una partitura molto oltre quelle reali; erano ≈ 1,96 milioni prima che la
 ricerca si fermasse alla prima sezione dopo la battuta e calcolasse le esecuzioni una volta sola.
+
+#### Modifiche, transazioni e undo
+
+Dalla prima parte di F1.11b un documento esistente cambia solo attraverso un **`Editor`**
+(ADR-0003 §4, ADR-0026): il documento, la sua unica cronologia di undo e la transazione in corso.
+Quattro moduli nuovi:
+
+- `edit`: le **modifiche elementari**, tre verbi su un unico enum di tipi di oggetto più le
+  operazioni sulle battute e sul metro e i valori che il documento ha una volta sola:
+
+  ```text
+  Edit = Insert(Object) | Remove(ObjectRef) | Replace(Object)
+       | InsertBars { at, ids, meter } | RemoveBars { at, count }
+       | Meter(MeterEdit) | SetInitial(Initial)
+  ```
+
+  Applicare una modifica (`Document::apply_edit`, interna al crate) restituisce la sua **inversa
+  esatta**: un `Insert` dà il `Remove` dello stesso ID, un `Remove` l'`Insert` dell'oggetto intero
+  con il suo posto esatto, un `Replace` un `Replace` con il contenuto vecchio, `InsertBars` dà
+  `RemoveBars` e viceversa. L'undo applica le inverse in ordine contrario, e ciò che restituisce è
+  esattamente il redo.
+- `change`: l'**insieme delle modifiche** (`ChangeSet`) che ogni transazione, undo e redo
+  restituisce: le celle (voce, battuta) i cui eventi sono cambiati, gli oggetti inseriti, tolti e
+  sostituiti (battute comprese), la prima battuta da cui la mappa delle misure può rispondere
+  diversamente, la prima posizione da cui la mappa dei tempi è diversa, e se la forma è cambiata.
+  Ogni modifica registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
+  si ordinano e si ripuliscono dai doppioni una volta sola alla fine.
+- `editor`: `Editor::transact` esegue una chiusura come **una transazione = un passo di undo**; se
+  la chiusura restituisce un errore, ogni modifica che ha applicato viene annullata. La mappa dei
+  tempi si ricava di nuovo una volta sola, alla fine, e solo se è cambiata un'indicazione di tempo o
+  l'inizio di una battuta; se fallisce, anche la transazione viene annullata. La cronologia è
+  **lineare** e limitata in **memoria** (`DEFAULT_HISTORY_LIMIT`, 128 MB, l'ultimo passo sempre
+  tenuto), e il documento ha ora un numero di **revisione**.
+- `editor_tests` (solo test, vedi sotto).
+
+```rust
+let mut editor = Editor::new(document);
+// One transaction = one step of undo. `?` on a refused edit reverts the whole transaction.
+let changes = editor.transact(|tx| {
+    tx.apply(Edit::Remove(ObjectRef::Event(grace)))?;
+    tx.apply(Edit::Remove(ObjectRef::Slur(slur)))
+})?;
+assert_eq!(changes.removed().len(), 2);
+editor.undo()?;   // both come back, with the same IDs and in the same places
+editor.redo()?;   // and go again
+```
+
+**Che cosa controlla una modifica.** La struttura: il contenitore giusto, elenchi ordinati, indici
+derivati allineati, ID unici e già distribuiti dal contatore (un ID non ancora distribuito
+entrerebbe in collisione con un oggetto futuro). Gli invarianti musicali (niente sovrapposizioni in
+una voce, legature di valore alla stessa altezza, una forma valida) sono compito dei comandi, nella
+seconda parte. Ne segue una regola: **un inserimento controlla solo ciò che nessun'altra modifica
+può togliere**. Le battute si possono togliere solo quando nulla vi fa riferimento
+(`BarsNotEmpty`), i gruppi irregolari solo quando nessun evento li usa (`TupletInUse`); una legatura
+di portamento invece non controlla che i suoi eventi esistano, né un salto che esistano i suoi segni,
+perché una modifica successiva della stessa transazione può averli tolti, e allora l'undo
+fallirebbe.
+
+**Ordini che non dipendono dalla storia.** Dove un elenco può avere più oggetti nello stesso punto
+(dinamiche, forcelle, volte, ripetizioni di battuta, regole di passaggio) sono ordinati per (punto,
+ID), e l'indice "legature su un evento" per ID: togliere un oggetto e reinserirlo dà un elenco
+identico. Gli eventi sono l'eccezione, perché nello stesso (offset, slot) il loro ordine è musicale
+(abbellimenti in fila): un evento tolto ricorda il suo posto nel blocco (`Chunk::remove` e
+`Chunk::insert_at`). Un blocco svuotato torna a "nessuna allocazione", quindi risulta uguale a un
+blocco che non ha mai contenuto nulla. `Document::same_content` confronta due documenti ignorando il
+contatore degli ID e la revisione, che crescono soltanto; `Document::indices_are_consistent`
+ricostruisce ogni indice derivato e confronta.
+
+**Test** (`src/editor_tests.rs`, dentro il crate perché i costruttori degli oggetti sono interni):
+nove casi scritti a mano (abbellimenti di nuovo nel loro ordine dopo un undo, una transazione fallita,
+una transazione vuota, gli insiemi delle modifiche delle due mappe, battute occupate, ID mai
+distribuiti, la cronologia limitata e lineare, rifiuti strutturali) e un test di proprietà: un
+documento ricco (ogni tipo di oggetto) riceve transazioni casuali di modifiche casuali, molte
+rifiutate, alternate a undo e redo, contro un modello fatto di una fotografia per ogni passo della
+cronologia; dopo ogni passo gli indici devono coincidere con una ricostruzione da zero e la mappa
+dei tempi con le indicazioni. Il test ha scoperto subito che una transazione può fallire anche alla
+fine, quando un'indicazione di tempo spostata finisce dentro un cambio graduale: ora il modello lo
+prevede. Cinque bug iniettati (undo nell'ordine sbagliato, indice delle teste di nota lasciato
+indietro da una sostituzione, voce dell'indice delle legature lasciata indietro, nessun blocco per
+le battute nuove, un evento tolto che dimentica il suo posto) sono stati tutti presi; il secondo solo
+dopo che il generatore ha imparato a cambiare le teste di nota di un accordo. I benchmark dell'editor
+arrivano con i comandi (seconda parte).
 
 ### orchestra-playback
 

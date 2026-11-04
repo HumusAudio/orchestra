@@ -25,7 +25,7 @@
 //! bits the counter cannot run out in practice (a billion new objects per second for 584 years),
 //! but exhaustion is still a typed error, never a wrap-around that would reuse an ID.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::num::NonZeroU64;
 
@@ -83,6 +83,14 @@ impl IdCounter {
     /// taken only if it stays, so that a rejected edit never consumes one.
     pub(crate) const fn peek(&self) -> Option<NonZeroU64> {
         self.next
+    }
+
+    /// Whether the counter has already handed out the raw ID `raw`: it is below the next value
+    /// (or the counter is exhausted, having handed out everything). An edit refuses to insert an
+    /// object with an ID not handed out yet, which a later object would receive again
+    /// (ADR-0022 §1, ADR-0026 §1). O(1).
+    pub(crate) fn has_issued(&self, raw: u64) -> bool {
+        raw != 0 && self.next.is_none_or(|next| raw < next.get())
     }
 
     /// Hands out the next ID, or `None` if the counter is exhausted. O(1).
@@ -265,6 +273,9 @@ impl Hasher for IdHasher {
 
 /// A hash map keyed by IDs, with [`IdHasher`]. Lookups and insertions are O(1) on average.
 pub(crate) type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
+
+/// A hash set of IDs, with [`IdHasher`]. Membership tests are O(1) on average.
+pub(crate) type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
 
 #[cfg(test)]
 mod tests {

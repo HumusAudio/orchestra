@@ -107,9 +107,9 @@ impl Slur {
 pub(crate) enum SlurRefs {
     /// One slur.
     One([SlurId; 1]),
-    /// Two slurs, in the order they were added.
+    /// Two slurs, in ID order.
     Two([SlurId; 2]),
-    /// Three or more, in the order they were added.
+    /// Three or more, in ID order.
     Many(Box<[SlurId]>),
 }
 
@@ -119,7 +119,7 @@ impl SlurRefs {
         Self::One([slur])
     }
 
-    /// The slurs, in the order they were added. O(1); never allocates.
+    /// The slurs, in ID order (creation order). O(1); never allocates.
     pub(crate) fn as_slice(&self) -> &[SlurId] {
         match self {
             Self::One(ids) => ids,
@@ -128,14 +128,48 @@ impl SlurRefs {
         }
     }
 
-    /// Adds a slur at the end. O(1) up to two slurs; O(n) and one allocation from the third on
-    /// (the boxed slice is rebuilt: such events are rare, and a slice is half the size of a
-    /// `Vec` for the common entries).
-    pub(crate) fn push(&mut self, slur: SlurId) {
-        *self = match self {
-            Self::One([a]) => Self::Two([*a, slur]),
-            Self::Two([a, b]) => Self::Many(Box::new([*a, *b, slur])),
-            Self::Many(ids) => Self::Many(ids.iter().copied().chain([slur]).collect()),
+    /// Adds a slur in ID order (which is creation order: IDs only grow, so the builder always
+    /// appends). Keeping the entry sorted by ID rather than by the order of the edits makes it a
+    /// pure function of the slurs, so that undoing and redoing edits gives back an identical
+    /// index (ADR-0026 §8). A slur already in the entry is not added twice. O(1) up to two slurs;
+    /// O(n) and one allocation from the third on (the boxed slice is rebuilt: such events are
+    /// rare, and a slice is half the size of a `Vec` for the common entries).
+    pub(crate) fn insert(&mut self, slur: SlurId) {
+        let ids = self.as_slice();
+        let Err(at) = ids.binary_search(&slur) else {
+            return;
         };
+        let (before, after) = ids.split_at(at);
+        let merged: Vec<SlurId> = before.iter().chain([&slur]).chain(after).copied().collect();
+        *self = Self::from_sorted(&merged).unwrap_or(Self::one(slur));
+    }
+
+    /// Removes a slur from the entry. Returns `false` if the entry is left empty (the caller then
+    /// drops it from the index, so that no empty entry ever exists). O(n) for n slurs in the entry.
+    pub(crate) fn remove(&mut self, slur: SlurId) -> bool {
+        let kept: Vec<SlurId> = self
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|&s| s != slur)
+            .collect();
+        match Self::from_sorted(&kept) {
+            Some(refs) => {
+                *self = refs;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The entry for these IDs (already sorted), or `None` for no IDs. O(n); allocates only from
+    /// three IDs on.
+    fn from_sorted(ids: &[SlurId]) -> Option<Self> {
+        match ids {
+            [] => None,
+            [a] => Some(Self::One([*a])),
+            [a, b] => Some(Self::Two([*a, *b])),
+            many => Some(Self::Many(many.into())),
+        }
     }
 }
