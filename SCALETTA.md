@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.22, approvata dal proprietario il 2026-11-04.**
+> **Stato di questo documento: v0.23, approvata dal proprietario il 2026-11-04.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -247,7 +247,7 @@ Dettagli:
 | F1.10 | **ADR della forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ✅ ADR-0025 | 1 |
 | F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
 | F1.11 | **ADR dei comandi, dell'undo/redo unico e delle notifiche di modifica a grana fine** | ✅ ADR-0026 | 1 |
-| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | 🔄 parte 1 fatta | 2–3 |
+| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | 🔄 parti 1 e 2a fatte | 2–3 |
 | F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | ⬜ | 1–2 |
 
 Dettagli:
@@ -366,9 +366,28 @@ Dettagli:
   giorno: `Edit`, `Object` e `Transaction::apply` pubblici (chi usa le modifiche elementari a mano
   risponde delle regole musicali); `Transaction::new_id` restituisce un `NonZeroU64` (i costruttori
   degli ID tipizzati restano interni); i test dell'editor dentro il crate (`src/editor_tests.rs`).
-  La modifica in blocco della mappa dei metri passa a F1.11c, l'unico che la usa. **Parte 2:** gesti,
-  comandi, `validate` dopo ogni comando nei test di proprietà, benchmark dell'editor (spostati dalla
-  parte 1) e memoria per passo, PR.
+  La modifica in blocco della mappa dei metri passa a F1.11c, l'unico che la usa. La parte 2 è
+  divisa in 2a e 2b (proprietario, 2026-11-04).
+  **Parte 2a fatta il 2026-11-04:** prima di scrivere il codice il proprietario ha approvato le
+  precisazioni V1–V9 e W1–W6, ora ADR-0026 §11: si inserisce solo nello spazio libero; oltre la
+  stanghetta una catena di note legate scritta con le figure più lunghe per prime; una nota di
+  gruppo irregolare a cavallo della stanghetta è rifiutata fino a F1.11c; la battuta libera si
+  allunga; cancellare lascia un buco e porta via abbellimenti, legature di portamento e gruppi
+  irregolari vuoti; spostare non divide mai; una nuova altezza segue la catena di note legate; niente
+  oltre l'ultima battuta; cancellare battute accorcia i cambi di tempo graduali, porta il tempo come
+  indicazione immediata e cancella in cascata la forma resa non valida; niente inserimenti fra
+  l'origine e la fine di una ripetizione di battuta. Se si cancellano le prime battute nel mezzo di
+  un cambio graduale, la partitura parte dal suo **tempo d'arrivo** (scelta del proprietario: così
+  dalla fine del cambio in poi la musica suona come prima). Implementati i comandi (`Command`),
+  `Transaction::execute` ed `Editor::execute` con comandi atomici, i gesti con la compattazione e la
+  mappa dei tempi ricalcolata dal vivo, la verifica locale sulle celle toccate (`check_cells`) con un
+  indice inverso delle legature di valore; 19 casi scritti a mano e un test di proprietà con il
+  `validate` completo dopo ogni comando (sette bug iniettati presi).
+  **Parte 2b:** i comandi su marcature e forma (aggiungere, spostare e togliere ogni indicazione,
+  dinamica, forcella, legatura di portamento, gruppo irregolare e marcatura di forma, lasciando la
+  forma valida), i benchmark dell'editor sulla partitura normale e pesante (una nota ≤ 1 ms,
+  l'annullamento di un incolla di 200 note, inserire e cancellare una battuta, un gesto di 1 000
+  passi) e la memoria per passo della cronologia, poi la PR con ADR-0026 e tutto F1.11b.
 - **F1.11c** Implementa ADR-0026 §7: `Rewrite` (catene di note legate, battuta irregolare finale,
   divisione delle battute sotto le marcature di forma, pause di battuta intera) e `KeepBars`, con
   casi scritti a mano, test di proprietà e benchmark; le regole di §7 si possono precisare con
@@ -679,3 +698,4 @@ raccomandato.
 | 2026-11-03 | 0.20 | F1.10b fatto (PR #18): ritornelli, volte, stile di numerazione, segni e salti, ripetizioni di battuta, regole di passaggio; ADR-0025 corretto (§3) e precisato (§8); F1-B resta con F1.11 | proprietario |
 | 2026-11-04 | 0.21 | F1.11 fatto (ADR-0026 Accepted), D08 e D21 chiuse; F1.11 diviso in F1.11b (il motore dei comandi) e F1.11c (il cambio di metro) | proprietario |
 | 2026-11-04 | 0.22 | F1.11b in corso, parte 1 fatta (modifiche elementari, editor, cronologia); confermate le scelte d'interfaccia; benchmark dell'editor spostati nella parte 2, modifica in blocco della mappa dei metri in F1.11c | proprietario |
+| 2026-11-04 | 0.23 | F1.11b: parte 2 divisa in 2a e 2b, parte 2a fatta (comandi su eventi e battute, gesti, verifica locale); precisazioni V1–V9 e W1–W6 in ADR-0026 §11, con la partenza dal tempo d'arrivo per un cambio graduale tagliato all'inizio; parte 2b definita | proprietario |
