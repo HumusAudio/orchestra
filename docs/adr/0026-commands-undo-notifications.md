@@ -1,6 +1,8 @@
 # ADR-0026 — Commands, one undo history, fine-grained change notifications
 
-- **Status:** Proposed (draft for the owner, 2026-11-04; SCALETTA F1.11, decisions D08 and D21)
+- **Status:** Accepted (owner's decision, 2026-11-04; SCALETTA F1.11, decisions D08 and D21).
+  The owner approved every recommendation of §10 (U1–U11) as written, and the split of the step
+  into F1.11b and F1.11c (Consequences).
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with

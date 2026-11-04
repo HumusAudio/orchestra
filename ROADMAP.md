@@ -248,8 +248,25 @@ oracle for rules 10–11 (the first generator gave 109 valid cases out of 1 024;
 third; ten injected bugs caught, eight by the oracle), allocation-free reads. Benchmarks:
 `validate` with 50 jumps ≈ 933 000 instructions (≈ 15 000 per jump on an extreme score, from
 ≈ 1.96 M before the lookup was improved); every existing benchmark within ±0.5% of `main`.
-PR #18 (F1.10, F1.10b) with SCALETTA v0.20. **Next:** F1.11 (commands, unified undo/redo,
-change notifications), the last step of F1-B.
+PR #18 (F1.10, F1.10b) with SCALETTA v0.20; merged on 2026-11-04, after a re-run of the macOS
+job (three runs in a row had been cancelled after 15 minutes without ever getting a runner: a
+GitHub queue problem, not the code). Step **F1.11** (`feature/f1-11-commands`, 2026-11-04):
+**ADR-0026** (Accepted by the owner, every recommendation U1–U11 approved, D08 and D21 closed):
+primitive edits (`Insert`/`Remove`/`Replace` over one enum of object kinds, plus bar and meter
+edits) that return their exact inverse, commands as data expanding into them, all-or-nothing
+transactions with the derived data (tempo map, indices) updated once at the end, a **linear
+history bounded by memory** (128 MB by default, the last step always kept, not saved in the file),
+explicit **gestures** with compaction for drags, a **change set** returned by every transaction,
+undo and redo plus a document revision number; rules for inserting bars (new bars take what is in
+force before them, refused inside a bar repeat) and deleting them (state marks carried to the next
+bar, dynamics deleted, ranges clipped, invalid form markings deleted in cascade, at least one bar
+left); a **meter change rewrites the music by default** up to the next meter change (music stays
+in time, barlines move, notes split into tie chains, an irregular last bar so nothing after moves,
+form markings inside a bar split it), with `KeepBars` as an explicit mode. Sources: Dorico, MuseScore,
+Sibelius (a course summary only), Logic, Cubase/Nuendo. SCALETTA v0.21 splits the step: **Next:**
+F1.11b (the engine — edits, transactions, editor, history, gestures, change sets, the `core-time`
+bar insertion/deletion and bulk edits — and the commands on events, marks, form markings and
+bars), then F1.11c (the meter change in both modes).
 
 | Step | What | Status |
 |---|---|---|
@@ -312,9 +329,7 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   conversion uses 12-TET as the reference (ADR-0023 §3).
 - **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
   window, whatever its signature; to revisit if open signatures with accidentals turn out common.
-- **D21, for F1.11:** the default behaviour of a meter change (keep the bars' contents, or rewrite
-  the music up to the next meter change); both are cheap with ADR-0022's storage.
-- **`core-time` work required by ADR-0022 §8, with the first command that needs it:** inserting and
+- **`core-time` work required by ADR-0022 §8, in F1.11b (ADR-0026):** inserting and
   deleting bars in the meter map, and a bulk edit on both maps (shifting t tempo changes is now t
   rebuilds, O(t²)).
 - **Possible model optimisations, not urgent (F1.06 numbers):** a whole-score iteration with
