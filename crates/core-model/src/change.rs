@@ -21,7 +21,7 @@
 use orchestra_core_time::{BarIndex, Position};
 
 use crate::edit::ObjectRef;
-use crate::id::{BarId, VoiceId};
+use crate::id::{BarId, NoteId, VoiceId};
 
 /// What one transaction (or one undo, or one redo) changed in the document (ADR-0026 §5).
 ///
@@ -51,6 +51,12 @@ pub struct ChangeSet {
     /// Whether the tempo map must be derived again when the transaction ends: a tempo mark changed,
     /// or bars moved. Internal bookkeeping of the editor, not part of what consumers read.
     pub(crate) tempo_dirty: bool,
+    /// The noteheads that left the document: those of removed events, and those a replacement
+    /// dropped from a chord. Internal bookkeeping too: the local check of the commands
+    /// (`Document::check_cells`) looks at them to find ties still leading into a note that is
+    /// gone. A notehead put back later in the same transaction is listed anyway; the check skips
+    /// the ones that exist.
+    pub(crate) notes_gone: Vec<NoteId>,
 }
 
 impl ChangeSet {
@@ -176,6 +182,21 @@ impl ChangeSet {
         }
         self.form |= other.form;
         self.tempo_dirty |= other.tempo_dirty;
+        self.notes_gone.extend(other.notes_gone);
+    }
+
+    /// Adds everything `other` changed, its object lists included: used to sum the change sets of
+    /// the live updates of a gesture into the one its end reports (ADR-0026 §4). The earliest
+    /// position of the tempo map is the earlier of the two. O(entries of `other`); call
+    /// [`finish`](Self::finish) afterwards to tidy the lists.
+    pub(crate) fn absorb(&mut self, other: Self) {
+        self.inserted.extend_from_slice(&other.inserted);
+        self.removed.extend_from_slice(&other.removed);
+        self.replaced.extend_from_slice(&other.replaced);
+        if let Some(from) = other.tempo_from {
+            self.tempo_from = Some(self.tempo_from.map_or(from, |mine| mine.min(from)));
+        }
+        self.absorb_effects(other);
     }
 
     /// Sorts and deduplicates every list, once the transaction is over. O(e log e).
@@ -189,5 +210,6 @@ impl ChangeSet {
         tidy(&mut self.inserted);
         tidy(&mut self.removed);
         tidy(&mut self.replaced);
+        tidy(&mut self.notes_gone);
     }
 }

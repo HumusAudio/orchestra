@@ -1424,7 +1424,100 @@ at once that a transaction may also fail at the end, when a moved tempo mark lan
 change: the model now expects that. Five injected bugs (undo in the wrong order, notehead index left
 behind by a replacement, slur index entry left behind, no chunks for new bars, a removed event
 forgetting its place) were all caught; the second one only after the generator learned to change
-the noteheads of a chord. The benchmarks of the editor come with the commands (part 2).
+the noteheads of a chord. The benchmarks of the editor come with part 2b.
+
+#### Commands, gestures and the local check
+
+Since F1.11b part 2a the document is changed with **commands** (module `command`, ADR-0026 §1, §4,
+§6 and the precisions of §11): a `Command` says *what* the user wants, as data, and expands into
+primitive edits inside a transaction. The history keeps the edits' inverses, never the command, so
+redo never runs a command again and never hands out new IDs.
+
+```rust
+let mut editor = Editor::new(document);
+// One command = one step of undo.
+let changes = editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(flute, bar_4, quarter * 3),
+    body: NewBody::Chord { value: dotted_half, pitches: vec![g4], grace: None },
+}))?;
+// A dotted half from the last beat of a 4/4 bar: a quarter tied to a half in the next bar.
+// Several commands in one step (a paste):
+editor.transact(|tx| {
+    tx.execute(&Command::DeleteEvent(a))?;
+    tx.execute(&Command::DeleteEvent(b))
+})?;
+```
+
+The commands of part 2a:
+
+- `EnterEvent(NewEvent)`: a chord, a grace chord or a rest, **only into free space** (V2: over
+  another event it is refused). Across a barline it becomes a **tie chain** (V3): cut at every
+  barline, each part written with the longest values first (at most two dots: five eighths are a
+  half and an eighth), the noteheads of a chord tied pitch by pitch; a rest becomes several rests.
+  Past the end of a **free** bar the bar grows instead (V5). Refused: a tuplet note across a
+  barline (V4, it comes with F1.11c), past the last bar (W3), a length no value can write
+  (`NotWritable`).
+- `DeleteEvent(EventId)`: leaves a **gap** (V6: no rest is written, engraving fills it, like
+  Dorico's implicit rests), and takes along the grace notes ornamenting the event, the slurs on it
+  and the tuplets left empty; the ties leading into it become `Tie::None`.
+- `ChangeEvent { event, change }`: one aspect per `EventChange` variant (move, value, pitch, add or
+  remove a notehead, tie, articulations, ornament, fermata, arpeggio, performance offsets, staff).
+  A move takes the grace notes along and **never splits** (W1: past the barline the bar becomes
+  overfull, a valid state); a new pitch changes the **whole tie chain** (W2); removing the last
+  notehead deletes the event.
+- `InsertBars { at, count }`: empty bars with the meter, clef, key and tempo in force before them;
+  ranges spanning the point grow. Refused from the first bar of a bar repeat's source to its end
+  (W6).
+- `DeleteBars { at, count }`: the events go (as `DeleteEvent`), the dynamics too; the meter, clef,
+  key and tempo last in force inside the run move to the first bar after it (at the start of the
+  score they become the initial values); hairpins, pass rules, voltas, bar repeats and gradual
+  tempo changes are **clipped** (W4); then a **cascade** (W5) runs the form checks of `validate`
+  again and deletes the marking each one reports, until the form is valid. At least one bar stays.
+
+**Atomic commands.** A command that fails is reverted at once, even inside a larger transaction:
+the editor remembers where its edits began and applies their inverses (`Editor::execute_open`).
+
+**The local check** (`Document::check_cells`, in `validate.rs`). The event commands do not check
+the musical rules one by one: they emit their edits and then the editor runs, **only on the cells
+(voice, bar) the command touched**, the rules of `validate` a change of events can break: no
+overlap, a whole-bar rest alone, grace notes with their main event, the ties starting there and
+those **arriving** there, the slurs on those events, no event under a bar repeat. That is why
+entering a note over another one fails with `Violation::Overlap`. To find the arriving ties
+without scanning the instrument, the document gains a derived **backward tie index**
+(`tie_index`, target → sources, with `Document::ties_into`), kept up to date by every edit like
+the slur index. Its entries are an `IdRefs<T>`, the small sorted set (two IDs inline) that the
+slur index already used, now generic in `id.rs`. To check the per-chunk rules, `validate` was split:
+`check_chunk` checks one cell, and `validate` calls it for every cell.
+
+**Gestures** (a drag, ADR-0026 §4):
+
+```rust
+editor.begin_gesture()?;
+for offset in mouse_positions {
+    // Each update is applied live and returns its own change set, for the views.
+    let live = editor.update_gesture(&Command::ChangeEvent {
+        event: note,
+        change: EventChange::Move { bar, offset },
+    })?;
+}
+editor.end_gesture()?;     // the whole drag is one step of undo
+// or: editor.cancel_gesture()?;  (Esc) back to the state before the drag
+```
+
+While a gesture is open `transact`, `execute`, `undo` and `redo` are refused with
+`CommandError::GestureOpen`. **Compaction:** the inverse of a `Replace` of an object already
+replaced in the same gesture is dropped, so a 200-update drag keeps one old value (measured: under
+1 KB of history). A refused update is reverted alone and the gesture stays open; the tempo map is
+derived again after every update that moves it.
+
+**Tests** (`src/command_tests.rs`): eighteen hand-written cases, one per rule above, and a property
+test: random sequences of random commands on the rich document of `editor_tests`, with undos and
+redos; after **every** command the full `validate` must pass and the indices agree with a rebuild,
+a refused command must change nothing, and undoing everything must give back the original. In
+one run (proptest picks new cases each time): 892 commands carried out and 332 refused, with 13
+different kinds of refusal. Six injected bugs (ties into a deleted note not cleared, no compaction, clef not carried,
+no cascade, the local check skipping slurs or arriving ties, grace notes not deleted) were all
+caught.
 
 ### orchestra-playback
 

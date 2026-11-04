@@ -3,6 +3,7 @@
 - **Status:** Accepted (owner's decision, 2026-11-04; SCALETTA F1.11, decisions D08 and D21).
   The owner approved every recommendation of §10 (U1–U11) as written, and the split of the step
   into F1.11b and F1.11c (Consequences).
+  The precisions of §11 (V1–V9, W1–W6) were approved on 2026-11-04, while implementing F1.11b.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with
@@ -271,6 +272,29 @@ voice) arrive with the first interface that needs them (F2), using the same mech
 | U9 | Form markings inside a rewritten region | **split the bar there into irregular bars**; stop the region at the first form marking; refuse the change | **Split**: the form and the played path stay exactly as they were, with the representation ADR-0025 §1 already uses |
 | U10 | Marks inside deleted bars | **state marks (meter, clef, key, tempo) carried to the next bar, dynamics deleted**; delete all; carry all | **The first**: the remaining music keeps its meaning (pitches, meter, tempo); a dynamic belongs to the deleted music |
 | U11 | Form markings made invalid by a deletion | **cascade (delete them too, report them)**; refuse the deletion | **Cascade**: the deletion is one undo step, so nothing is lost; refusing would make the user hunt for the markings first |
+
+### 11. Precisions made while implementing F1.11b (owner, 2026-11-04)
+
+Approved by the owner before the code of F1.11b part 2a was written, as §7 allows for the meter
+change. They make §1, §4 and §6 precise; none of them changes a decision above.
+
+| # | Precision |
+|---|---|
+| V1 | Commands are a `Command` enum (data), run by `Transaction::execute` inside a transaction (several commands may share one) or by `Editor::execute` in a transaction of their own. They report through the `ChangeSet`, which already names the new IDs. |
+| V2 | An event is entered **only into free space**: over another event of the voice it is refused (the local check reports `Violation::Overlap`). Overwriting, as step input does in Dorico and MuseScore, will be a composed command of F2.22 ("delete the range, then enter"). |
+| V3 | An event entered across a barline becomes a **tie chain**: it is cut at every barline, each part is written with the longest values first (at most two dots), and the noteheads of a chord are tied pitch by pitch. A rest becomes several rests, not tied. |
+| V4 | A tuplet note that would cross a barline is **refused** for now: the split inside a tuplet belongs to the rewrite of §7 (F1.11c) and will be reused here. |
+| V5 | An event entered past the end of a **free** bar lengthens the bar (ADR-0022 §4) in the same transaction; in any other bar it is split (V3). |
+| V6 | Deleting an event leaves a **gap** (no rest is written: the model allows gaps, and filling them is engraving's job, as Dorico's implicit rests); the slurs on it, the ties leading into it (set to none), the tuplets left without members and the **grace notes that ornament it** go with it. Removing the last notehead of a chord deletes the event. |
+| V7 | Changing an event is one command with one aspect per variant (move, value, pitch, add or remove a notehead, tie, articulations, ornament, fermata, arpeggio, performance offsets, staff); a drag sends it inside a gesture. |
+| V8 | The musical rules after an event command are checked by a **local check** on the cells (voice, bar) it touched, using a backward tie index (target → sources, §2's "tie indices") and the slur index; never the whole score. The property tests run the full `validate` after every command. |
+| V9 | Gestures as in §4, with the per-update rollback: a refused update is reverted alone and the gesture stays open; the tempo map is derived again after each update that needs it. |
+| W1 | Moving an event **never splits it**: past the barline the bar becomes overfull, a valid state. Splitting at every step of a drag would create new IDs at every mouse movement and defeat the compaction. |
+| W2 | A new pitch on a tied note changes the **whole tie chain**, forward and backward, as MuseScore and Dorico do. |
+| W3 | An event that would reach past the last bar is **refused**; step input may add bars and enter the note in one transaction. |
+| W4 | Deleting bars **clips** gradual tempo changes like hairpins (the end inside the run moves to the cut point). If the tempo last in force inside the run comes from a gradual change ending inside it, it arrives at the first bar after the run as an **immediate** mark of its target tempo, without text. Limit: a gradual change that goes on past the run cannot start the score (ADR-0021), so when the run starts the score the score starts at the tempo that change started from, and the change is deleted. |
+| W5 | The cascade of §6 runs the form checks of `validate` (rules 8–11) again and deletes the marking each one reports, until the form is valid. A bar repeat that loses source bars is deleted; one that loses repeated bars keeps a multiple of its span. |
+| W6 | "Inside a bar repeat" (§6) means **from the first bar of its source to its end**: inserting there is refused, because it would change what the sign repeats. |
 
 ## Alternatives rejected
 

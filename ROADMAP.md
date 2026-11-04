@@ -277,12 +277,31 @@ orders (dynamics, hairpins, voltas, bar repeats, pass rules by (point, ID); slur
 remember their place in the chunk). Tests in `src/editor_tests.rs` (nine cases and a snapshot-model
 property test over random transactions, undos and redos; five injected bugs caught). The tempo-map
 "bulk edit" of ADR-0022 §8 already exists (the map is derived from all marks at once); the meter-map
-bulk edit is needed only by the rewrite of F1.11c and comes there. **Next: F1.11b part 2**: gestures
-(open transaction, compaction, cancel), the commands (enter events with tie chains and free-bar
-growth, delete events with their slurs and ties, marks and form markings, insert and delete bars
-with the rules of ADR-0026 §6, at least one bar left), `validate` after every command in the
-property tests, benchmarks on the normal and heavy scores (a note ≤ 1 ms) and the memory per history
-step, then the PR (F1.10 docs are already merged; this PR carries ADR-0026 and F1.11b).
+bulk edit is needed only by the rewrite of F1.11c and comes there. Part 2 was split in two by the
+owner (2026-11-04). **F1.11b part 2a done** (2026-11-04, same branch, not yet in a PR): before
+coding, the owner approved the precisions V1–V9 and W1–W6, now ADR-0026 §11 (events entered only
+into free space; tie chains across barlines written with the longest values first; tuplet notes
+across a barline refused until F1.11c; free bars grow; a deletion leaves a gap and takes along the
+grace notes, slurs and empty tuplets; a move never splits; a new pitch follows the tie chain;
+nothing entered past the last bar; deleting bars clips gradual tempo changes and carries the tempo
+as an immediate mark; a cascade by the form checks; no insertion from a bar repeat's source to its
+end). Implemented in `core-model`: the module `command` (`Command`: `EnterEvent`, `DeleteEvent`,
+`ChangeEvent` with `EventChange`, `InsertBars`, `DeleteBars`), `Transaction::execute` and
+`Editor::execute` with atomic commands, the gestures (`begin_gesture`/`update_gesture`/
+`end_gesture`/`cancel_gesture`, compaction of the `Replace` inverses, tempo map derived live,
+`CommandError::GestureOpen`/`NoGesture`), the **local check** `Document::check_cells` (the rules an
+event change can break, on the touched cells only; `validate` split into `check_chunk`), the derived
+**backward tie index** (`tie_index`, `Document::ties_into`) on the generic `IdRefs<T>` (the former
+`SlurRefs`), the internal `ChangeSet::notes_gone`, new typed errors (`PastLastBar`,
+`TupletAcrossBarline`, `StartsPastBarline`, `NotWritable`, `InsideBarRepeat`, `NoBarsLeft`). Tests
+in `src/command_tests.rs`: 18 hand-written cases and a property test with the full `validate` after
+every random command (six injected bugs caught). **Known limit (W4):** deleting the first bars in
+the middle of a gradual tempo change starts the score at the tempo the change started from, and the
+change is deleted. **Next: F1.11b part 2b**: the commands on marks and form markings (set, move,
+remove every mark, dynamic, hairpin, slur, tuplet and form marking, keeping the form valid), the
+benchmarks of the editor on the normal and heavy scores (a note ≤ 1 ms, a 200-note paste undone,
+inserting and deleting a bar, a 1 000-update gesture) and the memory per history step, then the PR
+(it carries ADR-0026 and the whole F1.11b).
 
 | Step | What | Status |
 |---|---|---|
@@ -346,8 +365,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
   window, whatever its signature; to revisit if open signatures with accidentals turn out common.
 - **From F1.11b part 1, to keep in mind:** while a transaction is open the tempo map is the one
-  from before (it is derived once, at the end): gestures (part 2) must derive it after each live
-  update if the views need it; the meter-map bulk edit of ADR-0022 §8 is left to F1.11c (the only
+  from before (it is derived once, at the end); gestures derive it after each live update (done in
+  part 2a); the meter-map bulk edit of ADR-0022 §8 is left to F1.11c (the only
   user); interface choices confirmed by the owner (2026-11-04, SCALETTA v0.22): `Edit`,
   `Object` and `Transaction::apply` are public (raw edits keep only the structure, the musical
   invariants are the caller's), `Transaction::new_id` returns a raw `NonZeroU64` because the typed ID

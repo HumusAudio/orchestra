@@ -65,9 +65,9 @@ use crate::event::{
 };
 use crate::form::{BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
 use crate::id::{
-    BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdCounter, IdMap, InstrumentId,
-    JumpId, KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId,
-    TrackId, TupletId, VoiceId, VoltaId,
+    BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdCounter, IdMap, IdRefs,
+    InstrumentId, JumpId, KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId,
+    TempoMarkId, TrackId, TupletId, VoiceId, VoltaId,
 };
 use crate::jump::{Jump, JumpSpec, JumpTarget, Marker, MarkerKind};
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
@@ -205,6 +205,23 @@ pub enum DocumentError {
     /// Bars to be removed still hold an event or carry something anchored on them; the bar named
     /// is the first one found.
     BarsNotEmpty(BarId),
+    /// A command enters a note of a tuplet that would cross a barline (owner's decision V4 of
+    /// 2026-11-04: the split inside a tuplet comes with the meter change, F1.11c).
+    TupletAcrossBarline,
+    /// A command enters an event that would reach past the end of the last bar (W3): the bars
+    /// must be added first, in the same transaction if need be.
+    PastLastBar,
+    /// A command enters an event starting at or after the end of its bar (at most at the end of
+    /// a free bar, which it then lengthens).
+    StartsPastBarline,
+    /// A length that no sum of written note values can express (a remainder of a third of a
+    /// beat, after a tuplet, for example): the tie chain of a note across a barline cannot be
+    /// written.
+    NotWritable,
+    /// A command inserts bars between the source and the end of this bar repeat (W6).
+    InsideBarRepeat(BarRepeatId),
+    /// A command would delete every bar: at least one bar remains (ADR-0026 §6).
+    NoBarsLeft,
     /// A position or a derived index disagreed with the content: a bug of the model, reported
     /// instead of panicking. Never expected.
     Inconsistent,
@@ -212,6 +229,10 @@ pub enum DocumentError {
 
 impl fmt::Display for DocumentError {
     /// Writes a short English description of the error, for developers (see the type's docs).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm per error: splitting the match would only scatter it"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::IdsExhausted => f.write_str("the document's ID counter is exhausted"),
@@ -305,6 +326,18 @@ impl fmt::Display for DocumentError {
                     id.get()
                 )
             }
+            Self::TupletAcrossBarline => {
+                f.write_str("a note of a tuplet cannot be entered across a barline")
+            }
+            Self::PastLastBar => f.write_str("the event would reach past the last bar"),
+            Self::StartsPastBarline => f.write_str("the event would start after its bar ends"),
+            Self::NotWritable => f.write_str("no written note values add up to that length"),
+            Self::InsideBarRepeat(id) => write!(
+                f,
+                "bars cannot be inserted inside bar repeat {} and its source",
+                id.get()
+            ),
+            Self::NoBarsLeft => f.write_str("at least one bar must remain"),
             Self::Inconsistent => f.write_str("the document is inconsistent (a bug of the model)"),
         }
     }
@@ -831,6 +864,14 @@ pub struct Document {
     /// Derived index (ADR-0024 §7): the slurs that start or end on each event. Events touched by
     /// no slur have no entry. Rebuilt at load, never saved.
     pub(crate) slur_index: IdMap<EventId, SlurRefs>,
+    /// Derived index (ADR-0026 §2): the noteheads tied **into** each notehead, the backward
+    /// direction of [`Tie::To`]. A tie is stored once, on the notehead it starts from (ADR-0024
+    /// §4); the commands need the other direction too, to clear the ties that lead into a deleted
+    /// note and to check that a moved or changed note can still be reached by its ties, without
+    /// scanning the instrument. Keyed by the **target**, which may be missing while a transaction
+    /// is open (a tie whose target was just removed); noteheads tied into by nothing have no
+    /// entry. Rebuilt at load, never saved.
+    pub(crate) tie_index: IdMap<NoteId, IdRefs<NoteId>>,
     /// How many transactions, undos and redos have changed the document since it was built
     /// (ADR-0026 §5): a background reader holding a snapshot compares it to know whether it is
     /// stale, and the interface to know whether there are unsaved changes. Not saved.
@@ -868,6 +909,7 @@ impl Document {
             events,
             notes,
             slur_index,
+            tie_index,
         } = self;
         let Self {
             ids: _,
@@ -884,6 +926,7 @@ impl Document {
             events: other_events,
             notes: other_notes,
             slur_index: other_slur_index,
+            tie_index: other_tie_index,
         } = other;
         meter_map == other_meter_map
             && tempo_map == other_tempo_map
@@ -897,6 +940,7 @@ impl Document {
             && events == other_events
             && notes == other_notes
             && slur_index == other_slur_index
+            && tie_index == other_tie_index
     }
 
     /// Whether every derived index agrees with the content it is derived from (ADR-0022 §1,
@@ -918,6 +962,7 @@ impl Document {
         let mut events: IdMap<EventId, EventLocation> = IdMap::default();
         let mut notes: IdMap<NoteId, EventId> = IdMap::default();
         let mut slurs: IdMap<EventId, SlurRefs> = IdMap::default();
+        let mut ties: IdMap<NoteId, IdRefs<NoteId>> = IdMap::default();
         let mut chunks_ok = true;
         for instrument in self.instruments() {
             for voice in &instrument.voices {
@@ -934,6 +979,9 @@ impl Document {
                         );
                         for note in placed.event().chord().into_iter().flat_map(Chord::notes) {
                             notes.insert(note.id(), id);
+                            if let Tie::To(target) = note.tie() {
+                                index_tie(&mut ties, note.id(), target);
+                            }
                         }
                     }
                 }
@@ -952,6 +1000,7 @@ impl Document {
             && events == self.events
             && notes == self.notes
             && slurs == self.slur_index
+            && ties == self.tie_index
     }
 
     /// The meter map: bar lengths, meters, beat groupings, numbering. O(1).
@@ -1210,6 +1259,13 @@ impl Document {
         self.slur_index.get(&event).map_or(&[], SlurRefs::as_slice)
     }
 
+    /// The noteheads tied **into** this notehead (whose [`Tie::To`] names it), in ID order; empty
+    /// if none is or the notehead does not exist (ADR-0024 §4, ADR-0026 §2). One hash lookup,
+    /// O(1) on average; never allocates.
+    pub fn ties_into(&self, note: NoteId) -> &[NoteId] {
+        self.tie_index.get(&note).map_or(&[], IdRefs::as_slice)
+    }
+
     /// Whether event `a` comes strictly before event `b` in **score order** (see the module
     /// documentation): an earlier position; or the same position and an earlier slot; or the same
     /// position, slot, voice and bar and an earlier place in the chunk. Two events of different
@@ -1409,6 +1465,7 @@ impl DocumentBuilder {
                 events: IdMap::default(),
                 notes: IdMap::default(),
                 slur_index: IdMap::default(),
+                tie_index: IdMap::default(),
                 revision: 0,
             },
         })
@@ -1733,7 +1790,15 @@ impl DocumentBuilder {
                 return Err(DocumentError::UnknownNote(target));
             }
         }
+        let previous = self.note_mut(note)?.tie();
         self.note_mut(note)?.set_tie(tie);
+        // Keep the backward index in step: forget the old target, remember the new one.
+        if let Tie::To(old) = previous {
+            unindex_tie(&mut self.doc.tie_index, note, old);
+        }
+        if let Tie::To(target) = tie {
+            index_tie(&mut self.doc.tie_index, note, target);
+        }
         Ok(())
     }
 
@@ -2582,6 +2647,29 @@ impl DocumentBuilder {
             },
         );
         Ok(())
+    }
+}
+
+/// Records in the backward tie index that `source` is tied into `target`. O(1) average.
+pub(crate) fn index_tie(index: &mut IdMap<NoteId, IdRefs<NoteId>>, source: NoteId, target: NoteId) {
+    index
+        .entry(target)
+        .and_modify(|sources| sources.insert(source))
+        .or_insert_with(|| IdRefs::one(source));
+}
+
+/// Forgets in the backward tie index that `source` is tied into `target`, dropping the entry when
+/// it becomes empty (so that no empty entry ever exists). O(1) average.
+pub(crate) fn unindex_tie(
+    index: &mut IdMap<NoteId, IdRefs<NoteId>>,
+    source: NoteId,
+    target: NoteId,
+) {
+    let keep = index
+        .get_mut(&target)
+        .is_some_and(|sources| sources.remove(source));
+    if !keep {
+        index.remove(&target);
     }
 }
 

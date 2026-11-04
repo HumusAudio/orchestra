@@ -630,6 +630,12 @@ impl Chord {
         self.arpeggio = arpeggio;
     }
 
+    /// Changes the fermata: only the document and the commands do it (an event's fermata is
+    /// changed through [`Event::set_fermata`], which also covers rests). O(1).
+    pub(crate) const fn set_fermata(&mut self, fermata: Option<Fermata>) {
+        self.fermata = fermata;
+    }
+
     /// The noteheads, lowest first. O(1) to create, O(noteheads) to exhaust; never allocates.
     pub fn notes(&self) -> impl Iterator<Item = &Note> {
         std::iter::once(&self.lowest).chain(self.upper.iter())
@@ -695,6 +701,11 @@ impl Rest {
     #[must_use]
     pub const fn fermata(&self) -> Option<Fermata> {
         self.fermata
+    }
+
+    /// Changes the fermata: only the document and the commands do it. O(1).
+    pub(crate) const fn set_fermata(&mut self, fermata: Option<Fermata>) {
+        self.fermata = fermata;
     }
 }
 

@@ -49,6 +49,13 @@
 //! - [`jump`] and [`bar_repeat`] (SCALETTA F1.10b, ADR-0025 §4, §6–§7): [`Marker`]s and
 //!   [`Jump`]s ("go to / play until / continue at" by ID), the [`BarRepeat`]s (%) of each staff
 //!   and the [`PassRule`]s of each instrument.
+//! - [`edit`], [`change`] and [`editor`] (SCALETTA F1.11b part 1, ADR-0026 §1–§5): the primitive
+//!   [`Edit`]s that return their inverse, the [`ChangeSet`] every change reports, and the
+//!   [`Editor`] with its transactions and its one undo history bounded by memory.
+//! - [`command`] (SCALETTA F1.11b part 2a, ADR-0026 §1, §4, §6): the [`Command`]s on events and
+//!   bars (enter, delete and change events; insert and delete bars), the **gestures** of the
+//!   editor (a drag as one step of undo), and the local check of the musical rules on the cells a
+//!   command touched.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -68,6 +75,9 @@
 
 pub mod bar_repeat;
 pub mod change;
+pub mod command;
+#[cfg(test)]
+mod command_tests;
 pub mod content;
 pub mod document;
 pub mod dynamic;
@@ -88,6 +98,7 @@ pub mod validate;
 
 pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 pub use change::ChangeSet;
+pub use command::{Command, EventChange, NewBody, NewEvent};
 pub use content::Chunk;
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,

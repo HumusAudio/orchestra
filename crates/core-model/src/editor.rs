@@ -24,19 +24,42 @@
 //! oldest steps are dropped. The most recent step is always kept, however large. The history is
 //! not saved in the project file (U6).
 //!
-//! # What is not here yet
-//! Gestures (a drag as one open transaction, U4) and the commands that express what the user asks
-//! for come with the second part of F1.11b; this module gives them the transaction they build on.
+//! # Commands
+//! A [`Command`] (`crate::command`) runs inside a transaction with [`Transaction::execute`], or
+//! in a transaction of its own with [`Editor::execute`]. A command is **atomic** even inside a
+//! larger transaction: if it fails, the edits it had applied are reverted at once and the
+//! transaction goes on as if it had not been tried. The event commands then pass the **local
+//! check** (`Document::check_cells`) on the cells they touched; a refusal is reverted the same
+//! way.
+//!
+//! # Gestures (ADR-0026 §4, U4)
+//! A drag is one open transaction: [`Editor::begin_gesture`], any number of
+//! [`Editor::update_gesture`] calls (each applies a command live and returns its own change set,
+//! so every view follows the drag through the notifications, without a private copy of the
+//! moving data: ADR-0003), then [`Editor::end_gesture`], which records the whole drag as **one
+//! step of undo**, or [`Editor::cancel_gesture`] (Esc), which reverts it.
+//!
+//! - **Compaction:** inside a gesture, the inverse of a `Replace` of an object already replaced in
+//!   the same gesture is dropped: the first one already restores the state before the drag. A
+//!   1 000-update drag of one note stores one old value, not 1 000.
+//! - **The tempo map is live:** a transaction normally derives it once, at its end; a gesture
+//!   derives it after every update that touches it (the views draw the moving music with it), and
+//!   the end reports the first difference from the map before the gesture.
+//! - Nothing else runs while a gesture is open: [`Editor::transact`], [`Editor::undo`] and
+//!   [`Editor::redo`] are refused with [`CommandError::GestureOpen`]; the interface ends or
+//!   cancels the gesture first.
+//! - No merging by time: the history never depends on the clock (ADR-0026 §4).
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::fmt;
 
 use orchestra_core_time::{Position, TempoMap};
 
 use crate::change::ChangeSet;
+use crate::command::{self, Command};
 use crate::document::{Document, DocumentError};
-use crate::edit::Edit;
+use crate::edit::{Edit, ObjectRef};
 
 /// The default memory limit of the history: 128 MB (ADR-0026 §3, U3). Entering a note costs tens
 /// of bytes of history; deleting the whole heavy reference score (255 776 notes) about 66 MB.
@@ -53,6 +76,11 @@ pub enum CommandError {
     Document(DocumentError),
     /// A transaction was started inside another one.
     TransactionOpen,
+    /// A transaction, an undo or a redo was asked for while a gesture is open (ADR-0026 §4):
+    /// the gesture must be ended or cancelled first.
+    GestureOpen,
+    /// A gesture was updated, ended or cancelled while none is open.
+    NoGesture,
     /// Reverting a failed transaction (or a failed undo or redo) failed too. The first error is
     /// `cause`, the second `rollback`. Never expected: every edit is reverted by its own exact
     /// inverse, on the very state it produced, and the tests check it. Reported rather than
@@ -71,6 +99,8 @@ impl fmt::Display for CommandError {
         match self {
             Self::Document(e) => write!(f, "{e}"),
             Self::TransactionOpen => f.write_str("a transaction is already open"),
+            Self::GestureOpen => f.write_str("a gesture is open: end or cancel it first"),
+            Self::NoGesture => f.write_str("no gesture is open"),
             Self::Rollback { cause, rollback } => {
                 write!(f, "{cause}; reverting it failed too: {rollback}")
             }
@@ -83,7 +113,7 @@ impl Error for CommandError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Document(e) | Self::Rollback { cause: e, .. } => Some(e),
-            Self::TransactionOpen => None,
+            Self::TransactionOpen | Self::GestureOpen | Self::NoGesture => None,
         }
     }
 }
@@ -92,6 +122,22 @@ impl From<DocumentError> for CommandError {
     /// Wraps a refused edit, so that `?` works inside a transaction.
     fn from(e: DocumentError) -> Self {
         Self::Document(e)
+    }
+}
+
+impl From<orchestra_core_time::RationalError> for CommandError {
+    /// Wraps an arithmetic error of a command (an overflow: absurd lengths only), so that `?`
+    /// works on the time arithmetic inside a command.
+    fn from(e: orchestra_core_time::RationalError) -> Self {
+        Self::Document(DocumentError::from(e))
+    }
+}
+
+impl From<orchestra_core_time::MeterMapError> for CommandError {
+    /// Wraps a meter map error met by a command (a bar length looked up), so that `?` works on
+    /// the meter map inside a command.
+    fn from(e: orchestra_core_time::MeterMapError) -> Self {
+        Self::Document(DocumentError::from(e))
     }
 }
 
@@ -129,6 +175,9 @@ struct Open {
     changes: ChangeSet,
     /// The tempo map when the transaction started.
     tempo_before: TempoMap,
+    /// `Some` while the transaction is a gesture: the objects whose `Replace` inverse is already
+    /// recorded, for the compaction (see the module documentation).
+    gesture: Option<HashSet<ObjectRef>>,
 }
 
 /// The one project document with its undo history (ADR-0003 §4, ADR-0026).
@@ -245,13 +294,12 @@ impl Editor {
     /// needed.
     ///
     /// # Errors
-    /// [`CommandError::TransactionOpen`] inside a transaction; [`CommandError::Document`] if the
+    /// [`CommandError::TransactionOpen`] inside a transaction, [`CommandError::GestureOpen`]
+    /// inside a gesture; [`CommandError::Document`] if the
     /// step could not be applied (never expected), in which case the document and the history are
     /// as before; [`CommandError::Rollback`] if even that failed.
     pub fn undo(&mut self) -> Result<Option<ChangeSet>, CommandError> {
-        if self.open.is_some() {
-            return Err(CommandError::TransactionOpen);
-        }
+        self.refuse_if_open()?;
         let Some(step) = self.undo.pop_back() else {
             return Ok(None);
         };
@@ -276,9 +324,7 @@ impl Editor {
     /// # Errors
     /// As [`undo`](Self::undo).
     pub fn redo(&mut self) -> Result<Option<ChangeSet>, CommandError> {
-        if self.open.is_some() {
-            return Err(CommandError::TransactionOpen);
-        }
+        self.refuse_if_open()?;
         let Some(step) = self.redo.pop() else {
             return Ok(None);
         };
@@ -298,21 +344,203 @@ impl Editor {
         }
     }
 
+    /// Executes one command as a transaction of its own (one step of undo) and returns what it
+    /// changed. On error the document is as before. Same as
+    /// `transact(|tx| tx.execute(command))`.
+    ///
+    /// # Errors
+    /// As [`transact`](Self::transact), and the command's own typed errors.
+    pub fn execute(&mut self, command: &Command) -> Result<ChangeSet, CommandError> {
+        self.transact(|tx| tx.execute(command))
+    }
+
+    /// Whether a gesture is open. O(1).
+    #[must_use]
+    pub fn in_gesture(&self) -> bool {
+        self.open
+            .as_ref()
+            .is_some_and(|open| open.gesture.is_some())
+    }
+
+    /// Opens a gesture: a transaction that stays open across calls, for a drag (ADR-0026 §4).
+    /// O(t) to keep a copy of the tempo map.
+    ///
+    /// # Errors
+    /// [`CommandError::GestureOpen`] if one is already open, [`CommandError::TransactionOpen`]
+    /// inside a transaction.
+    pub fn begin_gesture(&mut self) -> Result<(), CommandError> {
+        self.begin()?;
+        if let Some(open) = self.open.as_mut() {
+            open.gesture = Some(HashSet::new());
+        }
+        Ok(())
+    }
+
+    /// Applies one command live inside the open gesture and returns what **this update**
+    /// changed, with the tempo map already derived again if needed (see the module
+    /// documentation). If the command fails, only this update is reverted: the gesture stays open
+    /// with the updates before it. Each update that changes something bumps the revision, since
+    /// the document did change.
+    ///
+    /// # Complexity
+    /// The command's, plus the tempo map derivation (≈ 0.6 ms for 250 marks) only if the update
+    /// touched a tempo mark or where bars start, plus O(e) for the compaction of its e inverses.
+    ///
+    /// # Errors
+    /// [`CommandError::NoGesture`] if none is open; the command's own errors; the tempo map's.
+    pub fn update_gesture(&mut self, command: &Command) -> Result<ChangeSet, CommandError> {
+        if !self.in_gesture() {
+            return Err(CommandError::NoGesture);
+        }
+        let mark = self.open.as_ref().map_or(0, |open| open.inverses.len());
+        let mut local = self.execute_open(command)?;
+        if local.tempo_dirty {
+            match self.document.derive_tempo_map() {
+                Ok(map) => {
+                    local.set_tempo_from(first_difference(self.document.tempo_map(), &map));
+                    self.document.tempo_map = map;
+                }
+                Err(cause) => {
+                    let tail: Vec<Edit> = self
+                        .open
+                        .as_mut()
+                        .map(|open| open.inverses.drain(mark..).collect())
+                        .unwrap_or_default();
+                    self.revert(&tail, cause)?;
+                    return Err(CommandError::Document(cause));
+                }
+            }
+        }
+        let open = self.open.as_mut().ok_or(CommandError::NoGesture)?;
+        // Compaction: keep only the first `Replace` inverse of each object in the gesture.
+        let tail = open.inverses.split_off(mark);
+        if let Some(replaced) = open.gesture.as_mut() {
+            for inverse in tail {
+                if let Edit::Replace(object) = &inverse
+                    && !replaced.insert(object.reference())
+                {
+                    continue;
+                }
+                open.inverses.push(inverse);
+            }
+        }
+        open.changes.absorb(local.clone());
+        local.tempo_dirty = false;
+        local.finish();
+        if !local.is_empty() {
+            self.document.revision = self.document.revision.saturating_add(1);
+        }
+        Ok(local)
+    }
+
+    /// Closes the open gesture as **one step of undo** and returns everything it changed, from
+    /// the state before the gesture (the tempo map compared with the one before it). A gesture
+    /// that changed nothing records no step.
+    ///
+    /// # Errors
+    /// [`CommandError::NoGesture`] if none is open; [`CommandError::Rollback`] never expected.
+    pub fn end_gesture(&mut self) -> Result<ChangeSet, CommandError> {
+        if !self.in_gesture() {
+            return Err(CommandError::NoGesture);
+        }
+        self.commit()
+    }
+
+    /// Reverts the open gesture (Esc) and returns what reverting changed: the document is as
+    /// before the gesture, with the tempo map from before. Nothing is recorded.
+    ///
+    /// # Errors
+    /// [`CommandError::NoGesture`] if none is open; [`CommandError::Rollback`] never expected.
+    pub fn cancel_gesture(&mut self) -> Result<ChangeSet, CommandError> {
+        if !self.in_gesture() {
+            return Err(CommandError::NoGesture);
+        }
+        let Some(open) = self.open.take() else {
+            return Err(CommandError::NoGesture);
+        };
+        let mut changes = ChangeSet::default();
+        for inverse in open.inverses.iter().rev() {
+            self.document
+                .apply_edit(inverse.clone(), &mut changes)
+                .map_err(|rollback| CommandError::Rollback {
+                    cause: DocumentError::Inconsistent,
+                    rollback,
+                })?;
+        }
+        changes.set_tempo_from(first_difference(
+            self.document.tempo_map(),
+            &open.tempo_before,
+        ));
+        self.document.tempo_map = open.tempo_before;
+        changes.tempo_dirty = false;
+        changes.finish();
+        if !open.inverses.is_empty() {
+            self.document.revision = self.document.revision.saturating_add(1);
+        }
+        Ok(changes)
+    }
+
     // --------------------------------------------------------------------------------------------
     // Inside
     // --------------------------------------------------------------------------------------------
 
     /// Opens a transaction. O(t) to keep a copy of the tempo map (t tempo segments, hundreds).
     fn begin(&mut self) -> Result<(), CommandError> {
-        if self.open.is_some() {
-            return Err(CommandError::TransactionOpen);
-        }
+        self.refuse_if_open()?;
         self.open = Some(Open {
             inverses: Vec::new(),
             changes: ChangeSet::default(),
             tempo_before: self.document.tempo_map().clone(),
+            gesture: None,
         });
         Ok(())
+    }
+
+    /// Refuses to start anything while a transaction or a gesture is open, with the error that
+    /// names which. O(1).
+    fn refuse_if_open(&self) -> Result<(), CommandError> {
+        match &self.open {
+            None => Ok(()),
+            Some(open) if open.gesture.is_some() => Err(CommandError::GestureOpen),
+            Some(_) => Err(CommandError::TransactionOpen),
+        }
+    }
+
+    /// Runs one command inside the open transaction and returns what it changed, apart from the
+    /// transaction's other changes. If the command or its local check fails, the edits it applied
+    /// are reverted (the rest of the transaction stays) and the error is returned. O(the
+    /// command's edits) + the local check.
+    fn execute_open(&mut self, command: &Command) -> Result<ChangeSet, CommandError> {
+        let open = self
+            .open
+            .as_mut()
+            .ok_or(CommandError::Document(DocumentError::Inconsistent))?;
+        let mark = open.inverses.len();
+        // The command records its changes into a set of its own, so that the local check looks
+        // only at what this command touched (and a gesture can return exactly that).
+        let outer = std::mem::take(&mut open.changes);
+        let mut result = command::run(&mut Transaction { editor: self }, command);
+        if result.is_ok() && command::checks_cells(command) {
+            let changes = self.open.as_ref().map(|open| &open.changes);
+            result = changes.map_or(Ok(()), |changes| {
+                self.document
+                    .check_cells(changes)
+                    .map_err(CommandError::Document)
+            });
+        }
+        let open = self
+            .open
+            .as_mut()
+            .ok_or(CommandError::Document(DocumentError::Inconsistent))?;
+        let local = std::mem::replace(&mut open.changes, outer);
+        match result {
+            Ok(()) => Ok(local),
+            Err(cause) => {
+                let tail: Vec<Edit> = open.inverses.drain(mark..).collect();
+                self.revert(&tail, document_cause(cause))?;
+                Err(cause)
+            }
+        }
     }
 
     /// Applies one edit inside the open transaction. On error the document is as before this
@@ -334,6 +562,7 @@ impl Editor {
             inverses,
             mut changes,
             tempo_before,
+            gesture: _,
         } = open;
         if inverses.is_empty() {
             return Ok(ChangeSet::default());
@@ -346,6 +575,8 @@ impl Editor {
                 }
                 Err(cause) => {
                     self.revert(&inverses, cause)?;
+                    // A gesture may have rebuilt the tempo map live: put back the one from before.
+                    self.document.tempo_map = tempo_before;
                     return Err(CommandError::Document(cause));
                 }
             }
@@ -374,11 +605,10 @@ impl Editor {
         let Some(open) = self.open.take() else {
             return Ok(());
         };
-        let cause = match cause {
-            CommandError::Document(e) | CommandError::Rollback { cause: e, .. } => e,
-            CommandError::TransactionOpen => DocumentError::Inconsistent,
-        };
-        self.revert(&open.inverses, cause)
+        self.revert(&open.inverses, document_cause(cause))?;
+        // A gesture may have rebuilt the tempo map live; the one from before is the right one.
+        self.document.tempo_map = open.tempo_before;
+        Ok(())
     }
 
     /// Applies the inverses of a failed transaction, last first, and puts the tempo map back if it
@@ -438,6 +668,18 @@ impl Editor {
     }
 }
 
+/// The document error behind a command error, for the `cause` of a [`CommandError::Rollback`]:
+/// the editor's own errors (a transaction or a gesture open) never reach a revert, so they map to
+/// [`DocumentError::Inconsistent`]. O(1).
+const fn document_cause(error: CommandError) -> DocumentError {
+    match error {
+        CommandError::Document(e) | CommandError::Rollback { cause: e, .. } => e,
+        CommandError::TransactionOpen | CommandError::GestureOpen | CommandError::NoGesture => {
+            DocumentError::Inconsistent
+        }
+    }
+}
+
 /// The first written position where two tempo maps differ, or `None` if they are equal. O(t) for
 /// t tempo changes: the two lists of changes are compared entry by entry.
 fn first_difference(before: &TempoMap, after: &TempoMap) -> Option<Position> {
@@ -475,6 +717,20 @@ impl Transaction<'_> {
     /// [`CommandError::Document`] with the reason the edit was refused.
     pub fn apply(&mut self, edit: Edit) -> Result<(), CommandError> {
         self.editor.apply(edit)
+    }
+
+    /// Executes a command inside this transaction (see the module documentation). It is atomic:
+    /// on error the edits it applied are reverted and the transaction goes on; returning the
+    /// error from the closure reverts the whole transaction.
+    ///
+    /// # Errors
+    /// The command's own typed errors, or the local check's [`DocumentError::Invalid`].
+    pub fn execute(&mut self, command: &Command) -> Result<(), CommandError> {
+        let local = self.editor.execute_open(command)?;
+        if let Some(open) = self.editor.open.as_mut() {
+            open.changes.absorb(local);
+        }
+        Ok(())
     }
 
     /// The document as the edits applied so far left it. Its tempo map is the one from before

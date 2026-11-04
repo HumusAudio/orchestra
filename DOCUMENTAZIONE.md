@@ -1517,7 +1517,107 @@ prevede. Cinque bug iniettati (undo nell'ordine sbagliato, indice delle teste di
 indietro da una sostituzione, voce dell'indice delle legature lasciata indietro, nessun blocco per
 le battute nuove, un evento tolto che dimentica il suo posto) sono stati tutti presi; il secondo solo
 dopo che il generatore ha imparato a cambiare le teste di nota di un accordo. I benchmark dell'editor
-arrivano con i comandi (seconda parte).
+arrivano con la parte 2b.
+
+#### Comandi, gesti e verifica locale
+
+Da F1.11b parte 2a il documento si cambia con i **comandi** (modulo `command`, ADR-0026 §1, §4, §6
+e le precisazioni di §11): un `Command` dice *che cosa* vuole l'utente, come dato, e si espande in
+modifiche elementari dentro una transazione. La cronologia tiene le inverse delle modifiche, mai il
+comando, quindi il redo non riesegue mai un comando e non distribuisce mai ID nuovi.
+
+```rust
+let mut editor = Editor::new(document);
+// One command = one step of undo.
+let changes = editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(flute, bar_4, quarter * 3),
+    body: NewBody::Chord { value: dotted_half, pitches: vec![g4], grace: None },
+}))?;
+// A dotted half from the last beat of a 4/4 bar: a quarter tied to a half in the next bar.
+// Several commands in one step (a paste):
+editor.transact(|tx| {
+    tx.execute(&Command::DeleteEvent(a))?;
+    tx.execute(&Command::DeleteEvent(b))
+})?;
+```
+
+I comandi della parte 2a:
+
+- `EnterEvent(NewEvent)`: un accordo, un abbellimento o una pausa, **solo nello spazio libero** (V2:
+  sopra un altro evento è rifiutato). Se attraversa la stanghetta diventa una **catena di note
+  legate** (V3): si taglia a ogni stanghetta, ogni pezzo si scrive con le figure più lunghe per
+  prime (al massimo due punti: cinque crome sono una minima e una croma), le teste di un accordo si
+  legano altezza per altezza; una pausa diventa più pause. Oltre la fine di una battuta **libera**
+  la battuta invece si allunga (V5). Rifiutati: una nota di gruppo irregolare a cavallo della
+  stanghetta (V4, arriva con F1.11c), oltre l'ultima battuta (W3), una durata che nessuna figura
+  può scrivere (`NotWritable`).
+- `DeleteEvent(EventId)`: lascia un **buco** (V6: non si scrive nessuna pausa, la riempie
+  l'incisione, come le pause implicite di Dorico), e porta via con sé gli abbellimenti che ornano
+  l'evento, le legature di portamento su di lui e i gruppi irregolari rimasti vuoti; le legature di
+  valore che arrivano a lui diventano `Tie::None`.
+- `ChangeEvent { event, change }`: un aspetto per ogni variante di `EventChange` (spostamento,
+  figura, altezza, aggiungere o togliere una testa di nota, legatura di valore, articolazioni,
+  ornamento, corona, arpeggio, scostamenti di esecuzione, rigo). Lo spostamento porta con sé gli
+  abbellimenti e **non divide mai** (W1: oltre la stanghetta la battuta diventa troppo piena, uno
+  stato valido); una nuova altezza cambia **tutta la catena di note legate** (W2); togliere l'ultima
+  testa di nota cancella l'evento.
+- `InsertBars { at, count }`: battute vuote con il metro, la chiave, l'armatura e il tempo in vigore
+  prima di loro; gli intervalli a cavallo del punto si allungano. Rifiutato dalla prima battuta
+  d'origine di una ripetizione di battuta fino alla sua fine (W6).
+- `DeleteBars { at, count }`: gli eventi se ne vanno (come con `DeleteEvent`), le dinamiche anche;
+  il metro, la chiave, l'armatura e il tempo in vigore per ultimi dentro le battute passano alla
+  prima battuta dopo (all'inizio della partitura diventano i valori iniziali); forcelle, regole di
+  passaggio, volte, ripetizioni di battuta e cambi di tempo graduali si **accorciano** (W4); poi una
+  **cascata** (W5) ripete i controlli della forma di `validate` e cancella la marcatura che ciascuno
+  indica, finché la forma è valida. Resta sempre almeno una battuta.
+
+**Comandi atomici.** Un comando che fallisce viene annullato subito, anche dentro una transazione
+più grande: l'editor ricorda dove cominciano le sue modifiche e ne applica le inverse
+(`Editor::execute_open`).
+
+**La verifica locale** (`Document::check_cells`, in `validate.rs`). I comandi sugli eventi non
+controllano le regole musicali una per una: emettono le loro modifiche e poi l'editor controlla,
+**solo sulle celle (voce, battuta) toccate dal comando**, le regole di `validate` che un cambio di
+eventi può rompere: nessuna sovrapposizione, la pausa di battuta intera da sola, abbellimenti con il
+loro evento principale, le legature di valore che partono da lì e quelle che vi **arrivano**, le
+legature di portamento su quegli eventi, nessun evento sotto una ripetizione di battuta. Per questo
+inserire una nota sopra un'altra fallisce con `Violation::Overlap`. Per trovare le legature in
+arrivo senza scorrere tutto lo strumento, il documento ha un nuovo **indice inverso delle legature
+di valore** (`tie_index`, arrivo → partenze, con `Document::ties_into`), tenuto aggiornato da ogni
+modifica come l'indice delle legature di portamento. Le sue voci sono un `IdRefs<T>`, il piccolo
+insieme ordinato (due ID in linea) che l'indice delle legature di portamento usava già, ora generico
+in `id.rs`. Per controllare le regole di un blocco, `validate` è stato diviso: `check_chunk`
+controlla una cella, e `validate` la chiama per ogni cella.
+
+**Gesti** (un trascinamento, ADR-0026 §4):
+
+```rust
+editor.begin_gesture()?;
+for offset in mouse_positions {
+    // Each update is applied live and returns its own change set, for the views.
+    let live = editor.update_gesture(&Command::ChangeEvent {
+        event: note,
+        change: EventChange::Move { bar, offset },
+    })?;
+}
+editor.end_gesture()?;     // the whole drag is one step of undo
+// or: editor.cancel_gesture()?;  (Esc) back to the state before the drag
+```
+
+Mentre un gesto è aperto `transact`, `execute`, `undo` e `redo` sono rifiutati con
+`CommandError::GestureOpen`. **Compattazione:** l'inversa di un `Replace` di un oggetto già
+sostituito nello stesso gesto viene scartata, quindi un trascinamento di 200 passi tiene un solo
+valore vecchio (misurato: meno di 1 KB di cronologia). Un passo rifiutato si annulla da solo e il
+gesto resta aperto; la mappa dei tempi si ricalcola dopo ogni passo che la sposta.
+
+**Test** (`src/command_tests.rs`): diciotto casi scritti a mano, uno per ogni regola qui sopra, e un
+test di proprietà: sequenze casuali di comandi casuali sul documento ricco di `editor_tests`, con
+undo e redo; dopo **ogni** comando deve passare il `validate` completo e gli indici devono coincidere
+con una ricostruzione, un comando rifiutato non deve cambiare nulla, e annullare tutto deve ridare
+l'originale. In un'esecuzione (proptest sceglie casi nuovi ogni volta): 892 comandi eseguiti e 332 rifiutati,
+con 13 tipi di rifiuto diversi. Sei bug iniettati (legature verso una nota cancellata non tolte, niente
+compattazione, chiave non trasportata, niente cascata, la verifica locale che salta le legature di
+portamento o quelle in arrivo, abbellimenti non cancellati) sono stati tutti presi.
 
 ### orchestra-playback
 

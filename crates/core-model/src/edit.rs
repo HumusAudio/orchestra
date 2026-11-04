@@ -54,9 +54,9 @@ use orchestra_core_time::{BarIndex, BarSpan, BeatGrouping, Duration, IrregularBa
 use crate::bar_repeat::{BarRepeat, PassRule};
 use crate::change::ChangeSet;
 use crate::content::Chunk;
-use crate::document::{Document, DocumentError, EventLocation};
+use crate::document::{Document, DocumentError, EventLocation, index_tie, unindex_tie};
 use crate::dynamic::{Dynamic, DynamicPlacement, DynamicScope, Hairpin};
-use crate::event::{MAX_TUPLET_DEPTH, Note, PlacedEvent, Tuplet};
+use crate::event::{MAX_TUPLET_DEPTH, Note, PlacedEvent, Tie, Tuplet};
 use crate::form::{BarNumbering, MAX_PLAYS, RepeatEnd, RepeatStart, Volta};
 use crate::id::{
     BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdSet, InstrumentId, JumpId,
@@ -386,6 +386,22 @@ fn insert_sorted<T, K: Ord>(list: &mut Vec<T>, item: T, key: impl Fn(&T) -> K) {
     let k = key(&item);
     let at = list.partition_point(|x| key(x) < k);
     list.insert(at, item);
+}
+
+/// The ties that start from the noteheads of an event, as (source, target) pairs: what the
+/// backward tie index (`Document::tie_index`) records for it. O(noteheads); allocates only for an
+/// event with ties (most events have none, and an empty `Vec` does not allocate).
+fn outgoing_ties(placed: &PlacedEvent) -> Vec<(crate::id::NoteId, crate::id::NoteId)> {
+    placed
+        .event()
+        .chord()
+        .into_iter()
+        .flat_map(crate::event::Chord::notes)
+        .filter_map(|note| match note.tie() {
+            Tie::To(target) => Some((note.id(), target)),
+            Tie::None | Tie::LetRing => None,
+        })
+        .collect()
 }
 
 /// The ID of a bar's position, for sorting: its index, or `u32::MAX` for an unknown bar (which
@@ -887,6 +903,7 @@ impl Document {
                 return Err(DocumentError::DuplicateObject(ObjectRef::Event(id)));
             }
         }
+        let ties = outgoing_ties(&placed);
         let chunk = self.chunk_at_mut(t, v, index, bar)?;
         match place {
             None => chunk.insert(placed),
@@ -900,6 +917,9 @@ impl Document {
         self.events.insert(id, EventLocation { voice, bar });
         for note in notes {
             self.notes.insert(note, id);
+        }
+        for (source, target) in ties {
+            index_tie(&mut self.tie_index, source, target);
         }
         changes.cell(voice, bar);
         Ok(())
@@ -1140,7 +1160,11 @@ impl Document {
         if let Some(chord) = placed.event().chord() {
             for note in chord.notes() {
                 self.notes.remove(&note.id());
+                changes.notes_gone.push(note.id());
             }
+        }
+        for (source, target) in outgoing_ties(&placed) {
+            unindex_tie(&mut self.tie_index, source, target);
         }
         changes.cell(location.voice, location.bar);
         Ok(Object::Event {
@@ -1270,9 +1294,18 @@ impl Document {
         let previous = std::mem::replace(slot, placed.clone());
         for note in old_notes {
             self.notes.remove(&note);
+            if !new_notes.contains(&note) {
+                changes.notes_gone.push(note);
+            }
         }
         for note in new_notes {
             self.notes.insert(note, id);
+        }
+        for (source, target) in outgoing_ties(&previous) {
+            unindex_tie(&mut self.tie_index, source, target);
+        }
+        for (source, target) in outgoing_ties(placed) {
+            index_tie(&mut self.tie_index, source, target);
         }
         changes.cell(voice, bar);
         Ok(Some(Object::Event {

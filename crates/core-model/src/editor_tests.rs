@@ -70,7 +70,7 @@ const fn pitch(step: Step) -> Pitch {
 }
 
 /// The rich document of the module documentation, 8 bars of 4/4.
-fn rich() -> Document {
+pub(crate) fn rich() -> Document {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let initial = TempoMark::immediate(Some("Allegro"), Metronome::shown(tempo(120))).unwrap();
     let mut b =
@@ -358,7 +358,7 @@ fn events(doc: &Document) -> Vec<EventId> {
 
 /// The checks every state must pass: indices rebuilt from scratch agree, and the tempo map is the
 /// one derived from the marks.
-fn assert_consistent(doc: &Document) {
+pub(crate) fn assert_consistent(doc: &Document) {
     assert!(doc.indices_are_consistent(), "a derived index drifted");
     assert_eq!(doc.tempo_map(), &doc.derive_tempo_map().unwrap());
 }

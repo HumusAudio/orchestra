@@ -277,6 +277,89 @@ pub(crate) type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
 /// A hash set of IDs, with [`IdHasher`]. Membership tests are O(1) on average.
 pub(crate) type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
 
+/// A small, sorted set of IDs: the value of a derived index whose entries almost always hold one
+/// or two IDs (the slurs at an event, `crate::slur::SlurRefs`; the noteheads tied into a
+/// notehead, ADR-0026 §2). Up to two IDs inline, more in a boxed slice.
+///
+/// # Why not a `Vec`?
+/// A `Vec` per entry would be one heap allocation per indexed object and 24 bytes plus the heap
+/// block. The two inline cases cover nearly every real entry and cost nothing more than the enum
+/// (24 bytes, the size of the `Box<[T]>` variant); only an entry with three or more IDs allocates.
+///
+/// # Why sorted?
+/// The IDs are kept in ascending order rather than in the order the edits added them. That makes
+/// an entry a pure function of the objects it refers to, so that undoing and redoing edits gives
+/// back an identical index (ADR-0026 §8), and lets [`insert`](Self::insert) refuse a duplicate
+/// with a binary search.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum IdRefs<T> {
+    /// One ID.
+    One([T; 1]),
+    /// Two IDs, in ascending order.
+    Two([T; 2]),
+    /// Three or more, in ascending order.
+    Many(Box<[T]>),
+}
+
+impl<T: Copy + Ord> IdRefs<T> {
+    /// The entry holding one ID. O(1).
+    pub(crate) const fn one(id: T) -> Self {
+        Self::One([id])
+    }
+
+    /// The IDs, in ascending order (which is creation order: IDs only grow). O(1); never
+    /// allocates.
+    pub(crate) fn as_slice(&self) -> &[T] {
+        match self {
+            Self::One(ids) => ids,
+            Self::Two(ids) => ids,
+            Self::Many(ids) => ids,
+        }
+    }
+
+    /// Adds an ID in ascending order; an ID already in the entry is not added twice. O(1) up to
+    /// two IDs; O(n) and one allocation from the third on (the boxed slice is rebuilt: such
+    /// entries are rare, and a slice is half the size of a `Vec` for the common ones).
+    pub(crate) fn insert(&mut self, id: T) {
+        let ids = self.as_slice();
+        let Err(at) = ids.binary_search(&id) else {
+            return;
+        };
+        let (before, after) = ids.split_at(at);
+        let merged: Vec<T> = before.iter().chain([&id]).chain(after).copied().collect();
+        *self = Self::from_sorted(&merged).unwrap_or(Self::one(id));
+    }
+
+    /// Removes an ID from the entry. Returns `false` if the entry is left empty (the caller then
+    /// drops it from the index, so that no empty entry ever exists). O(n) for n IDs in the entry.
+    pub(crate) fn remove(&mut self, id: T) -> bool {
+        let kept: Vec<T> = self
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|&other| other != id)
+            .collect();
+        match Self::from_sorted(&kept) {
+            Some(refs) => {
+                *self = refs;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The entry for these IDs (already sorted), or `None` for no IDs. O(n); allocates only from
+    /// three IDs on.
+    fn from_sorted(ids: &[T]) -> Option<Self> {
+        match ids {
+            [] => None,
+            [a] => Some(Self::One([*a])),
+            [a, b] => Some(Self::Two([*a, *b])),
+            many => Some(Self::Many(many.into())),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

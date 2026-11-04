@@ -23,7 +23,7 @@
 //! end of one and the start of the next), so the index costs no allocation per entry; only an
 //! event where three or more slurs meet (nested phrase marks starting together) allocates.
 
-use crate::id::{EventId, SlurId};
+use crate::id::{EventId, IdRefs, SlurId};
 
 /// Where a slur is drawn (ADR-0024 §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -96,80 +96,11 @@ impl Slur {
 }
 
 /// The slurs that start or end on one event: the entry of the derived index (see the module
-/// documentation). Up to two IDs inline, more in a boxed slice.
+/// documentation). Up to two IDs inline, more in a boxed slice ([`IdRefs`]).
 ///
 /// # Why not a `Vec`?
 /// A `Vec` per indexed event would be one allocation each: with slurs on a third of the notes of
 /// the heavy reference score that is tens of thousands of small allocations, and 24 bytes plus
 /// the heap block per entry. The inline cases cover nearly every real event and cost nothing more
 /// than the enum (24 bytes, the size of the `Box<[SlurId]>` variant).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SlurRefs {
-    /// One slur.
-    One([SlurId; 1]),
-    /// Two slurs, in ID order.
-    Two([SlurId; 2]),
-    /// Three or more, in ID order.
-    Many(Box<[SlurId]>),
-}
-
-impl SlurRefs {
-    /// The index entry of an event touched by one slur. O(1).
-    pub(crate) const fn one(slur: SlurId) -> Self {
-        Self::One([slur])
-    }
-
-    /// The slurs, in ID order (creation order). O(1); never allocates.
-    pub(crate) fn as_slice(&self) -> &[SlurId] {
-        match self {
-            Self::One(ids) => ids,
-            Self::Two(ids) => ids,
-            Self::Many(ids) => ids,
-        }
-    }
-
-    /// Adds a slur in ID order (which is creation order: IDs only grow, so the builder always
-    /// appends). Keeping the entry sorted by ID rather than by the order of the edits makes it a
-    /// pure function of the slurs, so that undoing and redoing edits gives back an identical
-    /// index (ADR-0026 §8). A slur already in the entry is not added twice. O(1) up to two slurs;
-    /// O(n) and one allocation from the third on (the boxed slice is rebuilt: such events are
-    /// rare, and a slice is half the size of a `Vec` for the common entries).
-    pub(crate) fn insert(&mut self, slur: SlurId) {
-        let ids = self.as_slice();
-        let Err(at) = ids.binary_search(&slur) else {
-            return;
-        };
-        let (before, after) = ids.split_at(at);
-        let merged: Vec<SlurId> = before.iter().chain([&slur]).chain(after).copied().collect();
-        *self = Self::from_sorted(&merged).unwrap_or(Self::one(slur));
-    }
-
-    /// Removes a slur from the entry. Returns `false` if the entry is left empty (the caller then
-    /// drops it from the index, so that no empty entry ever exists). O(n) for n slurs in the entry.
-    pub(crate) fn remove(&mut self, slur: SlurId) -> bool {
-        let kept: Vec<SlurId> = self
-            .as_slice()
-            .iter()
-            .copied()
-            .filter(|&s| s != slur)
-            .collect();
-        match Self::from_sorted(&kept) {
-            Some(refs) => {
-                *self = refs;
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// The entry for these IDs (already sorted), or `None` for no IDs. O(n); allocates only from
-    /// three IDs on.
-    fn from_sorted(ids: &[SlurId]) -> Option<Self> {
-        match ids {
-            [] => None,
-            [a] => Some(Self::One([*a])),
-            [a, b] => Some(Self::Two([*a, *b])),
-            many => Some(Self::Many(many.into())),
-        }
-    }
-}
+pub(crate) type SlurRefs = IdRefs<SlurId>;
