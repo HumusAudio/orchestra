@@ -367,7 +367,13 @@ exchange formats too) and the draft **ADR-0027** (Proposed), with the choices G1
 (played notes in exact musical time with exact pitch and 16-bit velocity; ties as one note;
 articulation and dynamic defaults; grace notes on the beat; ornaments and fermatas deferred;
 offsets and bounds; the cell as the incremental unit; intonation D22 after F3.04; the split into
-F1.13b and F1.13c). **Next:** the owner's decisions on G1–G14, then the code.
+F1.13b and F1.13c). **ADR-0027 Accepted** the same day: the owner changed G4 (dynamics bounded to
+*pppp*–*ffff*, more *p*s or *f*s played as the extremes, ten levels spread evenly), G7
+(acciaccaturas before the beat, taking time from the previous note; appoggiaturas on the beat) and
+G9 (fermatas deferred, then a longer sound, never a slower tempo), and approved the rest.
+Decision D22 closed: 12-TET with exact microtones now, tunings after F3.04. **Next:** F1.13b (notes,
+ties, articulations, grace notes, arpeggios, offsets, pass rules), then F1.13c (dynamics, hairpins,
+incremental update, benchmarks).
 
 | Step | What | Status |
 |---|---|---|

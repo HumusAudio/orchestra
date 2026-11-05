@@ -1,9 +1,11 @@
 # ADR-0027 — Playback rules v0: from the written intent to the played notes
 
-- **Status:** Proposed (draft for the owner, 2026-11-05; SCALETTA F1.13, decision D22). Nothing
-  here is binding until the owner decides the choices of §12. The owner decided G4, G7 and G9 on
-  2026-11-05 (dynamics bounded to *pppp*–*ffff*, acciaccaturas before the beat, fermatas as a
-  longer sound, never a slower tempo); the rest is still open.
+- **Status:** Accepted (owner's decision, 2026-11-05; SCALETTA F1.13, decision D22). The owner
+  changed three recommendations: G4 (dynamics bounded to *pppp*–*ffff*, more *p*s or *f*s written
+  but played as the extremes, the ten levels spread evenly: values of §4 approved), G7
+  (acciaccaturas before the beat, taking time from the previous note, the details of §5 approved;
+  appoggiaturas on the beat) and G9 (fermatas deferred, and then a longer sound, never a slower
+  tempo); and approved every other recommendation of §12 as written.
 - **Date:** 2026-11-05
 - **Refines:** ADR-0004 (two layers: written intent and performance, derived plus explicit
   offsets), ADR-0024 §4–§10 (ties, grace notes, articulations, ornaments, fermatas, arpeggios,
@@ -99,7 +101,7 @@ level, short grace notes of tens of milliseconds) and all make them **editable**
 options. None plays ornaments well by default. Timing effects that change the clock (fermatas,
 pauses) are handled through the tempo, not through the notes.
 
-## Decision (proposed)
+## Decision
 
 A new module `perform` in `orchestra-playback`, next to `unroll`.
 
@@ -252,10 +254,10 @@ score and of one note's update.
 | G1 | What F1.13 outputs | **played notes in musical time, exact pitch in semitones, 16-bit velocity**; MIDI-like events with seconds and key numbers | **Musical time and exact pitch**: tempo edits do not recompute the notes, microtones survive, F1.18 and F3 choose their own encoding |
 | G2 | Ties | **one played note per chain, shortening on the last note, accent on the first**; one note per notehead | **One per chain**: what every program plays; Dorico's placement of staccato |
 | G3 | Articulation defaults | **the table of §3** (staccato 50%, staccatissimo 25%, accent +20%…); other values | **§3**: the values Dorico and Sibelius report, editable later (F2.12) |
-| G4 | Dynamic levels | MuseScore's table extrapolated to *pppppp*–*ffffff*; MusicXML's anchor; a power curve | **Owner's decision (2026-11-05):** the extremes are *pppp* and *ffff*; more *p*s or *f*s are written but play as *pppp*/*ffff*; the ten levels spread evenly (step ≈ 13 on 7 bits, table of §4) — **values to confirm** |
+| G4 | Dynamic levels | MuseScore's table extrapolated to *pppppp*–*ffffff*; MusicXML's anchor; a power curve | **Owner's decision (2026-11-05):** the extremes are *pppp* and *ffff*; more *p*s or *f*s are written but play as *pppp*/*ffff*; the ten levels spread evenly (step ≈ 13 on 7 bits, table of §4, approved) |
 | G5 | Voice vs instrument dynamic | **latest wins, at the same point the voice's**; the voice's always; the instrument's always | **Latest, then the voice's**: what a player reads |
 | G6 | Hairpins | **velocity per note, linear in musical position, target the next dynamic or one level**; also swell held notes | **Velocity per note**: swelling needs controller curves (F3) |
-| G7 | Grace notes | acciaccatura on the beat; before the beat | **Owner's decision (2026-11-05):** acciaccaturas **before the beat**, taking time from the previous note (the main note starts on time); appoggiaturas **on the beat**, taking time from the main note. **To confirm:** 1/32 of a whole note each, at most half of the previous note in all; at the very start, before time 0 |
+| G7 | Grace notes | acciaccatura on the beat; before the beat | **Owner's decision (2026-11-05):** acciaccaturas **before the beat**, taking time from the previous note (the main note starts on time); appoggiaturas **on the beat**, taking time from the main note; 1/32 of a whole note each, at most half of the previous note in all, before time 0 at the very start (approved) |
 | G8 | Ornaments | **played as written in v0, realised in a later step**; realised now | **Later**: they need the auxiliary note and a speed, a step of their own |
 | G9 | Fermatas | as written in v0, later on the clock; lengthen the notes only | **Owner's decision (2026-11-05):** deferred; when done, a fermata lengthens the sound and delays what follows by inserted time, **never** a slower tempo |
 | G10 | Arpeggios | **1/64 of a whole note between notes, ending together**; a fixed time in ms | **Musical time**: follows the tempo like the rest |
@@ -264,7 +266,7 @@ score and of one note's update.
 | G13 | Intonation (D22) | **12-TET with exact microtones in v0; tunings as a playback layer after F3.04**; in F1.13 | **After F3.04**: without an instrument that can sound them they cannot be heard or tested |
 | G14 | Split of the step | **F1.13 (this ADR), F1.13b (notes, ties, articulations, grace notes, arpeggios, offsets, pass rules), F1.13c (dynamics, hairpins, incremental update, benchmarks)** | Two parts of about the size of F1.11b's |
 
-## Alternatives rejected (proposed)
+## Alternatives rejected
 
 - **Seconds in the played notes:** every tempo edit would recompute every note; the path already
   gives the seconds of any written point exactly where the tempo map is.
