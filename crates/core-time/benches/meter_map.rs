@@ -8,7 +8,8 @@
 //! ([`MeterMap::bar_start`]), point → beat ([`MeterMap::beat_of`]) and back
 //! ([`MeterMap::beat_position`]), and the displayed bar number. Plus one edit on the editing path
 //! (a meter change, which clones and rebuilds the map), whose budget is the 16 ms re-layout of
-//! CLAUDE.md §5 rather than the audio thread's.
+//! CLAUDE.md §5 rather than the audio thread's, and the insertion and deletion of bars that the
+//! commands of F1.11b use (ADR-0026 §1), on the same path and with the same budget.
 //!
 //! # The reference map
 //! 256 bars with a pickup, a meter change every 4 bars cycling through simple, compound,
@@ -44,8 +45,8 @@ use std::hint::black_box;
 
 use gungraun::prelude::*;
 use orchestra_core_time::{
-    BarIndex, BarKind, BarPosition, BeatGrouping, BeatPosition, Duration, IrregularBar, Meter,
-    MeterChange, MeterMap, Position, Rational,
+    BarIndex, BarKind, BarPosition, BarSpan, BeatGrouping, BeatPosition, Duration, IrregularBar,
+    Meter, MeterChange, MeterMap, Position, Rational,
 };
 
 // Number of lookups per benchmark (see the module documentation).
@@ -219,6 +220,23 @@ fn edit_meter_change(mut map: MeterMap) -> MeterMap {
     map
 }
 
+// Inserting four empty bars in the middle of the map: splicing every source list and rebuilding
+// the segments. Not a batch, like the edit above.
+#[library_benchmark]
+#[bench::reference(reference_map())]
+fn insert_bars(mut map: MeterMap) -> MeterMap {
+    let _ = black_box(map.insert_bars(black_box(BarIndex::new(130)), &BarSpan::empty(4)));
+    map
+}
+
+// Removing four bars in the middle of the map (taking out a meter change), then the same rebuild.
+#[library_benchmark]
+#[bench::reference(reference_map())]
+fn remove_bars(mut map: MeterMap) -> MeterMap {
+    let _ = black_box(map.remove_bars(black_box(BarIndex::new(130)), 4));
+    map
+}
+
 library_benchmark_group!(
     name = meter_map,
     benchmarks = [
@@ -227,7 +245,9 @@ library_benchmark_group!(
         beat_of,
         beat_position,
         display_number,
-        edit_meter_change
+        edit_meter_change,
+        insert_bars,
+        remove_bars
     ]
 );
 

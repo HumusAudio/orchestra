@@ -49,6 +49,17 @@
 //! - [`jump`] and [`bar_repeat`] (SCALETTA F1.10b, ADR-0025 §4, §6–§7): [`Marker`]s and
 //!   [`Jump`]s ("go to / play until / continue at" by ID), the [`BarRepeat`]s (%) of each staff
 //!   and the [`PassRule`]s of each instrument.
+//! - [`edit`], [`change`] and [`editor`] (SCALETTA F1.11b part 1, ADR-0026 §1–§5): the primitive
+//!   [`Edit`]s that return their inverse, the [`ChangeSet`] every change reports, and the
+//!   [`Editor`] with its transactions and its one undo history bounded by memory.
+//! - [`command`] (SCALETTA F1.11b part 2a, ADR-0026 §1, §4, §6): the [`Command`]s on events and
+//!   bars (enter, delete and change events; insert and delete bars), the **gestures** of the
+//!   editor (a drag as one step of undo), and the local check of the musical rules on the cells a
+//!   command touched.
+//! - [`mark_command`] (SCALETTA F1.11b part 2b, ADR-0026 §9 and §11 X1–X10): the commands on
+//!   marks and form markings (added from a [`MarkSpec`], changed keeping their ID, removed with
+//!   the cascade of the form), on tuplets, on the initial values and on the per-bar data that
+//!   does not move a barline.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -67,13 +78,24 @@
 #![deny(clippy::indexing_slicing)]
 
 pub mod bar_repeat;
+pub mod change;
+pub mod command;
+#[cfg(test)]
+mod command_tests;
 pub mod content;
 pub mod document;
 pub mod dynamic;
+pub mod edit;
+pub mod editor;
+#[cfg(test)]
+mod editor_tests;
 pub mod event;
 pub mod form;
 pub mod id;
 pub mod jump;
+pub mod mark_command;
+#[cfg(test)]
+mod mark_command_tests;
 pub mod marking;
 pub mod marks;
 pub mod pitch;
@@ -82,6 +104,8 @@ pub mod tempo_mark;
 pub mod validate;
 
 pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
+pub use change::ChangeSet;
+pub use command::{Command, EventChange, NewBody, NewEvent};
 pub use content::Chunk;
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
@@ -91,6 +115,8 @@ pub use dynamic::{
     Dynamic, DynamicLevel, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinKind,
     HairpinShape, HairpinStyle, OtherDynamic,
 };
+pub use edit::{Edit, Initial, MeterEdit, Object, ObjectRef};
+pub use editor::{CommandError, DEFAULT_HISTORY_LIMIT, Editor, Transaction};
 pub use event::{
     BaseValue, Chord, Event, EventBody, MAX_DOTS, MAX_TUPLET_DEPTH, Note, NoteValue,
     NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,
@@ -103,6 +129,7 @@ pub use id::{
     VoiceId, VoltaId,
 };
 pub use jump::{Jump, JumpFires, JumpSpec, JumpTarget, Marker, MarkerKind, RepeatsAfterJump};
+pub use mark_command::{MarkSpec, NewVolta};
 pub use marking::{
     Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,
     OrnamentError, PerformanceOffsets, TremoloStrokes,

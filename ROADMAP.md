@@ -248,8 +248,78 @@ oracle for rules 10–11 (the first generator gave 109 valid cases out of 1 024;
 third; ten injected bugs caught, eight by the oracle), allocation-free reads. Benchmarks:
 `validate` with 50 jumps ≈ 933 000 instructions (≈ 15 000 per jump on an extreme score, from
 ≈ 1.96 M before the lookup was improved); every existing benchmark within ±0.5% of `main`.
-PR #18 (F1.10, F1.10b) with SCALETTA v0.20. **Next:** F1.11 (commands, unified undo/redo,
-change notifications), the last step of F1-B.
+PR #18 (F1.10, F1.10b) with SCALETTA v0.20; merged on 2026-11-04, after a re-run of the macOS
+job (three runs in a row had been cancelled after 15 minutes without ever getting a runner: a
+GitHub queue problem, not the code). Step **F1.11** (`feature/f1-11-commands`, 2026-11-04):
+**ADR-0026** (Accepted by the owner, every recommendation U1–U11 approved, D08 and D21 closed):
+primitive edits (`Insert`/`Remove`/`Replace` over one enum of object kinds, plus bar and meter
+edits) that return their exact inverse, commands as data expanding into them, all-or-nothing
+transactions with the derived data (tempo map, indices) updated once at the end, a **linear
+history bounded by memory** (128 MB by default, the last step always kept, not saved in the file),
+explicit **gestures** with compaction for drags, a **change set** returned by every transaction,
+undo and redo plus a document revision number; rules for inserting bars (new bars take what is in
+force before them, refused inside a bar repeat) and deleting them (state marks carried to the next
+bar, dynamics deleted, ranges clipped, invalid form markings deleted in cascade, at least one bar
+left); a **meter change rewrites the music by default** up to the next meter change (music stays
+in time, barlines move, notes split into tie chains, an irregular last bar so nothing after moves,
+form markings inside a bar split it), with `KeepBars` as an explicit mode. Sources: Dorico, MuseScore,
+Sibelius (a course summary only), Logic, Cubase/Nuendo. SCALETTA v0.21 splits the step into F1.11b (the engine
+and the commands on events, marks, form markings and bars) and F1.11c (the meter change in both
+modes). **F1.11b part 1 done** (2026-11-04, same branch, not yet in a PR): in `core-time`,
+`MeterMap::insert_bars`/`remove_bars` with `BarSpan`, exact inverses of each other (oracle property
+tests, two injected bugs caught, ≈ 95 000 instructions for four bars); in `core-model`, the modules
+`edit` (primitive edits `Insert`/`Remove`/`Replace` over `Object`/`ObjectRef`, `InsertBars`/
+`RemoveBars`, `MeterEdit`, `Initial`, each returning its exact inverse, with structural checks only
+and the rule "an insertion checks only what no other edit can take away"), `change` (`ChangeSet`),
+`editor` (`Editor::transact`, linear history bounded by memory, undo/redo, revision number,
+`CommandError`), plus `Document::same_content` and `Document::indices_are_consistent`; history-free
+orders (dynamics, hairpins, voltas, bar repeats, pass rules by (point, ID); slur index by ID; events
+remember their place in the chunk). Tests in `src/editor_tests.rs` (nine cases and a snapshot-model
+property test over random transactions, undos and redos; five injected bugs caught). The tempo-map
+"bulk edit" of ADR-0022 §8 already exists (the map is derived from all marks at once); the meter-map
+bulk edit is needed only by the rewrite of F1.11c and comes there. Part 2 was split in two by the
+owner (2026-11-04). **F1.11b part 2a done** (2026-11-04, same branch, not yet in a PR): before
+coding, the owner approved the precisions V1–V9 and W1–W6, now ADR-0026 §11 (events entered only
+into free space; tie chains across barlines written with the longest values first; tuplet notes
+across a barline refused until F1.11c; free bars grow; a deletion leaves a gap and takes along the
+grace notes, slurs and empty tuplets; a move never splits; a new pitch follows the tie chain;
+nothing entered past the last bar; deleting bars clips gradual tempo changes and carries the tempo
+as an immediate mark (at the start of the score, a gradual change cut in the middle gives its
+target tempo: owner's choice after a first draft used its starting tempo); a cascade by the form checks; no insertion from a bar repeat's source to its
+end). Implemented in `core-model`: the module `command` (`Command`: `EnterEvent`, `DeleteEvent`,
+`ChangeEvent` with `EventChange`, `InsertBars`, `DeleteBars`), `Transaction::execute` and
+`Editor::execute` with atomic commands, the gestures (`begin_gesture`/`update_gesture`/
+`end_gesture`/`cancel_gesture`, compaction of the `Replace` inverses, tempo map derived live,
+`CommandError::GestureOpen`/`NoGesture`), the **local check** `Document::check_cells` (the rules an
+event change can break, on the touched cells only; `validate` split into `check_chunk`), the derived
+**backward tie index** (`tie_index`, `Document::ties_into`) on the generic `IdRefs<T>` (the former
+`SlurRefs`), the internal `ChangeSet::notes_gone`, new typed errors (`PastLastBar`,
+`TupletAcrossBarline`, `StartsPastBarline`, `NotWritable`, `InsideBarRepeat`, `NoBarsLeft`). Tests
+in `src/command_tests.rs`: 19 hand-written cases and a property test with the full `validate` after
+every random command (seven injected bugs caught). **Known limit (W4):** deleting the first bars in
+the middle of a gradual tempo change starts the score at the tempo the change arrives at, and the
+change is deleted (a gradual change cannot open the score, ADR-0021). **F1.11b part 2b done**
+(2026-11-05, same branch): before coding, the owner approved the precisions X1–X10, now ADR-0026
+§11 (voltas added a whole group at a time and repeats in pairs; removing cascades, adding, moving
+and changing never delete; a bar repeat over music refused; a change is the whole new description
+with the same ID and kind; clefs and keys change no pitch; tuplets added empty, changed in place,
+removed with their notes; initial values set, never removed; per-bar data that does not move a
+barline here, the rest in F1.11c; a local check of the marks). The property test then found that
+`InsertBars` put new bars between two voltas of a group, outside both: the owner chose **X11**,
+the new bars join the earlier volta and its end repeat moves with them. Implemented in
+`core-model`: the module `mark_command` (`MarkSpec`, `NewVolta`) with the commands `AddMark`,
+`ChangeMark`, `RemoveMark`, `AddRepeat`, `AddVoltas`, `AddTuplet`, `ChangeTuplet`, `RemoveTuplet`,
+`SetInitial`, `SetBarGrouping`, `SetUncounted`, `SetNumberingRestart`; `command::check` with the
+new `Document::check_objects`; the in-place replacement of a tuplet in `edit.rs`; new typed errors
+`MarkKindMismatch` and `NotAMark`; history steps shrunk to their length (`Step::undoing`). Tests:
+16 hand-written cases in `src/mark_command_tests.rs`, the property test drawing from 21 kinds of
+command (12 000 sequences passed), seven injected bugs caught; `tests/history_memory.rs` (the
+history estimate is exact to the byte but for texts; it fails below 90%); the normal and heavy
+scores generated by the shared `tests/common/score.rs`. Benchmarks `benches/editor.rs`, heavy
+score, instructions: a note ≈ 8 700, a dynamic ≈ 5 200, undoing a 200-note paste ≈ 385 000,
+inserting a bar ≈ 132 000, deleting one ≈ 978 000, one gesture update ≈ 14 500: far under 1 ms
+and 16 ms. **Next:** the PR of F1.11b (it carries ADR-0026 and parts 1, 2a, 2b), then F1.11c, the
+meter change.
 
 | Step | What | Status |
 |---|---|---|
@@ -312,11 +382,13 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
   conversion uses 12-TET as the reference (ADR-0023 §3).
 - **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
   window, whatever its signature; to revisit if open signatures with accidentals turn out common.
-- **D21, for F1.11:** the default behaviour of a meter change (keep the bars' contents, or rewrite
-  the music up to the next meter change); both are cheap with ADR-0022's storage.
-- **`core-time` work required by ADR-0022 §8, with the first command that needs it:** inserting and
-  deleting bars in the meter map, and a bulk edit on both maps (shifting t tempo changes is now t
-  rebuilds, O(t²)).
+- **From F1.11b part 1, to keep in mind:** while a transaction is open the tempo map is the one
+  from before (it is derived once, at the end); gestures derive it after each live update (done in
+  part 2a); the meter-map bulk edit of ADR-0022 §8 is left to F1.11c (the only
+  user); interface choices confirmed by the owner (2026-11-04, SCALETTA v0.22): `Edit`,
+  `Object` and `Transaction::apply` are public (raw edits keep only the structure, the musical
+  invariants are the caller's), `Transaction::new_id` returns a raw `NonZeroU64` because the typed ID
+  constructors stay crate-private, the editor's tests live inside the crate (`src/editor_tests.rs`).
 - **Possible model optimisations, not urgent (F1.06 numbers):** a whole-score iteration with
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.

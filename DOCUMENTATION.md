@@ -518,6 +518,43 @@ edit_meter_change 97488 for one edit (clone, rebuild, validation)
 Most of the cost is the exact rational arithmetic (the gcds), not the search. A lookup of about a
 thousand instructions is well under a microsecond on the reference hardware.
 
+#### Inserting and deleting bars
+
+The commands of F1.11b insert and delete bars (ADR-0022 §8, ADR-0026 §1), so the meter map has
+two operations that are **exact inverses** of each other. `insert_bars(at, &span)` inserts the
+bars of a `BarSpan` before bar `at` and moves every source entry from `at` on later by that many
+bars; `remove_bars(at, count)` takes `count` bars out, returns what they carried (meter changes,
+pickups, groupings, uncounted bars, numbering restarts, at indices relative to the span) and
+moves the later entries back. Inserting the returned span gives back the very same map, which is
+what an undo needs.
+
+```rust
+let mut map = MeterMap::new(MeterChange::new(Meter::new(&[4], 4)?))?;
+map.set_meter_change(BarIndex::new(4), MeterChange::new(Meter::new(&[3], 4)?))?;
+// Two empty 4/4 bars before bar 2: the 3/4 moves to bar 6, still on the same written bar.
+map.insert_bars(BarIndex::new(2), &BarSpan::empty(2))?;
+// Taking them out again returns what they carried (nothing) and gives back the same map.
+let span = map.remove_bars(BarIndex::new(2), 2)?;
+assert!(span.has_no_entries());
+```
+
+The new bars are exactly what the span says: with `BarSpan::empty(n)` they follow the meter in force
+just before `at`, and an entry that was at `at` moves with its bar. Inserting at bar 0 moves the meter
+change of bar 0 as well, so the span must then bring its own (the map always needs one at bar 0);
+removing bars may drop the meter change that was in force after them. Deciding what the remaining
+music should keep is the document command's job (ADR-0026 §6), not the map's. Both operations are
+all or nothing and cost O(n log n) in the source entries, whatever the number of bars.
+
+**Tests** (`tests/meter_map_bars.rs`): eight hand-written cases (new bars follow the meter in
+force, an entry at the insertion point moves with its bar, inserting at the start needs a meter,
+an entry outside its span is refused, removed entries leave with their bars, removing the start
+needs a meter after it, past the last bar, zero bars) and two property tests against an oracle that
+moves the entries one by one in `BTreeMap`s, checking that the bars before the edit point do not
+move and that each operation undoes the other. Two injected bugs (an entry at the insertion point
+left behind; the entries after a removal not moved back) were caught. **Benchmarks** (same file as
+the lookups): inserting four bars in the middle of the reference map ≈ 95 000 instructions, removing
+four ≈ 94 700, about one meter change.
+
 #### Tempo, seconds, samples and frames
 
 `src/tempo.rs` and `src/clock.rs` hold the units of real time that the tempo map (step F1.05b)
@@ -1166,6 +1203,8 @@ of `spikes/model/` (1 000 bars, 30 staves, 41 voices, 221 169 noteheads; no tupl
 builder and measures what the document keeps with the new `net_bytes` of `orchestra-test-support`:
 **257 bytes per note** (56.9 MB), events, derived indices and inline offsets included. The test fails
 above **285** (the measure plus about 10%), so that a structure that grows is a deliberate decision.
+Since F1.11b part 2b the score comes from `tests/common/score.rs`, shared with the editor's
+benchmarks.
 
 **Benchmarks** (`benches/dynamic.rs`; instructions): adding a tempo mark near the start of 1 000 bars
 with 250 marks, half of them gradual, which derives the whole map again, ≈ 985 000 (about 0.3 ms,
@@ -1315,6 +1354,280 @@ jump and a bar repeat too: reading them never allocates, and `validate` still ma
 on pass 2 in each of the 50 sections ≈ 933 000 instructions, about 15 000 per jump for the section
 lookup on a score far beyond real ones; it was ≈ 1.96 million before the lookup stopped at the
 first section after the bar and computed the plays only once.
+
+#### Edits, transactions and undo
+
+Since F1.11b part 1 an existing document changes only through an **`Editor`** (ADR-0003 §4,
+ADR-0026): the document, its one undo history and the transaction in progress. Four new modules:
+
+- `edit`: the **primitive edits**, three verbs over one enum of object kinds plus the bar and meter
+  operations and the values the document has once:
+
+  ```text
+  Edit = Insert(Object) | Remove(ObjectRef) | Replace(Object)
+       | InsertBars { at, ids, meter } | RemoveBars { at, count }
+       | Meter(MeterEdit) | SetInitial(Initial)
+  ```
+
+  Applying an edit (`Document::apply_edit`, crate-private) returns its **exact inverse**: an
+  `Insert` gives the `Remove` of the same ID, a `Remove` the `Insert` of the whole object with its
+  exact place, a `Replace` a `Replace` with the old content, `InsertBars` gives `RemoveBars` and
+  back. Undo applies the inverses in reverse order, and what it returns is exactly the redo.
+- `change`: the **`ChangeSet`** every transaction, undo and redo returns: the (voice, bar) cells
+  whose events changed, the objects inserted, removed and replaced (bars included), the first bar
+  from which the meter map may answer differently, the first position from which the tempo map
+  differs, and whether the form changed. Each edit records its own entries, so no notification can
+  be forgotten; the lists are sorted and deduplicated once at the end.
+- `editor`: `Editor::transact` runs a closure as **one transaction = one step of undo**; if the
+  closure returns an error, every edit it applied is reverted. The tempo map is derived again once,
+  at the end, and only if a tempo mark or a bar start changed; if it fails, the transaction is
+  reverted too. The history is **linear** and bounded by **memory** (`DEFAULT_HISTORY_LIMIT`,
+  128 MB, the most recent step always kept), and the document gains a **revision** number.
+- `editor_tests` (tests only, see below).
+
+```rust
+let mut editor = Editor::new(document);
+// One transaction = one step of undo. `?` on a refused edit reverts the whole transaction.
+let changes = editor.transact(|tx| {
+    tx.apply(Edit::Remove(ObjectRef::Event(grace)))?;
+    tx.apply(Edit::Remove(ObjectRef::Slur(slur)))
+})?;
+assert_eq!(changes.removed().len(), 2);
+editor.undo()?;   // both come back, with the same IDs and in the same places
+editor.redo()?;   // and go again
+```
+
+**What an edit checks.** The structure: the right container, sorted lists, derived indices in
+step, IDs unique and already handed out by the counter (an ID not handed out yet would collide with
+a later object). The musical invariants (no overlaps in a voice, ties to the same pitch, a valid
+form) are the commands' job, in part 2. One rule follows: **an insertion checks only what no other
+edit can take away**. Bars can only be removed when nothing refers to them (`BarsNotEmpty`),
+tuplets only when no event uses them (`TupletInUse`); a slur, on the other hand, does not check
+that its events exist, nor a jump that its markers do, because a later edit of the same
+transaction may have removed them, and then undo would fail.
+
+**Orders that do not depend on history.** Where a list may hold several objects at one point
+(dynamics, hairpins, voltas, bar repeats, pass rules) they are sorted by (point, ID), and the
+"slurs at an event" index by ID: removing an object and inserting it back gives an identical list.
+Events are the exception, because at one (offset, slot) their order is musical (grace notes in a
+row): a removed event remembers its place in the chunk (`Chunk::remove` and `Chunk::insert_at`).
+An emptied chunk goes back to "no allocation", so it compares equal to a chunk that never held
+anything. `Document::same_content` compares two documents ignoring the ID counter and the revision,
+which only grow; `Document::indices_are_consistent` rebuilds every derived index and compares.
+
+**Tests** (`src/editor_tests.rs`, inside the crate because the objects' constructors are
+crate-private): nine hand-written cases (grace notes back in their order after an undo, a failed
+transaction, an empty transaction, the change sets of the two maps, busy bars, IDs never handed
+out, the bounded and linear history, structural refusals) and a property test: a rich document (every
+kind of object) receives random transactions of random edits, many of them refused, interleaved with
+undos and redos, against a model made of one snapshot per step of the history; after every step
+the indices must agree with a rebuild from scratch and the tempo map with the marks. The test found
+at once that a transaction may also fail at the end, when a moved tempo mark lands inside a gradual
+change: the model now expects that. Five injected bugs (undo in the wrong order, notehead index left
+behind by a replacement, slur index entry left behind, no chunks for new bars, a removed event
+forgetting its place) were all caught; the second one only after the generator learned to change
+the noteheads of a chord. The benchmarks of the editor came with part 2b (see below).
+
+#### Commands, gestures and the local check
+
+Since F1.11b part 2a the document is changed with **commands** (module `command`, ADR-0026 §1, §4,
+§6 and the precisions of §11): a `Command` says *what* the user wants, as data, and expands into
+primitive edits inside a transaction. The history keeps the edits' inverses, never the command, so
+redo never runs a command again and never hands out new IDs.
+
+```rust
+let mut editor = Editor::new(document);
+// One command = one step of undo.
+let changes = editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(flute, bar_4, quarter * 3),
+    body: NewBody::Chord { value: dotted_half, pitches: vec![g4], grace: None },
+}))?;
+// A dotted half from the last beat of a 4/4 bar: a quarter tied to a half in the next bar.
+// Several commands in one step (a paste):
+editor.transact(|tx| {
+    tx.execute(&Command::DeleteEvent(a))?;
+    tx.execute(&Command::DeleteEvent(b))
+})?;
+```
+
+The commands of part 2a:
+
+- `EnterEvent(NewEvent)`: a chord, a grace chord or a rest, **only into free space** (V2: over
+  another event it is refused). Across a barline it becomes a **tie chain** (V3): cut at every
+  barline, each part written with the longest values first (at most two dots: five eighths are a
+  half and an eighth), the noteheads of a chord tied pitch by pitch; a rest becomes several rests.
+  Past the end of a **free** bar the bar grows instead (V5). Refused: a tuplet note across a
+  barline (V4, it comes with F1.11c), past the last bar (W3), a length no value can write
+  (`NotWritable`).
+- `DeleteEvent(EventId)`: leaves a **gap** (V6: no rest is written, engraving fills it, like
+  Dorico's implicit rests), and takes along the grace notes ornamenting the event, the slurs on it
+  and the tuplets left empty; the ties leading into it become `Tie::None`.
+- `ChangeEvent { event, change }`: one aspect per `EventChange` variant (move, value, pitch, add or
+  remove a notehead, tie, articulations, ornament, fermata, arpeggio, performance offsets, staff).
+  A move takes the grace notes along and **never splits** (W1: past the barline the bar becomes
+  overfull, a valid state); a new pitch changes the **whole tie chain** (W2); removing the last
+  notehead deletes the event.
+- `InsertBars { at, count }`: empty bars with the meter, clef, key and tempo in force before them;
+  ranges spanning the point grow; between two voltas of a group the new bars join the earlier one
+  (X11, part 2b). Refused from the first bar of a bar repeat's source to its end (W6).
+- `DeleteBars { at, count }`: the events go (as `DeleteEvent`), the dynamics too; the meter, clef,
+  key and tempo last in force inside the run move to the first bar after it (at the start of the
+  score they become the initial values); hairpins, pass rules, voltas, bar repeats and gradual
+  tempo changes are **clipped** (W4: if the run starts the score in the middle of a gradual change,
+  the score starts at the tempo the change arrives at, because a gradual change cannot open the
+  score); then a **cascade** (W5) runs the form checks of `validate`
+  again and deletes the marking each one reports, until the form is valid. At least one bar stays.
+
+**Atomic commands.** A command that fails is reverted at once, even inside a larger transaction:
+the editor remembers where its edits began and applies their inverses (`Editor::execute_open`).
+
+**The local check** (`Document::check_cells`, in `validate.rs`). The event commands do not check
+the musical rules one by one: they emit their edits and then the editor runs, **only on the cells
+(voice, bar) the command touched**, the rules of `validate` a change of events can break: no
+overlap, a whole-bar rest alone, grace notes with their main event, the ties starting there and
+those **arriving** there, the slurs on those events, no event under a bar repeat. That is why
+entering a note over another one fails with `Violation::Overlap`. To find the arriving ties
+without scanning the instrument, the document gains a derived **backward tie index**
+(`tie_index`, target → sources, with `Document::ties_into`), kept up to date by every edit like
+the slur index. Its entries are an `IdRefs<T>`, the small sorted set (two IDs inline) that the
+slur index already used, now generic in `id.rs`. To check the per-chunk rules, `validate` was split:
+`check_chunk` checks one cell, and `validate` calls it for every cell.
+
+**Gestures** (a drag, ADR-0026 §4):
+
+```rust
+editor.begin_gesture()?;
+for offset in mouse_positions {
+    // Each update is applied live and returns its own change set, for the views.
+    let live = editor.update_gesture(&Command::ChangeEvent {
+        event: note,
+        change: EventChange::Move { bar, offset },
+    })?;
+}
+editor.end_gesture()?;     // the whole drag is one step of undo
+// or: editor.cancel_gesture()?;  (Esc) back to the state before the drag
+```
+
+While a gesture is open `transact`, `execute`, `undo` and `redo` are refused with
+`CommandError::GestureOpen`. **Compaction:** the inverse of a `Replace` of an object already
+replaced in the same gesture is dropped, so a 200-update drag keeps one old value (measured: under
+1 KB of history). A refused update is reverted alone and the gesture stays open; the tempo map is
+derived again after every update that moves it.
+
+**Tests** (`src/command_tests.rs`): nineteen hand-written cases, one per rule above, and a property
+test: random sequences of random commands on the rich document of `editor_tests`, with undos and
+redos; after **every** command the full `validate` must pass and the indices agree with a rebuild,
+a refused command must change nothing, and undoing everything must give back the original. In
+one run (proptest picks new cases each time): 892 commands carried out and 332 refused, with 13
+different kinds of refusal. Seven injected bugs (ties into a deleted note not cleared, no compaction, clef not carried,
+no cascade, the local check skipping slurs or arriving ties, grace notes not deleted, the wrong tempo at
+the start after a cut accelerando) were all caught.
+
+#### Commands on marks, the form and tuplets
+
+F1.11b part 2b completes the commands of ADR-0026 §9 (module `mark_command`, with the precisions
+X1–X11 of ADR-0026 §11, approved by the owner on 2026-11-05). A mark is described by a
+**`MarkSpec`**: what it is and where it sits, **without an ID**. The ID of a new mark comes from
+the document's counter, and a changed mark keeps its own, so the same description serves both
+adding and changing, and nobody builds an object with an ID of their own choosing.
+
+```rust
+// A dynamic: described without an ID; the ID comes from the counter.
+let changes = editor.execute(&Command::AddMark(MarkSpec::Dynamic {
+    instrument: piano,
+    at: ScorePoint::start_of(bar_3),
+    placement: DynamicPlacement::instrument(lower_staff),
+    mark: DynamicMark::Level(DynamicLevel::F),
+}))?;
+let dynamic = changes.inserted()[0];
+// Moved to bar 4: same ID, same kind, the whole new description (X5).
+editor.execute(&Command::ChangeMark { mark: dynamic, to: forte_at_bar_4 })?;
+// Removed; the form markings it leaves invalid would go in cascade (X2).
+editor.execute(&Command::RemoveMark(dynamic))?;
+// A first and a second ending, with the end repeat the first one lacks (X1).
+editor.execute(&Command::AddVoltas(vec![first_ending, second_ending]))?;
+```
+
+The new commands:
+
+- `AddMark(MarkSpec)`, `ChangeMark { mark, to }`, `RemoveMark(ObjectRef)`: every mark (slurs,
+  dynamics, hairpins, tempo marks, clef and key changes, key overrides) and every form marking
+  (repeat barlines, voltas, markers, jumps, bar repeats, pass rules). **Adding, moving and
+  changing never delete anything** (X3): a result that breaks a rule is refused with the typed
+  violation (a hairpin overlapping another one of the same scope, a tempo mark inside a gradual
+  change, a jump whose marker is missing, a bar repeat over bars that hold music, X4). A change
+  keeps the ID and the **kind** (X5: a dynamic cannot become a hairpin, `MarkKindMismatch`); a drag
+  sends it inside a gesture, and the compaction keeps one old value. **Removing** deletes in
+  **cascade** the form markings it left invalid (X2, like deleting bars): removing the segno takes
+  the D.S. along, in the same step. Events, tuplets, bars and the initial values are not marks
+  (`NotAMark`): they have commands of their own.
+- `AddRepeat { start, end, times }` and `AddVoltas(Vec<NewVolta>)` (X1): a volta alone is never
+  valid (a group has at least two, with the end repeat of the section), so voltas are added **a
+  whole group at a time**, together with the end repeats the group lacks (with the group's number
+  of plays), and a repeated section with its two barlines.
+- `AddTuplet`, `ChangeTuplet`, `RemoveTuplet` (X7): a tuplet is added **empty** (an incomplete
+  tuplet is a valid state) and filled with `EnterEvent`; changing its ratio or look replaces it
+  **in place** (the new `Document::replace_tuplet_in_place` edit path, which names the cells of
+  its events because their durations change, so the local check refuses a ratio that makes them
+  overlap); removing it takes along the events it contains and the tuplets nested in it.
+- `SetInitial(Initial)` (X8): the initial tempo (immediate), key, a staff's clef, the numbering
+  style; set, never removed. A new key or clef **changes no pitch** (X6): pitches are stored as
+  spelled at concert pitch, and respelling will be a command of its own.
+- `SetBarGrouping`, `SetUncounted`, `SetNumberingRestart` (X9): the per-bar data that does not move
+  a barline. Irregular and free bars and meter changes, which do, come with F1.11c.
+
+**Between two voltas (X11).** The property test found that `InsertBars` (part 2a) put new bars
+between a first and a second ending, outside both, leaving the group invalid: no range spans that
+point. The owner chose that the new bars **join the earlier volta**, and the end repeat that closed
+it moves to the end of the last new bar.
+
+**The local check, second half** (`Document::check_objects`, X10). After every command except the
+bar commands and `RemoveMark` (which keep the rules by construction or with the cascade),
+`command::check` runs `check_cells` on the cells and `check_objects` on the marks the command
+inserted or replaced: the ends of a slur, the hairpins of its instrument, the walk over the tempo
+marks once if a tempo mark changed, the form checks once if a form marking changed. Without it a
+tempo mark inside a gradual change would only fail when the transaction derives the tempo map at
+its end, taking the good commands of the same transaction down with it.
+
+**Tests** (`src/mark_command_tests.rs`): sixteen hand-written cases, one per decision X1–X11, and
+the property test of `command_tests`, which now draws from 21 kinds of command (12 new ones: marks
+added, moved and removed, slurs, tempo marks, repeats, volta groups, markers, jumps, bar repeats,
+tuplets, clefs, keys, per-bar data). 12 000 random sequences passed after the fix of X11. Seven
+injected bugs (no hairpin check, no cascade on removal, the tuplet cells not named, the end repeat
+of a volta group not added, the end repeat not moved by X11, no form check, no tempo check) were
+all caught; the last one only after a test of a refused tempo mark inside a larger transaction was
+added.
+
+#### Benchmarks of the editor and memory of the history
+
+The normal and heavy scores (100 bars × 10 staves, 1 000 bars × 30 staves) are generated by
+`tests/common/score.rs`, shared with `#[path]` by `tests/memory.rs` (which measures the same 257
+bytes per note as before), `tests/history_memory.rs` and `benches/editor.rs`; an optional empty
+**editing instrument** at the end receives the notes the benchmarks enter. `benches/editor.rs`
+counts instructions on both scores (heavy score; batches of 64 divided by 64): entering a note
+end to end ≈ 8 700, adding a dynamic ≈ 5 200, undoing a 200-note paste ≈ 385 000, inserting a
+bar ≈ 132 000, deleting one ≈ 978 000 (with clipping, carrying and cascade), one update of a
+1 000-update gesture ≈ 14 500. The setup checks that every command of a batch succeeds, so that
+no refusal is measured by mistake. Everything is far under the 1 ms of a note and the 16 ms of
+ADR-0007.
+
+`tests/history_memory.rs` measures the heap one step of the history really holds: an editor with a
+limit of 0 keeps only the last step, and turning it back into its document frees exactly the
+history. Its first run found that the steps kept the spare capacity of their vectors (a 200-note
+paste held 53 kB for an estimate of 42 kB): `Step::undoing` now shrinks them, and the estimate is
+exact but for the texts it does not count:
+
+```text
+step                                         estimate     measured
+one small edit (overhead)                         208          336
+one note entered                                  208          336
+200 notes pasted                                41600        41728
+1 000-update gesture                              208          336
+100 bars of the heavy score deleted           4567688      4567896
+```
+
+The difference of 128 bytes is the deque of the history itself. The test fails if the estimate
+falls below 90% of the measure, so the 128 MB limit stays honest.
 
 ### orchestra-playback
 

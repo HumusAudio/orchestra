@@ -547,6 +547,46 @@ edit_meter_change 97488 for one edit (clone, rebuild, validation)
 Gran parte del costo è l'aritmetica razionale esatta (i massimi comun divisori), non la ricerca.
 Una ricerca da circa mille istruzioni sta ben sotto il microsecondo sull'hardware di riferimento.
 
+#### Inserire e cancellare battute
+
+I comandi di F1.11b inseriscono e cancellano battute (ADR-0022 §8, ADR-0026 §1), quindi la mappa
+delle misure ha due operazioni che sono l'una l'**inversa esatta** dell'altra.
+`insert_bars(at, &span)` inserisce le battute di un `BarSpan` prima della battuta `at` e sposta in
+avanti di altrettante battute ogni voce dei dati di origine da `at` in poi; `remove_bars(at, count)`
+toglie `count` battute, restituisce ciò che portavano (cambi di metro, battute in levare,
+suddivisioni, battute non contate, ripartenze della numerazione, a indici relativi allo span) e
+riporta indietro le voci successive. Reinserire lo span restituito ridà la stessa identica mappa,
+che è ciò che serve all'undo.
+
+```rust
+let mut map = MeterMap::new(MeterChange::new(Meter::new(&[4], 4)?))?;
+map.set_meter_change(BarIndex::new(4), MeterChange::new(Meter::new(&[3], 4)?))?;
+// Two empty 4/4 bars before bar 2: the 3/4 moves to bar 6, still on the same written bar.
+map.insert_bars(BarIndex::new(2), &BarSpan::empty(2))?;
+// Taking them out again returns what they carried (nothing) and gives back the same map.
+let span = map.remove_bars(BarIndex::new(2), 2)?;
+assert!(span.has_no_entries());
+```
+
+Le battute nuove sono esattamente ciò che dice lo span: con `BarSpan::empty(n)` seguono il metro in
+vigore subito prima di `at`, e una voce che stava in `at` si sposta con la sua battuta. Inserire alla
+battuta 0 sposta anche il cambio di metro della battuta 0, quindi lo span deve portarne uno suo (la
+mappa ne vuole sempre uno alla battuta 0); togliere battute può far sparire il cambio di metro che
+era in vigore dopo di loro. Decidere che cosa deve conservare la musica che resta è compito del
+comando del documento (ADR-0026 §6), non della mappa. Entrambe le operazioni sono tutto-o-niente e
+costano O(n log n) nelle voci dei dati di origine, qualunque sia il numero di battute.
+
+**Test** (`tests/meter_map_bars.rs`): otto casi scritti a mano (le battute nuove seguono il metro in
+vigore, una voce nel punto d'inserimento si sposta con la sua battuta, inserire all'inizio richiede un
+metro, una voce fuori dal suo span è rifiutata, le voci tolte se ne vanno con le loro battute,
+togliere l'inizio richiede un metro dopo, oltre l'ultima battuta, zero battute) e due test di
+proprietà contro un oracolo che sposta le voci una per una in `BTreeMap`, controllando che le battute
+prima del punto di modifica non si muovano e che ogni operazione annulli l'altra. Due bug iniettati
+(una voce nel punto d'inserimento lasciata indietro; le voci dopo una rimozione non riportate
+indietro) sono stati presi. **Benchmark** (stesso file delle ricerche): inserire quattro battute a
+metà della mappa di riferimento ≈ 95 000 istruzioni, toglierne quattro ≈ 94 700, circa quanto un
+cambio di metro.
+
 #### Tempo, secondi, campioni e fotogrammi
 
 `src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che usa la mappa dei tempi
@@ -1235,7 +1275,8 @@ una partitura con la forma di quella pesante di `spikes/model/` (1 000 battute, 
 221 169 teste di nota; niente gruppi irregolari) e misura ciò che il documento trattiene con il nuovo
 `net_bytes` di `orchestra-test-support`: **257 byte per nota** (56,9 MB), compresi eventi, indici
 ricavati e scostamenti in linea. Il test fallisce oltre **285** (la misura più circa il 10%), così che
-una struttura che cresce sia una decisione voluta.
+una struttura che cresce sia una decisione voluta. Da F1.11b parte 2b la partitura viene da
+`tests/common/score.rs`, condiviso con i benchmark dell'editor.
 
 **Benchmark** (`benches/dynamic.rs`; istruzioni): aggiungere un'indicazione di tempo vicino all'inizio
 di 1 000 battute con 250 indicazioni, metà graduali, che ricava di nuovo tutta la mappa, ≈ 985 000
@@ -1396,6 +1437,303 @@ quando uno strumento ha regole di passaggio).
 Fine al passaggio 2 in ognuna delle 50 sezioni ≈ 933 000 istruzioni, circa 15 000 per salto per la
 ricerca della sezione su una partitura molto oltre quelle reali; erano ≈ 1,96 milioni prima che la
 ricerca si fermasse alla prima sezione dopo la battuta e calcolasse le esecuzioni una volta sola.
+
+#### Modifiche, transazioni e undo
+
+Dalla prima parte di F1.11b un documento esistente cambia solo attraverso un **`Editor`**
+(ADR-0003 §4, ADR-0026): il documento, la sua unica cronologia di undo e la transazione in corso.
+Quattro moduli nuovi:
+
+- `edit`: le **modifiche elementari**, tre verbi su un unico enum di tipi di oggetto più le
+  operazioni sulle battute e sul metro e i valori che il documento ha una volta sola:
+
+  ```text
+  Edit = Insert(Object) | Remove(ObjectRef) | Replace(Object)
+       | InsertBars { at, ids, meter } | RemoveBars { at, count }
+       | Meter(MeterEdit) | SetInitial(Initial)
+  ```
+
+  Applicare una modifica (`Document::apply_edit`, interna al crate) restituisce la sua **inversa
+  esatta**: un `Insert` dà il `Remove` dello stesso ID, un `Remove` l'`Insert` dell'oggetto intero
+  con il suo posto esatto, un `Replace` un `Replace` con il contenuto vecchio, `InsertBars` dà
+  `RemoveBars` e viceversa. L'undo applica le inverse in ordine contrario, e ciò che restituisce è
+  esattamente il redo.
+- `change`: l'**insieme delle modifiche** (`ChangeSet`) che ogni transazione, undo e redo
+  restituisce: le celle (voce, battuta) i cui eventi sono cambiati, gli oggetti inseriti, tolti e
+  sostituiti (battute comprese), la prima battuta da cui la mappa delle misure può rispondere
+  diversamente, la prima posizione da cui la mappa dei tempi è diversa, e se la forma è cambiata.
+  Ogni modifica registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
+  si ordinano e si ripuliscono dai doppioni una volta sola alla fine.
+- `editor`: `Editor::transact` esegue una chiusura come **una transazione = un passo di undo**; se
+  la chiusura restituisce un errore, ogni modifica che ha applicato viene annullata. La mappa dei
+  tempi si ricava di nuovo una volta sola, alla fine, e solo se è cambiata un'indicazione di tempo o
+  l'inizio di una battuta; se fallisce, anche la transazione viene annullata. La cronologia è
+  **lineare** e limitata in **memoria** (`DEFAULT_HISTORY_LIMIT`, 128 MB, l'ultimo passo sempre
+  tenuto), e il documento ha ora un numero di **revisione**.
+- `editor_tests` (solo test, vedi sotto).
+
+```rust
+let mut editor = Editor::new(document);
+// One transaction = one step of undo. `?` on a refused edit reverts the whole transaction.
+let changes = editor.transact(|tx| {
+    tx.apply(Edit::Remove(ObjectRef::Event(grace)))?;
+    tx.apply(Edit::Remove(ObjectRef::Slur(slur)))
+})?;
+assert_eq!(changes.removed().len(), 2);
+editor.undo()?;   // both come back, with the same IDs and in the same places
+editor.redo()?;   // and go again
+```
+
+**Che cosa controlla una modifica.** La struttura: il contenitore giusto, elenchi ordinati, indici
+derivati allineati, ID unici e già distribuiti dal contatore (un ID non ancora distribuito
+entrerebbe in collisione con un oggetto futuro). Gli invarianti musicali (niente sovrapposizioni in
+una voce, legature di valore alla stessa altezza, una forma valida) sono compito dei comandi, nella
+seconda parte. Ne segue una regola: **un inserimento controlla solo ciò che nessun'altra modifica
+può togliere**. Le battute si possono togliere solo quando nulla vi fa riferimento
+(`BarsNotEmpty`), i gruppi irregolari solo quando nessun evento li usa (`TupletInUse`); una legatura
+di portamento invece non controlla che i suoi eventi esistano, né un salto che esistano i suoi segni,
+perché una modifica successiva della stessa transazione può averli tolti, e allora l'undo
+fallirebbe.
+
+**Ordini che non dipendono dalla storia.** Dove un elenco può avere più oggetti nello stesso punto
+(dinamiche, forcelle, volte, ripetizioni di battuta, regole di passaggio) sono ordinati per (punto,
+ID), e l'indice "legature su un evento" per ID: togliere un oggetto e reinserirlo dà un elenco
+identico. Gli eventi sono l'eccezione, perché nello stesso (offset, slot) il loro ordine è musicale
+(abbellimenti in fila): un evento tolto ricorda il suo posto nel blocco (`Chunk::remove` e
+`Chunk::insert_at`). Un blocco svuotato torna a "nessuna allocazione", quindi risulta uguale a un
+blocco che non ha mai contenuto nulla. `Document::same_content` confronta due documenti ignorando il
+contatore degli ID e la revisione, che crescono soltanto; `Document::indices_are_consistent`
+ricostruisce ogni indice derivato e confronta.
+
+**Test** (`src/editor_tests.rs`, dentro il crate perché i costruttori degli oggetti sono interni):
+nove casi scritti a mano (abbellimenti di nuovo nel loro ordine dopo un undo, una transazione fallita,
+una transazione vuota, gli insiemi delle modifiche delle due mappe, battute occupate, ID mai
+distribuiti, la cronologia limitata e lineare, rifiuti strutturali) e un test di proprietà: un
+documento ricco (ogni tipo di oggetto) riceve transazioni casuali di modifiche casuali, molte
+rifiutate, alternate a undo e redo, contro un modello fatto di una fotografia per ogni passo della
+cronologia; dopo ogni passo gli indici devono coincidere con una ricostruzione da zero e la mappa
+dei tempi con le indicazioni. Il test ha scoperto subito che una transazione può fallire anche alla
+fine, quando un'indicazione di tempo spostata finisce dentro un cambio graduale: ora il modello lo
+prevede. Cinque bug iniettati (undo nell'ordine sbagliato, indice delle teste di nota lasciato
+indietro da una sostituzione, voce dell'indice delle legature lasciata indietro, nessun blocco per
+le battute nuove, un evento tolto che dimentica il suo posto) sono stati tutti presi; il secondo solo
+dopo che il generatore ha imparato a cambiare le teste di nota di un accordo. I benchmark dell'editor
+sono arrivati con la parte 2b (vedi sotto).
+
+#### Comandi, gesti e verifica locale
+
+Da F1.11b parte 2a il documento si cambia con i **comandi** (modulo `command`, ADR-0026 §1, §4, §6
+e le precisazioni di §11): un `Command` dice *che cosa* vuole l'utente, come dato, e si espande in
+modifiche elementari dentro una transazione. La cronologia tiene le inverse delle modifiche, mai il
+comando, quindi il redo non riesegue mai un comando e non distribuisce mai ID nuovi.
+
+```rust
+let mut editor = Editor::new(document);
+// One command = one step of undo.
+let changes = editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(flute, bar_4, quarter * 3),
+    body: NewBody::Chord { value: dotted_half, pitches: vec![g4], grace: None },
+}))?;
+// A dotted half from the last beat of a 4/4 bar: a quarter tied to a half in the next bar.
+// Several commands in one step (a paste):
+editor.transact(|tx| {
+    tx.execute(&Command::DeleteEvent(a))?;
+    tx.execute(&Command::DeleteEvent(b))
+})?;
+```
+
+I comandi della parte 2a:
+
+- `EnterEvent(NewEvent)`: un accordo, un abbellimento o una pausa, **solo nello spazio libero** (V2:
+  sopra un altro evento è rifiutato). Se attraversa la stanghetta diventa una **catena di note
+  legate** (V3): si taglia a ogni stanghetta, ogni pezzo si scrive con le figure più lunghe per
+  prime (al massimo due punti: cinque crome sono una minima e una croma), le teste di un accordo si
+  legano altezza per altezza; una pausa diventa più pause. Oltre la fine di una battuta **libera**
+  la battuta invece si allunga (V5). Rifiutati: una nota di gruppo irregolare a cavallo della
+  stanghetta (V4, arriva con F1.11c), oltre l'ultima battuta (W3), una durata che nessuna figura
+  può scrivere (`NotWritable`).
+- `DeleteEvent(EventId)`: lascia un **buco** (V6: non si scrive nessuna pausa, la riempie
+  l'incisione, come le pause implicite di Dorico), e porta via con sé gli abbellimenti che ornano
+  l'evento, le legature di portamento su di lui e i gruppi irregolari rimasti vuoti; le legature di
+  valore che arrivano a lui diventano `Tie::None`.
+- `ChangeEvent { event, change }`: un aspetto per ogni variante di `EventChange` (spostamento,
+  figura, altezza, aggiungere o togliere una testa di nota, legatura di valore, articolazioni,
+  ornamento, corona, arpeggio, scostamenti di esecuzione, rigo). Lo spostamento porta con sé gli
+  abbellimenti e **non divide mai** (W1: oltre la stanghetta la battuta diventa troppo piena, uno
+  stato valido); una nuova altezza cambia **tutta la catena di note legate** (W2); togliere l'ultima
+  testa di nota cancella l'evento.
+- `InsertBars { at, count }`: battute vuote con il metro, la chiave, l'armatura e il tempo in vigore
+  prima di loro; gli intervalli a cavallo del punto si allungano; fra due volte di un gruppo le
+  battute nuove entrano nella precedente (X11, parte 2b). Rifiutato dalla prima battuta d'origine di
+  una ripetizione di battuta fino alla sua fine (W6).
+- `DeleteBars { at, count }`: gli eventi se ne vanno (come con `DeleteEvent`), le dinamiche anche;
+  il metro, la chiave, l'armatura e il tempo in vigore per ultimi dentro le battute passano alla
+  prima battuta dopo (all'inizio della partitura diventano i valori iniziali); forcelle, regole di
+  passaggio, volte, ripetizioni di battuta e cambi di tempo graduali si **accorciano** (W4: se le
+  battute cancellate aprono la partitura nel mezzo di un cambio graduale, la partitura parte dal
+  tempo d'arrivo del cambio, perché un cambio graduale non può aprire la partitura); poi una
+  **cascata** (W5) ripete i controlli della forma di `validate` e cancella la marcatura che ciascuno
+  indica, finché la forma è valida. Resta sempre almeno una battuta.
+
+**Comandi atomici.** Un comando che fallisce viene annullato subito, anche dentro una transazione
+più grande: l'editor ricorda dove cominciano le sue modifiche e ne applica le inverse
+(`Editor::execute_open`).
+
+**La verifica locale** (`Document::check_cells`, in `validate.rs`). I comandi sugli eventi non
+controllano le regole musicali una per una: emettono le loro modifiche e poi l'editor controlla,
+**solo sulle celle (voce, battuta) toccate dal comando**, le regole di `validate` che un cambio di
+eventi può rompere: nessuna sovrapposizione, la pausa di battuta intera da sola, abbellimenti con il
+loro evento principale, le legature di valore che partono da lì e quelle che vi **arrivano**, le
+legature di portamento su quegli eventi, nessun evento sotto una ripetizione di battuta. Per questo
+inserire una nota sopra un'altra fallisce con `Violation::Overlap`. Per trovare le legature in
+arrivo senza scorrere tutto lo strumento, il documento ha un nuovo **indice inverso delle legature
+di valore** (`tie_index`, arrivo → partenze, con `Document::ties_into`), tenuto aggiornato da ogni
+modifica come l'indice delle legature di portamento. Le sue voci sono un `IdRefs<T>`, il piccolo
+insieme ordinato (due ID in linea) che l'indice delle legature di portamento usava già, ora generico
+in `id.rs`. Per controllare le regole di un blocco, `validate` è stato diviso: `check_chunk`
+controlla una cella, e `validate` la chiama per ogni cella.
+
+**Gesti** (un trascinamento, ADR-0026 §4):
+
+```rust
+editor.begin_gesture()?;
+for offset in mouse_positions {
+    // Each update is applied live and returns its own change set, for the views.
+    let live = editor.update_gesture(&Command::ChangeEvent {
+        event: note,
+        change: EventChange::Move { bar, offset },
+    })?;
+}
+editor.end_gesture()?;     // the whole drag is one step of undo
+// or: editor.cancel_gesture()?;  (Esc) back to the state before the drag
+```
+
+Mentre un gesto è aperto `transact`, `execute`, `undo` e `redo` sono rifiutati con
+`CommandError::GestureOpen`. **Compattazione:** l'inversa di un `Replace` di un oggetto già
+sostituito nello stesso gesto viene scartata, quindi un trascinamento di 200 passi tiene un solo
+valore vecchio (misurato: meno di 1 KB di cronologia). Un passo rifiutato si annulla da solo e il
+gesto resta aperto; la mappa dei tempi si ricalcola dopo ogni passo che la sposta.
+
+**Test** (`src/command_tests.rs`): diciannove casi scritti a mano, uno per ogni regola qui sopra, e un
+test di proprietà: sequenze casuali di comandi casuali sul documento ricco di `editor_tests`, con
+undo e redo; dopo **ogni** comando deve passare il `validate` completo e gli indici devono coincidere
+con una ricostruzione, un comando rifiutato non deve cambiare nulla, e annullare tutto deve ridare
+l'originale. In un'esecuzione (proptest sceglie casi nuovi ogni volta): 892 comandi eseguiti e 332 rifiutati,
+con 13 tipi di rifiuto diversi. Sette bug iniettati (legature verso una nota cancellata non tolte, niente
+compattazione, chiave non trasportata, niente cascata, la verifica locale che salta le legature di
+portamento o quelle in arrivo, abbellimenti non cancellati, il tempo sbagliato
+all'inizio dopo un accelerando tagliato) sono stati tutti presi.
+
+#### Comandi su marcature, forma e gruppi irregolari
+
+F1.11b parte 2b completa i comandi di ADR-0026 §9 (modulo `mark_command`, con le precisazioni
+X1–X11 di ADR-0026 §11, approvate dal proprietario il 2026-11-05). Una marcatura si descrive con una
+**`MarkSpec`**: che cosa è e dove sta, **senza ID**. L'ID di una marcatura nuova viene dal contatore
+del documento, e una marcatura cambiata tiene il suo, così la stessa descrizione serve sia per
+aggiungere sia per cambiare, e nessuno costruisce un oggetto con un ID scelto da sé.
+
+```rust
+// A dynamic: described without an ID; the ID comes from the counter.
+let changes = editor.execute(&Command::AddMark(MarkSpec::Dynamic {
+    instrument: piano,
+    at: ScorePoint::start_of(bar_3),
+    placement: DynamicPlacement::instrument(lower_staff),
+    mark: DynamicMark::Level(DynamicLevel::F),
+}))?;
+let dynamic = changes.inserted()[0];
+// Moved to bar 4: same ID, same kind, the whole new description (X5).
+editor.execute(&Command::ChangeMark { mark: dynamic, to: forte_at_bar_4 })?;
+// Removed; the form markings it leaves invalid would go in cascade (X2).
+editor.execute(&Command::RemoveMark(dynamic))?;
+// A first and a second ending, with the end repeat the first one lacks (X1).
+editor.execute(&Command::AddVoltas(vec![first_ending, second_ending]))?;
+```
+
+I comandi nuovi:
+
+- `AddMark(MarkSpec)`, `ChangeMark { mark, to }`, `RemoveMark(ObjectRef)`: ogni marcatura (legature
+  di portamento, dinamiche, forcelle, indicazioni di tempo, cambi di chiave e di armatura, armature
+  di uno strumento) e ogni marcatura di forma (stanghette di ritornello, volte, segni, salti,
+  ripetizioni di battuta, regole di passaggio). **Aggiungere, spostare e cambiare non cancellano
+  mai nulla** (X3): un risultato che viola una regola è rifiutato con la violazione tipizzata (una
+  forcella sovrapposta a un'altra dello stesso ambito, un tempo dentro un cambio graduale, un salto
+  senza il suo segno, una ripetizione di battuta su battute che contengono musica, X4). Un cambio
+  tiene l'ID e il **tipo** (X5: una dinamica non può diventare una forcella, `MarkKindMismatch`); un
+  trascinamento lo manda dentro un gesto, e la compattazione tiene un solo valore vecchio.
+  **Togliere** cancella in **cascata** le marcature di forma rese non valide (X2, come per la
+  cancellazione di battute): togliere il segno porta via il D.S., nello stesso passo. Eventi, gruppi
+  irregolari, battute e valori iniziali non sono marcature (`NotAMark`): hanno comandi propri.
+- `AddRepeat { start, end, times }` e `AddVoltas(Vec<NewVolta>)` (X1): una volta da sola non è mai
+  valida (un gruppo ne ha almeno due, con il ritornello di fine della sezione), quindi le volte si
+  aggiungono **un gruppo intero alla volta**, insieme ai ritornelli di fine che mancano al gruppo
+  (con il numero di esecuzioni del gruppo), e una sezione ripetuta con le sue due stanghette.
+- `AddTuplet`, `ChangeTuplet`, `RemoveTuplet` (X7): un gruppo irregolare si aggiunge **vuoto** (un
+  gruppo incompleto è uno stato valido) e si riempie con `EnterEvent`; cambiarne il rapporto o
+  l'aspetto lo sostituisce **sul posto** (il nuovo percorso di modifica
+  `Document::replace_tuplet_in_place`, che nomina le celle dei suoi eventi perché le loro durate
+  cambiano, così la verifica locale rifiuta un rapporto che li fa sovrapporre); toglierlo porta via
+  gli eventi che contiene e i gruppi annidati.
+- `SetInitial(Initial)` (X8): il tempo iniziale (immediato), l'armatura, la chiave di un rigo, lo
+  stile di numerazione; si impostano, non si tolgono. Un'armatura o una chiave nuova **non cambia
+  nessuna altezza** (X6): le altezze sono scritte come suonano, con la loro grafia, e ritrascriverle
+  sarà un comando a parte.
+- `SetBarGrouping`, `SetUncounted`, `SetNumberingRestart` (X9): i dati per battuta che non spostano
+  le stanghette. Battute irregolari e libere e cambi di metro, che le spostano, arrivano con F1.11c.
+
+**Fra due volte (X11).** Il test di proprietà ha trovato che `InsertBars` (parte 2a) metteva le
+battute nuove fra una prima e una seconda volta, fuori da entrambe, rendendo il gruppo non valido:
+nessun intervallo copre quel punto. Il proprietario ha scelto che le battute nuove **entrino nella
+volta precedente**, e il ritornello che la chiudeva si sposta alla fine dell'ultima battuta nuova.
+
+**La verifica locale, seconda metà** (`Document::check_objects`, X10). Dopo ogni comando tranne quelli
+sulle battute e `RemoveMark` (che rispettano le regole per costruzione o con la cascata),
+`command::check` esegue `check_cells` sulle celle e `check_objects` sulle marcature che il comando ha
+inserito o sostituito: le estremità di una legatura di portamento, le forcelle del suo strumento, il
+passaggio sulle indicazioni di tempo una volta se ne è cambiata una, i controlli della forma una
+volta se è cambiata una marcatura di forma. Senza di essa un tempo dentro un cambio graduale
+fallirebbe solo quando la transazione ricava la mappa dei tempi alla fine, portando con sé i comandi
+buoni della stessa transazione.
+
+**Test** (`src/mark_command_tests.rs`): sedici casi scritti a mano, uno per ogni decisione X1–X11, e
+il test di proprietà di `command_tests`, che ora sceglie fra 21 tipi di comando (12 nuovi: marcature
+aggiunte, spostate e tolte, legature di portamento, tempi, ritornelli, gruppi di volte, segni, salti,
+ripetizioni di battuta, gruppi irregolari, chiavi, armature, dati per battuta). Dopo la correzione di
+X11 sono passate 12 000 sequenze casuali. Sette bug iniettati (niente controllo delle forcelle, niente
+cascata alla rimozione, celle del gruppo irregolare non nominate, ritornello di fine del gruppo di
+volte non aggiunto, ritornello non spostato da X11, niente controllo della forma, niente controllo
+del tempo) sono stati tutti presi; l'ultimo solo dopo aver aggiunto un test di un tempo rifiutato
+dentro una transazione più grande.
+
+#### Benchmark dell'editor e memoria della cronologia
+
+Le partiture normale e pesante (100 battute × 10 righi, 1 000 battute × 30 righi) sono generate da
+`tests/common/score.rs`, condiviso con `#[path]` da `tests/memory.rs` (che misura gli stessi 257
+byte per nota di prima), `tests/history_memory.rs` e `benches/editor.rs`; uno **strumento di
+lavoro** vuoto e facoltativo in fondo riceve le note che i benchmark inseriscono. `benches/editor.rs`
+conta le istruzioni sulle due partiture (partitura pesante; lotti da 64 divisi per 64): inserire una
+nota dall'inizio alla fine ≈ 8 700, aggiungere una dinamica ≈ 5 200, annullare un incolla di 200 note
+≈ 385 000, inserire una battuta ≈ 132 000, cancellarne una ≈ 978 000 (con taglio, trasporto e
+cascata), un passo di un gesto da 1 000 passi ≈ 14 500. La preparazione controlla che ogni comando
+di un lotto riesca, così nessun rifiuto viene misurato per sbaglio. Tutto è molto sotto 1 ms per una
+nota e i 16 ms di ADR-0007.
+
+`tests/history_memory.rs` misura la memoria che un passo della cronologia trattiene davvero: un
+editor con limite 0 tiene solo l'ultimo passo, e riportarlo al suo documento libera esattamente la
+cronologia. La prima esecuzione ha trovato che i passi tenevano la capacità in più dei loro vettori
+(un incolla di 200 note tratteneva 53 kB per una stima di 42 kB): ora `Step::undoing` li stringe, e la
+stima è esatta, a parte i testi che non conta:
+
+```text
+step                                         estimate     measured
+one small edit (overhead)                         208          336
+one note entered                                  208          336
+200 notes pasted                                41600        41728
+1 000-update gesture                              208          336
+100 bars of the heavy score deleted           4567688      4567896
+```
+
+La differenza di 128 byte è il contenitore della cronologia stessa. Il test fallisce se la stima
+scende sotto il 90% della misura, così il limite di 128 MB resta onesto.
 
 ### orchestra-playback
 

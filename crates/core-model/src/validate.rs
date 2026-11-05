@@ -50,7 +50,7 @@ use std::hash::BuildHasherDefault;
 
 use orchestra_core_time::{BarIndex, Duration};
 
-use crate::document::{Document, DocumentError, Instrument, is_whole_bar_rest};
+use crate::document::{Document, DocumentError, Instrument, Voice, is_whole_bar_rest};
 use crate::dynamic::DynamicScope;
 use crate::event::{EventBody, Note, PlacedEvent, Tie};
 use crate::id::{
@@ -323,47 +323,7 @@ impl Document {
                     let index = BarIndex::new(
                         u32::try_from(index).map_err(|_| DocumentError::TooManyBars)?,
                     );
-                    let events = voice.events_at(index);
-                    // Rules 1, 2 and 4, inside one chunk, in one pass: the duration each event
-                    // needs for rule 1 is the one rule 4 needs, so it is computed once.
-                    let mut end_of_previous: Option<Duration> = None;
-                    let mut graces = GraceCheck::default();
-                    for placed in events {
-                        let event = placed.event();
-                        let bar_length = if is_whole_bar_rest(event) {
-                            if events.len() > 1 {
-                                return Err(DocumentError::Invalid(
-                                    Violation::WholeBarRestNotAlone(event.id()),
-                                ));
-                            }
-                            self.meter_map().bar_length(index)?
-                        } else {
-                            Duration::ZERO
-                        };
-                        if end_of_previous.is_some_and(|end| placed.offset() < end) {
-                            return Err(DocumentError::Invalid(Violation::Overlap(event.id())));
-                        }
-                        let duration = voice.metric_duration(event, bar_length)?;
-                        let end = placed.offset().checked_add(duration)?;
-                        end_of_previous = Some(end);
-                        graces.step(placed, end)?;
-
-                        // Rule 3, for every tie that starts in this event.
-                        if let EventBody::Chord(chord) = event.body() {
-                            for note in chord.notes() {
-                                if let Tie::To(target) = note.tie() {
-                                    self.check_tie(
-                                        &owner,
-                                        instrument.id(),
-                                        event.id(),
-                                        note,
-                                        target,
-                                    )?;
-                                }
-                            }
-                        }
-                    }
-                    graces.finish()?;
+                    self.check_chunk(&owner, instrument.id(), voice, index)?;
                 }
             }
             // Rule 5, for every slur of the instrument.
@@ -386,6 +346,52 @@ impl Document {
         // allocated.
         self.walk_tempo_marks(|_, _| {})?;
         Ok(())
+    }
+
+    /// Checks rules 1, 2 and 4 on the chunk of `voice` for the bar at `index`, and rule 3 for every
+    /// tie that starts in it. O(k) for k events in the chunk, plus two event lookups per tie.
+    pub(crate) fn check_chunk(
+        &self,
+        owner: &impl Owner,
+        instrument: InstrumentId,
+        voice: &Voice,
+        index: BarIndex,
+    ) -> Result<(), DocumentError> {
+        let events = voice.events_at(index);
+        // Rules 1, 2 and 4, inside one chunk, in one pass: the duration each event needs for rule
+        // 1 is the one rule 4 needs, so it is computed once.
+        let mut end_of_previous: Option<Duration> = None;
+        let mut graces = GraceCheck::default();
+        for placed in events {
+            let event = placed.event();
+            let bar_length = if is_whole_bar_rest(event) {
+                if events.len() > 1 {
+                    return Err(DocumentError::Invalid(Violation::WholeBarRestNotAlone(
+                        event.id(),
+                    )));
+                }
+                self.meter_map().bar_length(index)?
+            } else {
+                Duration::ZERO
+            };
+            if end_of_previous.is_some_and(|end| placed.offset() < end) {
+                return Err(DocumentError::Invalid(Violation::Overlap(event.id())));
+            }
+            let duration = voice.metric_duration(event, bar_length)?;
+            let end = placed.offset().checked_add(duration)?;
+            end_of_previous = Some(end);
+            graces.step(placed, end)?;
+
+            // Rule 3, for every tie that starts in this event.
+            if let EventBody::Chord(chord) = event.body() {
+                for note in chord.notes() {
+                    if let Tie::To(target) = note.tie() {
+                        self.check_tie(owner, instrument, event.id(), note, target)?;
+                    }
+                }
+            }
+        }
+        graces.finish()
     }
 
     /// Checks the hairpins of one instrument (rule 6). `ends` is scratch space, emptied first.
@@ -427,7 +433,7 @@ impl Document {
     /// Checks one slur (rule 5). Two event lookups + [`Document::comes_before`].
     fn check_slur(
         &self,
-        owner: &IdMap<VoiceId, InstrumentId>,
+        owner: &impl Owner,
         instrument: &Instrument,
         slur: SlurId,
         start: EventId,
@@ -437,7 +443,7 @@ impl Document {
             let found = self
                 .event(event)
                 .ok_or(DocumentError::Invalid(Violation::SlurEndMissing(slur)))?;
-            if owner.get(&found.voice()) != Some(&instrument.id()) {
+            if owner.instrument_of(found.voice()) != Some(instrument.id()) {
                 return Err(DocumentError::Invalid(Violation::SlurToAnotherInstrument(
                     slur,
                 )));
@@ -452,7 +458,7 @@ impl Document {
     /// Checks one tie (rule 3). O(event lookup) twice + [`Document::comes_before`].
     fn check_tie(
         &self,
-        owner: &IdMap<VoiceId, InstrumentId>,
+        owner: &impl Owner,
         instrument: InstrumentId,
         event: EventId,
         note: &Note,
@@ -465,7 +471,7 @@ impl Document {
         };
         // The index must agree with what the chunk holds: a target found by `note` always has an
         // owner, so a missing one is reported as another instrument rather than a panic.
-        if owner.get(&target_event.voice()) != Some(&instrument) {
+        if owner.instrument_of(target_event.voice()) != Some(instrument) {
             return Err(DocumentError::Invalid(Violation::TieToAnotherInstrument(
                 note.id(),
             )));
@@ -479,6 +485,221 @@ impl Document {
             return Err(DocumentError::Invalid(Violation::TieNotForward(note.id())));
         }
         Ok(())
+    }
+}
+
+impl Document {
+    /// The **local check** of the commands (ADR-0026 §1, SCALETTA F1.11b, owner's decision V8 of
+    /// 2026-11-04): checks, on the cells (voice, bar) a transaction touched, every rule of
+    /// [`validate`](Self::validate) that a change of events can break, without visiting the rest
+    /// of the score.
+    ///
+    /// # What is checked
+    /// For each touched cell that still exists:
+    /// - rules 1, 2 and 4 on its chunk, and rule 3 for the ties starting in it
+    ///   ([`check_chunk`](Self::check_chunk));
+    /// - rule 3 for the ties leading **into** its noteheads (the backward tie index), whose source
+    ///   may be in an untouched cell;
+    /// - rule 5 for the slurs starting or ending on its events (the slur index);
+    /// - the "no event under a bar repeat" part of rule 11, for the bar repeats of its
+    ///   instrument that cover the bar.
+    ///
+    /// Plus, for what left the document: a removed event that slurs still name, and a notehead
+    /// that is gone while ties still lead into it.
+    ///
+    /// # Why this is enough for events
+    /// Rules 6–11 are about hairpins, tempo marks and the form, which an event command does not
+    /// touch; the only link between them and the events is the bar-repeat rule above. The property
+    /// tests check it: after every command, the full [`validate`](Self::validate) passes.
+    ///
+    /// # Complexity
+    /// O(k) per touched cell for its k events, plus two event lookups per tie and slur end, plus
+    /// O(voices) to find each cell's voice and O(b) for the b bar repeats of its instrument. Never
+    /// O(score). Allocates nothing.
+    ///
+    /// # Errors
+    /// [`DocumentError::Invalid`] with the first violation found.
+    pub(crate) fn check_cells(
+        &self,
+        changes: &crate::change::ChangeSet,
+    ) -> Result<(), DocumentError> {
+        for &(voice_id, bar) in changes.cells() {
+            // A cell whose bar was removed has no events left to check.
+            let Some(index) = self.bars().index_of(bar) else {
+                continue;
+            };
+            let Some((instrument, voice)) = self.voice(voice_id) else {
+                continue;
+            };
+            self.check_chunk(self, instrument.id(), voice, index)?;
+            for placed in voice.events_at(index) {
+                let event = placed.event();
+                // Rule 3 for the ties leading into this event's noteheads.
+                for note in event
+                    .chord()
+                    .into_iter()
+                    .flat_map(crate::event::Chord::notes)
+                {
+                    for &source in self.ties_into(note.id()) {
+                        // The index only names noteheads that exist (a removal unindexes their
+                        // ties), so a missing source is a bug, reported rather than a panic.
+                        let (from, from_note) =
+                            self.note(source).ok_or(DocumentError::Inconsistent)?;
+                        let owner = self
+                            .instrument_of(from.voice())
+                            .ok_or(DocumentError::Inconsistent)?;
+                        self.check_tie(self, owner, from.event().id(), from_note, note.id())?;
+                    }
+                }
+                // Rule 5 for the slurs touching this event.
+                for &slur in self.slurs_at(event.id()) {
+                    let (owner, found) = self
+                        .slur(slur)
+                        .ok_or(DocumentError::Invalid(Violation::SlurEndMissing(slur)))?;
+                    self.check_slur(self, owner, slur, found.start(), found.end())?;
+                }
+            }
+            // Rule 11: no event drawn on the staff of a bar repeat covering this bar.
+            let at = index.get();
+            for repeat in instrument.bar_repeats() {
+                let first = crate::form::index(self.bars(), repeat.first());
+                let covers = first <= at && at < first.saturating_add(repeat.count());
+                if covers
+                    && voice
+                        .events_at(index)
+                        .iter()
+                        .any(|placed| placed.event().staff() == repeat.staff())
+                {
+                    return Err(DocumentError::Invalid(Violation::BarRepeatNotEmpty(
+                        repeat.id(),
+                    )));
+                }
+            }
+        }
+        // What left the document: a removed event still named by a slur, a notehead that is gone
+        // while a tie still leads into it.
+        for removed in changes.removed() {
+            if let crate::edit::ObjectRef::Event(id) = *removed
+                && self.event(id).is_none()
+                && let Some(&slur) = self.slurs_at(id).first()
+            {
+                return Err(DocumentError::Invalid(Violation::SlurEndMissing(slur)));
+            }
+        }
+        for &note in &changes.notes_gone {
+            if self.note(note).is_none()
+                && let Some(&source) = self.ties_into(note).first()
+            {
+                return Err(DocumentError::Invalid(Violation::TieTargetMissing(source)));
+            }
+        }
+        Ok(())
+    }
+
+    /// The local check of the marks a command inserted or replaced (X10): the rules of
+    /// [`validate`](Self::validate) that adding, moving or changing a mark can break, checked only
+    /// where the command acted. The other half of the local check, next to
+    /// [`check_cells`](Self::check_cells).
+    ///
+    /// - **Slurs** (rule 5): the ends of each slur inserted or replaced.
+    /// - **Hairpins** (rule 6): the hairpins of the instrument now holding each one inserted or
+    ///   replaced.
+    /// - **Tempo marks** (rule 7): the walk over the tempo marks, once, if any tempo mark (or the
+    ///   initial one) was inserted or replaced.
+    /// - **The form** (rules 8–11): the form checks, once, if any form marking was inserted or
+    ///   replaced (they also check the pass rules, and the bar repeats against the music: X4).
+    ///
+    /// Dynamics, clef and key changes and key overrides have no rule beyond what their edit
+    /// checks (one per point and scope). Removed marks need no check: a removal ends with the
+    /// cascade of the form (X2), and no other rule can be broken by taking a mark away.
+    ///
+    /// # Why the hairpins of a whole instrument
+    /// The edit already looks the hairpin up linearly in its instrument's list (there is no
+    /// index from a hairpin ID to its instrument), so the check costs the same order as the edit:
+    /// O(h · s) for the h hairpins and s scopes of the instrument (both small), with no
+    /// allocation beyond one small vector. Checking only the two same-scope neighbours would save
+    /// nothing measurable.
+    ///
+    /// # Complexity
+    /// O(entries of the change set), plus the checks above when they apply: O(t) for the t tempo
+    /// marks, O(f) for the f form markings plus O(events of the bar-repeat bars). Never O(score)
+    /// for a dynamic, a slur or a hairpin.
+    ///
+    /// # Errors
+    /// [`DocumentError::Invalid`] with the first violation found.
+    pub(crate) fn check_objects(
+        &self,
+        changes: &crate::change::ChangeSet,
+    ) -> Result<(), DocumentError> {
+        use crate::edit::ObjectRef;
+        let mut tempo = false;
+        let mut form = false;
+        let mut ends: Vec<(DynamicScope, (u32, Duration))> = Vec::new();
+        for &name in changes.inserted().iter().chain(changes.replaced()) {
+            match name {
+                ObjectRef::Slur(id) => {
+                    // A slur inserted and removed again within the command is not there to check.
+                    if let Some((instrument, slur)) = self.slur(id) {
+                        self.check_slur(self, instrument, id, slur.start(), slur.end())?;
+                    }
+                }
+                ObjectRef::Hairpin(id) => {
+                    if let Some(instrument) = self
+                        .instruments()
+                        .find(|i| i.hairpins().iter().any(|h| h.id() == id))
+                    {
+                        self.check_hairpins(instrument, &mut ends)?;
+                    }
+                }
+                ObjectRef::TempoMark(_) | ObjectRef::InitialTempo => tempo = true,
+                ObjectRef::RepeatStart(_)
+                | ObjectRef::RepeatEnd(_)
+                | ObjectRef::Volta(_)
+                | ObjectRef::Marker(_)
+                | ObjectRef::Jump(_)
+                | ObjectRef::BarRepeat(_)
+                | ObjectRef::PassRule(_) => form = true,
+                _ => {}
+            }
+        }
+        if tempo {
+            // Rule 7, without rebuilding the map: the transaction derives it once, at its end.
+            self.walk_tempo_marks(|_, _| {})?;
+        }
+        if form {
+            // Rules 8 and 9 first, as `validate` does: the later rules look the sections up.
+            self.check_form()?;
+            self.check_jumps()?;
+            for instrument in self.instruments() {
+                self.check_bar_repeats_and_pass_rules(instrument)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Which instrument owns a voice: the tie and slur rules compare the instruments of their two ends.
+///
+/// [`Document::validate`] answers from a map of every voice built once (O(1) per question);
+/// the local check of the commands ([`Document::check_cells`]) answers by searching the document
+/// (O(voices) per question), because building the map would cost more than the few questions a
+/// command asks.
+pub(crate) trait Owner {
+    /// The instrument owning `voice`, if the document has that voice.
+    fn instrument_of(&self, voice: VoiceId) -> Option<InstrumentId>;
+}
+
+impl Owner for IdMap<VoiceId, InstrumentId> {
+    /// One hash lookup, O(1) on average.
+    fn instrument_of(&self, voice: VoiceId) -> Option<InstrumentId> {
+        self.get(&voice).copied()
+    }
+}
+
+impl Owner for Document {
+    /// A search of the tracks, O(voices).
+    fn instrument_of(&self, voice: VoiceId) -> Option<InstrumentId> {
+        self.voice(voice).map(|(instrument, _)| instrument.id())
     }
 }
 
