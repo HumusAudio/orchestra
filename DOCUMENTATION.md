@@ -1881,6 +1881,55 @@ two-bar sign written twice was added. **Benchmark** (`benches/unroll.rs`, the 40
 form benchmarks): ≈ 2.5 million instructions for 900 played bars, ≈ 3.9 million with a D.S. in
 every section (1 450 played bars); the setup checks both lengths.
 
+#### The played notes
+
+Since F1.13b (ADR-0027 §1–§8, with the precisions N1–N10 of §13 approved by the owner on
+2026-11-05) the module `perform` turns the written notes along the path into the notes that sound:
+a `Performance` with, for every instrument, its `PlayedNote`s sorted by start then pitch. A played
+note has an exact start and end on the unrolled timeline (musical time only: the seconds come from
+the path, so a tempo edit recomputes nothing here), its exact sounding pitch (`Pitch::sounding`,
+60 = C4, quarter tones kept), a velocity on the 16-bit scale, and its way back to the score.
+
+```rust
+let path = Unrolled::new(&document)?;
+let performance = Performance::new(&document, &path)?;
+for note in performance.notes(piano) {
+    // Exact start and end on the unrolled timeline, exact sounding pitch (60 = C4), 16-bit velocity,
+    // and the way back to the score: the first notehead of its tie chain, the played bar, the pass.
+    let seconds = path.time_at(&document, note.played as usize, note.start - bar_start)?;
+}
+```
+
+The steps, voice by voice:
+
+1. **The items**: the voice's events bar by bar along the path; on a staff with bar repeats, from
+   the source bar with its pass; those the pass rules silence left out.
+2. **Tie chains** (N1, N2): a notehead is followed along its tie only if its target sounds right
+   after it on the path, so a tie at the end of a first ending stops at the barline when the
+   music goes back, and goes on the time it leads into the next bar. A chain is one note.
+3. **Articulations** (N3, N4): staccato 1/2, staccatissimo and spiccato 1/4, portato and marcato
+   3/4 on the **last** notehead of the chain; accent +20%, marcato +30% on the **first**; tenuto with
+   staccato plays as a portato.
+4. **Grace notes** (N5, N6): acciaccaturas **before the beat**, 1/32 each, taken from the previous
+   note of the voice (in the silence after a rest; before time 0 before the first note), so the
+   main note starts when it is written; appoggiaturas on the beat, half the main note (2/3 of a
+   dotted one); `After` graces at the end of the note they follow, before the next note's
+   acciaccaturas.
+5. **Arpeggios** (N7): 1/64 between notes, upwards or downwards, all ending together.
+6. **Offsets and bounds** (N8): onset and velocity of the first notehead, the length offsets of
+   all; then at least 1/1024 long and a velocity in 1..=65 535.
+
+Every note starts from *mf* (N9) until the dynamics of F1.13c.
+
+**Tests:** `tests/perform_cases.rs`, fourteen cases (plain notes, a tie chain, a tie followed only
+on the pass that plays its target next, staccato on the last note of a chain, portato and accent,
+acciaccaturas after a note, after a rest and at the very start, a dotted appoggiatura, an `After`
+grace, an `After` grace followed by an acciaccatura, a downward arpeggio, offsets and bounds, a
+tacet, a bar repeat); `tests/perform_props.rs`, a property test on random scores with a repeat and
+random notes, rests, ties, articulations, grace notes, arpeggios and offsets (sorted notes, bounds,
+pitches as written, and without the extras one note per written note per play, where it is
+written). Ten injected bugs were caught, nine of them by the cases, each on its own rule.
+
 ### orchestra-notation-layout
 
 Incremental engraving into positioned glyphs: plain geometry, no drawing, so it can be tested

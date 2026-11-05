@@ -266,6 +266,23 @@ score and of one note's update.
 | G13 | Intonation (D22) | **12-TET with exact microtones in v0; tunings as a playback layer after F3.04**; in F1.13 | **After F3.04**: without an instrument that can sound them they cannot be heard or tested |
 | G14 | Split of the step | **F1.13 (this ADR), F1.13b (notes, ties, articulations, grace notes, arpeggios, offsets, pass rules), F1.13c (dynamics, hairpins, incremental update, benchmarks)** | Two parts of about the size of F1.11b's |
 
+### 13. Precisions made while implementing F1.13b (owner, 2026-11-05)
+
+Approved by the owner before the code of F1.13b was written; they make §2–§8 precise.
+
+| # | Precision |
+|---|---|
+| N1 | A tie is followed only if the notehead it leads to **sounds right after** on the path: it starts where this one ends, in the same or the next played bar. At the end of a first ending followed by a repeat, the note ends at the barline; into a passage the pass rules silence, the note ends where the silence begins. |
+| N2 | Every notehead of a chord is a played note of its own, tied pitch by pitch as the written ties say. |
+| N3 | The shortening articulations of a chain are read on its **last** notehead (of that notehead's own length), the accents on its **first**; the articulations of the noteheads in between are ignored. |
+| N4 | **Tenuto with staccato** plays as a portato (3/4); the other shortenings multiply. |
+| N5 | An acciaccatura takes its time from the **previous note of the voice along the path** (also in the previous played bar), shortening the end of its chain; after a rest or a gap it sounds in the silence, without the half-of-the-previous-note bound; it comes after the `After` graces of the previous note. |
+| N6 | Before one note, the acciaccaturas come first (before the beat, in written order), then the appoggiaturas (on the beat). `After` graces last 1/32 each, at most half of the note they follow in all, and end where the next note's acciaccaturas begin. |
+| N7 | An arpeggio moves only the starts of the noteheads of the first chord of the chain: from the lowest for `Plain` and `Up`, from the highest for `Down`; they all end together. |
+| N8 | The offsets of a chain: the onset and the velocity of its first notehead, the **sum** of the length offsets of all its noteheads; then the bounds of §8. |
+| N9 | Until F1.13c brings the dynamics, every note starts from ***mf*** (75 on 7 bits, up-scaled to 16), before articulations and offsets. |
+| N10 | The result is a `Performance` with the played notes of each instrument, sorted by start then pitch, built from the document and the path of F1.12; F1.13b rebuilds it whole, F1.13c adds the update by cell. |
+
 ## Alternatives rejected
 
 - **Seconds in the played notes:** every tempo edit would recompute every note; the path already

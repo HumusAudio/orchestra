@@ -2005,6 +2005,60 @@ aver aggiunto un caso con un segno di due battute scritto due volte. **Benchmark
 istruzioni per 900 battute suonate, ≈ 3,9 milioni con un D.S. in ogni sezione (1 450 battute
 suonate); la preparazione controlla entrambe le lunghezze.
 
+#### Le note suonate
+
+Da F1.13b (ADR-0027 §1–§8, con le precisazioni N1–N10 di §13 approvate dal proprietario il
+2026-11-05) il modulo `perform` trasforma le note scritte lungo il percorso nelle note che suonano: una
+`Performance` con, per ogni strumento, le sue `PlayedNote` ordinate per inizio e poi per altezza. Una
+nota suonata ha un inizio e una fine esatti sulla linea del tempo srotolata (solo tempo musicale: i
+secondi vengono dal percorso, così una modifica del tempo qui non ricalcola nulla), la sua altezza
+esatta (`Pitch::sounding`, 60 = Do4, quarti di tono compresi), una velocity sulla scala a 16 bit, e
+la strada per tornare allo spartito.
+
+```rust
+let path = Unrolled::new(&document)?;
+let performance = Performance::new(&document, &path)?;
+for note in performance.notes(piano) {
+    // Exact start and end on the unrolled timeline, exact sounding pitch (60 = C4), 16-bit velocity,
+    // and the way back to the score: the first notehead of its tie chain, the played bar, the pass.
+    let seconds = path.time_at(&document, note.played as usize, note.start - bar_start)?;
+}
+```
+
+I passi, voce per voce:
+
+1. **Gli elementi**: gli eventi della voce battuta per battuta lungo il percorso; su un rigo con
+   ripetizioni di battuta, dalla battuta d'origine con il suo passaggio; quelli che le regole di
+   passaggio fanno tacere, esclusi.
+2. **Catene di legature** (N1, N2): una testa di nota si segue lungo la sua legatura solo se la nota
+   d'arrivo suona subito dopo lungo il percorso, così una legatura alla fine di una prima volta si
+   ferma alla stanghetta quando la musica torna indietro, e prosegue la volta che porta alla battuta
+   dopo. Una catena è una nota.
+3. **Articolazioni** (N3, N4): staccato 1/2, staccatissimo e spiccato 1/4, portato e marcato 3/4
+   sull'**ultima** testa della catena; accento +20%, marcato +30% sulla **prima**; tenuto con staccato
+   suona come portato.
+4. **Abbellimenti** (N5, N6): acciaccature **prima del tempo**, 1/32 ciascuna, prese dalla nota
+   precedente della voce (nel silenzio dopo una pausa; prima dello zero prima della prima nota),
+   così la nota principale parte quando è scritta; appoggiature sul tempo, metà della nota
+   principale (2/3 di una puntata); abbellimenti "dopo" in fondo alla nota che seguono, prima delle
+   acciaccature della nota seguente.
+5. **Arpeggi** (N7): 1/64 fra una nota e l'altra, verso l'alto o verso il basso, tutte finiscono
+   insieme.
+6. **Scostamenti e limiti** (N8): anticipo e velocity dalla prima testa, gli scostamenti di durata
+   di tutte; poi almeno 1/1024 di durata e una velocity da 1 a 65 535.
+
+Ogni nota parte da *mf* (N9) fino alle dinamiche di F1.13c.
+
+**Test:** `tests/perform_cases.rs`, quattordici casi (note semplici, una catena di legature, una
+legatura seguita solo nel passaggio che suona dopo la sua nota d'arrivo, staccato sull'ultima nota
+di una catena, portato e accento, acciaccature dopo una nota, dopo una pausa e all'inizio, un
+appoggiatura puntata, un abbellimento "dopo", un abbellimento "dopo" seguito da un'acciaccatura, un
+arpeggio verso il basso, scostamenti e limiti, un tacet, una ripetizione di battuta);
+`tests/perform_props.rs`, un test di proprietà su partiture casuali con un ritornello e note, pause,
+legature, articolazioni, abbellimenti, arpeggi e scostamenti casuali (note ordinate, limiti, altezze
+come scritte, e senza le aggiunte una nota per ogni nota scritta e per ogni esecuzione, dove è
+scritta). Dieci bug iniettati sono stati presi, nove dai casi, ciascuno sulla sua regola.
+
 ### orchestra-notation-layout
 
 L'incisione (engraving) incrementale in glifi posizionati: pura geometria, nessun disegno, così

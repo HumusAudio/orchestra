@@ -371,9 +371,15 @@ F1.13b and F1.13c). **ADR-0027 Accepted** the same day: the owner changed G4 (dy
 *pppp*–*ffff*, more *p*s or *f*s played as the extremes, ten levels spread evenly), G7
 (acciaccaturas before the beat, taking time from the previous note; appoggiaturas on the beat) and
 G9 (fermatas deferred, then a longer sound, never a slower tempo), and approved the rest.
-Decision D22 closed: 12-TET with exact microtones now, tunings after F3.04. **Next:** F1.13b (notes,
-ties, articulations, grace notes, arpeggios, offsets, pass rules), then F1.13c (dynamics, hairpins,
-incremental update, benchmarks).
+Decision D22 closed: 12-TET with exact microtones now, tunings after F3.04. **F1.13b done** (2026-11-05,
+same branch): before coding, the owner approved N1–N10, now ADR-0027 §13 (ties followed only where
+their target sounds next; one note per notehead; shortening on the last notehead, accents on the
+first; tenuto with staccato as portato; acciaccaturas from the previous note along the path, after
+its `After` graces; arpeggios; chain offsets; *mf* until the dynamics; a whole `Performance`).
+Implemented: the module `perform` of `orchestra-playback` (`Performance`, `PlayedNote`,
+`PerformError`, `PROVISIONAL_VELOCITY`); fourteen cases and a property test; ten injected bugs
+caught. **Next:** F1.13c (dynamics, hairpins, incremental update by cell, benchmarks), then the PR
+of F1.13 (ADR-0027 and parts b, c).
 
 | Step | What | Status |
 |---|---|---|

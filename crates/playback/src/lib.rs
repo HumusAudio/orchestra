@@ -21,6 +21,8 @@
 //! ## Modules
 //! - [`unroll`] (SCALETTA F1.12, ADR-0025 §5): the bars in the order they are played, with their
 //!   pass indices, section plays, times and bar-repeat sources ([`Unrolled`]).
+//! - [`perform`] (SCALETTA F1.13b, ADR-0027): the notes that sound along the path, with their
+//!   exact start, end and pitch and their velocity ([`Performance`]).
 //!
 //! ## What this crate must NOT do
 //! - Produce audio or talk to devices/plugins (that is `orchestra-audio-engine`).
@@ -32,6 +34,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod perform;
 pub mod unroll;
 
+pub use perform::{PROVISIONAL_VELOCITY, PerformError, Performance, PlayedNote};
 pub use unroll::{PlayedBar, StaffContent, UnrollError, Unrolled};
