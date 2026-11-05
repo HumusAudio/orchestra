@@ -48,6 +48,7 @@ use crate::jump::{JumpSpec, MarkerKind};
 use crate::mark_command::{MarkSpec, NewVolta};
 use crate::marking::{Fermata, Grace, GraceAttach, GraceKind};
 use crate::marks::{Clef, KeyOverride, KeySignature, ScorePoint};
+use crate::meter_command::MeterMode;
 use crate::pitch::{Alteration, Interval, Key, Mode, Pitch, Step};
 use crate::slur::SlurPlacement;
 use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
@@ -919,6 +920,9 @@ fn random_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command>
     let v = NoteValue::new(values[a % 4], u8::try_from(b % 2).ok()?).ok()?;
     let steps = [Step::C, Step::D, Step::E, Step::F, Step::G];
     let event = events.get(a % events.len().max(1)).copied();
+    if op % OPS >= 21 {
+        return random_meter_command(doc, op % OPS, a, b);
+    }
     if op % OPS >= 9 {
         return random_mark_command(doc, op % OPS, a, b);
     }
@@ -981,8 +985,8 @@ fn tempo(bpm: i64) -> Tempo {
 }
 
 /// How many kinds of random command there are: 9 on events and bars (part 2a), 12 on marks,
-/// form markings, tuplets and per-bar data (part 2b).
-const OPS: u8 = 21;
+/// form markings, tuplets and per-bar data (part 2b), 2 on bar lengths (F1.11c).
+const OPS: u8 = 23;
 
 /// Every mark and form marking of the document, in a stable order: what a random
 /// [`Command::ChangeMark`] or [`Command::RemoveMark`] picks from.
@@ -1060,7 +1064,38 @@ fn all_marks(doc: &Document) -> Vec<ObjectRef> {
     marks
 }
 
-/// One random command of part 2b (`op` from 9 to [`OPS`] − 1), built from the document as it is.
+/// One random change of bar lengths of F1.11c (`op` 21 or 22), in `KeepBars` mode: a meter
+/// change (often refused inside the bar repeat, or by a pickup) or one bar made irregular,
+/// a pickup, free or regular again.
+fn random_meter_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command> {
+    let bars = doc.bars().ids();
+    let bar = *bars.get(a % bars.len())?;
+    let length = Duration::from_rational(Rational::new(i64::try_from(1 + b % 6).ok()?, 4).ok()?);
+    Some(if op == 21 {
+        let meters = [(2, 4), (3, 4), (4, 4), (6, 8), (5, 8)];
+        let change = (b % 6 != 5).then(|| {
+            let (n, den) = meters[b % 5];
+            MeterChange::new(Meter::new(&[n], den).unwrap())
+        });
+        Command::ChangeMeter {
+            bar,
+            change,
+            mode: MeterMode::KeepBars,
+        }
+    } else {
+        let kinds = [BarKind::AlignStart, BarKind::AlignEnd, BarKind::Free];
+        Command::SetIrregularBar {
+            bar,
+            irregular: (a % 4 != 3).then(|| IrregularBar {
+                length,
+                kind: kinds[a % 3],
+            }),
+            mode: MeterMode::KeepBars,
+        }
+    })
+}
+
+/// One random command of part 2b (`op` from 9 to 20), built from the document as it is.
 #[allow(
     clippy::too_many_lines,
     reason = "one short arm per kind of command, as in `random_command`"

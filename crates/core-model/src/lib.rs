@@ -60,6 +60,8 @@
 //!   marks and form markings (added from a [`MarkSpec`], changed keeping their ID, removed with
 //!   the cascade of the form), on tuplets, on the initial values and on the per-bar data that
 //!   does not move a barline.
+//! - [`meter_command`] (SCALETTA F1.11c, ADR-0026 §7 and §11 Y1–Y6): the changes of bar lengths,
+//!   meter changes and irregular, pickup and free bars, in a [`MeterMode`] (`KeepBars` for now).
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -98,6 +100,9 @@ pub mod mark_command;
 mod mark_command_tests;
 pub mod marking;
 pub mod marks;
+pub mod meter_command;
+#[cfg(test)]
+mod meter_command_tests;
 pub mod pitch;
 pub mod slur;
 pub mod tempo_mark;
@@ -135,6 +140,7 @@ pub use marking::{
     OrnamentError, PerformanceOffsets, TremoloStrokes,
 };
 pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList, ScorePoint};
+pub use meter_command::MeterMode;
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };

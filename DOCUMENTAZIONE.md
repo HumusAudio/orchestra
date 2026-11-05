@@ -1735,6 +1735,71 @@ one note entered                                  208          336
 La differenza di 128 byte è il contenitore della cronologia stessa. Il test fallisce se la stima
 scende sotto il 90% della misura, così il limite di 128 MB resta onesto.
 
+#### Cambi di metro e battute irregolari (KeepBars)
+
+F1.11c parte 1 aggiunge i comandi che cambiano la lunghezza delle battute (modulo `meter_command`,
+ADR-0026 §7 con le precisazioni Y1–Y7 di §11, approvate dal proprietario il 2026-11-05):
+`ChangeMeter { bar, change, mode }` imposta un cambio di metro, o lo toglie con `None` (mai alla
+battuta 0), e `SetIrregularBar { bar, irregular, mode }` rende una battuta più lunga o più corta,
+una levata o una battuta libera, o di nuovo regolare. Entrambi prendono un **`MeterMode`**, che dice
+cosa succede alla musica già scritta. Questa parte realizza **`KeepBars`**: ogni battuta tiene i suoi
+eventi, le marcature e le marcature di forma ai loro offset, cambiano solo le lunghezze, e la musica
+dopo il cambio si sposta nel tempo. `Rewrite`, il default che offrirà l'interfaccia (la musica resta
+dove suona e si spostano le stanghette), arriva nella parte 2; per questo `MeterMode` è
+`#[non_exhaustive]`.
+
+```rust
+// A 3/4 from bar 9: the bars keep their music, the bars after them move in time.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_9,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::KeepBars,
+})?;
+// The first bar becomes a pickup of one quarter.
+editor.execute(&Command::SetIrregularBar {
+    bar: first_bar,
+    irregular: Some(IrregularBar { length: quarter, kind: BarKind::AlignEnd }),
+    mode: MeterMode::KeepBars,
+})?;
+```
+
+Cosa fa il comando oltre alla modifica della mappa dei metri:
+
+- **Y3**: i raggruppamenti per battuta della sezione che non tornano più con il nuovo metro si tolgono
+  nello stesso passo (descrivevano come si contava il metro vecchio); una battuta libera perde il suo
+  raggruppamento.
+- **Y4**: una levata più lunga del nuovo metro, o un raggruppamento della sezione che non torna, è
+  rifiutato con l'errore della mappa (`PickupLongerThanMeter`, `GroupingLengthMismatch`).
+- **Y5**: dentro una ripetizione di battuta il cambio è rifiutato (`InsideBarRepeat`), perché una
+  battuta ripetuta avrebbe una lunghezza diversa dalla sua origine; un cambio di metro proprio alla
+  prima battuta d'origine cambia allo stesso modo tutte le battute dell'intervallo ed è accettato.
+- **Y7**: una battuta accorciata può diventare troppo piena (valido, ADR-0022 §4), ma se una nota
+  oltre la nuova stanghetta è legata (di valore o di portamento) alla battuta dopo, la sua legatura
+  non va più in avanti nell'ordine della partitura, che è per posizione (ADR-0024): il cambio è
+  rifiutato con `TieNotForward` o `SlurNotForward`. Il test di proprietà ha trovato il caso; il
+  proprietario ha scelto il rifiuto. La verifica (`check_overfull`) guarda l'ultimo evento di ogni
+  chunk delle battute cambiate ed esegue la verifica locale solo sulle celle troppo piene.
+
+Le indicazioni di tempo oltre una stanghetta accorciata non chiedono nulla: la mappa dei tempi le
+limita già alla loro stanghetta (F1.09c).
+
+**Y8, una correzione di `InsertBars`.** Il test di proprietà ha trovato anche che una regola di
+passaggio che finisce proprio all'inizio della battuta *i* (la fine è esclusiva) si allungava sulle
+battute inserite prima della *i*, e poteva uscire dalla sua sezione ripetuta. Il proprietario ha
+scelto che una fine che cade proprio sul punto d'inserimento non lo copra: forcelle, regole di
+passaggio e cambi di tempo graduali che finiscono lì continuano a finire prima delle battute nuove,
+ancorati all'inizio della prima.
+
+**Test** (`src/meter_command_tests.rs`): otto casi scritti a mano (la musica che si sposta, un cambio
+tolto, i raggruppamenti che non tornano, le contraddizioni, la ripetizione di battuta, battute
+irregolari e libere, la legatura di Y7, le fini di Y8) e due nuovi tipi di comando nel test di proprietà (23 in
+tutto; 12 000 sequenze passate). Sei bug iniettati (niente verifica Y7, raggruppamenti vecchi
+tenuti, niente controllo delle ripetizioni di battuta, prima battuta d'origine rifiutata, battuta
+libera che tiene il raggruppamento, niente Y8) sono stati tutti presi. **Benchmark** (`benches/editor.rs`,
+partitura pesante): un 3/4 alla battuta di mezzo ≈ 5,7 milioni di istruzioni (la sua sezione di 60
+battute diventa troppo piena in ogni voce e viene verificata), una battuta di due quarti ≈ 122 000:
+al più qualche millisecondo, sotto i 16 ms di ADR-0007.
+
 ### orchestra-playback
 
 Ricava ciò che si suona da ciò che è scritto: ritornelli e salti srotolati, legature di valore

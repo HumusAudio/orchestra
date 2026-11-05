@@ -5,7 +5,8 @@
   into F1.11b and F1.11c (Consequences).
   The precisions of §11 (V1–V9, W1–W6) were approved on 2026-11-04, while implementing F1.11b
   part 2a; X1–X10 on 2026-11-05, before part 2b was written, and X11 the same day, when the
-  property test of part 2b found the case.
+  property test of part 2b found the case; Y1–Y6 the same day before F1.11c part 1 was written,
+  and Y7 and Y8 when its property test found their cases.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with
@@ -275,11 +276,12 @@ voice) arrive with the first interface that needs them (F2), using the same mech
 | U10 | Marks inside deleted bars | **state marks (meter, clef, key, tempo) carried to the next bar, dynamics deleted**; delete all; carry all | **The first**: the remaining music keeps its meaning (pitches, meter, tempo); a dynamic belongs to the deleted music |
 | U11 | Form markings made invalid by a deletion | **cascade (delete them too, report them)**; refuse the deletion | **Cascade**: the deletion is one undo step, so nothing is lost; refusing would make the user hunt for the markings first |
 
-### 11. Precisions made while implementing F1.11b (owner, 2026-11-04 and 2026-11-05)
+### 11. Precisions made while implementing F1.11b and F1.11c (owner, 2026-11-04 and 2026-11-05)
 
-Approved by the owner before the code of F1.11b part 2a (V, W) and part 2b (X1–X10) was written,
-as §7 allows for the meter change; X11 when the property test of part 2b found its case. They make
-§1, §4, §6 and §9 precise; none of them changes a decision above.
+Approved by the owner before the code of F1.11b part 2a (V, W), part 2b (X1–X10) and F1.11c
+part 1 (Y1–Y6) was written, as §7 allows for the meter change; X11 and Y7 when the property tests
+found their cases (Y8 corrects the bar insertion of part 2a). They make §1, §4, §6, §7 and §9 precise; none of them changes a decision
+above.
 
 | # | Precision |
 |---|---|
@@ -309,6 +311,14 @@ as §7 allows for the meter change; X11 when the property test of part 2b found 
 | X9 | The per-bar data that **does not move a barline** (beat grouping, uncounted bar, numbering restart) has its commands in F1.11b; irregular and free bars and meter changes, which do, belong to F1.11c. |
 | X10 | The local check extends to the marks: the ends of a slur, the hairpins of its instrument, the tempo marks (one walk), the form (rules 8–11), only when the command touched them; the property test keeps running the full `validate` after every command. |
 | X11 | Bars inserted **between two voltas of a group** (the earlier one ending just before the point, the next one starting at it) **join the earlier volta**, and the end repeat that closed it moves to the end of the last new bar (owner's choice, 2026-11-05): otherwise they would fall outside both voltas and the group would be invalid. |
+| Y1 | A meter change is `ChangeMeter { bar, change: Option<MeterChange>, mode }` (`None` removes it, never at bar 0), and a change of one bar's length (irregular, pickup, free) is `SetIrregularBar { bar, irregular: Option<IrregularBar>, mode }`, both with a `MeterMode`. F1.11c part 1 implements `KeepBars`; `Rewrite` is added in part 2. |
+| Y2 | `KeepBars` makes one change in the meter map: events, marks and the form stay in their bars at their offsets; a shortened bar may become overfull; the music after the change moves in time and the tempo map is derived again (a tempo mark past a shortened barline is already clamped to it). |
+| Y3 | The per-bar beat groupings of the section that no longer add up to the new meter are removed in the same command; a free bar loses its per-bar grouping. |
+| Y4 | A pickup longer than the new meter, or a section grouping that does not add up to it, is **refused** with the meter map's typed error. |
+| Y5 | Inside a bar repeat the change is **refused** (`InsideBarRepeat`): a meter change strictly after the first source bar, a change of one bar's length anywhere from the first source bar to the end. |
+| Y6 | The bulk edit of the meter map comes with `Rewrite` (part 2): `KeepBars` makes edits in sequence, each valid on its own. |
+| Y7 | A `KeepBars` change that leaves a tied or slurred note past a shortened barline, so that its tie or slur no longer goes forward in score order (by position, ADR-0024), is **refused** with the violation (owner's choice, 2026-11-05): `Rewrite` moves the barlines instead. |
+| Y8 | A hairpin, a pass rule or a gradual tempo change that **ends exactly at the start of the bar before which bars are inserted** (its end is exclusive) does not span the point (§6): it keeps ending there, before the new bars, anchored to the start of the first new bar (owner's choice, 2026-11-05). Otherwise a pass rule could reach out of its repeated section. |
 
 ## Alternatives rejected
 

@@ -47,7 +47,9 @@
 
 use std::collections::HashSet;
 
-use orchestra_core_time::{BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar};
+use orchestra_core_time::{
+    BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar, MeterChange,
+};
 
 use crate::bar_repeat::BarRepeat;
 use crate::document::{Document, DocumentError, Placement};
@@ -63,6 +65,7 @@ use crate::marking::{
     Arpeggio, ArticulationSet, Fermata, Grace, GraceAttach, Ornament, PerformanceOffsets,
 };
 use crate::marks::{Mark, ScorePoint, point_key};
+use crate::meter_command::{self, MeterMode};
 use crate::pitch::Pitch;
 use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
 use crate::validate::Violation;
@@ -80,8 +83,9 @@ const MAX_VALUES_PER_PART: usize = 16;
 ///
 /// The list is the part of ADR-0026 §9 that F1.11b implements: the event commands and the bar
 /// commands (part 2a), the commands on marks, form markings, tuplets, the initial values and the
-/// per-bar data (part 2b, `crate::mark_command`). The meter change (F1.11c) will be added as a new
-/// variant; `#[non_exhaustive]` lets that happen without breaking callers.
+/// per-bar data (part 2b, `crate::mark_command`); F1.11c adds the changes of bar lengths
+/// (`crate::meter_command`), whose `Rewrite` mode comes in its part 2. `#[non_exhaustive]` lets
+/// new variants come without breaking callers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Command {
@@ -102,8 +106,8 @@ pub enum Command {
     /// Inserts `count` empty bars before the bar at `at` (`at` = the number of bars appends them)
     /// (ADR-0026 §6). The new bars take the meter, clef, key and tempo in force just before `at`
     /// (at `at` = 0, those of the first bar); what stood at the start of bar `at` moves on with
-    /// it. Ranges spanning the point grow; between two voltas of a group the new bars join the
-    /// earlier one (X11). Refused between the source and the end of a bar repeat (W6).
+    /// it. Ranges spanning the point grow, those ending exactly at it do not (Y8); between two
+    /// voltas of a group the new bars join the earlier one (X11). Refused between the source and the end of a bar repeat (W6).
     InsertBars {
         /// Where the new bars go.
         at: BarIndex,
@@ -191,6 +195,26 @@ pub enum Command {
         bar: BarId,
         /// The number it restarts with.
         number: Option<u32>,
+    },
+    /// Sets the meter change at a bar, or removes it with `None` (never at bar 0), in a mode that
+    /// says what happens to the music already written (ADR-0026 §7, Y1–Y5).
+    ChangeMeter {
+        /// The bar.
+        bar: BarId,
+        /// The new meter change (meter and section grouping), or `None`.
+        change: Option<MeterChange>,
+        /// What happens to the music.
+        mode: MeterMode,
+    },
+    /// Makes a bar irregular (another length, a pickup, a free bar), or regular again with `None`,
+    /// in a mode as [`ChangeMeter`](Self::ChangeMeter) (Y1).
+    SetIrregularBar {
+        /// The bar.
+        bar: BarId,
+        /// Its new length and kind, or `None`.
+        irregular: Option<IrregularBar>,
+        /// What happens to the music.
+        mode: MeterMode,
     },
 }
 
@@ -312,6 +336,14 @@ pub(crate) fn run(tx: &mut Transaction<'_>, command: &Command) -> Result<(), Com
         Command::SetNumberingRestart { bar, number } => {
             mark_command::set_numbering_restart(tx, *bar, *number)
         }
+        Command::ChangeMeter { bar, change, mode } => {
+            meter_command::change_meter(tx, *bar, *change, *mode)
+        }
+        Command::SetIrregularBar {
+            bar,
+            irregular,
+            mode,
+        } => meter_command::set_irregular_bar(tx, *bar, *irregular, *mode),
     }
 }
 
@@ -1148,6 +1180,11 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
 /// first bar keep the same meter, and the initial clef, key and tempo now apply to the new bars
 /// first. Ranges whose ends are on both sides of the point grow, because their ends are `BarId`s.
 ///
+/// # Ends at the insertion point (Y8)
+/// A hairpin, a pass rule or a gradual tempo change that ends exactly at the start of bar `at`
+/// (its end is exclusive) does not span the point: it keeps ending there, before the new bars,
+/// anchored to the start of the first new bar (owner's choice, 2026-11-05).
+///
 /// # Between two voltas of a group (X11)
 /// A point between two voltas of one group (the first one ending on the bar before `at`, the
 /// next one starting on bar `at`) is spanned by no range, so the new bars would fall between the
@@ -1227,7 +1264,21 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
         ids.push(BarId::from_counter(tx.new_id()?));
     }
     let last = *ids.last().ok_or(DocumentError::Inconsistent)?;
+    let first_new = *ids.first().ok_or(DocumentError::Inconsistent)?;
+    // Y8: the exclusive ends exactly at the start of bar `at`, read before the bars move.
+    let doc = tx.document();
+    let ends = match doc.bars().id_at(at) {
+        Some(next) => ends_at(
+            doc,
+            ScorePoint::start_of(next),
+            ScorePoint::start_of(first_new),
+        )?,
+        None => Vec::new(),
+    };
     tx.apply(Edit::InsertBars { at, ids, meter })?;
+    for edit in ends {
+        tx.apply(edit)?;
+    }
     for volta in grow {
         tx.apply(Edit::Replace(Object::Volta(crate::form::Volta::new(
             volta.id(),
@@ -1244,6 +1295,58 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
         )))?;
     }
     Ok(())
+}
+
+/// The edits that keep the exclusive ends lying exactly at `point` (the start of the bar before
+/// which bars are inserted) where they are, before the new bars, by anchoring them to `to` (the
+/// start of the first new bar) (Y8): hairpins, pass rules and gradual tempo changes "up to" that
+/// barline do not span the insertion point, so they must not grow over the new bars. Otherwise a
+/// pass rule could reach out of its repeated section.
+///
+/// # Complexity
+/// O(hairpins + pass rules + tempo marks).
+///
+/// # Errors
+/// [`DocumentError::EmptyTempoMark`] cannot happen (a gradual mark keeps its change), but the
+/// constructor's error is propagated rather than unwrapped.
+fn ends_at(doc: &Document, point: ScorePoint, to: ScorePoint) -> Result<Vec<Edit>, DocumentError> {
+    let mut edits = Vec::new();
+    for instrument in doc.instruments() {
+        for h in instrument.hairpins().iter().filter(|h| h.end() == point) {
+            edits.push(Edit::Replace(Object::Hairpin {
+                instrument: instrument.id(),
+                hairpin: Hairpin::new(h.id(), h.start(), to, h.placement(), h.shape()),
+            }));
+        }
+        for r in instrument.pass_rules().iter().filter(|r| r.end() == point) {
+            edits.push(Edit::Replace(Object::PassRule {
+                instrument: instrument.id(),
+                rule: crate::bar_repeat::PassRule::new(
+                    r.id(),
+                    r.start(),
+                    to,
+                    r.scope(),
+                    r.plays(),
+                    r.text().map(Box::from),
+                ),
+            }));
+        }
+    }
+    for mark in doc.tempo_marks().as_slice() {
+        if let Some(TempoMarkChange::Gradual(g)) = mark.value().change()
+            && g.end == point
+        {
+            let mut moved = g;
+            moved.end = to;
+            edits.push(Edit::Replace(Object::TempoMark(Mark::new(
+                mark.id(),
+                mark.bar(),
+                mark.offset(),
+                TempoMark::new(mark.value().text(), Some(TempoMarkChange::Gradual(moved)))?,
+            ))));
+        }
+    }
+    Ok(edits)
 }
 
 // ------------------------------------------------------------------------------------------------

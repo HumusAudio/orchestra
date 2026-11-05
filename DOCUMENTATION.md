@@ -1629,6 +1629,67 @@ one note entered                                  208          336
 The difference of 128 bytes is the deque of the history itself. The test fails if the estimate
 falls below 90% of the measure, so the 128 MB limit stays honest.
 
+#### Meter changes and irregular bars (KeepBars)
+
+F1.11c part 1 adds the commands that change how long bars are (module `meter_command`,
+ADR-0026 §7 with the precisions Y1–Y7 of §11, approved by the owner on 2026-11-05):
+`ChangeMeter { bar, change, mode }` sets a meter change, or removes it with `None` (never at bar
+0), and `SetIrregularBar { bar, irregular, mode }` makes one bar longer or shorter, a pickup or a
+free bar, or regular again. Both take a **`MeterMode`**, which says what happens to the music
+already written. This part implements **`KeepBars`**: every bar keeps its events, marks and form
+markings at their offsets, only the lengths change, and the music after the change moves in time.
+`Rewrite`, the default the interface will offer (the music stays where it sounds and the barlines
+move), comes in part 2; `MeterMode` is `#[non_exhaustive]` for that.
+
+```rust
+// A 3/4 from bar 9: the bars keep their music, the bars after them move in time.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_9,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::KeepBars,
+})?;
+// The first bar becomes a pickup of one quarter.
+editor.execute(&Command::SetIrregularBar {
+    bar: first_bar,
+    irregular: Some(IrregularBar { length: quarter, kind: BarKind::AlignEnd }),
+    mode: MeterMode::KeepBars,
+})?;
+```
+
+What the command does beyond the meter map edit:
+
+- **Y3**: the per-bar groupings of the section that no longer add up to the new meter are removed
+  in the same step (they described how the old meter was counted); a free bar loses its grouping.
+- **Y4**: a pickup longer than the new meter, or a section grouping that does not add up, is
+  refused with the meter map's error (`PickupLongerThanMeter`, `GroupingLengthMismatch`).
+- **Y5**: inside a bar repeat the change is refused (`InsideBarRepeat`), because a repeated bar
+  would differ in length from its source; a meter change exactly at the first source bar changes
+  every bar of the range alike and is accepted.
+- **Y7**: a shortened bar may become overfull (valid, ADR-0022 §4), but if a note past the new
+  barline is tied or slurred into the next bar, its tie or slur no longer goes forward in score
+  order, which is by position (ADR-0024): the change is refused with `TieNotForward` or
+  `SlurNotForward`. The property test found the case; the owner chose the refusal. The check
+  (`check_overfull`) looks at the last event of each chunk of the changed bars and runs the local
+  check only on the overfull cells.
+
+Tempo marks past a shortened barline need nothing: the tempo map already clamps them to their
+barline (F1.09c).
+
+**Y8, a correction of `InsertBars`.** The property test also found that a pass rule ending
+exactly at the start of bar *i* (its end is exclusive) grew over bars inserted before *i*, and
+could reach out of its repeated section. The owner chose that an end lying exactly at the
+insertion point does not span it: hairpins, pass rules and gradual tempo changes ending there keep
+ending before the new bars, anchored to the start of the first one.
+
+**Tests** (`src/meter_command_tests.rs`): eight hand-written cases (the music moving, a removed
+change, the stale groupings, the contradictions, the bar repeat, irregular and free bars, the tie
+of Y7, the ends of Y8) and two new kinds of command in the property test (23 in all; 12 000 sequences passed).
+Six injected bugs (no Y7 check, stale groupings kept, no bar-repeat check, the first source bar
+refused, a free bar keeping its grouping, no Y8) were all caught. **Benchmarks** (`benches/editor.rs`,
+heavy score): a 3/4 at the middle bar ≈ 5.7 million instructions (its section of 60 bars becomes
+overfull in every voice and is checked), a bar of two quarters ≈ 122 000: a few milliseconds at
+most, under the 16 ms of ADR-0007.
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics
