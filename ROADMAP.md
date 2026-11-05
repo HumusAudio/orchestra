@@ -405,8 +405,11 @@ heavy score: the whole performance ≈ 1.67 billion instructions (≈ 0.5 s nati
 the notes, `Vec::splice` instead of a new list). **To measure on the reference laptop** with the
 interface (F2.23), as for the meter rewrite. The editor's `add_dynamic` benchmark grew by 8–9% (≈ 440
 instructions per dynamic, the new list of the change set): accepted by the owner with
-`Bench-regression: accepted`. SCALETTA v0.32 closes F1.13c and F1.13. **Next:** the PR of F1.13
-(ADR-0027, parts b and c), then F1.14 (tolerance threshold).
+`Bench-regression: accepted`. SCALETTA v0.32 closes F1.13c and F1.13. **PR #22 open** (F1.13: ADR-0027,
+parts b and c): Linux, Windows, benchmarks and guides green; the macOS job was cancelled three times
+in a row (2026-11-05) after 15 minutes **without ever getting a runner** (no step ran: GitHub's queue,
+as with PR #18). **Next:** re-run the macOS job (`gh run rerun <id> --failed`); when it is green,
+merge PR #22 and delete the branch (owner's ok, 2026-11-05); then F1.14 (tolerance threshold).
 
 | Step | What | Status |
 |---|---|---|
