@@ -1827,6 +1827,60 @@ Derives what is played from what is written: unrolled repeats and jumps, merged 
 turned into velocity and curves, the tolerance threshold that decides whether a DAW move is
 microtiming or a new written position. Its output is a cache, never a second editable copy.
 
+#### Unrolling the form
+
+Since F1.12 (ADR-0025 §5 for the rules, §12 P1–P8 for the choices, approved by the owner on
+2026-11-05) the module `unroll` turns the form into the **path**: the bars in the order they are
+played. A score of 8 bars with bars 1–2 repeated, a segno at bar 3, a Fine at the end of bar 4 and
+a D.S. al Fine at the end of bar 7 plays 0, 1, 2, 1, 2, 3, 4, 5, 6, 7, 3, 4.
+
+```rust
+let unrolled = Unrolled::new(&document)?;
+for (k, played) in unrolled.played().iter().enumerate() {
+    // The written bar, its pass index, its section's play, where it starts.
+    let (bar, pass, play, start) = (played.bar, played.pass, played.section_play, played.start);
+    // The time of its first beat in the performance, exact wherever the tempo map is.
+    let seconds = unrolled.time_at(&document, k, Duration::ZERO)?;
+    // Whether the flute plays there (a "tacet 1st time" says no on play 1).
+    let plays = unrolled.plays(&document, flute, k, Duration::ZERO)?;
+}
+// After an edit: rebuilt only if the form, the bars or the maps changed.
+unrolled.update(editor.document(), &changes)?;
+```
+
+Each `PlayedBar` knows its written bar, its **pass index** (how many times that written bar was
+played before, from 0: the key of the pass-specific offsets that F1.14 will add, P6), the play of
+its repeated section (1, 2, … for the "tacet 1st time" rules), its start on the unrolled timeline
+in exact whole notes, and a **shift** in seconds. Inside a gradual tempo change the time of a
+barline is irrational (ADR-0021), so instead of an absolute time each played bar stores how far
+its time in the performance is from the tempo map's time of its written start; the shift changes
+only where the path jumps, so it stays exact unless a jump leaves or lands inside a gradual change.
+Around the path: `plays_of(bar)` lists where a written bar is played (P5), `content(played,
+staff)` gives the written bar a staff with bar repeats takes its notes from, with their own pass
+(P3), and `plays(voice, played, offset)` applies the pass rules (P4).
+
+**The walk** (`Unrolled::new`) reads the form once into indices (sections from the repeat barlines
+paired as `validate` pairs them, volta groups attached to their section, jumps with their markers'
+bars), then walks the bars: skip the voltas this play does not enter, play the bar, then at its end
+the active jump's Fine or To Coda, a jump that fires now (after the section's last play, or on
+`OnPass(n)`), an end repeat with plays left. A section entered from outside starts at play 1; after
+a jump that skips the repeats every section plays once, as play 1. Every jump is taken once, so the
+path is finite (P8). `update` rebuilds the whole path when the change set reports a change of the
+form, the bars or the maps (P7).
+
+**Tests:** `tests/unroll_cases.rs`, sixteen cases (the hard cases of ADR-0025 §10: a repeat ×3, an
+end without start, first and second endings, "1.–3." and "4.", "1. :‖ 2. :‖ 3.", D.C. al Fine,
+D.S. al Coda with a repeat inside, D.C. with the repeats played again, two segni, a jump inside a
+repeat on the last pass and on pass 1, one- and two-bar repeat signs, a tacet, exact shifts beside
+a gradual change, the update); `tests/unroll_props.rs`, a property test on 4 096 random forms built
+with the real builder (about 70% are refused by `validate`, leaving about a thousand with repeats,
+voltas, jumps or bar repeats), checking that pass indices are counts, the bars follow each other
+without gaps, the times never go back, the reverse lists agree, and a score without form is played
+bar by bar; 40 000 cases passed. Eight injected bugs were caught, one only after a case with a
+two-bar sign written twice was added. **Benchmark** (`benches/unroll.rs`, the 400-bar score of the
+form benchmarks): ≈ 2.5 million instructions for 900 played bars, ≈ 3.9 million with a D.S. in
+every section (1 450 played bars); the setup checks both lengths.
+
 ### orchestra-notation-layout
 
 Incremental engraving into positioned glyphs: plain geometry, no drawing, so it can be tested

@@ -1946,6 +1946,65 @@ unite, dinamiche trasformate in velocity e curve, la soglia di tolleranza che de
 spostamento nella DAW è microtiming o una nuova posizione scritta. Il suo risultato è una cache,
 mai una seconda copia modificabile.
 
+#### Lo srotolamento della forma
+
+Da F1.12 (ADR-0025 §5 per le regole, §12 P1–P8 per le scelte, approvate dal proprietario il
+2026-11-05) il modulo `unroll` trasforma la forma nel **percorso**: le battute nell'ordine in cui si
+suonano. Una partitura di 8 battute con le battute 1–2 ripetute, un segno alla battuta 3, un Fine alla
+fine della battuta 4 e un D.S. al Fine alla fine della battuta 7 suona 0, 1, 2, 1, 2, 3, 4, 5, 6, 7,
+3, 4.
+
+```rust
+let unrolled = Unrolled::new(&document)?;
+for (k, played) in unrolled.played().iter().enumerate() {
+    // The written bar, its pass index, its section's play, where it starts.
+    let (bar, pass, play, start) = (played.bar, played.pass, played.section_play, played.start);
+    // The time of its first beat in the performance, exact wherever the tempo map is.
+    let seconds = unrolled.time_at(&document, k, Duration::ZERO)?;
+    // Whether the flute plays there (a "tacet 1st time" says no on play 1).
+    let plays = unrolled.plays(&document, flute, k, Duration::ZERO)?;
+}
+// After an edit: rebuilt only if the form, the bars or the maps changed.
+unrolled.update(editor.document(), &changes)?;
+```
+
+Ogni `PlayedBar` conosce la sua battuta scritta, il suo **indice di passaggio** (quante volte quella
+battuta scritta è stata suonata prima, da 0: la chiave degli scostamenti per passaggio che arriveranno
+con F1.14, P6), l'esecuzione della sua sezione ripetuta (1, 2, … per le regole "tacet la prima
+volta"), il suo inizio sulla linea del tempo srotolata in semibrevi esatte, e uno **spostamento** in
+secondi. Dentro un cambio di tempo graduale l'istante di una stanghetta è irrazionale (ADR-0021),
+quindi invece di un tempo assoluto ogni battuta suonata memorizza quanto il suo tempo
+nell'esecuzione dista dal tempo della mappa all'inizio scritto; lo spostamento cambia solo dove il
+percorso salta, quindi resta esatto a meno che un salto parta o arrivi dentro un cambio graduale.
+Intorno al percorso: `plays_of(bar)` elenca dove si suona una battuta scritta (P5), `content(played,
+staff)` dà la battuta scritta da cui un rigo con ripetizioni di battuta prende le note, con il loro
+passaggio (P3), e `plays(voice, played, offset)` applica le regole di passaggio (P4).
+
+**Il cammino** (`Unrolled::new`) legge la forma una volta in indici (le sezioni dalle stanghette di
+ritornello accoppiate come fa `validate`, i gruppi di volte legati alla loro sezione, i salti con le
+battute dei loro segni), poi percorre le battute: salta le volte in cui questa esecuzione non entra,
+suona la battuta, poi alla sua fine il Fine o il To Coda del salto attivo, un salto che scatta adesso
+(dopo l'ultima esecuzione della sezione, o con `OnPass(n)`), un ritornello di fine con esecuzioni
+rimaste. Una sezione in cui si entra da fuori comincia dall'esecuzione 1; dopo un salto che salta i
+ritornelli ogni sezione si suona una volta, come esecuzione 1. Ogni salto si prende una volta sola,
+quindi il percorso è finito (P8). `update` ricostruisce tutto il percorso quando l'insieme delle
+modifiche segnala un cambio della forma, delle battute o delle mappe (P7).
+
+**Test:** `tests/unroll_cases.rs`, sedici casi (i casi difficili di ADR-0025 §10: ritornello ×3,
+fine senza inizio, prima e seconda volta, "1.–3." e "4.", "1. :‖ 2. :‖ 3.", D.C. al Fine, D.S. al
+Coda con un ritornello dentro, D.C. con i ritornelli risuonati, due segni, un salto dentro un
+ritornello all'ultima esecuzione e alla prima, segni di ripetizione di una e di due battute, un
+tacet, spostamenti esatti accanto a un cambio graduale, l'aggiornamento); `tests/unroll_props.rs`,
+un test di proprietà su 4 096 forme casuali costruite con il builder vero (circa il 70% è rifiutato da
+`validate`, e ne resta circa un migliaio con ritornelli, volte, salti o ripetizioni di battuta), che
+controlla che gli indici di passaggio siano conteggi, che le battute si susseguano senza buchi, che i
+tempi non tornino indietro, che gli elenchi all'indietro coincidano, e che una partitura senza forma
+si suoni battuta per battuta; 40 000 casi passati. Otto bug iniettati sono stati presi, uno solo dopo
+aver aggiunto un caso con un segno di due battute scritto due volte. **Benchmark**
+(`benches/unroll.rs`, la partitura di 400 battute dei benchmark della forma): ≈ 2,5 milioni di
+istruzioni per 900 battute suonate, ≈ 3,9 milioni con un D.S. in ogni sezione (1 450 battute
+suonate); la preparazione controlla entrambe le lunghezze.
+
 ### orchestra-notation-layout
 
 L'incisione (engraving) incrementale in glifi posizionati: pura geometria, nessun disegno, così

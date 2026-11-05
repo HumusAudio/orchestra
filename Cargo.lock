@@ -333,8 +333,10 @@ dependencies = [
 name = "orchestra-playback"
 version = "0.0.0"
 dependencies = [
+ "gungraun",
  "orchestra-core-model",
  "orchestra-core-time",
+ "proptest",
 ]
 
 [[package]]
