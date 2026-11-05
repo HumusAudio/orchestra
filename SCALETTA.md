@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.24, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.25, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -248,7 +248,7 @@ Dettagli:
 | F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
 | F1.11 | **ADR dei comandi, dell'undo/redo unico e delle notifiche di modifica a grana fine** | ✅ ADR-0026 | 1 |
 | F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | ✅ PR #19 | 2–3 |
-| F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | ⬜ | 1–2 |
+| F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | 🔄 parte 1 fatta | 1–2 |
 
 Dettagli:
 
@@ -403,7 +403,21 @@ Dettagli:
 - **F1.11c** Implementa ADR-0026 §7: `Rewrite` (catene di note legate, battuta irregolare finale,
   divisione delle battute sotto le marcature di forma, pause di battuta intera) e `KeepBars`, con
   casi scritti a mano, test di proprietà e benchmark; le regole di §7 si possono precisare con
-  l'ok del proprietario.
+  l'ok del proprietario. Diviso in due parti (proprietario, 2026-11-05).
+  **Parte 1 fatta il 2026-11-05:** prima del codice il proprietario ha approvato Y1–Y6, ora
+  ADR-0026 §11: `ChangeMeter` e `SetIrregularBar` con un `MeterMode`; `KeepBars` tiene il contenuto
+  di ogni battuta; i raggruppamenti per battuta che non tornano si tolgono; levate troppo lunghe e
+  raggruppamenti sbagliati sono rifiutati; niente cambi dentro una ripetizione di battuta; la
+  modifica in blocco della mappa dei metri passa alla parte 2. Il test di proprietà ha poi trovato
+  due casi, decisi dal proprietario: **Y7**, rifiutato un cambio che lascia oltre una stanghetta
+  accorciata una nota con legatura (di valore o di portamento) verso la battuta dopo; **Y8**,
+  correzione di `InsertBars` (F1.11b): forcelle, regole di passaggio e cambi graduali che finiscono
+  proprio sul punto d'inserimento restano prima delle battute nuove. Benchmark sulla partitura
+  pesante: un 3/4 a metà ≈ 5,7 milioni di istruzioni (60 battute troppo piene verificate), una
+  battuta irregolare ≈ 122 000.
+  **Parte 2:** `Rewrite` (regole 1–5 di §7) con la modifica in blocco della mappa dei metri e la
+  divisione delle note di gruppo irregolare alla stanghetta (toglie anche il rifiuto di V4 in
+  `EnterEvent`), poi la PR di tutto F1.11c.
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -717,3 +731,4 @@ raccomandato.
 | 2026-11-04 | 0.22 | F1.11b in corso, parte 1 fatta (modifiche elementari, editor, cronologia); confermate le scelte d'interfaccia; benchmark dell'editor spostati nella parte 2, modifica in blocco della mappa dei metri in F1.11c | proprietario |
 | 2026-11-04 | 0.23 | F1.11b: parte 2 divisa in 2a e 2b, parte 2a fatta (comandi su eventi e battute, gesti, verifica locale); precisazioni V1–V9 e W1–W6 in ADR-0026 §11, con la partenza dal tempo d'arrivo per un cambio graduale tagliato all'inizio; parte 2b definita | proprietario |
 | 2026-11-05 | 0.24 | F1.11b fatto (PR #19): parte 2b con le precisioni X1–X11 in ADR-0026 §11; note per F1.16 (generatore condiviso) e F2.22 (comandi composti rimandati) | proprietario |
+| 2026-11-05 | 0.25 | F1.11c diviso in due parti, parte 1 fatta (`KeepBars`, precisioni Y1–Y8 in ADR-0026 §11, Y8 corregge `InsertBars`); parte 2 definita | proprietario |
