@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.30, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.31, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -444,7 +444,7 @@ Dettagli:
 | F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ✅ PR #21 | 2 |
 | F1.13 | **ADR delle regole di esecuzione v0**: dall'intento alle note suonate | ✅ ADR-0027 | 1 |
 | F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ✅ | 1–2 |
-| F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | ⬜ | 1–2 |
+| F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | 🔄 parte 1 fatta | 1–2 |
 | F1.14 | **Soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
@@ -476,6 +476,18 @@ Dettagli:
   scostamenti della catena; *mf* per tutte fino alle dinamiche. Modulo `perform` di
   `orchestra-playback`; limite noto: su una nota molto corta abbellimenti "dopo" e acciaccature
   insieme possono superarne la metà (la nota scende alla durata minima).
+- **F1.13c** Diviso in due parti (proprietario, 2026-11-05). **Parte 1 fatta il 2026-11-05:** prima
+  del codice il proprietario ha approvato H1–H13 e, chiedendo che un accento sia più forte solo
+  all'attacco e poi torni alla sua dinamica a velocità fissa (più lentamente dopo *sf* e simili),
+  l'**emendamento H14–H17**, ora ADR-0027 §14: la dinamica in vigore si segue lungo il percorso;
+  *rf* +1 livello, *sf* +2, *sffz* +3, solo sulle note che cominciano lì; *n* = velocity 1;
+  l'arrivo di una forcella dentro la battuta della sua fine e nel verso giusto, altrimenti un
+  livello; le dinamiche dentro una forcella la dividono; vince la voce sullo strumento; ogni nota
+  suonata ha un **profilo d'attacco** (attacco, tenuta, ritorno in secondi, livello d'arrivo); gli
+  accenti di articolazione sono gradini fissi (accento +15 in 0,2 s); *fp* è *f* tenuto 0,3 s poi
+  *p* in 0,1 s, *pf* il contrario. Modulo `loudness` di `orchestra-playback`. **Parte 2:** H11–H13,
+  cioè la lista degli strumenti con dinamiche cambiate nel `ChangeSet`, `Performance::update` per
+  cella, i benchmark sulla partitura pesante; poi la PR di tutto F1.13.
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
   indice del passaggio). Da ADR-0025: lo srotolamento segue le regole di §5; l'indice di passaggio
   di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
@@ -519,6 +531,11 @@ di F1.13, così il proprietario può *ascoltare* il risultato del modello con qu
 già alla fine della Fase 1, senza aspettare il motore audio. Costo basso, verifica molto utile
 delle regole di esecuzione. Si fa dopo F1.13 e prima della chiusura F1.17 (la tabella elenca i
 passi per argomento, non in ordine stretto di esecuzione).
+
+Da F1.13c (ADR-0027 §14): in **F1.18** si sceglie come scrivere il profilo d'attacco nel file MIDI
+(MIDI 1.0 ha solo il CC11 per canale, che ne approssima la curva; MIDI 2.0 ha i controller per
+nota), ed è il primo momento in cui Claude ricorda al proprietario di **tarare a orecchio** tutti i
+tempi e i gradini di §14 (di nuovo con gli strumenti interni di F3).
 
 **Tappa M1** (§7): "motore musicale senza interfaccia".
 
@@ -698,7 +715,8 @@ gruppetti, mordenti, tremolo: nota ausiliaria dall'armatura e dall'alterazione s
 velocità); le **corone** come tempo inserito nella linea del tempo srotolata, con il suono delle
 note allungato e mai un tempo più lento (emendamento di ADR-0025 §12); le **intonazioni**
 (temperamenti, intonazione naturale, segni di comma) dopo F3.04; i valori di articolazioni e
-dinamiche come opzioni modificabili nella finestra Preferenze (F2.12).
+dinamiche come opzioni modificabili nella finestra Preferenze (F2.12), compresi i tempi e i gradini
+del profilo d'attacco di ADR-0027 §14.
 
 Da collocare (ADR-0024 C9): tremolo tra due note, testo cantato (sillabe, strofe, allineamento),
 sigle degli accordi, diteggiature e indicazioni di tecnica. Da ADR-0025: le ripetizioni di
@@ -797,3 +815,4 @@ raccomandato.
 | 2026-11-05 | 0.28 | F1.12 fatto (PR #21): srotolamento della forma, precisioni P1–P8 in ADR-0025 §12; la tabella degli scostamenti per passaggio passa a F1.14 | proprietario |
 | 2026-11-05 | 0.29 | F1.13 fatto (ADR-0027 Accepted), D22 chiusa; nuovi F1.13b e F1.13c; rimandi di ADR-0027 (ornamenti, corone, intonazioni, opzioni di esecuzione) in "Oltre" | proprietario |
 | 2026-11-05 | 0.30 | F1.13b fatto: le note suonate, precisioni N1–N10 in ADR-0027 §13 | proprietario |
+| 2026-11-05 | 0.31 | F1.13c diviso in due parti, parte 1 fatta (precisioni H1–H13 ed emendamento H14–H17 in ADR-0027 §14: profilo d'attacco); note per F1.18 (codifica del profilo, taratura a orecchio) e F2.12 | proprietario |
