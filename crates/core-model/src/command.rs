@@ -33,8 +33,8 @@
 //! - **V2**: an event is entered only into free space; entering over other events is refused.
 //! - **V3**: an event that crosses a barline becomes a **tie chain** (a rest: several rests): each
 //!   part is written with the longest values first, with at most two dots.
-//! - **V4**: a tuplet note that would cross a barline is refused (the split inside a tuplet comes
-//!   with the meter change of F1.11c).
+//! - **V4** (lifted by **Z4**, F1.11c part 2a): a tuplet note that crosses a barline is split
+//!   into tied notes that stay in the same tuplet, written in its own values (Z3).
 //! - **V5**: an event entered past the end of a **free** bar lengthens the bar instead.
 //! - **V6**: deleting an event leaves a gap (no rest is added) and deletes with it the slurs on
 //!   it, the grace notes that ornament it and the tuplets left without members; the ties leading
@@ -89,8 +89,8 @@ const MAX_VALUES_PER_PART: usize = 16;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Command {
-    /// Enters a new event into free space (V2), as a tie chain if it crosses a barline (V3),
-    /// lengthening a free bar instead (V5).
+    /// Enters a new event into free space (V2), as a tie chain if it crosses a barline (V3, and
+    /// inside its tuplet for a tuplet note: Z3, Z4), lengthening a free bar instead (V5).
     EnterEvent(NewEvent),
     /// Deletes an event, leaving a gap (V6), with the slurs on it, the grace notes ornamenting it
     /// and the tuplets left without members; the ties leading into it are cleared.
@@ -510,9 +510,10 @@ fn replace_event(
 ///    their bar, so they never cross a barline.
 /// 3. An event that ends inside its bar is entered with the value the user gave. One that ends
 ///    past the end of a **free** bar lengthens the bar to its end (V5).
-/// 4. Otherwise (it crosses a barline, outside a tuplet: V4) it is cut at every barline, each
-///    part is written with [`written_values`], and a chord's parts are tied notehead by notehead
-///    (V3). Rests are not tied. Past the last bar it is refused (W3).
+/// 4. Otherwise (it crosses a barline) it is cut at every barline, each part is written with
+///    [`split_values`], and a chord's parts are tied notehead by notehead (V3). Rests are not tied.
+///    Inside a tuplet every part stays in the same tuplet, written in its own values (Z3, Z4;
+///    ADR-0024 C4, Dorico's "spans barline"). Past the last bar it is refused (W3).
 ///
 /// Free space (V2) is not checked here: the local check that follows refuses an overlap.
 ///
@@ -614,20 +615,18 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         }))?;
         return insert_chain(tx, &at, staff, kind, &single);
     }
-    // A tuplet note is not split across a barline (V4).
-    if at.tuplet.is_some() {
-        return Err(DocumentError::TupletAcrossBarline.into());
-    }
-
     // Cut at every barline: the first part fills its bar, the next ones fill whole bars, the last
-    // one what is left (V3). Past the last bar it is refused (W3).
+    // one what is left (V3). Past the last bar it is refused (W3). Inside a tuplet the parts stay
+    // in the tuplet and are written in its own values (Z3, Z4): how much a written value lasts in
+    // the bar is scaled by the tuplet chain's ratio, the same for every value of the chain.
+    let ratio = tuplet_ratio(voice, &probe, value)?;
     let doc = tx.document();
     let mut chain: Vec<(BarId, Duration, NoteValue)> = Vec::new();
     let mut push_part = |bar: BarId, start: Duration, length: Duration| {
         let mut offset = start;
-        for value in written_values(length)? {
+        for value in split_values(length, ratio)? {
             chain.push((bar, offset, value));
-            offset = offset.checked_add(value.length()?)?;
+            offset = offset.checked_add(value.length()?.checked_mul(ratio)?)?;
         }
         Ok::<(), DocumentError>(())
     };
@@ -646,6 +645,43 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         left = left.checked_sub(take)?;
     }
     insert_chain(tx, &at, staff, kind, &chain)
+}
+
+/// How much longer (or shorter) a written value lasts in the bar inside the tuplet chain of
+/// `probe` than outside: the metric duration of the probe divided by the length of its written
+/// value. 1 outside any tuplet, 2/3 in a triplet, 2/3 × 4/5 in a triplet inside a quintuplet. The
+/// probe carries the innermost tuplet, so the voice's table gives the whole chain
+/// (`Voice::metric_duration`). O(depth), at most four links.
+///
+/// # Errors
+/// The arithmetic errors of the durations (absurd values only).
+fn tuplet_ratio(
+    voice: &crate::document::Voice,
+    probe: &Event,
+    value: NoteValue,
+) -> Result<orchestra_core_time::Rational, DocumentError> {
+    // A whole-bar length is never asked for: the probe is a rest of a written value.
+    let metric = voice.metric_duration(probe, Duration::ZERO)?;
+    Ok(metric.checked_ratio(value.length()?)?)
+}
+
+/// The written values of one part of a chain that lasts `length` in its bar, inside a tuplet
+/// chain whose ratio is `ratio` (Z3): the part is brought back to the tuplet's own written values
+/// (divided by the ratio) and written with the longest values first, as outside a tuplet (V3). A
+/// triplet quarter (1/6) with 1/12 left in the bar becomes two triplet eighths: 1/12 ÷ 2/3 = 1/8.
+/// Shared with the meter change that rewrites the music (F1.11c part 2, Z5).
+///
+/// # Complexity
+/// As [`written_values`].
+///
+/// # Errors
+/// [`DocumentError::NotWritable`] if the written length is no sum of values with at most two dots
+/// (a part of a quintuplet cut at a third of a beat); the arithmetic errors.
+pub(crate) fn split_values(
+    length: Duration,
+    ratio: orchestra_core_time::Rational,
+) -> Result<Vec<NoteValue>, DocumentError> {
+    written_values(length.checked_div(ratio)?)
 }
 
 /// What the events of an entered chain are.

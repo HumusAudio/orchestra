@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Inserting and deleting bars in the [`MeterMap`] (ADR-0022 §8, ADR-0026 §1): hand-written cases
-//! and property tests against a naive oracle.
+//! Inserting, deleting and replacing runs of bars in the [`MeterMap`] (ADR-0022 §8, ADR-0026 §1
+//! and §11 Z1): hand-written cases and property tests against a naive oracle.
 //!
 //! # The oracle
 //! The library splices sorted vectors and rebuilds its segments. The oracle keeps every source
@@ -184,6 +184,51 @@ fn zero_bars_change_nothing() {
     assert!(span.has_no_entries());
 }
 
+/// Replacing bars 2–3 of the sample (4/4) with a span that makes bar 2 a 3/4 and bar 3 a bar of a
+/// half: the bars after them start earlier, bar 4 keeps its own 3/4, and the returned span puts
+/// the old data back exactly (Z1).
+#[test]
+fn a_run_of_bars_is_replaced_at_once() {
+    let original = sample();
+    let mut map = original.clone();
+    let mut span = BarSpan::empty(2);
+    span.set_meter_change(bar(0), meter(3, 4));
+    span.set_irregular_bar(
+        bar(1),
+        IrregularBar {
+            length: d(1, 2),
+            kind: BarKind::AlignStart,
+        },
+    );
+    let old = map.replace_span(bar(2), &span).unwrap();
+    assert!(old.has_no_entries());
+    // Pickup 1/4, bar 1 a whole, bar 2 three quarters, bar 3 a half: bar 4 starts at 5/2.
+    assert_eq!(map.bar_start(bar(4)).unwrap(), p(5, 2));
+    assert_eq!(map.bar_length(bar(4)).unwrap(), d(3, 4));
+    let back = map.replace_span(bar(2), &old).unwrap();
+    assert_eq!(back, span);
+    assert_eq!(map, original);
+}
+
+/// A span whose entries fall outside its bars, and a run at bar 0 without a meter change, are
+/// refused and change nothing.
+#[test]
+fn a_replacement_that_breaks_the_map_is_refused() {
+    let original = sample();
+    let mut map = original.clone();
+    let mut outside = BarSpan::empty(1);
+    outside.set_uncounted(bar(1), true);
+    assert_eq!(
+        map.replace_span(bar(2), &outside),
+        Err(MeterMapError::IndexOutOfRange)
+    );
+    assert_eq!(
+        map.replace_span(bar(0), &BarSpan::empty(1)),
+        Err(MeterMapError::NoMeterAtStart)
+    );
+    assert_eq!(map, original);
+}
+
 // ------------------------------------------------------------------------------------------------
 // Property tests
 // ------------------------------------------------------------------------------------------------
@@ -244,6 +289,58 @@ impl Lists {
                 .map(|&b| if b >= at { b + count } else { b })
                 .collect(),
             restarts: shift(&self.restarts, at, count),
+        }
+    }
+
+    /// The oracle's replacement of bars `at..at + count` with the entries of `span` (whose bars
+    /// are relative to `at`): drop the run's entries, add the span's moved by `at`.
+    fn replaced(&self, at: u32, count: u32, span: &Self) -> Self {
+        /// Keeps the keys outside the run and adds the span's, moved.
+        fn swap<V: Copy>(
+            list: &BTreeMap<u32, V>,
+            span: &BTreeMap<u32, V>,
+            at: u32,
+            count: u32,
+        ) -> BTreeMap<u32, V> {
+            list.iter()
+                .filter(|&(&b, _)| b < at || b >= at + count)
+                .map(|(&b, &v)| (b, v))
+                .chain(span.iter().map(|(&b, &v)| (b + at, v)))
+                .collect()
+        }
+        Self {
+            meters: swap(&self.meters, &span.meters, at, count),
+            irregular: swap(&self.irregular, &span.irregular, at, count),
+            uncounted: self
+                .uncounted
+                .iter()
+                .copied()
+                .filter(|&b| b < at || b >= at + count)
+                .chain(span.uncounted.iter().map(|&b| b + at))
+                .collect(),
+            restarts: swap(&self.restarts, &span.restarts, at, count),
+        }
+    }
+
+    /// The oracle's view of a span, read the same way as a map's lists.
+    fn of_span(span: &BarSpan) -> Self {
+        Self {
+            meters: span
+                .meter_changes()
+                .iter()
+                .map(|(b, v)| (b.get(), *v))
+                .collect(),
+            irregular: span
+                .irregular_bars()
+                .iter()
+                .map(|(b, v)| (b.get(), *v))
+                .collect(),
+            uncounted: span.uncounted_bars().iter().map(|b| b.get()).collect(),
+            restarts: span
+                .numbering_restarts()
+                .iter()
+                .map(|(b, v)| (b.get(), *v))
+                .collect(),
         }
     }
 
@@ -352,6 +449,41 @@ proptest! {
                 prop_assert_eq!(map.bar_start(bar(b)), original.bar_start(bar(b)));
             }
             map.insert_bars(bar(at), &span).unwrap();
+            prop_assert_eq!(&map, &original);
+        } else {
+            prop_assert_eq!(&map, &original);
+        }
+    }
+}
+
+proptest! {
+    /// Replacing a run of bars with the data of a run of another random map gives what the oracle
+    /// gives, returns the run's old data, and replacing it back restores the very same map; a
+    /// refused replacement (the result is not a valid map) changes nothing (Z1).
+    #[test]
+    fn replacement_matches_the_oracle(
+        edits in edits(),
+        other in edits(),
+        at in 0..BARS,
+        from in 0..BARS,
+        count in 0_u32..6,
+    ) {
+        let original = build(&edits);
+        // The span: the data of `count` bars of another map, taken with `remove_bars` (which
+        // may refuse at bar 0; then the span is simply empty).
+        let span = build(&other)
+            .remove_bars(bar(from), count)
+            .unwrap_or_else(|_| BarSpan::empty(count));
+        let mut map = original.clone();
+        if let Ok(old) = map.replace_span(bar(at), &span) {
+            let expected = Lists::of(&original).replaced(at, count, &Lists::of_span(&span));
+            prop_assert_eq!(Lists::of(&map), expected);
+            prop_assert_eq!(old.count(), count);
+            for b in 0..at {
+                prop_assert_eq!(map.bar_start(bar(b)), original.bar_start(bar(b)));
+            }
+            let back = map.replace_span(bar(at), &old).unwrap();
+            prop_assert_eq!(&back, &span);
             prop_assert_eq!(&map, &original);
         } else {
             prop_assert_eq!(&map, &original);

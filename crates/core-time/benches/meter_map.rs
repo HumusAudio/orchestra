@@ -237,6 +237,34 @@ fn remove_bars(mut map: MeterMap) -> MeterMap {
     map
 }
 
+// The map and a span of 60 bars in 3/4 whose last bar is a bar of a half: what the meter change
+// that rewrites the music puts in place at once (ADR-0026 §11 Z1).
+fn span_input() -> (MeterMap, BarSpan) {
+    let mut span = BarSpan::empty(60);
+    span.set_meter_change(
+        BarIndex::new(0),
+        MeterChange::new(Meter::new(&[3], 4).unwrap()),
+    );
+    span.set_irregular_bar(
+        BarIndex::new(59),
+        IrregularBar {
+            length: d(1, 2),
+            kind: BarKind::AlignStart,
+        },
+    );
+    (reference_map(), span)
+}
+
+// Replacing the data of 60 bars in the middle of the map at once: one splice per source list and
+// one rebuild of the segments, whatever the length of the run. Not a batch, like the edits above.
+#[library_benchmark]
+#[bench::reference(span_input())]
+fn replace_span(input: (MeterMap, BarSpan)) -> (MeterMap, BarSpan) {
+    let (mut map, span) = input;
+    let _ = black_box(map.replace_span(black_box(BarIndex::new(100)), black_box(&span)));
+    (map, span)
+}
+
 library_benchmark_group!(
     name = meter_map,
     benchmarks = [
@@ -247,7 +275,8 @@ library_benchmark_group!(
         display_number,
         edit_meter_change,
         insert_bars,
-        remove_bars
+        remove_bars,
+        replace_span
     ]
 );
 

@@ -478,6 +478,54 @@ impl BarSpan {
         upsert(&mut self.sources.meter_changes, bar, change)
     }
 
+    /// Makes the span's bar `bar` (relative to the span) irregular; returns the previous setting.
+    /// Not checked here: the map checks the span when it is inserted or put in place
+    /// ([`MeterMap::replace_span`]). O(n).
+    pub fn set_irregular_bar(
+        &mut self,
+        bar: BarIndex,
+        irregular: IrregularBar,
+    ) -> Option<IrregularBar> {
+        upsert(&mut self.sources.irregular_bars, bar, irregular)
+    }
+
+    /// Gives the span's bar `bar` its own beat grouping; returns the previous one. Not checked
+    /// here (see [`set_irregular_bar`](Self::set_irregular_bar)). O(n).
+    pub fn set_bar_grouping(
+        &mut self,
+        bar: BarIndex,
+        grouping: BeatGrouping,
+    ) -> Option<BeatGrouping> {
+        upsert(&mut self.sources.bar_groupings, bar, grouping)
+    }
+
+    /// Leaves the span's bar `bar` out of the displayed numbering, or counts it again; returns
+    /// whether it was uncounted. O(n).
+    pub fn set_uncounted(&mut self, bar: BarIndex, uncounted: bool) -> bool {
+        let list = &mut self.sources.uncounted;
+        match (list.binary_search(&bar), uncounted) {
+            (Ok(_), true) => true,
+            (Ok(i), false) => {
+                list.remove(i);
+                true
+            }
+            (Err(i), true) => {
+                list.insert(i, bar);
+                false
+            }
+            (Err(_), false) => false,
+        }
+    }
+
+    /// Restarts the displayed numbering at the span's bar `bar`, or removes the restart with
+    /// `None`; returns the previous number. O(n).
+    pub fn set_numbering_restart(&mut self, bar: BarIndex, number: Option<u32>) -> Option<u32> {
+        match number {
+            Some(n) => upsert(&mut self.sources.restarts, bar, n),
+            None => remove(&mut self.sources.restarts, bar),
+        }
+    }
+
     /// The meter changes of the span, at bars relative to it, sorted. O(1).
     #[must_use]
     pub fn meter_changes(&self) -> &[(BarIndex, MeterChange)] {
@@ -572,6 +620,38 @@ fn spliced_out<V: Clone>(
         }
     }
     (kept, taken)
+}
+
+/// A sorted list of the map with the entries of the bars `at..end` replaced by those of a span of
+/// the same number of bars: returns the new list and the entries taken out (at bars relative to
+/// `at`, the old span's). Entries before and after the run keep their bars, since the number of
+/// bars does not change. O(n + s); allocates the two lists.
+///
+/// # Errors
+/// [`MeterMapError::IndexOutOfRange`] if a span entry moved to `at + bar` passes `u32::MAX`.
+fn spliced_replace<V: Clone>(
+    list: &[(BarIndex, V)],
+    at: BarIndex,
+    end: u32,
+    span: &[(BarIndex, V)],
+) -> Result<(Entries<V>, Entries<V>), MeterMapError> {
+    let mut out = Vec::with_capacity(list.len().saturating_add(span.len()));
+    let mut taken = Vec::new();
+    let first = list.partition_point(|(bar, _)| bar.0 < at.0);
+    let after = list.partition_point(|(bar, _)| bar.0 < end);
+    out.extend_from_slice(list.get(..first).unwrap_or(&[]));
+    for (bar, value) in list.get(first..after).unwrap_or(&[]) {
+        // `bar ≥ at` inside the run, so the subtraction never saturates.
+        taken.push((BarIndex(bar.0.saturating_sub(at.0)), value.clone()));
+    }
+    for (bar, value) in span {
+        let moved =
+            at.0.checked_add(bar.0)
+                .ok_or(MeterMapError::IndexOutOfRange)?;
+        out.push((BarIndex(moved), value.clone()));
+    }
+    out.extend_from_slice(list.get(after..).unwrap_or(&[]));
+    Ok((out, taken))
 }
 
 /// The meter map of a project (ADR-0005 §2, ADR-0018, ADR-0019).
@@ -1017,6 +1097,73 @@ impl MeterMap {
         self.sources = sources;
         self.segments = segments;
         Ok(span)
+    }
+
+    /// Replaces the source data of the `span.count()` bars from `at` on with the span's, all at
+    /// once, and returns the data they had, as a span of the same size: `replace_span` with the
+    /// returned span is the exact inverse (ADR-0026 §1, Z1). The number of bars does not change
+    /// ([`insert_bars`](Self::insert_bars) and [`remove_bars`](Self::remove_bars) do that).
+    ///
+    /// # Why one operation
+    /// The meter change that rewrites the music (ADR-0026 §7, `Rewrite`) changes the lengths,
+    /// kinds and groupings of many bars together. One edit per bar would rebuild the map once per
+    /// bar, and could pass through states that are not valid on their own (a pickup briefly
+    /// longer than a meter about to change), which the map refuses. Here the whole new state is
+    /// checked once.
+    ///
+    /// # Complexity
+    /// O(n log n) in the number of source entries, independent of the number of bars of the span;
+    /// allocates: editing path only.
+    ///
+    /// # Errors
+    /// [`MeterMapError::IndexOutOfRange`] if an entry of the span lies outside its bars or the
+    /// run passes the last representable bar; any validation error of the resulting map
+    /// ([`MeterMapError::NoMeterAtStart`] if a run starting at bar 0 brings no meter change
+    /// there). The map is then unchanged.
+    pub fn replace_span(&mut self, at: BarIndex, span: &BarSpan) -> Result<BarSpan, MeterMapError> {
+        let count = span.count;
+        if span.sources.last_bar().is_some_and(|last| last.0 >= count) {
+            return Err(MeterMapError::IndexOutOfRange);
+        }
+        let end =
+            at.0.checked_add(count)
+                .ok_or(MeterMapError::IndexOutOfRange)?;
+        let mut sources = Sources::default();
+        let mut old = BarSpan::empty(count);
+        (sources.meter_changes, old.sources.meter_changes) = spliced_replace(
+            &self.sources.meter_changes,
+            at,
+            end,
+            &span.sources.meter_changes,
+        )?;
+        (sources.irregular_bars, old.sources.irregular_bars) = spliced_replace(
+            &self.sources.irregular_bars,
+            at,
+            end,
+            &span.sources.irregular_bars,
+        )?;
+        (sources.bar_groupings, old.sources.bar_groupings) = spliced_replace(
+            &self.sources.bar_groupings,
+            at,
+            end,
+            &span.sources.bar_groupings,
+        )?;
+        (sources.restarts, old.sources.restarts) =
+            spliced_replace(&self.sources.restarts, at, end, &span.sources.restarts)?;
+        // The uncounted bars are bare indices: a unit value reuses the same splicing.
+        let unit = |list: &[BarIndex]| list.iter().map(|&b| (b, ())).collect::<Vec<_>>();
+        let (kept, taken) = spliced_replace(
+            &unit(&self.sources.uncounted),
+            at,
+            end,
+            &unit(&span.sources.uncounted),
+        )?;
+        sources.uncounted = kept.into_iter().map(|(bar, ())| bar).collect();
+        old.sources.uncounted = taken.into_iter().map(|(bar, ())| bar).collect();
+        let segments = build_segments(&sources)?;
+        self.sources = sources;
+        self.segments = segments;
+        Ok(old)
     }
 
     // --------------------------------------------------------------------------------------------

@@ -280,8 +280,9 @@ fn a_rest_across_a_barline_becomes_rests() {
     assert_eq!(events_of(doc, i.lh, i.bars[4]).len(), 1);
 }
 
-/// Past the last bar (W3), across a barline inside a tuplet (V4), at the end of a regular bar,
-/// and a remainder no value can write: all refused with their typed errors.
+/// Past the last bar (W3), a tuplet note whose part before the barline no value can write (Z3), at
+/// the end of a regular bar, and a remainder no value can write: all refused with their typed
+/// errors.
 #[test]
 fn entering_refusals() {
     let mut editor = Editor::new(rich());
@@ -308,15 +309,16 @@ fn entering_refusals() {
             DocumentError::PastLastBar,
         ),
         (
+            // A triplet note with 1/36 left in the bar: 1/36 ÷ 2/3 = 1/24, no written value (Z3).
             Command::EnterEvent(NewEvent {
-                at: Placement::new(i.rh, i.bars[1], d(23, 24)).in_tuplet(triplet),
+                at: Placement::new(i.rh, i.bars[1], d(35, 36)).in_tuplet(triplet),
                 body: NewBody::Chord {
                     value: value(BaseValue::Eighth),
                     pitches: vec![pitch(Step::C)],
                     grace: None,
                 },
             }),
-            DocumentError::TupletAcrossBarline,
+            DocumentError::NotWritable,
         ),
         (
             note(
@@ -355,6 +357,138 @@ fn entering_refusals() {
             refused(&mut editor, &command),
             CommandError::Document(error)
         );
+    }
+}
+
+/// A triplet eighth entered 1/24 before the end of bar 1 crosses the barline: it becomes two
+/// triplet sixteenths tied, both in the triplet (Z3, Z4; 1/24 ÷ 2/3 = 1/16 on each side).
+#[test]
+fn a_tuplet_note_across_a_barline_stays_in_its_tuplet() {
+    let mut editor = Editor::new(rich());
+    let i = ids(editor.document());
+    let triplet = editor.document().events(i.rh, i.bars[1]).unwrap()[0]
+        .event()
+        .tuplet()
+        .unwrap();
+    execute_checked(
+        &mut editor,
+        &Command::EnterEvent(NewEvent {
+            at: Placement::new(i.rh, i.bars[1], d(23, 24)).in_tuplet(triplet),
+            body: NewBody::Chord {
+                value: value(BaseValue::Eighth),
+                pitches: vec![pitch(Step::C)],
+                grace: None,
+            },
+        }),
+    );
+    let doc = editor.document();
+    let first = doc
+        .events(i.rh, i.bars[1])
+        .unwrap()
+        .last()
+        .unwrap()
+        .event()
+        .clone();
+    let second = doc.events(i.rh, i.bars[2]).unwrap()[0].event().clone();
+    for part in [&first, &second] {
+        assert_eq!(part.tuplet(), Some(triplet));
+        assert_eq!(part.chord().unwrap().value(), value(BaseValue::Sixteenth));
+    }
+    let tie = first.chord().unwrap().notes().next().unwrap().tie();
+    assert_eq!(
+        tie,
+        Tie::To(second.chord().unwrap().notes().next().unwrap().id())
+    );
+    assert_eq!(doc.metric_duration(second.id()).unwrap(), d(1, 24));
+}
+
+/// A triplet half (1/3) entered 5/24 before the end of bar 1: the part before the barline is 5/16
+/// in the triplet's written values, a quarter and a sixteenth, at offsets 19/24 and 23/24 (the
+/// quarter lasts 1/4 × 2/3 = 1/6 in the bar), ending exactly at the barline; the rest, 1/8 in the
+/// bar, is a dotted eighth of the triplet (Z3).
+#[test]
+fn a_tuplet_part_of_several_values_is_spaced_by_the_ratio() {
+    let mut editor = Editor::new(rich());
+    let i = ids(editor.document());
+    let triplet = editor.document().events(i.rh, i.bars[1]).unwrap()[0]
+        .event()
+        .tuplet()
+        .unwrap();
+    execute_checked(
+        &mut editor,
+        &Command::EnterEvent(NewEvent {
+            at: Placement::new(i.rh, i.bars[1], d(19, 24)).in_tuplet(triplet),
+            body: NewBody::Rest(RestValue::Value(value(BaseValue::Half))),
+        }),
+    );
+    let doc = editor.document();
+    let parts: Vec<(Duration, Duration)> = doc
+        .events(i.rh, i.bars[1])
+        .unwrap()
+        .iter()
+        .skip(3)
+        .map(|p| (p.offset(), doc.metric_duration(p.event().id()).unwrap()))
+        .collect();
+    assert_eq!(parts, [(d(19, 24), d(1, 6)), (d(23, 24), d(1, 24))]);
+    let next = &doc.events(i.rh, i.bars[2]).unwrap()[0];
+    assert_eq!(
+        (
+            next.offset(),
+            doc.metric_duration(next.event().id()).unwrap()
+        ),
+        (Duration::ZERO, d(1, 8))
+    );
+}
+
+/// Inside a triplet nested in a quintuplet (ratio 2/3 × 4/5 = 8/15), a triplet eighth (1/15) 1/30
+/// before the barline becomes two sixteenths of the inner triplet, tied (Z3: 1/30 ÷ 8/15 = 1/16).
+#[test]
+fn a_nested_tuplet_note_is_split_in_its_own_values() {
+    let mut editor = Editor::new(rich());
+    let i = ids(editor.document());
+    let sixteenth = value(BaseValue::Sixteenth);
+    let eighth = value(BaseValue::Eighth);
+    let changes = execute_checked(
+        &mut editor,
+        &Command::AddTuplet {
+            voice: i.fl,
+            tuplet: Tuplet::new(5, 4, sixteenth).unwrap(),
+            parent: None,
+        },
+    );
+    let ObjectRef::Tuplet(outer) = changes.inserted()[0] else {
+        panic!("the inserted object is a tuplet");
+    };
+    let changes = execute_checked(
+        &mut editor,
+        &Command::AddTuplet {
+            voice: i.fl,
+            tuplet: Tuplet::new(3, 2, eighth).unwrap(),
+            parent: Some(outer),
+        },
+    );
+    let ObjectRef::Tuplet(inner) = changes.inserted()[0] else {
+        panic!("the inserted object is a tuplet");
+    };
+    execute_checked(
+        &mut editor,
+        &Command::EnterEvent(NewEvent {
+            at: Placement::new(i.fl, i.bars[4], d(29, 30)).in_tuplet(inner),
+            body: NewBody::Rest(RestValue::Value(eighth)),
+        }),
+    );
+    let doc = editor.document();
+    let first = doc
+        .events(i.fl, i.bars[4])
+        .unwrap()
+        .last()
+        .unwrap()
+        .event()
+        .clone();
+    let second = doc.events(i.fl, i.bars[5]).unwrap()[0].event().clone();
+    for part in [&first, &second] {
+        assert_eq!(part.tuplet(), Some(inner));
+        assert_eq!(doc.metric_duration(part.id()).unwrap(), d(1, 30));
     }
 }
 
@@ -927,7 +1061,32 @@ fn random_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command>
         return random_mark_command(doc, op % OPS, a, b);
     }
     Some(match op % OPS {
-        0 | 1 => note(voice, bar, offset, v, &[pitch(steps[b % 5])]),
+        0 => note(voice, bar, offset, v, &[pitch(steps[b % 5])]),
+        1 => {
+            // A note inside one of the voice's tuplets (if any), often across a barline (Z4).
+            let mut tuplets: Vec<TupletId> = doc
+                .voice(voice)?
+                .1
+                .content
+                .tuplets
+                .keys()
+                .copied()
+                .collect();
+            tuplets.sort_unstable();
+            let offset = d(i64::try_from(a % 12).ok()?, 12);
+            let mut at = Placement::new(voice, bar, offset);
+            if let Some(&t) = tuplets.get(b % tuplets.len().max(1)) {
+                at = at.in_tuplet(t);
+            }
+            Command::EnterEvent(NewEvent {
+                at,
+                body: NewBody::Chord {
+                    value: v,
+                    pitches: vec![pitch(steps[b % 5])],
+                    grace: None,
+                },
+            })
+        }
         2 => Command::EnterEvent(NewEvent {
             at: Placement::new(voice, bar, offset),
             body: NewBody::Rest(RestValue::Value(v)),

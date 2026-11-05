@@ -587,6 +587,39 @@ indietro) sono stati presi. **Benchmark** (stesso file delle ricerche): inserire
 metà della mappa di riferimento ≈ 95 000 istruzioni, toglierne quattro ≈ 94 700, circa quanto un
 cambio di metro.
 
+#### Sostituire un tratto di battute in un colpo solo
+
+Il cambio di metro che riscrive la musica (F1.11c parte 2, `Rewrite`) cambia insieme lunghezze, tipi e
+raggruppamenti di molte battute. Una modifica per battuta ricostruirebbe la mappa una volta per
+battuta e potrebbe passare per stati che la mappa rifiuta (una levata per un istante più lunga di un
+metro che sta per cambiare). Da F1.11c parte 2a (ADR-0026 §11 Z1) `replace_span(at, &span)` sostituisce
+in un colpo solo i dati di origine delle `span.count()` battute da `at` in poi con quelli dello span, e
+restituisce quelli che avevano: rimetterli è l'inversa esatta. Il numero di battute non cambia.
+`BarSpan` ha avuto i metodi che gli mancavano (`set_irregular_bar`, `set_bar_grouping`,
+`set_uncounted`, `set_numbering_restart`), così un comando può costruire i dati nuovi di un tratto.
+
+```rust
+// 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
+let mut span = BarSpan::empty(60);
+span.set_meter_change(BarIndex::new(0), MeterChange::new(Meter::new(&[3], 4)?));
+span.set_irregular_bar(
+    BarIndex::new(59),
+    IrregularBar { length: half, kind: BarKind::AlignStart },
+);
+let old = map.replace_span(BarIndex::new(100), &span)?;
+// Putting the old data back is the exact inverse.
+map.replace_span(BarIndex::new(100), &old)?;
+```
+
+Per la mappa dei tempi non esiste un'operazione simile (Z2): si ricava dalle indicazioni di tempo una
+volta sola, alla fine di ogni transazione (ADR-0024 §11), il che è già "in un colpo solo".
+
+**Test** (stesso file): due casi scritti a mano (un tratto sostituito e rimesso; voci fuori dallo span
+e un tratto alla battuta 0 senza metro rifiutati) e un test di proprietà contro l'oracolo, con lo span
+preso da un'altra mappa casuale; un bug iniettato (voci dello span spostate sulla battuta sbagliata) è
+stato preso. **Benchmark:** sostituire 60 battute a metà della mappa di riferimento ≈ 77 000
+istruzioni, meno di un cambio di metro, qualunque sia la lunghezza del tratto.
+
 #### Tempo, secondi, campioni e fotogrammi
 
 `src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che usa la mappa dei tempi
@@ -1549,9 +1582,10 @@ I comandi della parte 2a:
   legate** (V3): si taglia a ogni stanghetta, ogni pezzo si scrive con le figure più lunghe per
   prime (al massimo due punti: cinque crome sono una minima e una croma), le teste di un accordo si
   legano altezza per altezza; una pausa diventa più pause. Oltre la fine di una battuta **libera**
-  la battuta invece si allunga (V5). Rifiutati: una nota di gruppo irregolare a cavallo della
-  stanghetta (V4, arriva con F1.11c), oltre l'ultima battuta (W3), una durata che nessuna figura
-  può scrivere (`NotWritable`).
+  la battuta invece si allunga (V5). Una nota di gruppo irregolare a cavallo
+  della stanghetta era rifiutata (V4) fino a F1.11c parte 2a, che la divide dentro il suo gruppo
+  (vedi sotto). Rifiutati: oltre l'ultima battuta (W3), una durata che nessuna figura può scrivere
+  (`NotWritable`).
 - `DeleteEvent(EventId)`: lascia un **buco** (V6: non si scrive nessuna pausa, la riempie
   l'incisione, come le pause implicite di Dorico), e porta via con sé gli abbellimenti che ornano
   l'evento, le legature di portamento su di lui e i gruppi irregolari rimasti vuoti; le legature di
@@ -1799,6 +1833,35 @@ libera che tiene il raggruppamento, niente Y8) sono stati tutti presi. **Benchma
 partitura pesante): un 3/4 alla battuta di mezzo ≈ 5,7 milioni di istruzioni (la sua sezione di 60
 battute diventa troppo piena in ogni voce e viene verificata), una battuta di due quarti ≈ 122 000:
 al più qualche millisecondo, sotto i 16 ms di ADR-0007.
+
+#### Note di gruppo irregolare a cavallo della stanghetta
+
+Da F1.11c parte 2a (ADR-0026 §11 Z3–Z5) una nota di gruppo irregolare che scavalca la stanghetta non è
+più rifiutata (V4 cade): si divide in note legate che **restano nello stesso gruppo irregolare**, come
+prescrive ADR-0024 (C4) e come fa Dorico ("spans barline"). Il tratto che resta in ogni battuta si
+riporta ai valori scritti del gruppo, dividendolo per il prodotto dei rapporti della sua catena di
+gruppi (annidati compresi), e si scrive con i valori più lunghi prima, come fuori da un gruppo (V3). Un
+tratto che nessuna figura con al più due punti può scrivere è rifiutato (`NotWritable`); l'errore
+`TupletAcrossBarline` non esiste più.
+
+```rust
+// A triplet eighth (1/12 in the bar) entered 1/24 before the barline:
+editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(voice, bar_1, Duration::from_rational(Rational::new(23, 24)?))
+        .in_tuplet(triplet),
+    body: NewBody::Rest(RestValue::Value(NoteValue::plain(BaseValue::Eighth))),
+}))?;
+// Now two triplet sixteenths: 1/24 before the barline, 1/24 after it, both in the triplet.
+```
+
+Lo fa una sola funzione (`command::split_values`, con `tuplet_ratio`), condivisa adesso da `EnterEvent`
+e nella parte 2b dal cambio di metro che riscrive la musica (Z5). **Test** (`src/command_tests.rs`): tre
+casi scritti a mano (una nota di terzina a cavallo, un tratto di due figure distanziate secondo il
+rapporto, una terzina annidata in una quintina), il vecchio caso di rifiuto diventato un caso
+`NotWritable`, e il test di proprietà che ora inserisce note dentro i gruppi irregolari. Due bug
+iniettati (il tratto non diviso per il rapporto, le figure di un tratto non distanziate secondo il
+rapporto) sono stati presi, il secondo solo dal caso scritto apposta: un buco fra due figure è uno
+stato valido, quindi `validate` non può vederlo.
 
 ### orchestra-playback
 

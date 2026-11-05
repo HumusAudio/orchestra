@@ -330,9 +330,16 @@ gradual tempo changes).
 Implemented in `core-model`: the module `meter_command` (`MeterMode::KeepBars`, `check_overfull`),
 eight hand-written cases, two more kinds of command in the property test, six injected bugs
 caught; benchmarks: a 3/4 at the middle of the heavy score ≈ 5.7 million instructions, a bar made
-irregular ≈ 122 000. **Next: F1.11c part 2**, `Rewrite` (ADR-0026 §7 rules 1–5, with the bulk edit
-of the meter map and the split of tuplet notes at a barline, which also lifts V4 for
-`EnterEvent`), then the PR of F1.11c.
+irregular ≈ 122 000. F1.11c part 2 was split in two by the owner (2026-11-05). **F1.11c part 2a done** (2026-11-05, same
+branch): before coding, the owner approved Z1–Z5, now ADR-0026 §11 (the bulk edit of the meter map
+`MeterMap::replace_span` with the primitive edit `MeterEdit::Span`; none for the tempo map; tuplet
+notes across a barline split inside their tuplet in its own values, which lifts V4 for `EnterEvent`;
+one splitting function, `command::split_values`, for `EnterEvent` and `Rewrite`). The error
+`TupletAcrossBarline` is gone; `BarSpan` gained its setters. Tests: two cases and an oracle property
+test for `replace_span`, three cases for tuplet splits, the command property test now entering
+notes inside tuplets; three injected bugs caught (one only by a case written for it). Benchmark:
+`replace_span` of 60 bars ≈ 77 000 instructions. **Next: F1.11c part 2b**, `Rewrite` (ADR-0026 §7
+rules 1–5), then the PR of F1.11c.
 
 | Step | What | Status |
 |---|---|---|

@@ -555,6 +555,39 @@ left behind; the entries after a removal not moved back) were caught. **Benchmar
 the lookups): inserting four bars in the middle of the reference map ≈ 95 000 instructions, removing
 four ≈ 94 700, about one meter change.
 
+#### Replacing a run of bars at once
+
+The meter change that rewrites the music (F1.11c part 2, `Rewrite`) changes the lengths, kinds and
+groupings of many bars together. One edit per bar would rebuild the map once per bar and could pass
+through states the map refuses (a pickup briefly longer than a meter about to change). Since F1.11c
+part 2a (ADR-0026 §11 Z1) `replace_span(at, &span)` replaces the source data of the `span.count()`
+bars from `at` on with the span's, all at once, and returns the data they had: putting that back is
+the exact inverse. The number of bars does not change. `BarSpan` gained the setters it lacked
+(`set_irregular_bar`, `set_bar_grouping`, `set_uncounted`, `set_numbering_restart`), so a command
+can build the new data of a run.
+
+```rust
+// 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
+let mut span = BarSpan::empty(60);
+span.set_meter_change(BarIndex::new(0), MeterChange::new(Meter::new(&[3], 4)?));
+span.set_irregular_bar(
+    BarIndex::new(59),
+    IrregularBar { length: half, kind: BarKind::AlignStart },
+);
+let old = map.replace_span(BarIndex::new(100), &span)?;
+// Putting the old data back is the exact inverse.
+map.replace_span(BarIndex::new(100), &old)?;
+```
+
+There is no such operation for the tempo map (Z2): it is derived from the tempo marks once, at the
+end of every transaction (ADR-0024 §11), which is already "all at once".
+
+**Tests** (same file): two hand-written cases (a run replaced and put back; entries outside the span
+and a run at bar 0 without a meter refused) and a property test against the oracle, with the span
+taken from another random map; an injected bug (span entries moved to the wrong bar) was caught.
+**Benchmark:** replacing 60 bars in the middle of the reference map ≈ 77 000 instructions, less than
+one meter change, whatever the length of the run.
+
 #### Tempo, seconds, samples and frames
 
 `src/tempo.rs` and `src/clock.rs` hold the units of real time that the tempo map (step F1.05b)
@@ -1456,9 +1489,9 @@ The commands of part 2a:
   another event it is refused). Across a barline it becomes a **tie chain** (V3): cut at every
   barline, each part written with the longest values first (at most two dots: five eighths are a
   half and an eighth), the noteheads of a chord tied pitch by pitch; a rest becomes several rests.
-  Past the end of a **free** bar the bar grows instead (V5). Refused: a tuplet note across a
-  barline (V4, it comes with F1.11c), past the last bar (W3), a length no value can write
-  (`NotWritable`).
+  Past the end of a **free** bar the bar grows instead (V5). A tuplet note across a barline
+  was refused (V4) until F1.11c part 2a, which splits it inside its tuplet (see below). Refused:
+  past the last bar (W3), a length no value can write (`NotWritable`).
 - `DeleteEvent(EventId)`: leaves a **gap** (V6: no rest is written, engraving fills it, like
   Dorico's implicit rests), and takes along the grace notes ornamenting the event, the slurs on it
   and the tuplets left empty; the ties leading into it become `Tie::None`.
@@ -1689,6 +1722,34 @@ refused, a free bar keeping its grouping, no Y8) were all caught. **Benchmarks**
 heavy score): a 3/4 at the middle bar ≈ 5.7 million instructions (its section of 60 bars becomes
 overfull in every voice and is checked), a bar of two quarters ≈ 122 000: a few milliseconds at
 most, under the 16 ms of ADR-0007.
+
+#### Tuplet notes across a barline
+
+Since F1.11c part 2a (ADR-0026 §11 Z3–Z5) a note of a tuplet that crosses a barline is no longer
+refused (V4 is lifted): it is split into tied notes that **stay in the same tuplet**, as ADR-0024
+(C4) prescribes and Dorico does ("spans barline"). The part left in each bar is brought back to the
+tuplet's own written values, dividing it by the product of the ratios of its tuplet chain (nested
+tuplets included), and written with the longest values first, as outside a tuplet (V3). A part no
+value with at most two dots can write is refused (`NotWritable`); the error `TupletAcrossBarline`
+is gone.
+
+```rust
+// A triplet eighth (1/12 in the bar) entered 1/24 before the barline:
+editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(voice, bar_1, Duration::from_rational(Rational::new(23, 24)?))
+        .in_tuplet(triplet),
+    body: NewBody::Rest(RestValue::Value(NoteValue::plain(BaseValue::Eighth))),
+}))?;
+// Now two triplet sixteenths: 1/24 before the barline, 1/24 after it, both in the triplet.
+```
+
+One function does it (`command::split_values`, with `tuplet_ratio`), shared by `EnterEvent` now and
+by the meter change that rewrites the music in part 2b (Z5). **Tests** (`src/command_tests.rs`): three
+hand-written cases (a triplet note across a barline, a part of two values spaced by the ratio, a
+triplet nested in a quintuplet), the old refusal case turned into a `NotWritable` case, and the
+property test now entering notes inside tuplets. Two injected bugs (the part not divided by the
+ratio, the values of a part not spaced by it) were caught, the second only by the case written for
+it: a gap between two values is a valid state, so `validate` cannot see it.
 
 ### orchestra-playback
 
