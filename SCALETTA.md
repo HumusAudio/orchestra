@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.31, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.32, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -444,7 +444,7 @@ Dettagli:
 | F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ✅ PR #21 | 2 |
 | F1.13 | **ADR delle regole di esecuzione v0**: dall'intento alle note suonate | ✅ ADR-0027 | 1 |
 | F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ✅ | 1–2 |
-| F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | 🔄 parte 1 fatta | 1–2 |
+| F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | ✅ | 2 |
 | F1.14 | **Soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
@@ -488,6 +488,13 @@ Dettagli:
   *p* in 0,1 s, *pf* il contrario. Modulo `loudness` di `orchestra-playback`. **Parte 2:** H11–H13,
   cioè la lista degli strumenti con dinamiche cambiate nel `ChangeSet`, `Performance::update` per
   cella, i benchmark sulla partitura pesante; poi la PR di tutto F1.13.
+  **Parte 2 fatta il 2026-11-05:** `ChangeSet::dynamics_changed` (anche per una dinamica tolta);
+  `Performance::update`, identico al ricalcolo completo: dopo un cambio di dinamiche solo le velocity
+  del tratto in cui la linea di una voce cambia davvero, dopo un cambio di cella una finestra di
+  battute suonate ricalcolata e rimessa al suo posto; `PlayedBar::written_start`. Sulla partitura
+  pesante: esecuzione completa ≈ 1,67 miliardi di istruzioni, una nota ≈ 1,24 milioni, una dinamica
+  ≈ 2,11 milioni; `add_dynamic` dell'editor +8–9% per la lista nuova, accettato dal proprietario
+  (`Bench-regression: accepted`). F1.13 completo.
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
   indice del passaggio). Da ADR-0025: lo srotolamento segue le regole di §5; l'indice di passaggio
   di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
@@ -604,6 +611,9 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
   cambio di metro `Rewrite` di una sezione lunga della partitura pesante (60 battute × 41 voci,
   ≈ 118 milioni di istruzioni); se supera i 16 ms, ottimizzarlo (per esempio con uno spostamento in
   blocco degli eventi di un tratto di battute, che richiede un emendamento ad ADR-0026 §1).
+  Da F1.13c: misurare lì anche `Performance::update` dopo una nota e dopo una dinamica sulla
+  partitura pesante (≈ 1,2 e ≈ 2,1 milioni di istruzioni; sulla macchina di sviluppo ≈ 0,6–1 ms),
+  con il budget di 1 ms di ADR-0027 §9.
 - **F2.22** Da ADR-0026 §11 (X4, X6, X7), comandi composti rimandati qui: svuotare le battute e
   mettere la ripetizione di battuta; ritrascrivere le note dopo un cambio di armatura; trasformare
   le note di un gruppo irregolare in valori normali.
@@ -816,3 +826,4 @@ raccomandato.
 | 2026-11-05 | 0.29 | F1.13 fatto (ADR-0027 Accepted), D22 chiusa; nuovi F1.13b e F1.13c; rimandi di ADR-0027 (ornamenti, corone, intonazioni, opzioni di esecuzione) in "Oltre" | proprietario |
 | 2026-11-05 | 0.30 | F1.13b fatto: le note suonate, precisioni N1–N10 in ADR-0027 §13 | proprietario |
 | 2026-11-05 | 0.31 | F1.13c diviso in due parti, parte 1 fatta (precisioni H1–H13 ed emendamento H14–H17 in ADR-0027 §14: profilo d'attacco); note per F1.18 (codifica del profilo, taratura a orecchio) e F2.12 | proprietario |
+| 2026-11-05 | 0.32 | F1.13c fatto (parte 2: aggiornamento incrementale, benchmark), F1.13 completo; misura in tempo reale dell'aggiornamento delle note suonate in F2.23 | proprietario |

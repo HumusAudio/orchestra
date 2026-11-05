@@ -403,7 +403,10 @@ heavy score: the whole performance ≈ 1.67 billion instructions (≈ 0.5 s nati
 ≈ 1.24 million (natively ≈ 0.6 ms mean, 0.96 ms worst, on the development machine), a dynamic's
 ≈ 2.11 million, after three fixes found with the profile (integer up-scaling, a per-bar summary of
 the notes, `Vec::splice` instead of a new list). **To measure on the reference laptop** with the
-interface (F2.23), as for the meter rewrite. **Next:** the PR of F1.13 (ADR-0027, parts b and c).
+interface (F2.23), as for the meter rewrite. The editor's `add_dynamic` benchmark grew by 8–9% (≈ 440
+instructions per dynamic, the new list of the change set): accepted by the owner with
+`Bench-regression: accepted`. SCALETTA v0.32 closes F1.13c and F1.13. **Next:** the PR of F1.13
+(ADR-0027, parts b and c), then F1.14 (tolerance threshold).
 
 | Step | What | Status |
 |---|---|---|
