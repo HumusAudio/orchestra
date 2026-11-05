@@ -1494,8 +1494,9 @@ Quattro moduli nuovi:
 - `change`: l'**insieme delle modifiche** (`ChangeSet`) che ogni transazione, undo e redo
   restituisce: le celle (voce, battuta) i cui eventi sono cambiati, gli oggetti inseriti, tolti e
   sostituiti (battute comprese), la prima battuta da cui la mappa delle misure può rispondere
-  diversamente, la prima posizione da cui la mappa dei tempi è diversa, e se la forma è cambiata.
-  Ogni modifica registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
+  diversamente, la prima posizione da cui la mappa dei tempi è diversa, se la forma è cambiata e (da
+  F1.13c, ADR-0027 §14 H11) gli strumenti le cui dinamiche o forcelle sono cambiate. Ogni modifica
+  registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
   si ordinano e si ripuliscono dai doppioni una volta sola alla fine.
 - `editor`: `Editor::transact` esegue una chiusura come **una transazione = un passo di undo**; se
   la chiusura restituisce un errore, ogni modifica che ha applicato viene annullata. La mappa dei
@@ -1971,8 +1972,8 @@ unrolled.update(editor.document(), &changes)?;
 Ogni `PlayedBar` conosce la sua battuta scritta, il suo **indice di passaggio** (quante volte quella
 battuta scritta è stata suonata prima, da 0: la chiave degli scostamenti per passaggio che arriveranno
 con F1.14, P6), l'esecuzione della sua sezione ripetuta (1, 2, … per le regole "tacet la prima
-volta"), il suo inizio sulla linea del tempo srotolata in semibrevi esatte, e uno **spostamento** in
-secondi. Dentro un cambio di tempo graduale l'istante di una stanghetta è irrazionale (ADR-0021),
+volta"), l'inizio scritto della sua battuta (da F1.13c), il suo inizio sulla linea del tempo
+srotolata in semibrevi esatte, e uno **spostamento** in secondi. Dentro un cambio di tempo graduale l'istante di una stanghetta è irrazionale (ADR-0021),
 quindi invece di un tempo assoluto ogni battuta suonata memorizza quanto il suo tempo
 nell'esecuzione dista dal tempo della mappa all'inizio scritto; lo spostamento cambia solo dove il
 percorso salta, quindi resta esatto a meno che un salto parta o arrivi dentro un cambio graduale.
@@ -2113,6 +2114,59 @@ delle articolazioni, arrotondamento); `tests/perform_props.rs` ora aggiunge dina
 dinamici e forcelle casuali, controlla che ogni profilo sia ben formato e, sulle partiture
 semplici, confronta ogni velocity con un oracolo che risale il percorso dalla nota all'indietro.
 Nove bug iniettati sono stati presi (due solo dopo un caso scritto apposta; uno solo dall'oracolo).
+
+#### L'aggiornamento incrementale
+
+Da F1.13c parte 2 (ADR-0027 §9 e §14, H11–H13) `Performance::update(doc, path, changes)` aggiorna
+le note suonate dopo una transazione, dato il percorso già aggiornato con `Unrolled::update`. Il
+risultato è **identico** a `Performance::new` sul documento nuovo; cambia solo il costo.
+
+```rust
+// After every transaction: first the path, then the played notes, with the same change set.
+let changes = editor.execute(&command)?;
+path.update(editor.document(), &changes)?;
+performance.update(editor.document(), &path, &changes)?; // == Performance::new(...), only cheaper
+```
+
+- **Cosa ricalcola cosa**: un cambio della forma o delle battute ricalcola tutto; un cambio del
+  tempo nulla (tempo musicale, profili in secondi); un cambio delle dinamiche di uno strumento (il
+  nuovo elenco `ChangeSet::dynamics_changed`, che dice di chi era anche una dinamica tolta)
+  ricostruisce le sue linee e rilegge solo le velocity delle note del tratto in cui una linea è
+  davvero diversa (`Timeline::changed` confronta la vecchia e la nuova dai due capi); una cella
+  cambiata ricalcola una **finestra** di battute suonate attorno a ogni esecuzione della battuta.
+- **La finestra** (modulo `perform::update`): lo stesso codice del calcolo completo
+  (`perform_range` su un intervallo di battute suonate) gira su un intervallo calcolato `[c, e]` e le
+  note dell'intervallo tenuto `[a, b]` sostituiscono le vecchie. È larga quanto chiedono i legami
+  fra le note: la battuta prima (la sua ultima nota dà tempo alle acciaccature della battuta
+  cambiata), ogni catena di legature che la tocca per intero, la battuta dopo la fine di ogni
+  catena (i suoi abbellimenti sono limitati dalla catena), le note prima come contesto. Ogni nota
+  ricorda fin dove **arriva** lungo il percorso; un solo passaggio sulle note vecchie raccoglie, per
+  battuta suonata, fin dove arrivano e dove cominciano, così la finestra si assesta battuta per
+  battuta; cresce soltanto, quindi il suo ciclo finisce.
+- **Sostituzione sul posto**: le note dello strumento restano ordinate in un ordine totale (inizio,
+  altezza, voce, testa di nota, battuta suonata); si ricostruisce solo il tratto fra il primo e
+  l'ultimo inizio toccati e lo si rimette con `Vec::splice`, senza allocare una nuova lista dello
+  strumento.
+- Il percorso ha ora `PlayedBar::written_start`, la posizione scritta dell'inizio della sua
+  battuta, che il cammino calcolava comunque e che il volume legge per ogni nota.
+
+**Misure** (partitura pesante, istruzioni): l'esecuzione intera ≈ 1,67 miliardi (≈ 0,45–0,65 s qui,
+una volta all'apertura); l'aggiornamento dopo una nota ≈ 1,24 milioni (in tempo reale ≈ 0,6 ms in
+media qui, al peggio ≈ 0,96 ms); dopo una dinamica ≈ 2,11 milioni. Tre correzioni trovate con il
+profilo: il passaggio alla scala a 16 bit con interi invece dell'aritmetica razionale (−66% sulle
+dinamiche), il riassunto per battuta (−27% su una nota), la sostituzione sul posto (−55% su una nota,
+e metà del tempo reale).
+
+**Test:** `tests/update_cases.rs`, sei casi con l'editor vero (una legatura tolta all'inizio di una
+catena, i cui abbellimenti dopo cambiano limite; una legatura aggiunta che allunga una catena;
+acciaccature inserite dopo una catena di due battute prima; gli abbellimenti della prima battuta
+tenuta; dinamiche e *sfz*; un cambio di tempo che non ricalcola nulla), ciascuno confrontato con un
+calcolo completo anche dopo undo e redo; `tests/update_props.rs`, partiture casuali e sequenze
+casuali di undici tipi di comando con undo e redo, l'esecuzione aggiornata confrontata con una
+completa dopo ogni passo. Le partiture casuali sono ora condivise in `tests/common/mod.rs`. Tredici
+mutazioni: dieci bug veri presi (tre solo dopo casi scritti apposta), tre equivalenti; una
+faceva girare il ciclo all'infinito, e ha mostrato che assestare una finestra poteva riportare
+indietro un confine cresciuto sulle note nuove: ora i confini si muovono solo verso l'esterno.
 
 ### orchestra-notation-layout
 

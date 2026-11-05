@@ -26,5 +26,11 @@ gungraun.workspace = true
 name = "unroll"
 harness = false
 
+# Instruction-count benchmarks of the played notes and of their incremental update on the heavy
+# score (SCALETTA F1.13c, H13).
+[[bench]]
+name = "perform"
+harness = false
+
 [lints]
 workspace = true

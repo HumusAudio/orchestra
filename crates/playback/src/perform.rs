@@ -33,7 +33,11 @@
 //!    profile**: the attack velocity, how long it is held, and how long the sound takes to settle
 //!    to which level (seconds, so that the speed is fixed and a tempo edit recomputes nothing).
 //!
-//! The incremental update comes with the second part of F1.13c.
+//! # The incremental update
+//! [`Performance::update`] (module `perform::update`, H11 and H12) recomputes, after a transaction,
+//! only the velocities of an instrument whose dynamics changed and a window of played bars around
+//! every changed cell, with the same code as the full computation (`perform_range` on a range of
+//! played bars).
 //!
 //! # Complexity
 //! O(path × events of a bar) items per voice, O(1) average per tie followed (an index by notehead),
@@ -49,8 +53,10 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{Duration, Position, Rational, RationalError, Seconds};
 
-use crate::loudness::{self, PointAccent, Timeline};
+use crate::loudness::{self, PathPoint, Timeline};
 use crate::unroll::{UnrollError, Unrolled};
+
+mod update;
 
 // ------------------------------------------------------------------------------------------------
 // Constants of ADR-0027
@@ -196,11 +202,130 @@ pub struct PlayedNote {
     pub settle_to: u16,
 }
 
-/// The played notes of a document along its path (see the module documentation).
+/// The played notes of a document along its path (see the module documentation), with what the
+/// incremental update needs ([`update`](Self::update)).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Performance {
-    /// For each instrument, in score order, its notes sorted by start, then by pitch.
-    instruments: Vec<(InstrumentId, Vec<PlayedNote>)>,
+    /// One part per instrument, in score order.
+    parts: Vec<Part>,
+}
+
+/// The played notes of one instrument and what is kept to update them (internal).
+///
+/// # Why the extras are kept
+/// A change of the dynamics recomputes only the velocities (H11), so every note keeps the inputs
+/// of its loudness ([`Basis`]); a change of a cell recomputes a window of played bars (H12), so
+/// every note keeps how far along the path it **reaches** (the last played bar it sounds in or is
+/// tied into), which says which bars depend on it. Both are derived data like the notes: thrown
+/// away and rebuilt with them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Part {
+    /// The instrument.
+    id: InstrumentId,
+    /// Its notes, in the order of [`order_key`]: by start, then pitch, then voice, notehead and
+    /// played bar, a total order, so that an update and a full computation give the very same list.
+    notes: Vec<PlayedNote>,
+    /// For each note (same index), its extras.
+    extras: Vec<Extra>,
+    /// The loudness of each voice of the instrument along the path, by voice index (H1–H9).
+    timelines: Vec<Timeline>,
+}
+
+/// What a part keeps of each note besides the note itself (see [`Part`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Extra {
+    /// The last played bar the note reaches: the bar of the last notehead of its tie chain, or
+    /// later if it sounds past that bar's end (an overfull bar, a length offset).
+    reach: u32,
+    /// The inputs of its loudness.
+    basis: Basis,
+}
+
+/// The inputs of the loudness of one note (H2, H10, H17): where it is read, and what changes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Basis {
+    /// The voice, by index in the instrument.
+    voice: usize,
+    /// The path point of its first notehead (grace notes: their own item's).
+    point: PathPoint,
+    /// The written position of that point (hairpins interpolate in it).
+    written: Position,
+    /// Whether a dynamic accent written at the point applies (main notes) or not (grace notes,
+    /// H10).
+    accent: bool,
+    /// The articulations of its first notehead's chord.
+    articulations: ArticulationSet,
+    /// The velocity offset of its first notehead (ADR-0024 §10).
+    offset: i32,
+}
+
+impl Basis {
+    /// The attack profile of a note with this basis, read on the voice's timeline (H14–H17).
+    /// O(log n).
+    ///
+    /// # Errors
+    /// The arithmetic errors; [`UnrollError::Endless`] for an unknown voice index (a bug).
+    fn profile(&self, timelines: &[Timeline]) -> Result<loudness::Profile, PerformError> {
+        let timeline = timelines.get(self.voice).ok_or(UnrollError::Endless)?;
+        let accent = if self.accent {
+            timeline.accent_at(self.point)
+        } else {
+            None
+        };
+        Ok(loudness::profile(
+            timeline.level_at(self.point, self.written)?,
+            accent,
+            self.articulations,
+            self.offset,
+        )?)
+    }
+}
+
+/// The total order of the notes of a part: by start, pitch, voice, notehead and played bar. A
+/// notehead is played at most once per played bar, so no two notes share a key. O(1).
+fn order_key(note: &PlayedNote) -> (Position, Rational, VoiceId, NoteId, u32) {
+    (note.start, note.pitch, note.voice, note.note, note.played)
+}
+
+impl Part {
+    /// The part of `instrument`, computed whole. O(see the module documentation).
+    ///
+    /// # Errors
+    /// As [`Performance::new`].
+    fn new(
+        doc: &Document,
+        path: &Unrolled,
+        instrument: &orchestra_core_model::Instrument,
+    ) -> Result<Self, PerformError> {
+        let timelines = Timeline::all(doc, path, instrument)?;
+        let mut slots = match last_played(path) {
+            Some(last) => perform_range(doc, path, instrument, &timelines, 0, last)?,
+            None => Vec::new(),
+        };
+        slots.sort_unstable_by_key(|a| order_key(&a.0));
+        let (notes, extras) = slots.into_iter().unzip();
+        Ok(Self {
+            id: instrument.id(),
+            notes,
+            extras,
+            timelines,
+        })
+    }
+}
+
+/// The played bar a note ending (excluded) at `end` last sounds in: the last played bar starting
+/// before `end`, 0 if none. O(log path).
+fn bar_of(path: &Unrolled, end: Position) -> u32 {
+    let i = path.played().partition_point(|p| p.start < end);
+    u32::try_from(i.saturating_sub(1)).unwrap_or(u32::MAX)
+}
+
+/// The index of the last played bar, or `None` for an empty path. O(1).
+fn last_played(path: &Unrolled) -> Option<u32> {
+    path.played()
+        .len()
+        .checked_sub(1)
+        .and_then(|l| u32::try_from(l).ok())
 }
 
 impl Performance {
@@ -209,31 +334,27 @@ impl Performance {
     /// # Errors
     /// [`PerformError`]: arithmetic only on a valid document.
     pub fn new(doc: &Document, path: &Unrolled) -> Result<Self, PerformError> {
-        let mut instruments = Vec::new();
+        let mut parts = Vec::new();
         for track in doc.tracks() {
-            let instrument = track.instrument();
-            let mut notes = Vec::new();
-            perform_instrument(doc, path, instrument, &mut notes)?;
-            notes.sort_by(|a, b| a.start.cmp(&b.start).then(a.pitch.cmp(&b.pitch)));
-            instruments.push((instrument.id(), notes));
+            parts.push(Part::new(doc, path, track.instrument())?);
         }
-        Ok(Self { instruments })
+        Ok(Self { parts })
     }
 
-    /// The played notes of an instrument, sorted by start, then by pitch; empty for an unknown
-    /// instrument. O(instruments).
+    /// The played notes of an instrument, sorted by start, then by pitch (then by voice, notehead
+    /// and played bar, so that the order is total); empty for an unknown instrument.
+    /// O(instruments).
     #[must_use]
     pub fn notes(&self, instrument: InstrumentId) -> &[PlayedNote] {
-        self.instruments
+        self.parts
             .iter()
-            .find(|(id, _)| *id == instrument)
-            .map_or(&[], |(_, notes)| notes.as_slice())
+            .find(|p| p.id == instrument)
+            .map_or(&[], |p| p.notes.as_slice())
     }
 
-    /// Every instrument with its notes, in score order. O(1).
-    #[must_use]
-    pub fn instruments(&self) -> &[(InstrumentId, Vec<PlayedNote>)] {
-        &self.instruments
+    /// Every instrument with its notes, in score order. O(1) per instrument.
+    pub fn instruments(&self) -> impl Iterator<Item = (InstrumentId, &[PlayedNote])> {
+        self.parts.iter().map(|p| (p.id, p.notes.as_slice()))
     }
 }
 
@@ -269,9 +390,9 @@ impl Item {
     }
 }
 
-/// The items of a voice, in playing order: for each played bar, the events of the voice there (or,
-/// on a staff with bar repeats, in its source bar), in chunk order, those silenced by the pass
-/// rules left out. O(path × staves × events of a bar).
+/// The items of a voice, in playing order: for each played bar from `from` to `to` (included), the
+/// events of the voice there (or, on a staff with bar repeats, in its source bar), in chunk order,
+/// those silenced by the pass rules left out. O(bars × staves × events of a bar).
 ///
 /// # Errors
 /// The path's and the document's errors (a bug of the model).
@@ -280,15 +401,21 @@ fn items_of(
     path: &Unrolled,
     voice: &orchestra_core_model::Voice,
     staves: &[StaffId],
+    (from, to): (u32, u32),
 ) -> Result<Vec<Item>, PerformError> {
     let bars = doc.bars();
     let meter = doc.meter_map();
     let mut items = Vec::new();
-    for (k, played) in path.played().iter().enumerate() {
+    let (from, to) = (
+        usize::try_from(from).unwrap_or(usize::MAX),
+        usize::try_from(to).unwrap_or(usize::MAX),
+    );
+    let played_bars = path.played().get(from..=to).unwrap_or(&[]);
+    for (k, played) in (from..).zip(played_bars) {
         // Where the played bar's own written bar starts: the loudness of every event played here
         // is read at this bar's points, also on a staff whose notes come from a bar repeat's
         // source (H2: the dynamics written under the % bar count).
-        let bar_start = meter.bar_start(played.index)?;
+        let bar_start = played.written_start;
         // The written bars the voice's events come from in this played bar, one per staff.
         let mut sources: Vec<(StaffId, orchestra_core_model::BarId, u32)> = Vec::new();
         for &staff in staves {
@@ -362,16 +489,32 @@ struct Chain {
     links: Vec<(usize, usize, NoteId)>,
 }
 
-/// The played notes of one instrument, appended to `out` (unsorted).
+/// A played note while it is being made, with what its part will keep of it.
+#[derive(Debug, Clone, Copy)]
+struct Slot {
+    /// The note.
+    note: PlayedNote,
+    /// The played bar of its last notehead (its own for a grace note).
+    last: u32,
+    /// The inputs of its loudness.
+    basis: Basis,
+}
+
+/// The played notes of one instrument made from the played bars `from` to `to` (included), with
+/// their extras, unsorted. On the whole path this is the instrument's performance; on a window it
+/// is what the incremental update keeps the middle of (see `update`), because every rule looks at
+/// the items it is given only.
 ///
 /// # Errors
 /// As [`Performance::new`].
-fn perform_instrument(
+fn perform_range(
     doc: &Document,
     path: &Unrolled,
     instrument: &orchestra_core_model::Instrument,
-    out: &mut Vec<PlayedNote>,
-) -> Result<(), PerformError> {
+    timelines: &[Timeline],
+    from: u32,
+    to: u32,
+) -> Result<Vec<(PlayedNote, Extra)>, PerformError> {
     let staves: Vec<StaffId> = instrument
         .staves()
         .iter()
@@ -379,13 +522,58 @@ fn perform_instrument(
         .collect();
     let voices = instrument.voices();
     let mut items: Vec<Vec<Item>> = Vec::with_capacity(voices.len());
-    // The loudness of every voice along the path (H1–H9).
-    let mut timelines: Vec<Timeline> = Vec::with_capacity(voices.len());
     for voice in voices {
-        items.push(items_of(doc, path, voice, &staves)?);
-        timelines.push(Timeline::new(doc, path, instrument, voice.id())?);
+        items.push(items_of(doc, path, voice, &staves, (from, to))?);
     }
 
+    let chains = find_chains(&items)?;
+
+    // The notes of the chains, before the grace notes move their starts and ends.
+    let mut notes: Vec<(Chain, Slot)> = Vec::new();
+    for chain in chains {
+        let note = chain_note(&items, timelines, instrument.id(), voices, &chain)?;
+        notes.push((chain, note));
+    }
+    // The notes of the grace chords, and the time they take from their neighbours (§5, N5, N6).
+    let mut graces: Vec<Slot> = Vec::new();
+    for (v, list) in items.iter().enumerate() {
+        place_graces(
+            list,
+            v,
+            timelines,
+            instrument.id(),
+            voices,
+            &mut notes,
+            &mut graces,
+        )?;
+    }
+    // Arpeggios (N7), then the bounds (§8), then how far each note reaches along the path.
+    let mut all: Vec<Slot> = notes.into_iter().map(|(_, n)| n).collect();
+    all.extend(graces);
+    arpeggiate(&items, &mut all)?;
+    let mut out = Vec::with_capacity(all.len());
+    for mut slot in all {
+        bound(&mut slot.note)?;
+        let reach = slot.last.max(bar_of(path, slot.note.end));
+        out.push((
+            slot.note,
+            Extra {
+                reach,
+                basis: slot.basis,
+            },
+        ));
+    }
+    Ok(out)
+}
+
+/// The tie chains of the items of an instrument (ADR-0027 §2, N1, N2): every notehead of a main
+/// event starts a chain unless a chain already went through it, and a chain follows a tie only to
+/// a notehead that sounds right after it on the path (it starts where this one ends, in the same or
+/// the next played bar). O(noteheads), with an index by notehead.
+///
+/// # Errors
+/// [`UnrollError::Endless`] for a link to nothing (a bug of the model).
+fn find_chains(items: &[Vec<Item>]) -> Result<Vec<Chain>, PerformError> {
     // Every notehead of a main event, by ID: where it is played (voice, item), for the ties. A
     // notehead played several times (a repeat) has several places.
     let mut places: HashMap<NoteId, Vec<(usize, usize)>> = HashMap::new();
@@ -454,34 +642,7 @@ fn perform_instrument(
         }
     }
 
-    // The notes of the chains, before the grace notes move their starts and ends.
-    let mut notes: Vec<(Chain, PlayedNote)> = Vec::new();
-    for chain in chains {
-        let note = chain_note(&items, &timelines, instrument.id(), voices, &chain)?;
-        notes.push((chain, note));
-    }
-    // The notes of the grace chords, and the time they take from their neighbours (§5, N5, N6).
-    let mut graces: Vec<PlayedNote> = Vec::new();
-    for (v, list) in items.iter().enumerate() {
-        place_graces(
-            list,
-            v,
-            &timelines,
-            instrument.id(),
-            voices,
-            &mut notes,
-            &mut graces,
-        )?;
-    }
-    // Arpeggios (N7), then the bounds (§8).
-    let mut all: Vec<PlayedNote> = notes.into_iter().map(|(_, n)| n).collect();
-    all.extend(graces);
-    arpeggiate(&items, &mut all)?;
-    for note in &mut all {
-        bound(note)?;
-    }
-    out.extend(all);
-    Ok(())
+    Ok(chains)
 }
 
 /// The shortening of the articulations of the last notehead of a chain, as a factor of its written
@@ -523,7 +684,7 @@ fn chain_note(
     instrument: InstrumentId,
     voices: &[orchestra_core_model::Voice],
     chain: &Chain,
-) -> Result<PlayedNote, PerformError> {
+) -> Result<Slot, PerformError> {
     let link = |k: usize| -> Result<(&Item, orchestra_core_model::Note), PerformError> {
         let &(v, i, id) = chain.links.get(k).ok_or(UnrollError::Endless)?;
         let item = items
@@ -558,15 +719,16 @@ fn chain_note(
     end = end.checked_add(offsets.onset)?.checked_add(length_offset)?;
     let &(v, _, _) = chain.links.first().ok_or(UnrollError::Endless)?;
     let voice = voices.get(v).ok_or(UnrollError::Endless)?.id();
-    let timeline = timelines.get(v).ok_or(UnrollError::Endless)?;
-    let point = (first.played, first.offset);
-    let loud = loudness::profile(
-        timeline.level_at(point, first.written)?,
-        timeline.accent_at(point),
-        first_chord.articulations(),
-        offsets.velocity,
-    )?;
-    Ok(PlayedNote {
+    let basis = Basis {
+        voice: v,
+        point: (first.played, first.offset),
+        written: first.written,
+        accent: true,
+        articulations: first_chord.articulations(),
+        offset: offsets.velocity,
+    };
+    let loud = basis.profile(timelines)?;
+    let note = PlayedNote {
         note: first_note.id(),
         event: first.event.id(),
         instrument,
@@ -581,6 +743,11 @@ fn chain_note(
         hold: loud.hold,
         settle_in: loud.settle_in,
         settle_to: loud.settle_to,
+    };
+    Ok(Slot {
+        note,
+        last: last.played,
+        basis,
     })
 }
 
@@ -606,11 +773,10 @@ fn place_graces(
     timelines: &[Timeline],
     instrument: InstrumentId,
     voices: &[orchestra_core_model::Voice],
-    notes: &mut [(Chain, PlayedNote)],
-    graces: &mut Vec<PlayedNote>,
+    notes: &mut [(Chain, Slot)],
+    graces: &mut Vec<Slot>,
 ) -> Result<(), PerformError> {
     let voice = voices.get(v).ok_or(UnrollError::Endless)?.id();
-    let timeline = timelines.get(v).ok_or(UnrollError::Endless)?;
     let unit = grace_length()?;
     let half = Rational::new(1, 2)?;
     let mut i = 0;
@@ -677,7 +843,15 @@ fn place_graces(
                 let start = from.checked_add(
                     each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
                 )?;
-                push_grace(list, g, timeline, (instrument, voice), start, each, graces)?;
+                push_grace(
+                    list,
+                    g,
+                    timelines,
+                    (v, instrument, voice),
+                    start,
+                    each,
+                    graces,
+                )?;
             }
             i = j;
             continue;
@@ -729,7 +903,15 @@ fn place_graces(
                 let start = from.checked_add(
                     each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
                 )?;
-                push_grace(list, g, timeline, (instrument, voice), start, each, graces)?;
+                push_grace(
+                    list,
+                    g,
+                    timelines,
+                    (v, instrument, voice),
+                    start,
+                    each,
+                    graces,
+                )?;
             }
         }
         // Appoggiaturas on the beat, taking time from the main note.
@@ -751,7 +933,15 @@ fn place_graces(
                 let start = beat.checked_add(
                     each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
                 )?;
-                push_grace(list, g, timeline, (instrument, voice), start, each, graces)?;
+                push_grace(
+                    list,
+                    g,
+                    timelines,
+                    (v, instrument, voice),
+                    start,
+                    each,
+                    graces,
+                )?;
             }
             // The main note (every chain starting at that item) starts after them.
             let new_start = beat.checked_add(total)?;
@@ -761,7 +951,7 @@ fn place_graces(
                     .first()
                     .is_some_and(|&(cv, ci, _)| cv == v && ci == j)
                 {
-                    note.start = new_start;
+                    note.note.start = new_start;
                 }
             }
         }
@@ -773,12 +963,13 @@ fn place_graces(
 /// The end of the previous note of voice `v` before `at` (the latest end at or before `at` among
 /// its chains), with its length, or `(at, None)` when there is none. O(notes).
 fn previous_end(
-    notes: &[(Chain, PlayedNote)],
+    notes: &[(Chain, Slot)],
     v: usize,
     at: Position,
 ) -> Result<(Position, Option<Duration>), PerformError> {
     let mut best: Option<&PlayedNote> = None;
-    for (chain, note) in notes {
+    for (chain, slot) in notes {
+        let note = &slot.note;
         if chain.links.first().is_none_or(|&(cv, _, _)| cv != v) || note.end > at {
             continue;
         }
@@ -794,8 +985,9 @@ fn previous_end(
 
 /// Ends at `from` every note of voice `v` that ends after `from` and at or before `at` (the
 /// previous notes a grace takes its time from). O(notes).
-fn shorten_previous(notes: &mut [(Chain, PlayedNote)], v: usize, at: Position, from: Position) {
-    for (chain, note) in notes.iter_mut() {
+fn shorten_previous(notes: &mut [(Chain, Slot)], v: usize, at: Position, from: Position) {
+    for (chain, slot) in notes.iter_mut() {
+        let note = &mut slot.note;
         if chain.links.first().is_some_and(|&(cv, _, _)| cv == v)
             && note.end > from
             && note.end <= at
@@ -813,22 +1005,28 @@ fn shorten_previous(notes: &mut [(Chain, PlayedNote)], v: usize, at: Position, f
 fn push_grace(
     list: &[Item],
     g: usize,
-    timeline: &Timeline,
-    (instrument, voice): (InstrumentId, VoiceId),
+    timelines: &[Timeline],
+    (v, instrument, voice): (usize, InstrumentId, VoiceId),
     start: Position,
     length: Duration,
-    graces: &mut Vec<PlayedNote>,
+    graces: &mut Vec<Slot>,
 ) -> Result<(), PerformError> {
     let item = list.get(g).ok_or(UnrollError::Endless)?;
     let Some(chord) = item.event.chord() else {
         return Ok(());
     };
-    let base = timeline.level_at((item.played, item.offset), item.written)?;
-    let no_accent: Option<PointAccent> = None;
     for note in chord.notes() {
         let offsets = note.offsets();
-        let loud = loudness::profile(base, no_accent, chord.articulations(), offsets.velocity)?;
-        graces.push(PlayedNote {
+        let basis = Basis {
+            voice: v,
+            point: (item.played, item.offset),
+            written: item.written,
+            accent: false,
+            articulations: chord.articulations(),
+            offset: offsets.velocity,
+        };
+        let loud = basis.profile(timelines)?;
+        let played = PlayedNote {
             note: note.id(),
             event: item.event.id(),
             instrument,
@@ -846,6 +1044,11 @@ fn push_grace(
             hold: loud.hold,
             settle_in: loud.settle_in,
             settle_to: loud.settle_to,
+        };
+        graces.push(Slot {
+            note: played,
+            last: item.played,
+            basis,
         });
     }
     Ok(())
@@ -857,7 +1060,7 @@ fn push_grace(
 ///
 /// # Errors
 /// The arithmetic errors.
-fn arpeggiate(items: &[Vec<Item>], notes: &mut [PlayedNote]) -> Result<(), PerformError> {
+fn arpeggiate(items: &[Vec<Item>], notes: &mut [Slot]) -> Result<(), PerformError> {
     let step = arpeggio_step()?;
     // The events with an arpeggio sign, and their direction.
     let mut signs: HashMap<EventId, bool> = HashMap::new();
@@ -881,7 +1084,8 @@ fn arpeggiate(items: &[Vec<Item>], notes: &mut [PlayedNote]) -> Result<(), Perfo
     }
     // Group the notes of one arpeggiated event at one played start.
     let mut groups: HashMap<(EventId, u32), Vec<usize>> = HashMap::new();
-    for (k, note) in notes.iter().enumerate() {
+    for (k, slot) in notes.iter().enumerate() {
+        let note = &slot.note;
         if signs.contains_key(&note.event) {
             groups.entry((note.event, note.played)).or_default().push(k);
         }
@@ -889,11 +1093,14 @@ fn arpeggiate(items: &[Vec<Item>], notes: &mut [PlayedNote]) -> Result<(), Perfo
     for ((event, _), mut group) in groups {
         let up = signs.get(&event).copied().unwrap_or(true);
         group.sort_by(|&a, &b| {
-            let (pa, pb) = (notes.get(a).map(|n| n.pitch), notes.get(b).map(|n| n.pitch));
+            let (pa, pb) = (
+                notes.get(a).map(|n| n.note.pitch),
+                notes.get(b).map(|n| n.note.pitch),
+            );
             if up { pa.cmp(&pb) } else { pb.cmp(&pa) }
         });
         for (k, index) in group.into_iter().enumerate() {
-            if let Some(note) = notes.get_mut(index) {
+            if let Some(Slot { note, .. }) = notes.get_mut(index) {
                 let shift =
                     step.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?;
                 note.start = note.start.checked_add(shift)?;

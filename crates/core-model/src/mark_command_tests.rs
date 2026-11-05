@@ -162,6 +162,8 @@ fn dynamics_are_added_moved_and_removed() {
         &Command::AddMark(piano_dynamic(&i, 2, DynamicLevel::F)),
     );
     let id = inserted(&changes, |o| matches!(o, ObjectRef::Dynamic(_)));
+    // H11 (ADR-0027 §14): the change set names the instrument whose loudness changed.
+    assert_eq!(changes.dynamics_changed(), &[i.piano]);
     // The rich document already has an mf of the whole piano at bar 0.
     assert_eq!(
         refused(
@@ -179,6 +181,7 @@ fn dynamics_are_added_moved_and_removed() {
         },
     );
     assert_eq!(changes.replaced(), &[id]);
+    assert_eq!(changes.dynamics_changed(), &[i.piano]);
     let piano = editor.document().instrument(i.piano).unwrap();
     assert!(
         piano
@@ -188,6 +191,11 @@ fn dynamics_are_added_moved_and_removed() {
     );
     let changes = execute_checked(&mut editor, &Command::RemoveMark(id));
     assert_eq!(changes.removed(), &[id]);
+    // Removed: the dynamic is gone from the document, the change set still says whose it was; and
+    // undoing it says so too.
+    assert_eq!(changes.dynamics_changed(), &[i.piano]);
+    let undone = editor.undo().unwrap().unwrap();
+    assert_eq!(undone.dynamics_changed(), &[i.piano]);
 }
 
 /// A hairpin overlapping another one of the same scope is refused, one touching it is accepted;

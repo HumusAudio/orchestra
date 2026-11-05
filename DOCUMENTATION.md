@@ -1409,8 +1409,9 @@ ADR-0026): the document, its one undo history and the transaction in progress. F
 - `change`: the **`ChangeSet`** every transaction, undo and redo returns: the (voice, bar) cells
   whose events changed, the objects inserted, removed and replaced (bars included), the first bar
   from which the meter map may answer differently, the first position from which the tempo map
-  differs, and whether the form changed. Each edit records its own entries, so no notification can
-  be forgotten; the lists are sorted and deduplicated once at the end.
+  differs, whether the form changed, and (since F1.13c, ADR-0027 §14 H11) the instruments whose
+  dynamics or hairpins changed. Each edit records its own entries, so no notification can be
+  forgotten; the lists are sorted and deduplicated once at the end.
 - `editor`: `Editor::transact` runs a closure as **one transaction = one step of undo**; if the
   closure returns an error, every edit it applied is reverted. The tempo map is derived again once,
   at the end, and only if a tempo mark or a bar start changed; if it fails, the transaction is
@@ -1850,8 +1851,8 @@ unrolled.update(editor.document(), &changes)?;
 
 Each `PlayedBar` knows its written bar, its **pass index** (how many times that written bar was
 played before, from 0: the key of the pass-specific offsets that F1.14 will add, P6), the play of
-its repeated section (1, 2, … for the "tacet 1st time" rules), its start on the unrolled timeline
-in exact whole notes, and a **shift** in seconds. Inside a gradual tempo change the time of a
+its repeated section (1, 2, … for the "tacet 1st time" rules), the written start of its bar (since
+F1.13c), its start on the unrolled timeline in exact whole notes, and a **shift** in seconds. Inside a gradual tempo change the time of a
 barline is irrational (ADR-0021), so instead of an absolute time each played bar stores how far
 its time in the performance is from the tempo map's time of its written start; the shift changes
 only where the path jumps, so it stays exact unless a jump leaves or lands inside a gradual change.
@@ -1982,6 +1983,57 @@ rounding); `tests/perform_props.rs` now adds random dynamics, dynamic accents an
 that every profile is well formed and, on the plain scores, compares every velocity with an oracle
 that walks the path backwards from the note. Nine injected bugs were caught (two only after a case
 written for them; one only by the oracle).
+
+#### The incremental update
+
+Since F1.13c part 2 (ADR-0027 §9 and §14, H11–H13) `Performance::update(doc, path, changes)` brings
+the played notes up to date after a transaction, given the path already updated with
+`Unrolled::update`. The result is **identical** to `Performance::new` on the new document; only the
+cost differs.
+
+```rust
+// After every transaction: first the path, then the played notes, with the same change set.
+let changes = editor.execute(&command)?;
+path.update(editor.document(), &changes)?;
+performance.update(editor.document(), &path, &changes)?; // == Performance::new(...), only cheaper
+```
+
+- **What recomputes what**: a change of the form or of the bars recomputes everything; a change of
+  the tempo nothing (musical time, profiles in seconds); a change of the dynamics of an instrument
+  (the new list `ChangeSet::dynamics_changed`, which also names a removed dynamic's instrument)
+  rebuilds its timelines and reads again only the velocities of the notes in the stretch where a
+  timeline really differs (`Timeline::changed` compares the old and the new one from both ends);
+  a changed cell recomputes a **window** of played bars around every play of the bar.
+- **The window** (module `perform::update`): the same code as the full computation
+  (`perform_range` on a range of played bars) runs on a computed range `[c, e]` and the notes of the
+  kept range `[a, b]` replace the old ones. It is as wide as the links between notes require: the
+  bar before (its last note gives time to the acciaccaturas of the changed bar), every tie chain
+  touching it whole, the bar after the end of every chain (its graces are bounded by the chain), the
+  notes before as context. Every note keeps how far along the path it **reaches**; one pass over the
+  old notes gathers, per played bar, how far they reach and where they start, so the window is
+  settled bar by bar; it only ever grows, so its loop ends.
+- **Splicing**: the notes of the instrument stay sorted in a total order (start, pitch, voice,
+  notehead, played bar); only the stretch between the earliest and the latest start touched is
+  rebuilt and put back with `Vec::splice`, without allocating a new list of the instrument.
+- The path gained `PlayedBar::written_start`, the written position of the start of its bar, which
+  the walk computed anyway and the loudness reads for every note.
+
+**Measures** (heavy score, instructions): the whole performance ≈ 1.67 billion (≈ 0.45–0.65 s here,
+once at opening); the update after a note ≈ 1.24 million (natively ≈ 0.6 ms on average here, worst
+≈ 0.96 ms); after a dynamic ≈ 2.11 million. Three fixes found with the profile: an integer
+up-scaling instead of rational arithmetic (−66% on the dynamics), the per-bar summary (−27% on a
+note), the splice in place (−55% on a note, and half the real time).
+
+**Tests:** `tests/update_cases.rs`, six cases with the real editor (a tie removed at the start of a
+chain, whose graces after it change bound; a tie added that lengthens a chain; acciaccaturas
+entered after a chain from two bars before; the graces of the first kept bar; dynamics and *sfz*;
+a tempo change that recomputes nothing), each compared with a full computation also after undo and
+redo; `tests/update_props.rs`, random scores and random sequences of eleven kinds of commands with
+undos and redos, the updated performance compared with a full one after every step. The random
+scores are now shared in `tests/common/mod.rs`. Thirteen mutations: ten real bugs caught (three only
+after cases written for them), three equivalent; one of them made the loop never end, which showed
+that settling a window could pull back a bound grown on the new notes: the bounds now only move
+outwards.
 
 ### orchestra-notation-layout
 

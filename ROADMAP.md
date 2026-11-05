@@ -387,9 +387,23 @@ then *p* in 0.1 s and *pf* the reverse. Implemented: the module `loudness` of `o
 (per-voice timelines along the path, hairpin plans, dynamic accents, the profile, the exact
 up-scaling; `INITIAL_VELOCITY` replaces `PROVISIONAL_VELOCITY`); sixteen cases in
 `tests/loudness_cases.rs`, the property test with random dynamics, accents and hairpins and an
-oracle of the level along the path; nine injected bugs caught. **Next:** F1.13c part 2 (H11–H13:
-the `ChangeSet` list of instruments whose dynamics changed, `Performance::update` by cell, the
-benchmarks on the heavy score), then the PR of F1.13 (ADR-0027 and parts b, c).
+oracle of the level along the path; nine injected bugs caught. **F1.13c part 2 done** (2026-11-05,
+same branch): `ChangeSet::dynamics_changed` in `core-model` (recorded by every insertion and removal
+of a dynamic or hairpin, so a removed one still names its instrument); `Performance::update(doc,
+path, changes)` in the new module `perform::update`, identical to a full computation: velocities
+only, in the stretch where a voice's timeline really changed (`Timeline::changed`), after a change
+of the dynamics; a window of played bars around every changed cell, computed by the same
+`perform_range` and spliced in place into the sorted lists (now in a total order: start, pitch,
+voice, notehead, played bar); everything on a change of the form or the bars, nothing on a tempo
+change. `PlayedBar::written_start` added to the path. Tests: six cases with the real editor and a
+property test of random command sequences with undo and redo against a full computation; thirteen
+mutations, ten real bugs caught, three equivalent; one mutation revealed that a window's bounds could
+chase each other for ever (fixed: they only move outwards). Benchmarks `benches/perform.rs` on the
+heavy score: the whole performance ≈ 1.67 billion instructions (≈ 0.5 s natively), a note's update
+≈ 1.24 million (natively ≈ 0.6 ms mean, 0.96 ms worst, on the development machine), a dynamic's
+≈ 2.11 million, after three fixes found with the profile (integer up-scaling, a per-bar summary of
+the notes, `Vec::splice` instead of a new list). **To measure on the reference laptop** with the
+interface (F2.23), as for the meter rewrite. **Next:** the PR of F1.13 (ADR-0027, parts b and c).
 
 | Step | What | Status |
 |---|---|---|

@@ -330,6 +330,76 @@ enum Mark {
     Start(usize),
 }
 
+/// The dynamics and hairpins of an instrument with their written positions, found once for all
+/// its voices ([`Timeline::all`]); `voice` is filled in per voice.
+#[derive(Debug, Clone)]
+struct Marks {
+    /// Every dynamic with its scope.
+    dyns: Vec<(DynamicScope, Dyn)>,
+    /// Every hairpin with its scope.
+    pins: Vec<(DynamicScope, Pin)>,
+}
+
+impl Marks {
+    /// The marks of `instrument`. O(m log b) for its m dynamics and hairpins.
+    ///
+    /// # Errors
+    /// The document's and the meter map's errors (a bug of the model), the arithmetic errors.
+    fn new(doc: &Document, instrument: &Instrument) -> Result<Self, PerformError> {
+        let bars = doc.bars();
+        let meter = doc.meter_map();
+        let index_of = |bar| -> Result<u32, PerformError> {
+            Ok(bars
+                .index_of(bar)
+                .ok_or(DocumentError::UnknownBar(bar))?
+                .get())
+        };
+        let mut dyns = Vec::with_capacity(instrument.dynamics().len());
+        for d in instrument.dynamics() {
+            let at = d.at();
+            let bar = index_of(at.bar)?;
+            let (accent, after) = mark_effect(d.mark())?;
+            dyns.push((
+                d.placement().scope,
+                Dyn {
+                    bar,
+                    offset: at.offset,
+                    pos: meter
+                        .bar_start(BarIndex::new(bar))?
+                        .checked_add(at.offset)?,
+                    voice: false,
+                    accent,
+                    after,
+                },
+            ));
+        }
+        let mut pins = Vec::with_capacity(instrument.hairpins().len());
+        for h in instrument.hairpins() {
+            let (start, end) = (h.start(), h.end());
+            let (sb, eb) = (index_of(start.bar)?, index_of(end.bar)?);
+            pins.push((
+                h.placement().scope,
+                Pin {
+                    bar: sb,
+                    offset: start.offset,
+                    start: meter
+                        .bar_start(BarIndex::new(sb))?
+                        .checked_add(start.offset)?,
+                    end: meter
+                        .bar_start(BarIndex::new(eb))?
+                        .checked_add(end.offset)?,
+                    end_at: (eb, end.offset),
+                    window: meter.bar_start(BarIndex::new(eb.saturating_add(1)))?,
+                    kind: h.shape().kind,
+                    niente: h.shape().niente,
+                    voice: false,
+                },
+            ));
+        }
+        Ok(Self { dyns, pins })
+    }
+}
+
 /// A hairpin being played.
 #[derive(Debug, Clone, Copy)]
 struct Active {
@@ -340,7 +410,27 @@ struct Active {
 }
 
 impl Timeline {
-    /// The timeline of `voice` of `instrument` along `path` (see the module documentation).
+    /// The timelines of every voice of `instrument` along `path`, by voice index (see the module
+    /// documentation). The positions of the instrument's dynamics and hairpins are found once for
+    /// all its voices (a meter map lookup each), then every voice keeps those that apply to it.
+    ///
+    /// # Errors
+    /// The document's and the maps' errors (a bug of the model), the arithmetic errors.
+    pub(crate) fn all(
+        doc: &Document,
+        path: &Unrolled,
+        instrument: &Instrument,
+    ) -> Result<Vec<Self>, PerformError> {
+        let marks = Marks::new(doc, instrument)?;
+        let mut timelines = Vec::with_capacity(instrument.voices().len());
+        for voice in instrument.voices() {
+            timelines.push(Self::new(doc, path, &marks, voice.id())?);
+        }
+        Ok(timelines)
+    }
+
+    /// The timeline of `voice` along `path`, from the marks of its instrument (see the module
+    /// documentation).
     ///
     /// # Complexity
     /// O(m log m) to sort the m dynamics and hairpins that apply, O(path) for the walk plus
@@ -352,73 +442,32 @@ impl Timeline {
         clippy::too_many_lines,
         reason = "one walk along the path, with the three kinds of marks handled in reading order"
     )]
-    pub(crate) fn new(
+    fn new(
         doc: &Document,
         path: &Unrolled,
-        instrument: &Instrument,
+        marks: &Marks,
         voice: VoiceId,
     ) -> Result<Self, PerformError> {
         let bars = doc.bars();
-        let meter = doc.meter_map();
         let applies = |scope: DynamicScope| match scope {
             DynamicScope::Instrument => Some(false),
             DynamicScope::Voice(v) if v == voice => Some(true),
             DynamicScope::Voice(_) => None,
         };
-        let index_of = |bar| -> Result<u32, PerformError> {
-            Ok(bars
-                .index_of(bar)
-                .ok_or(DocumentError::UnknownBar(bar))?
-                .get())
-        };
-
         // The dynamics that apply, sorted by written position (then the voice's after the
         // instrument's, so that a search for "the first at or after" finds the voice's last).
-        let mut dyns: Vec<Dyn> = Vec::new();
-        for d in instrument.dynamics() {
-            let Some(is_voice) = applies(d.placement().scope) else {
-                continue;
-            };
-            let at = d.at();
-            let bar = index_of(at.bar)?;
-            let (accent, after) = mark_effect(d.mark())?;
-            dyns.push(Dyn {
-                bar,
-                offset: at.offset,
-                pos: meter
-                    .bar_start(BarIndex::new(bar))?
-                    .checked_add(at.offset)?,
-                voice: is_voice,
-                accent,
-                after,
-            });
-        }
+        let mut dyns: Vec<Dyn> = marks
+            .dyns
+            .iter()
+            .filter_map(|(scope, d)| applies(*scope).map(|voice| Dyn { voice, ..*d }))
+            .collect();
         dyns.sort_by(|a, b| a.pos.cmp(&b.pos).then(a.voice.cmp(&b.voice)));
-
         // The hairpins that apply.
-        let mut pins: Vec<Pin> = Vec::new();
-        for h in instrument.hairpins() {
-            let Some(is_voice) = applies(h.placement().scope) else {
-                continue;
-            };
-            let (start, end) = (h.start(), h.end());
-            let (sb, eb) = (index_of(start.bar)?, index_of(end.bar)?);
-            pins.push(Pin {
-                bar: sb,
-                offset: start.offset,
-                start: meter
-                    .bar_start(BarIndex::new(sb))?
-                    .checked_add(start.offset)?,
-                end: meter
-                    .bar_start(BarIndex::new(eb))?
-                    .checked_add(end.offset)?,
-                end_at: (eb, end.offset),
-                window: meter.bar_start(BarIndex::new(eb.saturating_add(1)))?,
-                kind: h.shape().kind,
-                niente: h.shape().niente,
-                voice: is_voice,
-            });
-        }
+        let pins: Vec<Pin> = marks
+            .pins
+            .iter()
+            .filter_map(|(scope, p)| applies(*scope).map(|voice| Pin { voice, ..*p }))
+            .collect();
 
         // The marks of every written bar, sorted as the walk handles them: by offset, then ends,
         // dynamics, starts; within a kind the instrument's first.
@@ -452,7 +501,7 @@ impl Timeline {
         let mut active: [Option<Active>; 2] = [None, None];
         for (k, played) in path.played().iter().enumerate() {
             let k = u32::try_from(k).map_err(|_| UnrollError::Endless)?;
-            let bar_start = meter.bar_start(played.index)?;
+            let bar_start = played.written_start;
             // A hairpin whose range does not hold this bar's start stops here (a barline end, a
             // repeat back, a jump): its target stays in force (H7).
             if timeline.stop_outside(&pins, &mut active, &mut level, bar_start) {
@@ -568,6 +617,35 @@ impl Timeline {
         self.accents.push((point, accent));
     }
 
+    /// The stretch of path points `[lo, hi)` (`hi = None`: to the end of the path) outside which
+    /// `self` and `other` give every note the same loudness, or `None` if they give the same
+    /// everywhere (H11: after a change of the dynamics only the notes inside are read again).
+    ///
+    /// # How
+    /// The states and the accents are compared from the start and from the end: the equal prefix
+    /// decides every point before the first difference, the equal suffix every point from its
+    /// first entry on (a level is read from the last state at or before the point, an accent at
+    /// the point exactly). Ramps are compared by their plans, not by their indices, which shift
+    /// when a hairpin is added before them. O(s + a).
+    pub(crate) fn changed(&self, other: &Self) -> Option<(PathPoint, Option<PathPoint>)> {
+        let states = differ(&self.states, &other.states, |a, b| match (a, b) {
+            (State::Const(x), State::Const(y)) => x == y,
+            (State::Ramp(i), State::Ramp(j)) => self.plans.get(*i) == other.plans.get(*j),
+            _ => false,
+        });
+        let accents = differ(&self.accents, &other.accents, |a, b| a == b);
+        match (states, accents) {
+            (None, x) | (x, None) => x,
+            (Some((l1, h1)), Some((l2, h2))) => Some((
+                l1.min(l2),
+                match (h1, h2) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                },
+            )),
+        }
+    }
+
     /// The level in force at path point `at`, whose written position is `w` (H1, H2, H8): the
     /// state of the last point at or before `at`, *mf* before the first. O(log s + log a).
     ///
@@ -593,6 +671,48 @@ impl Timeline {
             .and_then(|i| self.accents.get(i))
             .map(|&(_, a)| a)
     }
+}
+
+/// The stretch where two sorted lists of (point, value) differ (see [`Timeline::changed`]): from
+/// the first point after their equal prefix to the first point of their equal suffix. O(n).
+fn differ<T>(
+    x: &[(PathPoint, T)],
+    y: &[(PathPoint, T)],
+    eq: impl Fn(&T, &T) -> bool,
+) -> Option<(PathPoint, Option<PathPoint>)> {
+    let same = |a: Option<&(PathPoint, T)>, b: Option<&(PathPoint, T)>| match (a, b) {
+        (Some(a), Some(b)) => a.0 == b.0 && eq(&a.1, &b.1),
+        _ => false,
+    };
+    let mut p = 0;
+    while same(x.get(p), y.get(p)) {
+        p = p.saturating_add(1);
+    }
+    if p >= x.len() && p >= y.len() {
+        return None;
+    }
+    let (rx, ry) = (x.len().saturating_sub(p), y.len().saturating_sub(p));
+    let mut s = 0;
+    while s < rx
+        && s < ry
+        && same(
+            x.get(x.len().saturating_sub(s.saturating_add(1))),
+            y.get(y.len().saturating_sub(s.saturating_add(1))),
+        )
+    {
+        s = s.saturating_add(1);
+    }
+    let lo = [x.get(p), y.get(p)]
+        .into_iter()
+        .flatten()
+        .map(|e| e.0)
+        .min()?;
+    let hi = if s == 0 {
+        None
+    } else {
+        x.get(x.len().saturating_sub(s)).map(|e| e.0)
+    };
+    Some((lo, hi))
 }
 
 /// The order of the kinds of marks at one offset (see [`Mark`]). O(1).
@@ -772,7 +892,7 @@ pub(crate) fn profile(
         settle_to = settle_to.checked_add(int(UNSTRESS)?)?;
     }
     let bounded = |x: Rational| -> Result<u16, RationalError> {
-        let up = upscale(x.max(Rational::ZERO).min(int(FFFF)?))?;
+        let up = upscale(x.max(Rational::ZERO).min(int(FFFF)?));
         let v = i64::from(up)
             .saturating_add(i64::from(offset))
             .clamp(1, 65_535);
@@ -805,25 +925,29 @@ const fn replicate(v: u16) -> u16 {
 /// bit replication, a fraction linearly between its two neighbouring integers' values, rounded to
 /// the nearest with halves up. O(1).
 ///
-/// # Errors
-/// The arithmetic errors.
-pub(crate) fn upscale(x: Rational) -> Result<u16, RationalError> {
-    let low = x.floor().clamp(0, FFFF);
-    let high = low.saturating_add(1).min(FFFF);
-    let (lo, hi) = (
-        replicate(u16::try_from(low).unwrap_or(0)),
-        replicate(u16::try_from(high).unwrap_or(127)),
-    );
-    // The fraction of the way from `low` to `high`, in [0, 1).
-    let frac = x.checked_sub(Rational::from_integer(low)?)?;
-    // lo + frac × (hi − lo), rounded to nearest with halves up: ⌊… + 1/2⌋.
-    let value = Rational::from_integer(i64::from(lo))?
-        .checked_add(frac.checked_mul(Rational::from_integer(
-            i64::from(hi).saturating_sub(i64::from(lo)),
-        )?)?)?
-        .checked_add(Rational::new(1, 2)?)?
-        .floor();
-    Ok(u16::try_from(value.clamp(0, 65_535)).unwrap_or(u16::MAX))
+/// # Why plain integers
+/// It runs for every note whenever velocities are read again (H11): with the checked rational
+/// operations (a gcd each) it was three quarters of that update on the heavy score. A level is
+/// `n/d` with `d > 0` in lowest terms, so the integer part is ⌊n/d⌋ and the rest `r = n − ⌊n/d⌋·d`
+/// is in `0..d`; the interpolated value lo + r·(hi − lo)/d, rounded half up, is
+/// ⌊(2·r·(hi − lo) + d) / (2·d)⌋ added to lo, all in `i128` (no overflow: `r < d < 2⁶³`,
+/// `hi − lo ≤ 517`). Integer levels, the common case, skip even that.
+pub(crate) fn upscale(x: Rational) -> u16 {
+    let (n, d) = (i128::from(x.numerator()), i128::from(x.denominator()));
+    let low = n.div_euclid(d).clamp(0, i128::from(FFFF));
+    let lo = replicate(u16::try_from(low).unwrap_or(0));
+    if x.is_integer() || low >= i128::from(FFFF) {
+        return lo;
+    }
+    let hi = replicate(u16::try_from(low.saturating_add(1)).unwrap_or(127));
+    let r = n.saturating_sub(low.saturating_mul(d));
+    let span = i128::from(hi.saturating_sub(lo));
+    let step = r
+        .saturating_mul(span)
+        .saturating_mul(2)
+        .saturating_add(d)
+        .div_euclid(d.saturating_mul(2));
+    u16::try_from(i128::from(lo).saturating_add(step)).unwrap_or(u16::MAX)
 }
 
 /// The velocity of *mf* on the 16-bit scale: the level in force before any dynamic (H1).

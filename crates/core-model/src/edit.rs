@@ -237,6 +237,20 @@ impl Object {
         }
     }
 
+    /// The instrument whose dynamics or hairpins this object is, if it is one: inserting or
+    /// removing it changes how loud that instrument plays, which the change set reports so that
+    /// playback can recompute only that instrument's velocities (ADR-0027 §14, H11). A removed
+    /// dynamic is no longer in the document to say where it was, so this is read from the object
+    /// itself. O(1).
+    const fn loudness_instrument(&self) -> Option<InstrumentId> {
+        match self {
+            Self::Dynamic { instrument, .. } | Self::Hairpin { instrument, .. } => {
+                Some(*instrument)
+            }
+            _ => None,
+        }
+    }
+
     /// An estimate of the heap memory the object owns beyond its own size, in bytes: the extra
     /// noteheads of a chord (the first one is inline). Texts (tens of bytes) are not counted. Used
     /// to bound the history by memory (ADR-0026 §3). O(noteheads).
@@ -654,6 +668,9 @@ impl Document {
     ) -> Result<(), DocumentError> {
         let name = object.reference();
         self.check_new(name)?;
+        // The instrument whose loudness changes, for playback (ADR-0027 §14 H11): read before the
+        // object is moved into the document.
+        let loudness = object.loudness_instrument();
         match object {
             Object::Event {
                 voice,
@@ -876,6 +893,9 @@ impl Document {
                     (point_key(bars, r.start()), r.id())
                 });
             }
+        }
+        if let Some(instrument) = loudness {
+            changes.dynamics(instrument);
         }
         changes.insert(name);
         Ok(())
@@ -1154,6 +1174,9 @@ impl Document {
             | ObjectRef::InitialClef(_)
             | ObjectRef::Numbering => return Err(DocumentError::NotRemovable(name)),
         };
+        if let Some(instrument) = object.loudness_instrument() {
+            changes.dynamics(instrument);
+        }
         changes.remove(name);
         Ok(object)
     }
