@@ -1,7 +1,9 @@
 # ADR-0027 — Playback rules v0: from the written intent to the played notes
 
 - **Status:** Proposed (draft for the owner, 2026-11-05; SCALETTA F1.13, decision D22). Nothing
-  here is binding until the owner decides the choices of §12.
+  here is binding until the owner decides the choices of §12. The owner decided G4, G7 and G9 on
+  2026-11-05 (dynamics bounded to *pppp*–*ffff*, acciaccaturas before the beat, fermatas as a
+  longer sound, never a slower tempo); the rest is still open.
 - **Date:** 2026-11-05
 - **Refines:** ADR-0004 (two layers: written intent and performance, derived plus explicit
   offsets), ADR-0024 §4–§10 (ties, grace notes, articulations, ornaments, fermatas, arpeggios,
@@ -154,14 +156,23 @@ is of the note's dynamic velocity (§4), bounded to the scale.
 
 ### 4. Dynamics and hairpins
 
-- **Levels → velocity** on the 16-bit scale, from a table of the 13 levels (*pppppp*…*ffffff*);
-  the proposed anchor is MuseScore's table for the 8 common levels (up-scaled from 7 bits), the
-  outer ones extrapolated by the same step, bounded to 1..=65 535.
+- **Levels → velocity** on the 16-bit scale. The musical extremes are ***pppp*** and ***ffff***
+  (owner, 2026-11-05): more *p*s or *f*s can still be written (the model keeps *ppppp*…*ffffff*
+  as written), but they play as *pppp* and *ffff*: no softer, no louder. The ten playable levels
+  are spread evenly over the MIDI 1.0 scale, one step of about 13, then up-scaled to 16 bits
+  (`v << 9 | v << 2 | v >> 5`):
+
+  | | *pppp* | *ppp* | *pp* | *p* | *mp* | *mf* | *f* | *ff* | *fff* | *ffff* |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | 7-bit | 10 | 23 | 36 | 49 | 62 | 75 | 88 | 101 | 114 | 127 |
+
+  *p* keeps MuseScore's 49, and *f* (88) falls next to MusicXML's forte of 90, so an import or an
+  export through MusicXML's percentage changes almost nothing.
 - **Which dynamic is in force for a voice:** the latest one at or before the note's written
   position on the path, of the voice's scope or of the instrument's; at the same point, the
   voice's wins (the more specific).
 - **sf, sfz, sffz, fz, rf, rfz:** the note at that point is louder (by one, two or three levels
-  above the level in force), the level in force afterwards unchanged; **fp, sfp, sfpp**: the note
+  above the level in force, never above *ffff*), the level in force afterwards unchanged; **fp, sfp, sfpp**: the note
   at that point loud, the following ones at *p* (or *pp*); **pf**: the note at *p*, the following
   ones at *f*; **n**: velocity 1 (or silence); free text: its level if it has one, else nothing.
 - **Hairpins:** the velocity of each note starting inside a hairpin is interpolated **linearly in
@@ -171,13 +182,17 @@ is of the note's dynamic velocity (§4), bounded to the scale.
 
 ### 5. Grace notes
 
-- **Acciaccatura:** the smaller of half the main note and 1/32 of a whole note, played **on the
-  beat**, taking that time from the start of the main note (MuseScore's rule, in musical time so
-  that it follows the tempo).
-- **Appoggiatura:** half the main note (2/3 of a dotted one), on the beat, taken from the main
-  note.
-- Several graces before one note share that time equally; **after** graces take their time from
-  the end of the previous note.
+- **Acciaccatura: before the beat** (owner, 2026-11-05). The main note starts exactly when it
+  would without the acciaccatura; the acciaccatura takes its time from the **previous** note of
+  the voice, which ends that much earlier. Each acciaccatura lasts 1/32 of a whole note (about
+  65 ms at ♩ = 120, MuseScore's duration), several before one note one after the other, all
+  together at most half of the previous note. After a rest (or a gap) they sound in the silence
+  before the beat; at the very start of the performance they start **before** time 0 (the
+  performance begins a little earlier, the tempo map extending backwards: ADR-0020), so that the
+  first main note still starts at 0.
+- **Appoggiatura: on the beat**, taking its time from the main note: half the main note (2/3 of a
+  dotted one, 4/7 of a double-dotted one), several sharing that time equally.
+- **After** graces take their time from the end of the note they follow.
 
 ### 6. Ornaments, arpeggios, fermatas
 
@@ -186,9 +201,13 @@ is of the note's dynamic velocity (§4), bounded to the scale.
 - **Ornaments** (trill, turns, mordents, tremolo) are **played as the written note** in v0:
   realising them needs the auxiliary note from the key and the accidentals above the sign, and a
   speed; they come with a later step.
-- **Fermatas** are **played as written** in v0: Dorico shows that a fermata is a change of the
-  clock (a hold and a gap), so it belongs to the unrolled timeline of F1.12 (an amendment of
-  ADR-0025 §12 P2) rather than to the notes.
+- **Fermatas** are **played as written** in v0, and come with a later step (owner, 2026-11-05).
+  The requirement is fixed now: a fermata **lengthens the sound** of the notes under it (and the
+  silence of a fermata on a rest), and the music after it starts later by that much; it must
+  **never** be played as a slower tempo (which would bend the time of the notes before it and
+  change the tempo map's meaning). It is therefore time **inserted** into the unrolled timeline of
+  F1.12, where the notes sounding across it are held longer: an amendment of ADR-0025 §12 P2, with
+  the hold of each fermata type to be decided then.
 
 ### 7. Pass rules and bar repeats
 
@@ -198,9 +217,10 @@ with bar repeats the notes come from the source bar given by `content`, with tha
 ### 8. Performance offsets and bounds
 
 The offsets of ADR-0024 §10 are added **after** the rules: `start + onset`, `length × rules +
-length offset`, `velocity + velocity offset`. Then the results are bounded: a note never starts
-before the start of the performance, lasts at least 1/1024 of a whole note, and has a velocity
-in 1..=65 535. The pass-specific offsets of F1.14 will be added there, by (note, pass).
+length offset`, `velocity + velocity offset`. Then the results are bounded: a note lasts at least
+1/1024 of a whole note and has a velocity in 1..=65 535; it never starts before the start of the
+performance, which is time 0, or earlier only by the acciaccaturas that precede the first note
+(§5). The pass-specific offsets of F1.14 will be added there, by (note, pass).
 
 ### 9. Incremental update
 
@@ -232,12 +252,12 @@ score and of one note's update.
 | G1 | What F1.13 outputs | **played notes in musical time, exact pitch in semitones, 16-bit velocity**; MIDI-like events with seconds and key numbers | **Musical time and exact pitch**: tempo edits do not recompute the notes, microtones survive, F1.18 and F3 choose their own encoding |
 | G2 | Ties | **one played note per chain, shortening on the last note, accent on the first**; one note per notehead | **One per chain**: what every program plays; Dorico's placement of staccato |
 | G3 | Articulation defaults | **the table of §3** (staccato 50%, staccatissimo 25%, accent +20%…); other values | **§3**: the values Dorico and Sibelius report, editable later (F2.12) |
-| G4 | Dynamic levels | **MuseScore's table up-scaled to 16 bits, outer levels extrapolated**; MusicXML's anchor (f = 90 of 127); a power curve like Dorico's | **MuseScore's table**: concrete numbers users know; MusicXML import/export converts through its percentage anyway |
+| G4 | Dynamic levels | MuseScore's table extrapolated to *pppppp*–*ffffff*; MusicXML's anchor; a power curve | **Owner's decision (2026-11-05):** the extremes are *pppp* and *ffff*; more *p*s or *f*s are written but play as *pppp*/*ffff*; the ten levels spread evenly (step ≈ 13 on 7 bits, table of §4) — **values to confirm** |
 | G5 | Voice vs instrument dynamic | **latest wins, at the same point the voice's**; the voice's always; the instrument's always | **Latest, then the voice's**: what a player reads |
 | G6 | Hairpins | **velocity per note, linear in musical position, target the next dynamic or one level**; also swell held notes | **Velocity per note**: swelling needs controller curves (F3) |
-| G7 | Grace notes | **on the beat, acciaccatura min(half, 1/32 whole), appoggiatura half**; before the beat | **On the beat**: MuseScore's rule and the classical reading of an appoggiatura; before-the-beat as an option later |
+| G7 | Grace notes | acciaccatura on the beat; before the beat | **Owner's decision (2026-11-05):** acciaccaturas **before the beat**, taking time from the previous note (the main note starts on time); appoggiaturas **on the beat**, taking time from the main note. **To confirm:** 1/32 of a whole note each, at most half of the previous note in all; at the very start, before time 0 |
 | G8 | Ornaments | **played as written in v0, realised in a later step**; realised now | **Later**: they need the auxiliary note and a speed, a step of their own |
-| G9 | Fermatas | **as written in v0, then a hold and a gap on the unrolled clock (amending ADR-0025 §12)**; lengthen the notes only | **On the clock, later**: lengthening notes alone would make the other voices go on; Dorico treats it as timing |
+| G9 | Fermatas | as written in v0, later on the clock; lengthen the notes only | **Owner's decision (2026-11-05):** deferred; when done, a fermata lengthens the sound and delays what follows by inserted time, **never** a slower tempo |
 | G10 | Arpeggios | **1/64 of a whole note between notes, ending together**; a fixed time in ms | **Musical time**: follows the tempo like the rest |
 | G11 | Offsets and bounds | **added after the rules; start ≥ 0, length ≥ 1/1024, velocity 1..=65 535** | as proposed: ADR-0024 §10 stores them unbounded |
 | G12 | Incremental unit | **the cell (voice, written bar) in all its plays; dynamics from the point; everything on a path change** | **The cell**: the same unit as the editor's change sets |
@@ -260,5 +280,6 @@ score and of one note's update.
   document and the path, updated by cell.
 - F1.18 (MIDI export) turns them into ticks, key numbers and bends; F3 into whatever the
   instruments take.
-- New SCALETTA entries: ornament realisation, fermatas on the clock (amending ADR-0025 §12),
+- New SCALETTA entries: ornament realisation, fermatas as inserted time that lengthens the sound
+  (amending ADR-0025 §12),
   intonation after F3.04, the playback options of the defaults in the Preferences (F2.12).
