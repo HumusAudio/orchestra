@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.28, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.29, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -442,7 +442,9 @@ Dettagli:
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
 | F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ✅ PR #21 | 2 |
-| F1.13 | **Regole di esecuzione v0**: dall'intento agli eventi suonati (legature di valore fuse, articolazioni, dinamiche → velocity, abbellimenti) + scostamenti; aggiornamento incrementale | ⬜ | 3 |
+| F1.13 | **ADR delle regole di esecuzione v0**: dall'intento alle note suonate | ✅ ADR-0027 | 1 |
+| F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ⬜ | 1–2 |
+| F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | ⬜ | 1–2 |
 | F1.14 | **Soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
@@ -456,6 +458,16 @@ Dettagli:
   (ARCHITECTURE: `audio-engine` non vede `core-model`). Restano fuori dalla v0 l'**intonazione**
   (temperamenti, intonazione naturale) e i segni di comma (Helmholtz-Ellis, Sagittal): ADR-0023
   §2–§3 usa il 12-TET come riferimento. ❓ **Decisione D22:** in quale passo si fa l'intonazione.
+  **Fatto il 2026-11-05 (ADR-0027 Accepted):** ricerca su Dorico, MuseScore, Sibelius e sui formati
+  di scambio (MusicXML 4.0, file MIDI, MIDI 2.0, MIDI Tuning Standard). Il proprietario ha
+  approvato G1–G14 cambiandone tre: le dinamiche vanno da *pppp* a *ffff* (più *p* o *f* si
+  scrivono ma suonano come gli estremi; dieci livelli a passo uniforme: 10, 23, 36, 49, 62, 75, 88,
+  101, 114, 127 su 7 bit); le **acciaccature prima del tempo**, rubando alla nota precedente (la
+  principale parte all'istante scritto), le appoggiature sul tempo; le **corone rimandate**, e poi
+  un suono allungato con tempo inserito, **mai** un tempo più lento. Uscita in tempo musicale
+  esatto con altezza esatta in semitoni e velocity a 16 bit; una nota per catena di legature;
+  ornamenti suonati come scritti; aggiornamento per cella. **D22:** 12-TET con microtoni esatti ora,
+  intonazioni dopo F3.04. Diviso in F1.13b e F1.13c, con una PR unica alla fine (proprietario).
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
   indice del passaggio). Da ADR-0025: lo srotolamento segue le regole di §5; l'indice di passaggio
   di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
@@ -673,6 +685,13 @@ Dettaglio volutamente minore: si espande alla chiusura di F3, con quello che avr
 
 ### Oltre (idee da valutare, nessun impegno)
 
+Da ADR-0027 (rimandi decisi, da collocare): la **realizzazione degli ornamenti** (trillo,
+gruppetti, mordenti, tremolo: nota ausiliaria dall'armatura e dall'alterazione sopra il segno,
+velocità); le **corone** come tempo inserito nella linea del tempo srotolata, con il suono delle
+note allungato e mai un tempo più lento (emendamento di ADR-0025 §12); le **intonazioni**
+(temperamenti, intonazione naturale, segni di comma) dopo F3.04; i valori di articolazioni e
+dinamiche come opzioni modificabili nella finestra Preferenze (F2.12).
+
 Da collocare (ADR-0024 C9): tremolo tra due note, testo cantato (sillabe, strofe, allineamento),
 sigle degli accordi, diteggiature e indicazioni di tecnica. Da ADR-0025: le ripetizioni di
 movimento (un segno che ripete un movimento) e più movimenti in un solo file ("l'inizio della
@@ -725,7 +744,7 @@ modifica.
 | D19 | Lingua della scaletta: italiano (attuale) o inglese come gli altri documenti di progetto | F0.17 | **chiusa** 2026-10-30: italiano |
 | D20 | Ordine alternativo: incisione headless (F2B in PNG) **prima** delle fondamenta UI (F2A) | F0.17 | **chiusa** 2026-10-30: F2A poi F2B |
 | D21 | Cambio di metro: mantenere le battute o riscrivere la musica | F1.11 | **chiusa** 2026-11-04: ADR-0026 (riscrivere di default, mantenere come modalità) |
-| D22 | Intonazione (temperamenti, intonazione naturale, segni di comma): in quale passo | F1.13 | aperta |
+| D22 | Intonazione (temperamenti, intonazione naturale, segni di comma): in quale passo | F1.13 | **chiusa** 2026-11-05: ADR-0027 (12-TET con microtoni esatti ora, intonazioni dopo F3.04) |
 
 Nota su **D20**: `notation-layout` non dipende da `ui`, quindi in teoria si potrebbe incidere la
 musica su immagini PNG (headless) subito dopo la Fase 1, vedendo prima i risultati musicali.
@@ -768,3 +787,4 @@ raccomandato.
 | 2026-11-05 | 0.26 | F1.11c: parte 2 divisa in 2a e 2b, parte 2a fatta (modifica in blocco della mappa dei metri, note di gruppo irregolare divise alla stanghetta; precisioni Z1–Z5 in ADR-0026 §11); parte 2b definita | proprietario |
 | 2026-11-05 | 0.27 | F1.11c fatto (PR #20): parte 2b, `Rewrite`, con le precisioni R1–R11 in ADR-0026 §11 e il budget accettato da misurare in F2.23; F1-B completata, si passa a F1-C | proprietario |
 | 2026-11-05 | 0.28 | F1.12 fatto (PR #21): srotolamento della forma, precisioni P1–P8 in ADR-0025 §12; la tabella degli scostamenti per passaggio passa a F1.14 | proprietario |
+| 2026-11-05 | 0.29 | F1.13 fatto (ADR-0027 Accepted), D22 chiusa; nuovi F1.13b e F1.13c; rimandi di ADR-0027 (ornamenti, corone, intonazioni, opzioni di esecuzione) in "Oltre" | proprietario |
