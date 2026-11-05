@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.25, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.26, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -248,7 +248,7 @@ Dettagli:
 | F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
 | F1.11 | **ADR dei comandi, dell'undo/redo unico e delle notifiche di modifica a grana fine** | ✅ ADR-0026 | 1 |
 | F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | ✅ PR #19 | 2–3 |
-| F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | 🔄 parte 1 fatta | 1–2 |
+| F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | 🔄 parti 1 e 2a fatte | 1–2 |
 
 Dettagli:
 
@@ -415,9 +415,18 @@ Dettagli:
   proprio sul punto d'inserimento restano prima delle battute nuove. Benchmark sulla partitura
   pesante: un 3/4 a metà ≈ 5,7 milioni di istruzioni (60 battute troppo piene verificate), una
   battuta irregolare ≈ 122 000.
-  **Parte 2:** `Rewrite` (regole 1–5 di §7) con la modifica in blocco della mappa dei metri e la
-  divisione delle note di gruppo irregolare alla stanghetta (toglie anche il rifiuto di V4 in
-  `EnterEvent`), poi la PR di tutto F1.11c.
+  La parte 2 è divisa in 2a e 2b (proprietario, 2026-11-05).
+  **Parte 2a fatta il 2026-11-05:** prima del codice il proprietario ha approvato Z1–Z5, ora
+  ADR-0026 §11: la modifica in blocco della mappa dei metri (`MeterMap::replace_span`, modifica
+  elementare `MeterEdit::Span`; 60 battute ≈ 77 000 istruzioni); nessuna per la mappa dei tempi,
+  che si ricava già una volta per transazione; le note di gruppo irregolare a cavallo della
+  stanghetta si dividono in note legate dentro lo stesso gruppo, scritte nei suoi valori, così
+  `EnterEvent` non le rifiuta più (cade V4); una sola funzione di divisione per `EnterEvent` e
+  `Rewrite`.
+  **Parte 2b:** `Rewrite` (regole 1–5 di §7: la musica resta dove suona e si spostano le
+  stanghette fino al prossimo cambio di metro; catene di note legate, battuta irregolare finale,
+  divisione delle battute sotto le marcature di forma, pause di battuta intera), con casi scritti a
+  mano, test di proprietà e benchmark, poi la PR di tutto F1.11c.
 
 #### F1-C — Ciò che legge il modello (`playback`, `io`)
 
@@ -732,3 +741,4 @@ raccomandato.
 | 2026-11-04 | 0.23 | F1.11b: parte 2 divisa in 2a e 2b, parte 2a fatta (comandi su eventi e battute, gesti, verifica locale); precisazioni V1–V9 e W1–W6 in ADR-0026 §11, con la partenza dal tempo d'arrivo per un cambio graduale tagliato all'inizio; parte 2b definita | proprietario |
 | 2026-11-05 | 0.24 | F1.11b fatto (PR #19): parte 2b con le precisioni X1–X11 in ADR-0026 §11; note per F1.16 (generatore condiviso) e F2.22 (comandi composti rimandati) | proprietario |
 | 2026-11-05 | 0.25 | F1.11c diviso in due parti, parte 1 fatta (`KeepBars`, precisioni Y1–Y8 in ADR-0026 §11, Y8 corregge `InsertBars`); parte 2 definita | proprietario |
+| 2026-11-05 | 0.26 | F1.11c: parte 2 divisa in 2a e 2b, parte 2a fatta (modifica in blocco della mappa dei metri, note di gruppo irregolare divise alla stanghetta; precisioni Z1–Z5 in ADR-0026 §11); parte 2b definita | proprietario |
