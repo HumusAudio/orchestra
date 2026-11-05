@@ -1888,7 +1888,7 @@ Since F1.13b (ADR-0027 §1–§8, with the precisions N1–N10 of §13 approved 
 a `Performance` with, for every instrument, its `PlayedNote`s sorted by start then pitch. A played
 note has an exact start and end on the unrolled timeline (musical time only: the seconds come from
 the path, so a tempo edit recomputes nothing here), its exact sounding pitch (`Pitch::sounding`,
-60 = C4, quarter tones kept), a velocity on the 16-bit scale, and its way back to the score.
+60 = C4, quarter tones kept), an attack profile on the 16-bit scale, and its way back to the score.
 
 ```rust
 let path = Unrolled::new(&document)?;
@@ -1908,8 +1908,8 @@ The steps, voice by voice:
    after it on the path, so a tie at the end of a first ending stops at the barline when the
    music goes back, and goes on the time it leads into the next bar. A chain is one note.
 3. **Articulations** (N3, N4): staccato 1/2, staccatissimo and spiccato 1/4, portato and marcato
-   3/4 on the **last** notehead of the chain; accent +20%, marcato +30% on the **first**; tenuto with
-   staccato plays as a portato.
+   3/4 on the **last** notehead of the chain; the accents on the **first** (see Loudness below); tenuto
+   with staccato plays as a portato.
 4. **Grace notes** (N5, N6): acciaccaturas **before the beat**, 1/32 each, taken from the previous
    note of the voice (in the silence after a rest; before time 0 before the first note), so the
    main note starts when it is written; appoggiaturas on the beat, half the main note (2/3 of a
@@ -1917,9 +1917,8 @@ The steps, voice by voice:
    acciaccaturas.
 5. **Arpeggios** (N7): 1/64 between notes, upwards or downwards, all ending together.
 6. **Offsets and bounds** (N8): onset and velocity of the first notehead, the length offsets of
-   all; then at least 1/1024 long and a velocity in 1..=65 535.
-
-Every note starts from *mf* (N9) until the dynamics of F1.13c.
+   all; then at least 1/1024 long.
+7. **Loudness** (F1.13c): the attack profile, below.
 
 **Tests:** `tests/perform_cases.rs`, fourteen cases (plain notes, a tie chain, a tie followed only
 on the pass that plays its target next, staccato on the last note of a chain, portato and accent,
@@ -1929,6 +1928,60 @@ tacet, a bar repeat); `tests/perform_props.rs`, a property test on random scores
 random notes, rests, ties, articulations, grace notes, arpeggios and offsets (sorted notes, bounds,
 pitches as written, and without the extras one note per written note per play, where it is
 written). Ten injected bugs were caught, nine of them by the cases, each on its own rule.
+
+#### Loudness: dynamics, hairpins, accents
+
+Since F1.13c (ADR-0027 §4 and §14, precisions H1–H13 and the amendment H14–H17 approved by the
+owner on 2026-11-05) the internal module `loudness` decides how loud every note is. The rules are
+written on the familiar 0–127 scale (*pppp* 10, *ppp* 23, *pp* 36, *p* 49, *mp* 62, *mf* 75,
+*f* 88, *ff* 101, *fff* 114, *ffff* 127: one level every 13; more *p*s or *f*s play as the
+extremes) and computed there with exact fractions; only at the end is the value up-scaled to the
+16-bit scale (an integer by bit replication, a fraction between its two neighbours, rounded to the
+nearest).
+
+- **Along the path** (H1, H2): the dynamic in force is the last one *played* before the note,
+  read at the note's written point, as a player remembers it: after a repeat back to a bar with no
+  dynamic, the *f* of the end of the repeat stays. Before any dynamic, *mf*.
+- **The timeline of a voice**: built once by walking the path, it lists from which path point
+  (played bar, offset) the level is a constant or a hairpin's ramp, and where the dynamic accents
+  are. A note asks it in O(log n). Only the instrument's dynamics and the voice's own are read; at
+  one point the voice's win (G5, H9).
+- **Hairpins** (H5–H8): linear in the written position, from the level heard at their start to
+  their target: the first dynamic at or after the end within the bar holding the end, if it goes
+  the right way, else one level up or down (*al niente*: to nothing). A dynamic inside splits the
+  ramp; after the hairpin the target stays; a hairpin played twice starts each time from the level
+  in force then.
+- **Dynamic accents** act only on the notes starting exactly at their point (H3, H16): *rf*/*rfz*
+  one level up, back to the level in 0.4 s; *sf*/*sfz*/*fz* two levels, 0.6 s; *sffz* three,
+  0.8 s; *fp* is *f* held 0.3 s then *p* in 0.1 s; *sfp*/*sfpp* *ff* then *p*/*pp* in 0.3 s; *pf*
+  *p* held 0.3 s then *f* in 0.1 s; *n* is velocity 1. Grace notes take the level of their main
+  note without its accent (H10).
+- **Articulation accents** are fixed steps (H15, amending the percentages of §3): stress and soft
+  accent +7 back in 0.15 s, accent +15 in 0.2 s, marcato +22 in 0.25 s; unstress −7 on the whole
+  note. With a dynamic accent the attacks add up and the longer time wins (H17); the velocity
+  offset moves both the attack and the settling level.
+
+The **attack profile** (H14) is the owner's request: an accent is louder at the attack only, and
+the sound then goes back to the dynamic at a fixed speed, whatever the note's length (barely
+audible on a short note, essential on a long one). The times are in seconds, so a tempo edit still
+recomputes nothing. Every time and level here is provisional, to be tuned by ear at F1.18 and F3.
+
+```rust
+// The attack profile of a played note (ADR-0027 §14, H14): the sound starts at `velocity`, stays
+// there for `hold`, then goes linearly to `settle_to` in `settle_in` and keeps it.
+let note = performance.notes(violin)[0];
+let accented = note.velocity != note.settle_to; // false: no profile, hold and settle_in are zero
+let fades_in: Seconds = note.settle_in;        // seconds: a fixed speed, whatever the tempo
+```
+
+**Tests:** `tests/loudness_cases.rs`, sixteen cases (the table and the extremes, the level along
+the path after a repeat, *sf* and the like, *fp*/*pf*/*sfpp*, *niente*, a crescendo to its written
+target, targets that do not fit, the window of the target, a dynamic inside a hairpin, *al
+niente*, a hairpin played twice, voice against instrument, grace notes, articulation steps,
+rounding); `tests/perform_props.rs` now adds random dynamics, dynamic accents and hairpins, checks
+that every profile is well formed and, on the plain scores, compares every velocity with an oracle
+that walks the path backwards from the note. Nine injected bugs were caught (two only after a case
+written for them; one only by the oracle).
 
 ### orchestra-notation-layout
 

@@ -15,8 +15,10 @@ use orchestra_core_model::{
     Key, Metronome, Mode, NoteValue, PassSet, PerformanceOffsets, Pitch, Placement, RestValue,
     ScorePoint, StaffId, Step, TempoMark, Tie, VoiceId,
 };
-use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Position, Rational, Tempo};
-use orchestra_playback::{PROVISIONAL_VELOCITY, Performance, PlayedNote, Unrolled};
+use orchestra_core_time::{
+    Duration, Meter, MeterChange, MeterMap, Position, Rational, Seconds, Tempo,
+};
+use orchestra_playback::{INITIAL_VELOCITY, Performance, PlayedNote, Unrolled};
 
 /// A score being built: the builder, its bars, and its one instrument.
 struct Score {
@@ -120,6 +122,16 @@ fn played(s: Score) -> Vec<PlayedNote> {
         .to_vec()
 }
 
+/// The 16-bit velocity of an integer level of the 0–127 scale (ADR-0027 §4: bit replication).
+fn up(v: u16) -> u16 {
+    (v << 9) | (v << 2) | (v >> 5)
+}
+
+/// `n/den` seconds.
+fn secs(n: i64, den: i64) -> Seconds {
+    Seconds::from_rational(Rational::new(n, den).unwrap())
+}
+
 /// (start, end) of every played note.
 fn spans(notes: &[PlayedNote]) -> Vec<(Position, Position)> {
     notes.iter().map(|n| (n.start, n.end)).collect()
@@ -146,7 +158,7 @@ fn plain_notes_play_as_written() {
         notes
             .iter()
             .all(|n| n.pitch == Rational::from_integer(60).unwrap()
-                && n.velocity == PROVISIONAL_VELOCITY)
+                && n.velocity == INITIAL_VELOCITY)
     );
 }
 
@@ -208,11 +220,13 @@ fn tenuto_staccato_and_accent() {
         .unwrap();
     let notes = played(s);
     assert_eq!(spans(&notes), [(p(0, 1), p(3, 8)), (p(1, 2), p(1, 1))]);
-    assert_eq!(notes[0].velocity, PROVISIONAL_VELOCITY);
-    assert_eq!(
-        u32::from(notes[1].velocity),
-        u32::from(PROVISIONAL_VELOCITY) * 120 / 100
-    );
+    assert_eq!(notes[0].velocity, INITIAL_VELOCITY);
+    // H15: an accent is +15 on the 0–127 scale at the attack (mf 75 → 90), settling back to mf
+    // in 0.2 s.
+    assert_eq!(notes[1].velocity, up(90));
+    assert_eq!(notes[1].settle_to, INITIAL_VELOCITY);
+    assert_eq!(notes[1].settle_in, secs(1, 5));
+    assert_eq!(notes[1].hold, Seconds::ZERO);
 }
 
 /// G7, N5: an acciaccatura sounds before the beat, taking 1/32 from the previous note; the main
@@ -354,7 +368,7 @@ fn offsets_and_bounds() {
             .checked_add(d(1, 16))
             .unwrap()
     );
-    assert_eq!(notes[0].velocity, PROVISIONAL_VELOCITY + 1000);
+    assert_eq!(notes[0].velocity, INITIAL_VELOCITY + 1000);
     assert_eq!(notes[1].end, p(3, 4).checked_add(d(1, 1024)).unwrap());
     assert_eq!(notes[1].velocity, 1);
 }

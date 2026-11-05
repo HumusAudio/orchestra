@@ -2012,7 +2012,8 @@ Da F1.13b (ADR-0027 §1–§8, con le precisazioni N1–N10 di §13 approvate da
 `Performance` con, per ogni strumento, le sue `PlayedNote` ordinate per inizio e poi per altezza. Una
 nota suonata ha un inizio e una fine esatti sulla linea del tempo srotolata (solo tempo musicale: i
 secondi vengono dal percorso, così una modifica del tempo qui non ricalcola nulla), la sua altezza
-esatta (`Pitch::sounding`, 60 = Do4, quarti di tono compresi), una velocity sulla scala a 16 bit, e
+esatta (`Pitch::sounding`, 60 = Do4, quarti di tono compresi), un profilo d'attacco sulla scala a
+16 bit, e
 la strada per tornare allo spartito.
 
 ```rust
@@ -2035,8 +2036,8 @@ I passi, voce per voce:
    ferma alla stanghetta quando la musica torna indietro, e prosegue la volta che porta alla battuta
    dopo. Una catena è una nota.
 3. **Articolazioni** (N3, N4): staccato 1/2, staccatissimo e spiccato 1/4, portato e marcato 3/4
-   sull'**ultima** testa della catena; accento +20%, marcato +30% sulla **prima**; tenuto con staccato
-   suona come portato.
+   sull'**ultima** testa della catena; gli accenti sulla **prima** (vedi Il volume, sotto); tenuto con
+   staccato suona come portato.
 4. **Abbellimenti** (N5, N6): acciaccature **prima del tempo**, 1/32 ciascuna, prese dalla nota
    precedente della voce (nel silenzio dopo una pausa; prima dello zero prima della prima nota),
    così la nota principale parte quando è scritta; appoggiature sul tempo, metà della nota
@@ -2045,9 +2046,8 @@ I passi, voce per voce:
 5. **Arpeggi** (N7): 1/64 fra una nota e l'altra, verso l'alto o verso il basso, tutte finiscono
    insieme.
 6. **Scostamenti e limiti** (N8): anticipo e velocity dalla prima testa, gli scostamenti di durata
-   di tutte; poi almeno 1/1024 di durata e una velocity da 1 a 65 535.
-
-Ogni nota parte da *mf* (N9) fino alle dinamiche di F1.13c.
+   di tutte; poi almeno 1/1024 di durata.
+7. **Il volume** (F1.13c): il profilo d'attacco, sotto.
 
 **Test:** `tests/perform_cases.rs`, quattordici casi (note semplici, una catena di legature, una
 legatura seguita solo nel passaggio che suona dopo la sua nota d'arrivo, staccato sull'ultima nota
@@ -2058,6 +2058,61 @@ arpeggio verso il basso, scostamenti e limiti, un tacet, una ripetizione di batt
 legature, articolazioni, abbellimenti, arpeggi e scostamenti casuali (note ordinate, limiti, altezze
 come scritte, e senza le aggiunte una nota per ogni nota scritta e per ogni esecuzione, dove è
 scritta). Dieci bug iniettati sono stati presi, nove dai casi, ciascuno sulla sua regola.
+
+#### Il volume: dinamiche, forcelle, accenti
+
+Da F1.13c (ADR-0027 §4 e §14, precisazioni H1–H13 ed emendamento H14–H17 approvati dal
+proprietario il 2026-11-05) il modulo interno `loudness` decide quanto forte suona ogni nota. Le
+regole sono scritte sulla solita scala 0–127 (*pppp* 10, *ppp* 23, *pp* 36, *p* 49, *mp* 62,
+*mf* 75, *f* 88, *ff* 101, *fff* 114, *ffff* 127: un livello ogni 13; più *p* o più *f* suonano
+come gli estremi) e calcolate lì con frazioni esatte; solo alla fine il valore passa alla scala a
+16 bit (un intero replicando i bit, una frazione fra i due interi vicini, arrotondata al più
+vicino).
+
+- **Lungo il percorso** (H1, H2): la dinamica in vigore è l'ultima *suonata* prima della nota,
+  letta nel punto scritto della nota, come la ricorda un musicista: dopo un ritornello che torna a
+  una battuta senza dinamica, resta il *f* della fine del ritornello. Prima di ogni dinamica, *mf*.
+- **La linea di una voce**: costruita una volta percorrendo il percorso, dice da quale punto
+  (battuta suonata, offset) il livello è costante o è la rampa di una forcella, e dove stanno gli
+  accenti dinamici. Una nota la interroga in O(log n). Si leggono solo le dinamiche dello strumento
+  e quelle della voce; nello stesso punto vince quella della voce (G5, H9).
+- **Forcelle** (H5–H8): lineari nella posizione scritta, dal livello che si sente al loro inizio
+  al loro arrivo: la prima dinamica alla fine o dopo, dentro la battuta che contiene la fine, se va
+  nel verso giusto, altrimenti un livello in su o in giù (*al niente*: fino al nulla). Una
+  dinamica dentro divide la rampa; dopo la forcella resta l'arrivo; una forcella suonata due volte
+  riparte ogni volta dal livello in vigore in quel momento.
+- **Accenti dinamici** solo sulle note che cominciano esattamente nel loro punto (H3, H16):
+  *rf*/*rfz* un livello sopra, di ritorno al livello in 0,4 s; *sf*/*sfz*/*fz* due livelli, 0,6 s;
+  *sffz* tre, 0,8 s; *fp* è *f* tenuto 0,3 s poi *p* in 0,1 s; *sfp*/*sfpp* *ff* poi *p*/*pp* in
+  0,3 s; *pf* *p* tenuto 0,3 s poi *f* in 0,1 s; *n* è velocity 1. Gli abbellimenti prendono il
+  livello della loro nota principale senza il suo accento (H10).
+- **Accenti di articolazione** a gradini fissi (H15, emenda le percentuali di §3): stress e
+  accento morbido +7 di ritorno in 0,15 s, accento +15 in 0,2 s, marcato +22 in 0,25 s; unstress −7
+  su tutta la nota. Con un accento dinamico gli attacchi si sommano e vince il tempo più lungo
+  (H17); lo scostamento di velocity sposta sia l'attacco sia il livello d'arrivo.
+
+Il **profilo d'attacco** (H14) è una richiesta del proprietario: un accento è più forte solo
+all'attacco, poi il suono torna alla dinamica a velocità fissa, qualunque sia la durata della nota
+(poco percepibile su una nota breve, essenziale su una lunga). I tempi sono in secondi, così una
+modifica del tempo continua a non ricalcolare nulla. Ogni tempo e livello qui è provvisorio, da
+tarare a orecchio in F1.18 e in F3.
+
+```rust
+// The attack profile of a played note (ADR-0027 §14, H14): the sound starts at `velocity`, stays
+// there for `hold`, then goes linearly to `settle_to` in `settle_in` and keeps it.
+let note = performance.notes(violin)[0];
+let accented = note.velocity != note.settle_to; // false: no profile, hold and settle_in are zero
+let fades_in: Seconds = note.settle_in;        // seconds: a fixed speed, whatever the tempo
+```
+
+**Test:** `tests/loudness_cases.rs`, sedici casi (la tabella e gli estremi, il livello lungo il
+percorso dopo un ritornello, *sf* e simili, *fp*/*pf*/*sfpp*, *niente*, un crescendo verso il suo
+arrivo scritto, arrivi che non vanno bene, la finestra dell'arrivo, una dinamica dentro una
+forcella, *al niente*, una forcella suonata due volte, voce contro strumento, abbellimenti, gradini
+delle articolazioni, arrotondamento); `tests/perform_props.rs` ora aggiunge dinamiche, accenti
+dinamici e forcelle casuali, controlla che ogni profilo sia ben formato e, sulle partiture
+semplici, confronta ogni velocity con un oracolo che risale il percorso dalla nota all'indietro.
+Nove bug iniettati sono stati presi (due solo dopo un caso scritto apposta; uno solo dall'oracolo).
 
 ### orchestra-notation-layout
 

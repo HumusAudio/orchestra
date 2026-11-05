@@ -378,8 +378,18 @@ first; tenuto with staccato as portato; acciaccaturas from the previous note alo
 its `After` graces; arpeggios; chain offsets; *mf* until the dynamics; a whole `Performance`).
 Implemented: the module `perform` of `orchestra-playback` (`Performance`, `PlayedNote`,
 `PerformError`, `PROVISIONAL_VELOCITY`); fourteen cases and a property test; ten injected bugs
-caught. **Next:** F1.13c (dynamics, hairpins, incremental update by cell, benchmarks), then the PR
-of F1.13 (ADR-0027 and parts b, c).
+caught. **F1.13c part 1 done** (2026-11-05, same branch): before coding, the owner approved the
+precisions H1–H13 and, asking that an accent be louder at the attack only and then go back to its
+dynamic at a fixed speed (more slowly after *sf* and the like), the **amendment H14–H17** of
+ADR-0027 (§14): every played note has an attack profile (`velocity`, `hold`, `settle_in` in seconds,
+`settle_to`), articulation accents are fixed steps instead of percentages, *fp* is *f* held 0.3 s
+then *p* in 0.1 s and *pf* the reverse. Implemented: the module `loudness` of `orchestra-playback`
+(per-voice timelines along the path, hairpin plans, dynamic accents, the profile, the exact
+up-scaling; `INITIAL_VELOCITY` replaces `PROVISIONAL_VELOCITY`); sixteen cases in
+`tests/loudness_cases.rs`, the property test with random dynamics, accents and hairpins and an
+oracle of the level along the path; nine injected bugs caught. **Next:** F1.13c part 2 (H11–H13:
+the `ChangeSet` list of instruments whose dynamics changed, `Performance::update` by cell, the
+benchmarks on the heavy score), then the PR of F1.13 (ADR-0027 and parts b, c).
 
 | Step | What | Status |
 |---|---|---|
@@ -426,6 +436,11 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
+- **REMIND THE OWNER (asked on 2026-11-05):** every time and level of ADR-0027 §14 (accent
+  attacks, the hold and the settling times of accents, *sf*-like marks, *fp* and *pf*) is a
+  provisional value to be **tuned by ear** with the owner. Bring it up as soon as the owner can
+  listen: at F1.18 (MIDI export, first listening) and again with the internal instruments of F3;
+  they become playback options in F2.12.
 - **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions
@@ -438,8 +453,6 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - **Non-traditional key signatures** (Bartók, klezmer and Balkan modes, maqam and makam): deferred
   by the owner on 2026-11-01, **to be remembered**; a second variant of `Key` with its own spelling
   rule, at the MusicXML import or at the first concrete need (ADR-0023 §5, SCALETTA §5).
-- **D22, for F1.13:** tuning (temperaments, just intonation, comma accidentals); the MIDI
-  conversion uses 12-TET as the reference (ADR-0023 §3).
 - **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
   window, whatever its signature; to revisit if open signatures with accidentals turn out common.
 - **From F1.11b part 1, to keep in mind:** while a transaction is open the tempo map is the one

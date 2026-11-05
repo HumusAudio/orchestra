@@ -26,10 +26,14 @@
 //!    note starts when it is written); `After` graces at the end of the note they follow.
 //! 5. **Arpeggios** (§6, N7): the notes of the chord start one after the other, 1/64 apart.
 //! 6. **Offsets and bounds** (§8, N8): the performance offsets of the chain are added, then a note
-//!    lasts at least 1/1024 of a whole note and has a velocity in 1..=65 535.
+//!    lasts at least 1/1024 of a whole note.
+//! 7. **Loudness** (§4, §14, H1–H17; module `loudness`): the level in force at the note's written
+//!    point along the path (dynamics and hairpins), the dynamic accent written exactly there, the
+//!    articulation accents of its first notehead and its velocity offset give its **attack
+//!    profile**: the attack velocity, how long it is held, and how long the sound takes to settle
+//!    to which level (seconds, so that the speed is fixed and a tempo edit recomputes nothing).
 //!
-//! The velocity before articulations and offsets is *mf* for every note (N9): the dynamics come
-//! with F1.13c, and so does the incremental update.
+//! The incremental update comes with the second part of F1.13c.
 //!
 //! # Complexity
 //! O(path × events of a bar) items per voice, O(1) average per tie followed (an index by notehead),
@@ -43,20 +47,14 @@ use orchestra_core_model::{
     Arpeggio, Articulation, ArticulationSet, Chord, Document, DocumentError, Event, EventBody,
     EventId, GraceAttach, GraceKind, InstrumentId, NoteId, PitchError, StaffId, Tie, VoiceId,
 };
-use orchestra_core_time::{Duration, Position, Rational, RationalError};
+use orchestra_core_time::{Duration, Position, Rational, RationalError, Seconds};
 
+use crate::loudness::{self, PointAccent, Timeline};
 use crate::unroll::{UnrollError, Unrolled};
 
 // ------------------------------------------------------------------------------------------------
 // Constants of ADR-0027
 // ------------------------------------------------------------------------------------------------
-
-/// The provisional velocity of every note before articulations and offsets: *mf*, 75 on the MIDI
-/// 1.0 scale (ADR-0027 §4), up-scaled to 16 bits with `v << 9 | v << 2 | v >> 5` (N9).
-pub const PROVISIONAL_VELOCITY: u16 = (75 << 9) | (75 << 2) | (75 >> 5);
-
-/// The highest velocity of the 16-bit scale.
-const MAX_VELOCITY: i64 = 65_535;
 
 /// The duration of one acciaccatura and of one `After` grace note: 1/32 of a whole note, about
 /// 65 ms at ♩ = 120 (ADR-0027 §5, `MuseScore`'s duration).
@@ -183,8 +181,19 @@ pub struct PlayedNote {
     pub end: Position,
     /// The sounding pitch in semitones, C4 = 60, exact.
     pub pitch: Rational,
-    /// The velocity on the 16-bit scale, 1..=65 535.
+    /// The velocity of the attack on the 16-bit scale, 1..=65 535 (ADR-0027 §14, H14).
     pub velocity: u16,
+    /// How long the sound stays at the attack's level, in seconds (H14, H16: *fp* and *pf*);
+    /// zero for most notes.
+    pub hold: Seconds,
+    /// How long the sound then takes to go, linearly, to `settle_to`, in seconds (H14–H16): the
+    /// fixed speed at which an accent fades back to the dynamic; zero without an accent. A note
+    /// that ends earlier simply ends.
+    pub settle_in: Seconds,
+    /// The level the sound settles to and keeps, on the 16-bit scale, 1..=65 535: the dynamic in
+    /// force for an accent, the second level of *fp* and the like; equal to `velocity` (with
+    /// `hold` and `settle_in` zero) for a note without an accent.
+    pub settle_to: u16,
 }
 
 /// The played notes of a document along its path (see the module documentation).
@@ -239,6 +248,12 @@ struct Item {
     played: u32,
     /// The pass of its notes.
     pass: u32,
+    /// Its offset inside the written bar of the played bar: with `played`, the path point at which
+    /// its loudness is read (H2).
+    offset: Duration,
+    /// Its written position: the start of the played bar's written bar plus `offset` (H2, H8: the
+    /// coordinate hairpins are interpolated in).
+    written: Position,
     /// Where it starts on the unrolled timeline.
     start: Position,
     /// Its metric duration (zero for a grace note).
@@ -270,6 +285,10 @@ fn items_of(
     let meter = doc.meter_map();
     let mut items = Vec::new();
     for (k, played) in path.played().iter().enumerate() {
+        // Where the played bar's own written bar starts: the loudness of every event played here
+        // is read at this bar's points, also on a staff whose notes come from a bar repeat's
+        // source (H2: the dynamics written under the % bar count).
+        let bar_start = meter.bar_start(played.index)?;
         // The written bars the voice's events come from in this played bar, one per staff.
         let mut sources: Vec<(StaffId, orchestra_core_model::BarId, u32)> = Vec::new();
         for &staff in staves {
@@ -310,6 +329,8 @@ fn items_of(
                     Item {
                         played: u32::try_from(k).map_err(|_| UnrollError::Endless)?,
                         pass,
+                        offset,
+                        written: bar_start.checked_add(offset)?,
                         start,
                         length: if event.grace().is_some() {
                             Duration::ZERO
@@ -358,8 +379,11 @@ fn perform_instrument(
         .collect();
     let voices = instrument.voices();
     let mut items: Vec<Vec<Item>> = Vec::with_capacity(voices.len());
+    // The loudness of every voice along the path (H1–H9).
+    let mut timelines: Vec<Timeline> = Vec::with_capacity(voices.len());
     for voice in voices {
         items.push(items_of(doc, path, voice, &staves)?);
+        timelines.push(Timeline::new(doc, path, instrument, voice.id())?);
     }
 
     // Every notehead of a main event, by ID: where it is played (voice, item), for the ties. A
@@ -433,13 +457,21 @@ fn perform_instrument(
     // The notes of the chains, before the grace notes move their starts and ends.
     let mut notes: Vec<(Chain, PlayedNote)> = Vec::new();
     for chain in chains {
-        let note = chain_note(&items, instrument.id(), voices, &chain)?;
+        let note = chain_note(&items, &timelines, instrument.id(), voices, &chain)?;
         notes.push((chain, note));
     }
     // The notes of the grace chords, and the time they take from their neighbours (§5, N5, N6).
     let mut graces: Vec<PlayedNote> = Vec::new();
     for (v, list) in items.iter().enumerate() {
-        place_graces(list, v, instrument.id(), voices, &mut notes, &mut graces)?;
+        place_graces(
+            list,
+            v,
+            &timelines,
+            instrument.id(),
+            voices,
+            &mut notes,
+            &mut graces,
+        )?;
     }
     // Arpeggios (N7), then the bounds (§8).
     let mut all: Vec<PlayedNote> = notes.into_iter().map(|(_, n)| n).collect();
@@ -479,37 +511,15 @@ fn length_factor(set: ArticulationSet) -> Result<Rational, RationalError> {
     Ok(factor)
 }
 
-/// The change of velocity of the accents of the first notehead of a chain, in percent (ADR-0027
-/// §3): accent +20, marcato +30, soft accent and stress +10, unstress −10, added. O(articulations).
-fn velocity_percent(set: ArticulationSet) -> i64 {
-    [
-        (Articulation::Accent, 20),
-        (Articulation::Marcato, 30),
-        (Articulation::SoftAccent, 10),
-        (Articulation::Stress, 10),
-        (Articulation::Unstress, -10),
-    ]
-    .into_iter()
-    .filter(|(a, _)| set.contains(*a))
-    .map(|(_, p)| p)
-    .sum()
-}
-
-/// A velocity changed by `percent` and by `delta` steps, bounded to the 16-bit scale. O(1).
-fn velocity(base: u16, percent: i64, delta: i32) -> u16 {
-    let scaled = i64::from(base).saturating_mul(100_i64.saturating_add(percent)) / 100;
-    let v = scaled
-        .saturating_add(i64::from(delta))
-        .clamp(1, MAX_VELOCITY);
-    u16::try_from(v).unwrap_or(u16::MAX)
-}
-
-/// The played note of a chain, before grace notes and arpeggios (ADR-0027 §2, §3, §8, N3, N8).
+/// The played note of a chain, before grace notes and arpeggios (ADR-0027 §2, §3, §8, §14, N3, N8,
+/// H2, H17): its loudness is read at the written point of its first notehead, with the accents of
+/// that notehead.
 ///
 /// # Errors
 /// [`PerformError::Unroll`] for a link to nothing (a bug); the arithmetic and pitch errors.
 fn chain_note(
     items: &[Vec<Item>],
+    timelines: &[Timeline],
     instrument: InstrumentId,
     voices: &[orchestra_core_model::Voice],
     chain: &Chain,
@@ -548,6 +558,14 @@ fn chain_note(
     end = end.checked_add(offsets.onset)?.checked_add(length_offset)?;
     let &(v, _, _) = chain.links.first().ok_or(UnrollError::Endless)?;
     let voice = voices.get(v).ok_or(UnrollError::Endless)?.id();
+    let timeline = timelines.get(v).ok_or(UnrollError::Endless)?;
+    let point = (first.played, first.offset);
+    let loud = loudness::profile(
+        timeline.level_at(point, first.written)?,
+        timeline.accent_at(point),
+        first_chord.articulations(),
+        offsets.velocity,
+    )?;
     Ok(PlayedNote {
         note: first_note.id(),
         event: first.event.id(),
@@ -559,11 +577,10 @@ fn chain_note(
         start,
         end,
         pitch: first_note.pitch().sounding()?,
-        velocity: velocity(
-            PROVISIONAL_VELOCITY,
-            velocity_percent(first_chord.articulations()),
-            offsets.velocity,
-        ),
+        velocity: loud.velocity,
+        hold: loud.hold,
+        settle_in: loud.settle_in,
+        settle_to: loud.settle_to,
     })
 }
 
@@ -586,12 +603,14 @@ fn chain_note(
 fn place_graces(
     list: &[Item],
     v: usize,
+    timelines: &[Timeline],
     instrument: InstrumentId,
     voices: &[orchestra_core_model::Voice],
     notes: &mut [(Chain, PlayedNote)],
     graces: &mut Vec<PlayedNote>,
 ) -> Result<(), PerformError> {
     let voice = voices.get(v).ok_or(UnrollError::Endless)?.id();
+    let timeline = timelines.get(v).ok_or(UnrollError::Endless)?;
     let unit = grace_length()?;
     let half = Rational::new(1, 2)?;
     let mut i = 0;
@@ -658,7 +677,7 @@ fn place_graces(
                 let start = from.checked_add(
                     each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
                 )?;
-                push_grace(list, g, instrument, voice, start, each, graces)?;
+                push_grace(list, g, timeline, (instrument, voice), start, each, graces)?;
             }
             i = j;
             continue;
@@ -710,7 +729,7 @@ fn place_graces(
                 let start = from.checked_add(
                     each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
                 )?;
-                push_grace(list, g, instrument, voice, start, each, graces)?;
+                push_grace(list, g, timeline, (instrument, voice), start, each, graces)?;
             }
         }
         // Appoggiaturas on the beat, taking time from the main note.
@@ -732,7 +751,7 @@ fn place_graces(
                 let start = beat.checked_add(
                     each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
                 )?;
-                push_grace(list, g, instrument, voice, start, each, graces)?;
+                push_grace(list, g, timeline, (instrument, voice), start, each, graces)?;
             }
             // The main note (every chain starting at that item) starts after them.
             let new_start = beat.checked_add(total)?;
@@ -787,16 +806,15 @@ fn shorten_previous(notes: &mut [(Chain, PlayedNote)], v: usize, at: Position, f
     }
 }
 
-/// Appends the notes of the grace chord of item `g`, from `start`, lasting `length`. O(noteheads).
-#[allow(
-    clippy::too_many_arguments,
-    reason = "the grace's place and its note's identity: a struct for one call would only rename them"
-)]
+/// Appends the notes of the grace chord of item `g`, from `start`, lasting `length`. Their loudness
+/// is the level in force at their written point (their main note's), hairpins included, with
+/// their own articulations but **without** the dynamic accent written there, which belongs to
+/// the main note (H10). O(noteheads).
 fn push_grace(
     list: &[Item],
     g: usize,
-    instrument: InstrumentId,
-    voice: VoiceId,
+    timeline: &Timeline,
+    (instrument, voice): (InstrumentId, VoiceId),
     start: Position,
     length: Duration,
     graces: &mut Vec<PlayedNote>,
@@ -805,8 +823,11 @@ fn push_grace(
     let Some(chord) = item.event.chord() else {
         return Ok(());
     };
+    let base = timeline.level_at((item.played, item.offset), item.written)?;
+    let no_accent: Option<PointAccent> = None;
     for note in chord.notes() {
         let offsets = note.offsets();
+        let loud = loudness::profile(base, no_accent, chord.articulations(), offsets.velocity)?;
         graces.push(PlayedNote {
             note: note.id(),
             event: item.event.id(),
@@ -821,11 +842,10 @@ fn push_grace(
                 .checked_add(offsets.onset)?
                 .checked_add(offsets.length)?,
             pitch: note.pitch().sounding()?,
-            velocity: velocity(
-                PROVISIONAL_VELOCITY,
-                velocity_percent(chord.articulations()),
-                offsets.velocity,
-            ),
+            velocity: loud.velocity,
+            hold: loud.hold,
+            settle_in: loud.settle_in,
+            settle_to: loud.settle_to,
         });
     }
     Ok(())
@@ -883,8 +903,8 @@ fn arpeggiate(items: &[Vec<Item>], notes: &mut [PlayedNote]) -> Result<(), Perfo
     Ok(())
 }
 
-/// The bounds of ADR-0027 §8: a note lasts at least 1/1024 of a whole note (the velocity is already
-/// bounded where it is computed). O(1).
+/// The bounds of ADR-0027 §8: a note lasts at least 1/1024 of a whole note (the velocities are
+/// already bounded where the profile is computed). O(1).
 ///
 /// # Errors
 /// The arithmetic errors.
