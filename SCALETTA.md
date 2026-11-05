@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.29, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.30, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -443,7 +443,7 @@ Dettagli:
 |---|---|---|---|
 | F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ✅ PR #21 | 2 |
 | F1.13 | **ADR delle regole di esecuzione v0**: dall'intento alle note suonate | ✅ ADR-0027 | 1 |
-| F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ⬜ | 1–2 |
+| F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ✅ | 1–2 |
 | F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | ⬜ | 1–2 |
 | F1.14 | **Soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
@@ -468,6 +468,14 @@ Dettagli:
   esatto con altezza esatta in semitoni e velocity a 16 bit; una nota per catena di legature;
   ornamenti suonati come scritti; aggiornamento per cella. **D22:** 12-TET con microtoni esatti ora,
   intonazioni dopo F3.04. Diviso in F1.13b e F1.13c, con una PR unica alla fine (proprietario).
+- **F1.13b** **Fatto il 2026-11-05:** prima del codice il proprietario ha approvato N1–N10, ora
+  ADR-0027 §13: una legatura si segue solo dove la nota d'arrivo suona subito dopo lungo il
+  percorso; ogni testa di un accordo è una nota; accorciamenti sull'ultima testa della catena,
+  accenti sulla prima; tenuto con staccato suona come portato; l'acciaccatura ruba alla nota
+  precedente della voce lungo il percorso, dopo gli abbellimenti "dopo"; arpeggi sul primo accordo;
+  scostamenti della catena; *mf* per tutte fino alle dinamiche. Modulo `perform` di
+  `orchestra-playback`; limite noto: su una nota molto corta abbellimenti "dopo" e acciaccature
+  insieme possono superarne la metà (la nota scende alla durata minima).
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
   indice del passaggio). Da ADR-0025: lo srotolamento segue le regole di §5; l'indice di passaggio
   di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
@@ -788,3 +796,4 @@ raccomandato.
 | 2026-11-05 | 0.27 | F1.11c fatto (PR #20): parte 2b, `Rewrite`, con le precisioni R1–R11 in ADR-0026 §11 e il budget accettato da misurare in F2.23; F1-B completata, si passa a F1-C | proprietario |
 | 2026-11-05 | 0.28 | F1.12 fatto (PR #21): srotolamento della forma, precisioni P1–P8 in ADR-0025 §12; la tabella degli scostamenti per passaggio passa a F1.14 | proprietario |
 | 2026-11-05 | 0.29 | F1.13 fatto (ADR-0027 Accepted), D22 chiusa; nuovi F1.13b e F1.13c; rimandi di ADR-0027 (ornamenti, corone, intonazioni, opzioni di esecuzione) in "Oltre" | proprietario |
+| 2026-11-05 | 0.30 | F1.13b fatto: le note suonate, precisioni N1–N10 in ADR-0027 §13 | proprietario |
