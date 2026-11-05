@@ -195,6 +195,13 @@ pub enum DocumentError {
     /// `RemoveBars`) or a value the document always has (the initial tempo, key, clefs, the
     /// numbering style), which can only be set.
     NotRemovable(ObjectRef),
+    /// A command that changes a mark named an object of one kind and gave the new content of
+    /// another (a dynamic's ID with a hairpin's content): a mark keeps its kind for its whole
+    /// life, so a change of kind is a removal and an addition (ADR-0026 X5).
+    MarkKindMismatch(ObjectRef),
+    /// A command that works on marks was given an object that is not one: an event, a tuplet, a
+    /// bar or a value the document has once (each has its own command).
+    NotAMark(ObjectRef),
     /// A tuplet still used by an event or by a nested tuplet cannot be removed.
     TupletInUse(TupletId),
     /// An event's exact place in its chunk would break the chunk's order (only an undo gives a
@@ -314,6 +321,10 @@ impl fmt::Display for DocumentError {
             Self::DuplicateObject(o) => write!(f, "{o:?} is already in use or was never issued"),
             Self::UnknownObject(o) => write!(f, "the document has no {o:?}"),
             Self::NotRemovable(o) => write!(f, "{o:?} cannot be removed, only set or moved"),
+            Self::MarkKindMismatch(o) => {
+                write!(f, "{o:?} cannot become a mark of another kind")
+            }
+            Self::NotAMark(o) => write!(f, "{o:?} is not a mark: it has commands of its own"),
             Self::TupletInUse(id) => write!(f, "tuplet {} is still in use", id.get()),
             Self::PlaceOutOfOrder => f.write_str("that place would break the order of the chunk"),
             Self::BarSpanMismatch => {

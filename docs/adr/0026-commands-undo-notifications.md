@@ -3,7 +3,9 @@
 - **Status:** Accepted (owner's decision, 2026-11-04; SCALETTA F1.11, decisions D08 and D21).
   The owner approved every recommendation of §10 (U1–U11) as written, and the split of the step
   into F1.11b and F1.11c (Consequences).
-  The precisions of §11 (V1–V9, W1–W6) were approved on 2026-11-04, while implementing F1.11b.
+  The precisions of §11 (V1–V9, W1–W6) were approved on 2026-11-04, while implementing F1.11b
+  part 2a; X1–X10 on 2026-11-05, before part 2b was written, and X11 the same day, when the
+  property test of part 2b found the case.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with
@@ -273,10 +275,11 @@ voice) arrive with the first interface that needs them (F2), using the same mech
 | U10 | Marks inside deleted bars | **state marks (meter, clef, key, tempo) carried to the next bar, dynamics deleted**; delete all; carry all | **The first**: the remaining music keeps its meaning (pitches, meter, tempo); a dynamic belongs to the deleted music |
 | U11 | Form markings made invalid by a deletion | **cascade (delete them too, report them)**; refuse the deletion | **Cascade**: the deletion is one undo step, so nothing is lost; refusing would make the user hunt for the markings first |
 
-### 11. Precisions made while implementing F1.11b (owner, 2026-11-04)
+### 11. Precisions made while implementing F1.11b (owner, 2026-11-04 and 2026-11-05)
 
-Approved by the owner before the code of F1.11b part 2a was written, as §7 allows for the meter
-change. They make §1, §4 and §6 precise; none of them changes a decision above.
+Approved by the owner before the code of F1.11b part 2a (V, W) and part 2b (X1–X10) was written,
+as §7 allows for the meter change; X11 when the property test of part 2b found its case. They make
+§1, §4, §6 and §9 precise; none of them changes a decision above.
 
 | # | Precision |
 |---|---|
@@ -295,6 +298,17 @@ change. They make §1, §4 and §6 precise; none of them changes a decision abov
 | W4 | Deleting bars **clips** gradual tempo changes like hairpins (the end inside the run moves to the cut point). If the tempo last in force inside the run comes from a gradual change ending inside it, it arrives at the first bar after the run as an **immediate** mark of its target tempo, without text. A gradual change that goes on past the run cannot start the score (ADR-0021): when the run starts the score, the score starts at the tempo the change **arrives at** (the initial mark keeps its text) and the change is deleted. Only the rest of the change plays at the wrong tempo; from its end on the music plays as before, whereas starting at the tempo it started from would leave everything after it wrong up to the next tempo mark (owner's choice). |
 | W5 | The cascade of §6 runs the form checks of `validate` (rules 8–11) again and deletes the marking each one reports, until the form is valid. A bar repeat that loses source bars is deleted; one that loses repeated bars keeps a multiple of its span. |
 | W6 | "Inside a bar repeat" (§6) means **from the first bar of its source to its end**: inserting there is refused, because it would change what the sign repeats. |
+| X1 | Voltas are added **a whole group at a time** (`AddVoltas`), with the end repeats the group lacks (with the group's number of plays); a repeated section with its two barlines (`AddRepeat`). A volta alone is never valid, so adding one at a time could never succeed. |
+| X2 | **Removing** a mark or a form marking removes it and then deletes in **cascade** (as W5) the form markings it left invalid: a jump whose segno is gone, the rest of a volta group. |
+| X3 | **Adding, moving and changing never delete anything**: a result that breaks a rule is refused with the typed violation of the local check (a hairpin overlapping one of the same scope, a tempo change inside a gradual one, a jump to a missing marker, a duplicate dynamic). |
+| X4 | A bar repeat over bars that hold music is **refused**; "empty the bars and put the sign" is a composed command of F2.22, like the overwriting of V2. |
+| X5 | Changing a mark is **one command with its whole new description**, keeping its ID and its kind (`ChangeMark`); a drag sends it inside a gesture, and the compaction keeps one old value. Marks are described without IDs (`MarkSpec`): a new one takes its ID from the counter. |
+| X6 | Clefs and keys **never change a pitch** (pitches are stored as spelled at concert pitch); respelling after a key change will be a command of its own (transposition or respelling). |
+| X7 | A tuplet is **added empty** (incomplete is a valid state; its notes are entered with `EnterEvent`), **changed in place** (ratio, unit, look; its parent kept; refused if its notes would then overlap), and **removed with the events it contains** and the tuplets nested in it; turning its notes into plain values is a renotation of F2B or F2.22. |
+| X8 | The values the document has once (initial tempo, key, each staff's clef, numbering style) are **set, never removed**; the initial tempo stays immediate. |
+| X9 | The per-bar data that **does not move a barline** (beat grouping, uncounted bar, numbering restart) has its commands in F1.11b; irregular and free bars and meter changes, which do, belong to F1.11c. |
+| X10 | The local check extends to the marks: the ends of a slur, the hairpins of its instrument, the tempo marks (one walk), the form (rules 8–11), only when the command touched them; the property test keeps running the full `validate` after every command. |
+| X11 | Bars inserted **between two voltas of a group** (the earlier one ending just before the point, the next one starting at it) **join the earlier volta**, and the end repeat that closed it moves to the end of the last new bar (owner's choice, 2026-11-05): otherwise they would fall outside both voltas and the group would be invalid. |
 
 ## Alternatives rejected
 

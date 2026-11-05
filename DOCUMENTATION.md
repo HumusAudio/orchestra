@@ -1203,6 +1203,8 @@ of `spikes/model/` (1 000 bars, 30 staves, 41 voices, 221 169 noteheads; no tupl
 builder and measures what the document keeps with the new `net_bytes` of `orchestra-test-support`:
 **257 bytes per note** (56.9 MB), events, derived indices and inline offsets included. The test fails
 above **285** (the measure plus about 10%), so that a structure that grows is a deliberate decision.
+Since F1.11b part 2b the score comes from `tests/common/score.rs`, shared with the editor's
+benchmarks.
 
 **Benchmarks** (`benches/dynamic.rs`; instructions): adding a tempo mark near the start of 1 000 bars
 with 250 marks, half of them gradual, which derives the whole map again, ≈ 985 000 (about 0.3 ms,
@@ -1424,7 +1426,7 @@ at once that a transaction may also fail at the end, when a moved tempo mark lan
 change: the model now expects that. Five injected bugs (undo in the wrong order, notehead index left
 behind by a replacement, slur index entry left behind, no chunks for new bars, a removed event
 forgetting its place) were all caught; the second one only after the generator learned to change
-the noteheads of a chord. The benchmarks of the editor come with part 2b.
+the noteheads of a chord. The benchmarks of the editor came with part 2b (see below).
 
 #### Commands, gestures and the local check
 
@@ -1466,8 +1468,8 @@ The commands of part 2a:
   overfull, a valid state); a new pitch changes the **whole tie chain** (W2); removing the last
   notehead deletes the event.
 - `InsertBars { at, count }`: empty bars with the meter, clef, key and tempo in force before them;
-  ranges spanning the point grow. Refused from the first bar of a bar repeat's source to its end
-  (W6).
+  ranges spanning the point grow; between two voltas of a group the new bars join the earlier one
+  (X11, part 2b). Refused from the first bar of a bar repeat's source to its end (W6).
 - `DeleteBars { at, count }`: the events go (as `DeleteEvent`), the dynamics too; the meter, clef,
   key and tempo last in force inside the run move to the first bar after it (at the start of the
   score they become the initial values); hairpins, pass rules, voltas, bar repeats and gradual
@@ -1520,6 +1522,112 @@ one run (proptest picks new cases each time): 892 commands carried out and 332 r
 different kinds of refusal. Seven injected bugs (ties into a deleted note not cleared, no compaction, clef not carried,
 no cascade, the local check skipping slurs or arriving ties, grace notes not deleted, the wrong tempo at
 the start after a cut accelerando) were all caught.
+
+#### Commands on marks, the form and tuplets
+
+F1.11b part 2b completes the commands of ADR-0026 §9 (module `mark_command`, with the precisions
+X1–X11 of ADR-0026 §11, approved by the owner on 2026-11-05). A mark is described by a
+**`MarkSpec`**: what it is and where it sits, **without an ID**. The ID of a new mark comes from
+the document's counter, and a changed mark keeps its own, so the same description serves both
+adding and changing, and nobody builds an object with an ID of their own choosing.
+
+```rust
+// A dynamic: described without an ID; the ID comes from the counter.
+let changes = editor.execute(&Command::AddMark(MarkSpec::Dynamic {
+    instrument: piano,
+    at: ScorePoint::start_of(bar_3),
+    placement: DynamicPlacement::instrument(lower_staff),
+    mark: DynamicMark::Level(DynamicLevel::F),
+}))?;
+let dynamic = changes.inserted()[0];
+// Moved to bar 4: same ID, same kind, the whole new description (X5).
+editor.execute(&Command::ChangeMark { mark: dynamic, to: forte_at_bar_4 })?;
+// Removed; the form markings it leaves invalid would go in cascade (X2).
+editor.execute(&Command::RemoveMark(dynamic))?;
+// A first and a second ending, with the end repeat the first one lacks (X1).
+editor.execute(&Command::AddVoltas(vec![first_ending, second_ending]))?;
+```
+
+The new commands:
+
+- `AddMark(MarkSpec)`, `ChangeMark { mark, to }`, `RemoveMark(ObjectRef)`: every mark (slurs,
+  dynamics, hairpins, tempo marks, clef and key changes, key overrides) and every form marking
+  (repeat barlines, voltas, markers, jumps, bar repeats, pass rules). **Adding, moving and
+  changing never delete anything** (X3): a result that breaks a rule is refused with the typed
+  violation (a hairpin overlapping another one of the same scope, a tempo mark inside a gradual
+  change, a jump whose marker is missing, a bar repeat over bars that hold music, X4). A change
+  keeps the ID and the **kind** (X5: a dynamic cannot become a hairpin, `MarkKindMismatch`); a drag
+  sends it inside a gesture, and the compaction keeps one old value. **Removing** deletes in
+  **cascade** the form markings it left invalid (X2, like deleting bars): removing the segno takes
+  the D.S. along, in the same step. Events, tuplets, bars and the initial values are not marks
+  (`NotAMark`): they have commands of their own.
+- `AddRepeat { start, end, times }` and `AddVoltas(Vec<NewVolta>)` (X1): a volta alone is never
+  valid (a group has at least two, with the end repeat of the section), so voltas are added **a
+  whole group at a time**, together with the end repeats the group lacks (with the group's number
+  of plays), and a repeated section with its two barlines.
+- `AddTuplet`, `ChangeTuplet`, `RemoveTuplet` (X7): a tuplet is added **empty** (an incomplete
+  tuplet is a valid state) and filled with `EnterEvent`; changing its ratio or look replaces it
+  **in place** (the new `Document::replace_tuplet_in_place` edit path, which names the cells of
+  its events because their durations change, so the local check refuses a ratio that makes them
+  overlap); removing it takes along the events it contains and the tuplets nested in it.
+- `SetInitial(Initial)` (X8): the initial tempo (immediate), key, a staff's clef, the numbering
+  style; set, never removed. A new key or clef **changes no pitch** (X6): pitches are stored as
+  spelled at concert pitch, and respelling will be a command of its own.
+- `SetBarGrouping`, `SetUncounted`, `SetNumberingRestart` (X9): the per-bar data that does not move
+  a barline. Irregular and free bars and meter changes, which do, come with F1.11c.
+
+**Between two voltas (X11).** The property test found that `InsertBars` (part 2a) put new bars
+between a first and a second ending, outside both, leaving the group invalid: no range spans that
+point. The owner chose that the new bars **join the earlier volta**, and the end repeat that closed
+it moves to the end of the last new bar.
+
+**The local check, second half** (`Document::check_objects`, X10). After every command except the
+bar commands and `RemoveMark` (which keep the rules by construction or with the cascade),
+`command::check` runs `check_cells` on the cells and `check_objects` on the marks the command
+inserted or replaced: the ends of a slur, the hairpins of its instrument, the walk over the tempo
+marks once if a tempo mark changed, the form checks once if a form marking changed. Without it a
+tempo mark inside a gradual change would only fail when the transaction derives the tempo map at
+its end, taking the good commands of the same transaction down with it.
+
+**Tests** (`src/mark_command_tests.rs`): sixteen hand-written cases, one per decision X1–X11, and
+the property test of `command_tests`, which now draws from 21 kinds of command (12 new ones: marks
+added, moved and removed, slurs, tempo marks, repeats, volta groups, markers, jumps, bar repeats,
+tuplets, clefs, keys, per-bar data). 12 000 random sequences passed after the fix of X11. Seven
+injected bugs (no hairpin check, no cascade on removal, the tuplet cells not named, the end repeat
+of a volta group not added, the end repeat not moved by X11, no form check, no tempo check) were
+all caught; the last one only after a test of a refused tempo mark inside a larger transaction was
+added.
+
+#### Benchmarks of the editor and memory of the history
+
+The normal and heavy scores (100 bars × 10 staves, 1 000 bars × 30 staves) are generated by
+`tests/common/score.rs`, shared with `#[path]` by `tests/memory.rs` (which measures the same 257
+bytes per note as before), `tests/history_memory.rs` and `benches/editor.rs`; an optional empty
+**editing instrument** at the end receives the notes the benchmarks enter. `benches/editor.rs`
+counts instructions on both scores (heavy score; batches of 64 divided by 64): entering a note
+end to end ≈ 8 700, adding a dynamic ≈ 5 200, undoing a 200-note paste ≈ 385 000, inserting a
+bar ≈ 132 000, deleting one ≈ 978 000 (with clipping, carrying and cascade), one update of a
+1 000-update gesture ≈ 14 500. The setup checks that every command of a batch succeeds, so that
+no refusal is measured by mistake. Everything is far under the 1 ms of a note and the 16 ms of
+ADR-0007.
+
+`tests/history_memory.rs` measures the heap one step of the history really holds: an editor with a
+limit of 0 keeps only the last step, and turning it back into its document frees exactly the
+history. Its first run found that the steps kept the spare capacity of their vectors (a 200-note
+paste held 53 kB for an estimate of 42 kB): `Step::undoing` now shrinks them, and the estimate is
+exact but for the texts it does not count:
+
+```text
+step                                         estimate     measured
+one small edit (overhead)                         208          336
+one note entered                                  208          336
+200 notes pasted                                41600        41728
+1 000-update gesture                              208          336
+100 bars of the heavy score deleted           4567688      4567896
+```
+
+The difference of 128 bytes is the deque of the history itself. The test fails if the estimate
+falls below 90% of the measure, so the 128 MB limit stays honest.
 
 ### orchestra-playback
 

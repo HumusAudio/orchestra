@@ -47,7 +47,7 @@
 
 use std::collections::HashSet;
 
-use orchestra_core_time::{BarIndex, BarKind, BarSpan, Duration, IrregularBar};
+use orchestra_core_time::{BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar};
 
 use crate::bar_repeat::BarRepeat;
 use crate::document::{Document, DocumentError, Placement};
@@ -55,9 +55,10 @@ use crate::dynamic::Hairpin;
 use crate::edit::{Edit, Initial, MeterEdit, Object, ObjectRef};
 use crate::editor::{CommandError, Transaction};
 use crate::event::{
-    BaseValue, Chord, Event, EventBody, Note, NoteValue, PlacedEvent, Rest, RestValue, Tie,
+    BaseValue, Chord, Event, EventBody, Note, NoteValue, PlacedEvent, Rest, RestValue, Tie, Tuplet,
 };
 use crate::id::{BarId, EventId, IdMap, IdSet, NoteId, StaffId, TupletId, VoiceId};
+use crate::mark_command::{self, MarkSpec, NewVolta};
 use crate::marking::{
     Arpeggio, ArticulationSet, Fermata, Grace, GraceAttach, Ornament, PerformanceOffsets,
 };
@@ -77,9 +78,10 @@ const MAX_VALUES_PER_PART: usize = 16;
 
 /// What the user asks for (see the module documentation).
 ///
-/// The list is the part of ADR-0026 §9 that F1.11b part 2a implements: the event commands and the
-/// bar commands. The commands on marks and form markings (part 2b) and the meter change (F1.11c)
-/// are added as new variants; `#[non_exhaustive]` lets that happen without breaking callers.
+/// The list is the part of ADR-0026 §9 that F1.11b implements: the event commands and the bar
+/// commands (part 2a), the commands on marks, form markings, tuplets, the initial values and the
+/// per-bar data (part 2b, `crate::mark_command`). The meter change (F1.11c) will be added as a new
+/// variant; `#[non_exhaustive]` lets that happen without breaking callers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Command {
@@ -100,8 +102,8 @@ pub enum Command {
     /// Inserts `count` empty bars before the bar at `at` (`at` = the number of bars appends them)
     /// (ADR-0026 §6). The new bars take the meter, clef, key and tempo in force just before `at`
     /// (at `at` = 0, those of the first bar); what stood at the start of bar `at` moves on with
-    /// it. Ranges spanning the point grow. Refused between the source and the end of a bar repeat
-    /// (W6).
+    /// it. Ranges spanning the point grow; between two voltas of a group the new bars join the
+    /// earlier one (X11). Refused between the source and the end of a bar repeat (W6).
     InsertBars {
         /// Where the new bars go.
         at: BarIndex,
@@ -119,6 +121,76 @@ pub enum Command {
         at: BarIndex,
         /// How many (0 does nothing).
         count: u32,
+    },
+    /// Adds a mark or a form marking (X3: refused, never deleting anything, if the result breaks
+    /// a rule). A volta is normally added with its group, [`AddVoltas`](Self::AddVoltas) (X1).
+    AddMark(MarkSpec),
+    /// Gives an existing mark a new description, keeping its ID and its kind (X5): a move, a new
+    /// text, a new end… A drag sends it inside a gesture. Refused if the result breaks a rule (X3).
+    ChangeMark {
+        /// The mark.
+        mark: ObjectRef,
+        /// Its new description, of the same kind.
+        to: MarkSpec,
+    },
+    /// Removes a mark or a form marking, and deletes in cascade the form markings it leaves
+    /// invalid (X2, as W5).
+    RemoveMark(ObjectRef),
+    /// Adds a repeated section: a start repeat at the start of `start` and an end repeat at the
+    /// end of `end` (X1).
+    AddRepeat {
+        /// The first bar of the section.
+        start: BarId,
+        /// The last bar of the section.
+        end: BarId,
+        /// The total number of plays, 2 to [`MAX_PLAYS`](crate::MAX_PLAYS).
+        times: u8,
+    },
+    /// Adds a whole group of voltas, in order, with the end repeats it lacks (X1).
+    AddVoltas(Vec<NewVolta>),
+    /// Adds an empty tuplet to a voice, nested in `parent` if given (X7). Its notes are then
+    /// entered with [`EnterEvent`](Self::EnterEvent).
+    AddTuplet {
+        /// The voice.
+        voice: VoiceId,
+        /// The ratio, unit and look (its own parent field is ignored).
+        tuplet: Tuplet,
+        /// The tuplet it is nested in, of the same voice.
+        parent: Option<TupletId>,
+    },
+    /// Changes a tuplet's ratio, unit and look, keeping its parent (X7). Refused if its events
+    /// would then overlap.
+    ChangeTuplet {
+        /// The tuplet.
+        tuplet: TupletId,
+        /// The new ratio, unit and look (its parent field is ignored).
+        to: Tuplet,
+    },
+    /// Removes a tuplet with the events it contains and the tuplets nested in it (X7).
+    RemoveTuplet(TupletId),
+    /// Sets a value the document has once: the initial tempo (immediate), key, a staff's clef, the
+    /// numbering style (X8). No pitch changes (X6).
+    SetInitial(Initial),
+    /// Sets the beat grouping of one bar, or `None` for its section's counting (X9, ADR-0019).
+    SetBarGrouping {
+        /// The bar.
+        bar: BarId,
+        /// The grouping.
+        grouping: Option<BeatGrouping>,
+    },
+    /// Leaves a bar out of the displayed numbering, or counts it again (X9).
+    SetUncounted {
+        /// The bar.
+        bar: BarId,
+        /// `true` to leave it uncounted.
+        uncounted: bool,
+    },
+    /// Restarts the displayed numbering at a bar, or removes the restart with `None` (X9).
+    SetNumberingRestart {
+        /// The bar.
+        bar: BarId,
+        /// The number it restarts with.
+        number: Option<u32>,
     },
 }
 
@@ -216,16 +288,58 @@ pub(crate) fn run(tx: &mut Transaction<'_>, command: &Command) -> Result<(), Com
         Command::ChangeEvent { event, change } => change_event(tx, *event, *change),
         Command::InsertBars { at, count } => insert_bars(tx, *at, *count),
         Command::DeleteBars { at, count } => delete_bars(tx, *at, *count),
+        Command::AddMark(spec) => mark_command::add_mark(tx, spec),
+        Command::ChangeMark { mark, to } => mark_command::change_mark(tx, *mark, to),
+        Command::RemoveMark(mark) => mark_command::remove_mark(tx, *mark),
+        Command::AddRepeat { start, end, times } => {
+            mark_command::add_repeat(tx, *start, *end, *times)
+        }
+        Command::AddVoltas(voltas) => mark_command::add_voltas(tx, voltas),
+        Command::AddTuplet {
+            voice,
+            tuplet,
+            parent,
+        } => mark_command::add_tuplet(tx, *voice, *tuplet, *parent),
+        Command::ChangeTuplet { tuplet, to } => mark_command::change_tuplet(tx, *tuplet, *to),
+        Command::RemoveTuplet(tuplet) => mark_command::remove_tuplet(tx, *tuplet),
+        Command::SetInitial(initial) => mark_command::set_initial(tx, initial),
+        Command::SetBarGrouping { bar, grouping } => {
+            mark_command::set_bar_grouping(tx, *bar, *grouping)
+        }
+        Command::SetUncounted { bar, uncounted } => {
+            mark_command::set_uncounted(tx, *bar, *uncounted)
+        }
+        Command::SetNumberingRestart { bar, number } => {
+            mark_command::set_numbering_restart(tx, *bar, *number)
+        }
     }
 }
 
-/// Whether a command is one whose result the local check verifies (the event commands), or one
-/// that keeps the rules by construction (the bar commands, see the module documentation). O(1).
-pub(crate) const fn checks_cells(command: &Command) -> bool {
-    matches!(
-        command,
-        Command::EnterEvent(_) | Command::DeleteEvent(_) | Command::ChangeEvent { .. }
-    )
+/// The local check that follows a command (V8, X10): the rules its edits may have broken,
+/// checked only where it touched the document. A refusal is reverted by the editor.
+///
+/// - The **bar commands** keep the rules by construction (see the module documentation), and
+///   **removing a mark** ends with the cascade, which leaves the form valid (X2): nothing to
+///   check.
+/// - Every other command passes `Document::check_cells` on the cells it touched (the event
+///   commands, and the tuplet commands whose events change) and `Document::check_objects` on the
+///   marks it inserted or replaced (a slur's ends, a hairpin's neighbours, the tempo marks, the
+///   form).
+///
+/// # Errors
+/// [`DocumentError::Invalid`] with the first violation found.
+pub(crate) fn check(
+    doc: &Document,
+    command: &Command,
+    changes: &crate::change::ChangeSet,
+) -> Result<(), DocumentError> {
+    match command {
+        Command::InsertBars { .. } | Command::DeleteBars { .. } | Command::RemoveMark(_) => Ok(()),
+        _ => {
+            doc.check_cells(changes)?;
+            doc.check_objects(changes)
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -635,7 +749,7 @@ fn graces_of(doc: &Document, id: EventId) -> Result<Vec<EventId>, DocumentError>
 /// # Complexity
 /// O(e × (k + noteheads + slurs)) for e events, plus O(events of the voice) per tuplet that may
 /// have lost its last member (the "in use" check of the edit).
-fn delete_events(tx: &mut Transaction<'_>, ids: &[EventId]) -> Result<(), CommandError> {
+pub(crate) fn delete_events(tx: &mut Transaction<'_>, ids: &[EventId]) -> Result<(), CommandError> {
     let doc = tx.document();
     // Everything that goes: the events and their grace notes, without duplicates, in a stable
     // order (the given one, each followed by its graces).
@@ -1034,13 +1148,22 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
 /// first bar keep the same meter, and the initial clef, key and tempo now apply to the new bars
 /// first. Ranges whose ends are on both sides of the point grow, because their ends are `BarId`s.
 ///
+/// # Between two voltas of a group (X11)
+/// A point between two voltas of one group (the first one ending on the bar before `at`, the
+/// next one starting on bar `at`) is spanned by no range, so the new bars would fall between the
+/// voltas, outside both, and the group would no longer be valid. There they **join the earlier
+/// volta**, which ends on the last new bar, and the end repeat that closed it moves to the end of
+/// that bar too (owner's choice, 2026-11-05): the new bars take what is in force just before them,
+/// as everywhere else, and the form stays valid.
+///
 /// # Refused (W6)
 /// Between the first bar of a bar repeat's source and the end of the bar repeat (exclusive at
 /// both ends): the new bars would either change what the repeat repeats or become repeated bars
 /// of a span they do not fit. [`DocumentError::InsideBarRepeat`].
 ///
 /// # Complexity
-/// O(r) for the r bar repeats, then the edit: O(B × V) pointer moves and the meter map rebuild.
+/// O(r + f) for the r bar repeats and the f form markings, then the edit: O(B × V) pointer moves
+/// and the meter map rebuild.
 fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(), CommandError> {
     if count == 0 {
         return Ok(());
@@ -1071,11 +1194,56 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
             .ok_or(DocumentError::Inconsistent)?;
         meter.set_meter_change(BarIndex::FIRST, first);
     }
+    // X11: the volta ending just before the point, when the next volta of its group starts
+    // right at it, and the end repeats at the end of its last bar. Read before the bars move.
+    let mut grow: Vec<crate::form::Volta> = Vec::new();
+    let mut repeat_ends: Vec<crate::form::RepeatEnd> = Vec::new();
+    let before = at
+        .get()
+        .checked_sub(1)
+        .and_then(|i| doc.bars().id_at(BarIndex::new(i)));
+    if let (Some(before), Some(next)) = (before, doc.bars().id_at(at)) {
+        for pair in doc.form().voltas().windows(2) {
+            if let [earlier, later] = pair
+                && earlier.last() == before
+                && later.first() == next
+                && !later.passes().contains(1)
+            {
+                grow.push(earlier.clone());
+            }
+        }
+        if !grow.is_empty() {
+            repeat_ends.extend(
+                doc.form()
+                    .repeat_ends()
+                    .iter()
+                    .filter(|r| r.bar() == before)
+                    .copied(),
+            );
+        }
+    }
     let mut ids = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
     for _ in 0..count {
         ids.push(BarId::from_counter(tx.new_id()?));
     }
-    tx.apply(Edit::InsertBars { at, ids, meter })
+    let last = *ids.last().ok_or(DocumentError::Inconsistent)?;
+    tx.apply(Edit::InsertBars { at, ids, meter })?;
+    for volta in grow {
+        tx.apply(Edit::Replace(Object::Volta(crate::form::Volta::new(
+            volta.id(),
+            volta.first(),
+            last,
+            volta.passes(),
+            volta.closed(),
+            volta.text().map(Box::from),
+        ))))?;
+    }
+    for repeat in repeat_ends {
+        tx.apply(Edit::Replace(Object::RepeatEnd(
+            crate::form::RepeatEnd::new(repeat.id(), last, repeat.times()),
+        )))?;
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1663,7 +1831,7 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
 /// # Errors
 /// A violation that names no form marking (never expected after the steps before), or the
 /// edit's own error.
-fn cascade(tx: &mut Transaction<'_>) -> Result<(), CommandError> {
+pub(crate) fn cascade(tx: &mut Transaction<'_>) -> Result<(), CommandError> {
     loop {
         let doc = tx.document();
         let result = doc

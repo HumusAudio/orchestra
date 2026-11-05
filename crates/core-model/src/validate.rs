@@ -595,6 +595,87 @@ impl Document {
         }
         Ok(())
     }
+
+    /// The local check of the marks a command inserted or replaced (X10): the rules of
+    /// [`validate`](Self::validate) that adding, moving or changing a mark can break, checked only
+    /// where the command acted. The other half of the local check, next to
+    /// [`check_cells`](Self::check_cells).
+    ///
+    /// - **Slurs** (rule 5): the ends of each slur inserted or replaced.
+    /// - **Hairpins** (rule 6): the hairpins of the instrument now holding each one inserted or
+    ///   replaced.
+    /// - **Tempo marks** (rule 7): the walk over the tempo marks, once, if any tempo mark (or the
+    ///   initial one) was inserted or replaced.
+    /// - **The form** (rules 8–11): the form checks, once, if any form marking was inserted or
+    ///   replaced (they also check the pass rules, and the bar repeats against the music: X4).
+    ///
+    /// Dynamics, clef and key changes and key overrides have no rule beyond what their edit
+    /// checks (one per point and scope). Removed marks need no check: a removal ends with the
+    /// cascade of the form (X2), and no other rule can be broken by taking a mark away.
+    ///
+    /// # Why the hairpins of a whole instrument
+    /// The edit already looks the hairpin up linearly in its instrument's list (there is no
+    /// index from a hairpin ID to its instrument), so the check costs the same order as the edit:
+    /// O(h · s) for the h hairpins and s scopes of the instrument (both small), with no
+    /// allocation beyond one small vector. Checking only the two same-scope neighbours would save
+    /// nothing measurable.
+    ///
+    /// # Complexity
+    /// O(entries of the change set), plus the checks above when they apply: O(t) for the t tempo
+    /// marks, O(f) for the f form markings plus O(events of the bar-repeat bars). Never O(score)
+    /// for a dynamic, a slur or a hairpin.
+    ///
+    /// # Errors
+    /// [`DocumentError::Invalid`] with the first violation found.
+    pub(crate) fn check_objects(
+        &self,
+        changes: &crate::change::ChangeSet,
+    ) -> Result<(), DocumentError> {
+        use crate::edit::ObjectRef;
+        let mut tempo = false;
+        let mut form = false;
+        let mut ends: Vec<(DynamicScope, (u32, Duration))> = Vec::new();
+        for &name in changes.inserted().iter().chain(changes.replaced()) {
+            match name {
+                ObjectRef::Slur(id) => {
+                    // A slur inserted and removed again within the command is not there to check.
+                    if let Some((instrument, slur)) = self.slur(id) {
+                        self.check_slur(self, instrument, id, slur.start(), slur.end())?;
+                    }
+                }
+                ObjectRef::Hairpin(id) => {
+                    if let Some(instrument) = self
+                        .instruments()
+                        .find(|i| i.hairpins().iter().any(|h| h.id() == id))
+                    {
+                        self.check_hairpins(instrument, &mut ends)?;
+                    }
+                }
+                ObjectRef::TempoMark(_) | ObjectRef::InitialTempo => tempo = true,
+                ObjectRef::RepeatStart(_)
+                | ObjectRef::RepeatEnd(_)
+                | ObjectRef::Volta(_)
+                | ObjectRef::Marker(_)
+                | ObjectRef::Jump(_)
+                | ObjectRef::BarRepeat(_)
+                | ObjectRef::PassRule(_) => form = true,
+                _ => {}
+            }
+        }
+        if tempo {
+            // Rule 7, without rebuilding the map: the transaction derives it once, at its end.
+            self.walk_tempo_marks(|_, _| {})?;
+        }
+        if form {
+            // Rules 8 and 9 first, as `validate` does: the later rules look the sections up.
+            self.check_form()?;
+            self.check_jumps()?;
+            for instrument in self.instruments() {
+                self.check_bar_repeats_and_pass_rules(instrument)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Which instrument owns a voice: the tie and slur rules compare the instruments of their two ends.

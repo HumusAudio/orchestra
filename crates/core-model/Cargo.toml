@@ -59,5 +59,12 @@ harness = false
 name = "form"
 harness = false
 
+# Instruction-count benchmarks of the editor on the normal and heavy scores: entering a note and
+# adding a dynamic end to end, undoing a 200-note paste, inserting and deleting a bar, a
+# 1 000-update gesture (SCALETTA F1.11b part 2b, ADR-0026 §8).
+[[bench]]
+name = "editor"
+harness = false
+
 [lints]
 workspace = true

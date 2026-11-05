@@ -1275,7 +1275,8 @@ una partitura con la forma di quella pesante di `spikes/model/` (1 000 battute, 
 221 169 teste di nota; niente gruppi irregolari) e misura ciò che il documento trattiene con il nuovo
 `net_bytes` di `orchestra-test-support`: **257 byte per nota** (56,9 MB), compresi eventi, indici
 ricavati e scostamenti in linea. Il test fallisce oltre **285** (la misura più circa il 10%), così che
-una struttura che cresce sia una decisione voluta.
+una struttura che cresce sia una decisione voluta. Da F1.11b parte 2b la partitura viene da
+`tests/common/score.rs`, condiviso con i benchmark dell'editor.
 
 **Benchmark** (`benches/dynamic.rs`; istruzioni): aggiungere un'indicazione di tempo vicino all'inizio
 di 1 000 battute con 250 indicazioni, metà graduali, che ricava di nuovo tutta la mappa, ≈ 985 000
@@ -1517,7 +1518,7 @@ prevede. Cinque bug iniettati (undo nell'ordine sbagliato, indice delle teste di
 indietro da una sostituzione, voce dell'indice delle legature lasciata indietro, nessun blocco per
 le battute nuove, un evento tolto che dimentica il suo posto) sono stati tutti presi; il secondo solo
 dopo che il generatore ha imparato a cambiare le teste di nota di un accordo. I benchmark dell'editor
-arrivano con la parte 2b.
+sono arrivati con la parte 2b (vedi sotto).
 
 #### Comandi, gesti e verifica locale
 
@@ -1562,8 +1563,9 @@ I comandi della parte 2a:
   stato valido); una nuova altezza cambia **tutta la catena di note legate** (W2); togliere l'ultima
   testa di nota cancella l'evento.
 - `InsertBars { at, count }`: battute vuote con il metro, la chiave, l'armatura e il tempo in vigore
-  prima di loro; gli intervalli a cavallo del punto si allungano. Rifiutato dalla prima battuta
-  d'origine di una ripetizione di battuta fino alla sua fine (W6).
+  prima di loro; gli intervalli a cavallo del punto si allungano; fra due volte di un gruppo le
+  battute nuove entrano nella precedente (X11, parte 2b). Rifiutato dalla prima battuta d'origine di
+  una ripetizione di battuta fino alla sua fine (W6).
 - `DeleteBars { at, count }`: gli eventi se ne vanno (come con `DeleteEvent`), le dinamiche anche;
   il metro, la chiave, l'armatura e il tempo in vigore per ultimi dentro le battute passano alla
   prima battuta dopo (all'inizio della partitura diventano i valori iniziali); forcelle, regole di
@@ -1621,6 +1623,117 @@ con 13 tipi di rifiuto diversi. Sette bug iniettati (legature verso una nota can
 compattazione, chiave non trasportata, niente cascata, la verifica locale che salta le legature di
 portamento o quelle in arrivo, abbellimenti non cancellati, il tempo sbagliato
 all'inizio dopo un accelerando tagliato) sono stati tutti presi.
+
+#### Comandi su marcature, forma e gruppi irregolari
+
+F1.11b parte 2b completa i comandi di ADR-0026 §9 (modulo `mark_command`, con le precisazioni
+X1–X11 di ADR-0026 §11, approvate dal proprietario il 2026-11-05). Una marcatura si descrive con una
+**`MarkSpec`**: che cosa è e dove sta, **senza ID**. L'ID di una marcatura nuova viene dal contatore
+del documento, e una marcatura cambiata tiene il suo, così la stessa descrizione serve sia per
+aggiungere sia per cambiare, e nessuno costruisce un oggetto con un ID scelto da sé.
+
+```rust
+// A dynamic: described without an ID; the ID comes from the counter.
+let changes = editor.execute(&Command::AddMark(MarkSpec::Dynamic {
+    instrument: piano,
+    at: ScorePoint::start_of(bar_3),
+    placement: DynamicPlacement::instrument(lower_staff),
+    mark: DynamicMark::Level(DynamicLevel::F),
+}))?;
+let dynamic = changes.inserted()[0];
+// Moved to bar 4: same ID, same kind, the whole new description (X5).
+editor.execute(&Command::ChangeMark { mark: dynamic, to: forte_at_bar_4 })?;
+// Removed; the form markings it leaves invalid would go in cascade (X2).
+editor.execute(&Command::RemoveMark(dynamic))?;
+// A first and a second ending, with the end repeat the first one lacks (X1).
+editor.execute(&Command::AddVoltas(vec![first_ending, second_ending]))?;
+```
+
+I comandi nuovi:
+
+- `AddMark(MarkSpec)`, `ChangeMark { mark, to }`, `RemoveMark(ObjectRef)`: ogni marcatura (legature
+  di portamento, dinamiche, forcelle, indicazioni di tempo, cambi di chiave e di armatura, armature
+  di uno strumento) e ogni marcatura di forma (stanghette di ritornello, volte, segni, salti,
+  ripetizioni di battuta, regole di passaggio). **Aggiungere, spostare e cambiare non cancellano
+  mai nulla** (X3): un risultato che viola una regola è rifiutato con la violazione tipizzata (una
+  forcella sovrapposta a un'altra dello stesso ambito, un tempo dentro un cambio graduale, un salto
+  senza il suo segno, una ripetizione di battuta su battute che contengono musica, X4). Un cambio
+  tiene l'ID e il **tipo** (X5: una dinamica non può diventare una forcella, `MarkKindMismatch`); un
+  trascinamento lo manda dentro un gesto, e la compattazione tiene un solo valore vecchio.
+  **Togliere** cancella in **cascata** le marcature di forma rese non valide (X2, come per la
+  cancellazione di battute): togliere il segno porta via il D.S., nello stesso passo. Eventi, gruppi
+  irregolari, battute e valori iniziali non sono marcature (`NotAMark`): hanno comandi propri.
+- `AddRepeat { start, end, times }` e `AddVoltas(Vec<NewVolta>)` (X1): una volta da sola non è mai
+  valida (un gruppo ne ha almeno due, con il ritornello di fine della sezione), quindi le volte si
+  aggiungono **un gruppo intero alla volta**, insieme ai ritornelli di fine che mancano al gruppo
+  (con il numero di esecuzioni del gruppo), e una sezione ripetuta con le sue due stanghette.
+- `AddTuplet`, `ChangeTuplet`, `RemoveTuplet` (X7): un gruppo irregolare si aggiunge **vuoto** (un
+  gruppo incompleto è uno stato valido) e si riempie con `EnterEvent`; cambiarne il rapporto o
+  l'aspetto lo sostituisce **sul posto** (il nuovo percorso di modifica
+  `Document::replace_tuplet_in_place`, che nomina le celle dei suoi eventi perché le loro durate
+  cambiano, così la verifica locale rifiuta un rapporto che li fa sovrapporre); toglierlo porta via
+  gli eventi che contiene e i gruppi annidati.
+- `SetInitial(Initial)` (X8): il tempo iniziale (immediato), l'armatura, la chiave di un rigo, lo
+  stile di numerazione; si impostano, non si tolgono. Un'armatura o una chiave nuova **non cambia
+  nessuna altezza** (X6): le altezze sono scritte come suonano, con la loro grafia, e ritrascriverle
+  sarà un comando a parte.
+- `SetBarGrouping`, `SetUncounted`, `SetNumberingRestart` (X9): i dati per battuta che non spostano
+  le stanghette. Battute irregolari e libere e cambi di metro, che le spostano, arrivano con F1.11c.
+
+**Fra due volte (X11).** Il test di proprietà ha trovato che `InsertBars` (parte 2a) metteva le
+battute nuove fra una prima e una seconda volta, fuori da entrambe, rendendo il gruppo non valido:
+nessun intervallo copre quel punto. Il proprietario ha scelto che le battute nuove **entrino nella
+volta precedente**, e il ritornello che la chiudeva si sposta alla fine dell'ultima battuta nuova.
+
+**La verifica locale, seconda metà** (`Document::check_objects`, X10). Dopo ogni comando tranne quelli
+sulle battute e `RemoveMark` (che rispettano le regole per costruzione o con la cascata),
+`command::check` esegue `check_cells` sulle celle e `check_objects` sulle marcature che il comando ha
+inserito o sostituito: le estremità di una legatura di portamento, le forcelle del suo strumento, il
+passaggio sulle indicazioni di tempo una volta se ne è cambiata una, i controlli della forma una
+volta se è cambiata una marcatura di forma. Senza di essa un tempo dentro un cambio graduale
+fallirebbe solo quando la transazione ricava la mappa dei tempi alla fine, portando con sé i comandi
+buoni della stessa transazione.
+
+**Test** (`src/mark_command_tests.rs`): sedici casi scritti a mano, uno per ogni decisione X1–X11, e
+il test di proprietà di `command_tests`, che ora sceglie fra 21 tipi di comando (12 nuovi: marcature
+aggiunte, spostate e tolte, legature di portamento, tempi, ritornelli, gruppi di volte, segni, salti,
+ripetizioni di battuta, gruppi irregolari, chiavi, armature, dati per battuta). Dopo la correzione di
+X11 sono passate 12 000 sequenze casuali. Sette bug iniettati (niente controllo delle forcelle, niente
+cascata alla rimozione, celle del gruppo irregolare non nominate, ritornello di fine del gruppo di
+volte non aggiunto, ritornello non spostato da X11, niente controllo della forma, niente controllo
+del tempo) sono stati tutti presi; l'ultimo solo dopo aver aggiunto un test di un tempo rifiutato
+dentro una transazione più grande.
+
+#### Benchmark dell'editor e memoria della cronologia
+
+Le partiture normale e pesante (100 battute × 10 righi, 1 000 battute × 30 righi) sono generate da
+`tests/common/score.rs`, condiviso con `#[path]` da `tests/memory.rs` (che misura gli stessi 257
+byte per nota di prima), `tests/history_memory.rs` e `benches/editor.rs`; uno **strumento di
+lavoro** vuoto e facoltativo in fondo riceve le note che i benchmark inseriscono. `benches/editor.rs`
+conta le istruzioni sulle due partiture (partitura pesante; lotti da 64 divisi per 64): inserire una
+nota dall'inizio alla fine ≈ 8 700, aggiungere una dinamica ≈ 5 200, annullare un incolla di 200 note
+≈ 385 000, inserire una battuta ≈ 132 000, cancellarne una ≈ 978 000 (con taglio, trasporto e
+cascata), un passo di un gesto da 1 000 passi ≈ 14 500. La preparazione controlla che ogni comando
+di un lotto riesca, così nessun rifiuto viene misurato per sbaglio. Tutto è molto sotto 1 ms per una
+nota e i 16 ms di ADR-0007.
+
+`tests/history_memory.rs` misura la memoria che un passo della cronologia trattiene davvero: un
+editor con limite 0 tiene solo l'ultimo passo, e riportarlo al suo documento libera esattamente la
+cronologia. La prima esecuzione ha trovato che i passi tenevano la capacità in più dei loro vettori
+(un incolla di 200 note tratteneva 53 kB per una stima di 42 kB): ora `Step::undoing` li stringe, e la
+stima è esatta, a parte i testi che non conta:
+
+```text
+step                                         estimate     measured
+one small edit (overhead)                         208          336
+one note entered                                  208          336
+200 notes pasted                                41600        41728
+1 000-update gesture                              208          336
+100 bars of the heavy score deleted           4567688      4567896
+```
+
+La differenza di 128 byte è il contenitore della cronologia stessa. Il test fallisce se la stima
+scende sotto il 90% della misura, così il limite di 128 MB resta onesto.
 
 ### orchestra-playback
 

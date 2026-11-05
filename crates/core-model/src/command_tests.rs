@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Tests of the commands and of the gestures (ADR-0026 §4, §6, §8; SCALETTA F1.11b, part 2a).
+//! Tests of the commands and of the gestures (ADR-0026 §4, §6, §8; SCALETTA F1.11b, parts 2a
+//! and 2b). The hand-written cases of part 2b are in `crate::mark_command_tests`; the property
+//! test here generates the commands of both parts.
 //!
 //! # Why inside the crate
 //! They start from the rich document of `crate::editor_tests` (every kind of object, a form with
@@ -27,20 +29,27 @@
 )]
 
 use orchestra_core_time::{
-    BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, MeterMap, Rational, Tempo,
+    BarIndex, BarKind, BeatGrouping, Duration, IrregularBar, Meter, MeterChange, MeterMap,
+    Rational, Tempo,
 };
 use proptest::prelude::*;
 
+use crate::bar_repeat::BarRepeatSpan;
 use crate::command::{Command, EventChange, NewBody, NewEvent};
 use crate::document::{Document, DocumentBuilder, DocumentError, Placement};
-use crate::edit::ObjectRef;
+use crate::dynamic::{DynamicLevel, DynamicMark, DynamicPlacement, HairpinShape};
+use crate::edit::{Initial, ObjectRef};
 use crate::editor::{CommandError, Editor};
 use crate::editor_tests::{assert_consistent, rich};
-use crate::event::{BaseValue, EventBody, NoteValue, RestValue, Tie};
-use crate::id::{BarId, EventId, NoteId, StaffId, VoiceId};
+use crate::event::{BaseValue, EventBody, NoteValue, RestValue, Tie, Tuplet};
+use crate::form::PassSet;
+use crate::id::{BarId, EventId, NoteId, StaffId, TupletId, VoiceId};
+use crate::jump::{JumpSpec, MarkerKind};
+use crate::mark_command::{MarkSpec, NewVolta};
 use crate::marking::{Fermata, Grace, GraceAttach, GraceKind};
-use crate::marks::Clef;
+use crate::marks::{Clef, KeyOverride, KeySignature, ScorePoint};
 use crate::pitch::{Alteration, Interval, Key, Mode, Pitch, Step};
+use crate::slur::SlurPlacement;
 use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
 use crate::validate::Violation;
 
@@ -910,7 +919,10 @@ fn random_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command>
     let v = NoteValue::new(values[a % 4], u8::try_from(b % 2).ok()?).ok()?;
     let steps = [Step::C, Step::D, Step::E, Step::F, Step::G];
     let event = events.get(a % events.len().max(1)).copied();
-    Some(match op % 9 {
+    if op % OPS >= 9 {
+        return random_mark_command(doc, op % OPS, a, b);
+    }
+    Some(match op % OPS {
         0 | 1 => note(voice, bar, offset, v, &[pitch(steps[b % 5])]),
         2 => Command::EnterEvent(NewEvent {
             at: Placement::new(voice, bar, offset),
@@ -963,6 +975,338 @@ fn random_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command>
     })
 }
 
+/// Shorthand: a tempo of `bpm` quarters per minute.
+fn tempo(bpm: i64) -> Tempo {
+    Tempo::new(d(1, 4), Rational::from_integer(bpm).unwrap()).unwrap()
+}
+
+/// How many kinds of random command there are: 9 on events and bars (part 2a), 12 on marks,
+/// form markings, tuplets and per-bar data (part 2b).
+const OPS: u8 = 21;
+
+/// Every mark and form marking of the document, in a stable order: what a random
+/// [`Command::ChangeMark`] or [`Command::RemoveMark`] picks from.
+fn all_marks(doc: &Document) -> Vec<ObjectRef> {
+    let mut marks = Vec::new();
+    for instrument in doc.instruments() {
+        marks.extend(instrument.slurs().iter().map(|x| ObjectRef::Slur(x.id())));
+        marks.extend(
+            instrument
+                .dynamics()
+                .iter()
+                .map(|x| ObjectRef::Dynamic(x.id())),
+        );
+        marks.extend(
+            instrument
+                .hairpins()
+                .iter()
+                .map(|x| ObjectRef::Hairpin(x.id())),
+        );
+        marks.extend(
+            instrument
+                .pass_rules()
+                .iter()
+                .map(|x| ObjectRef::PassRule(x.id())),
+        );
+        marks.extend(
+            instrument
+                .bar_repeats()
+                .iter()
+                .map(|x| ObjectRef::BarRepeat(x.id())),
+        );
+        marks.extend(
+            instrument
+                .key_overrides()
+                .as_slice()
+                .iter()
+                .map(|x| ObjectRef::KeyOverride(x.id())),
+        );
+        for staff in instrument.staves() {
+            marks.extend(
+                staff
+                    .clef_changes()
+                    .as_slice()
+                    .iter()
+                    .map(|x| ObjectRef::ClefChange(x.id())),
+            );
+        }
+    }
+    marks.extend(
+        doc.tempo_marks()
+            .as_slice()
+            .iter()
+            .map(|x| ObjectRef::TempoMark(x.id())),
+    );
+    marks.extend(
+        doc.key_changes()
+            .as_slice()
+            .iter()
+            .map(|x| ObjectRef::KeyChange(x.id())),
+    );
+    let form = doc.form();
+    marks.extend(
+        form.repeat_starts()
+            .iter()
+            .map(|x| ObjectRef::RepeatStart(x.id())),
+    );
+    marks.extend(
+        form.repeat_ends()
+            .iter()
+            .map(|x| ObjectRef::RepeatEnd(x.id())),
+    );
+    marks.extend(form.voltas().iter().map(|x| ObjectRef::Volta(x.id())));
+    marks.extend(form.markers().iter().map(|x| ObjectRef::Marker(x.id())));
+    marks.extend(form.jumps().iter().map(|x| ObjectRef::Jump(x.id())));
+    marks
+}
+
+/// One random command of part 2b (`op` from 9 to [`OPS`] − 1), built from the document as it is.
+#[allow(
+    clippy::too_many_lines,
+    reason = "one short arm per kind of command, as in `random_command`"
+)]
+fn random_mark_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command> {
+    let bars = doc.bars().ids();
+    let bar = *bars.get(a % bars.len())?;
+    let later = *bars.get((a + 1 + b % 2) % bars.len())?;
+    let offset = d(i64::try_from(b % 4).ok()?, 4);
+    let point = ScorePoint::new(bar, offset);
+    let instruments: Vec<_> = doc.instruments().collect();
+    let instrument = instruments.get(b % instruments.len())?;
+    let staff = instrument.staves().get(a % instrument.staves().len())?.id();
+    let voice = instrument.voices().get(a % instrument.voices().len())?.id();
+    let placement = if b.is_multiple_of(3) {
+        DynamicPlacement::voice(voice, staff)
+    } else {
+        DynamicPlacement::instrument(staff)
+    };
+    let levels = [DynamicLevel::P, DynamicLevel::Mf, DynamicLevel::F];
+    let events: Vec<EventId> = instrument
+        .voices()
+        .iter()
+        .flat_map(|v| {
+            (0..bars.len())
+                .flat_map(move |i| v.events_at(BarIndex::new(u32::try_from(i).unwrap_or(0))))
+        })
+        .map(|p| p.event().id())
+        .collect();
+    let marks = all_marks(doc);
+    let tuplets: Vec<TupletId> = {
+        let mut t: Vec<TupletId> = instrument
+            .voices()
+            .iter()
+            .flat_map(|v| v.content.tuplets.keys().copied())
+            .collect();
+        t.sort_unstable();
+        t
+    };
+    let eighth = NoteValue::plain(BaseValue::Eighth);
+    Some(match op {
+        9 => Command::AddMark(MarkSpec::Dynamic {
+            instrument: instrument.id(),
+            at: point,
+            placement,
+            mark: DynamicMark::Level(levels[a % 3]),
+        }),
+        10 => Command::AddMark(MarkSpec::Hairpin {
+            instrument: instrument.id(),
+            start: point,
+            end: ScorePoint::new(later, d(i64::try_from(a % 4).ok()?, 4)),
+            placement,
+            shape: if a.is_multiple_of(2) {
+                HairpinShape::CRESCENDO
+            } else {
+                HairpinShape::DIMINUENDO
+            },
+        }),
+        11 => {
+            // Moves an existing mark: a dynamic or a tempo mark to the point, a hairpin's end or
+            // a slur's end elsewhere.
+            let name = *marks.get(a % marks.len().max(1))?;
+            let to = match name {
+                ObjectRef::Dynamic(id) => {
+                    let (owner, dy) = doc.instruments().find_map(|i| {
+                        i.dynamics()
+                            .iter()
+                            .find(|x| x.id() == id)
+                            .map(|x| (i.id(), x))
+                    })?;
+                    MarkSpec::Dynamic {
+                        instrument: owner,
+                        at: point,
+                        placement: dy.placement(),
+                        mark: dy.mark().clone(),
+                    }
+                }
+                ObjectRef::Hairpin(id) => {
+                    let (owner, h) = doc.instruments().find_map(|i| {
+                        i.hairpins()
+                            .iter()
+                            .find(|x| x.id() == id)
+                            .map(|x| (i.id(), *x))
+                    })?;
+                    MarkSpec::Hairpin {
+                        instrument: owner,
+                        start: h.start(),
+                        end: ScorePoint::new(later, offset),
+                        placement: h.placement(),
+                        shape: h.shape(),
+                    }
+                }
+                ObjectRef::TempoMark(id) => {
+                    let m = doc.tempo_marks().as_slice().iter().find(|m| m.id() == id)?;
+                    MarkSpec::Tempo {
+                        at: point,
+                        mark: m.value().clone(),
+                    }
+                }
+                ObjectRef::Slur(id) => {
+                    let (_, slur) = doc.slur(id)?;
+                    MarkSpec::Slur {
+                        start: slur.start(),
+                        end: *events.get(b % events.len().max(1))?,
+                        placement: slur.placement(),
+                    }
+                }
+                ObjectRef::Marker(id) => {
+                    let m = doc.marker(id)?;
+                    MarkSpec::Marker {
+                        bar,
+                        kind: m.kind(),
+                        text: None,
+                    }
+                }
+                // Another kind with a dynamic's content: refused with `MarkKindMismatch`.
+                _ => MarkSpec::Dynamic {
+                    instrument: instrument.id(),
+                    at: point,
+                    placement,
+                    mark: DynamicMark::Level(DynamicLevel::P),
+                },
+            };
+            Command::ChangeMark { mark: name, to }
+        }
+        12 => Command::RemoveMark(*marks.get(b % marks.len().max(1))?),
+        13 => Command::AddMark(MarkSpec::Slur {
+            start: *events.get(a % events.len().max(1))?,
+            end: *events.get(b % events.len().max(1))?,
+            placement: SlurPlacement::Auto,
+        }),
+        14 => Command::AddMark(MarkSpec::Tempo {
+            at: point,
+            mark: if b.is_multiple_of(2) {
+                TempoMark::immediate(
+                    None,
+                    Metronome::shown(tempo(60 + 10 * i64::try_from(a % 8).ok()?)),
+                )
+                .ok()?
+            } else {
+                TempoMark::new(
+                    Some("rit."),
+                    Some(TempoMarkChange::Gradual(crate::tempo_mark::GradualMark {
+                        from: None,
+                        to: tempo(70),
+                        end: ScorePoint::start_of(later),
+                    })),
+                )
+                .ok()?
+            },
+        }),
+        15 => Command::AddRepeat {
+            start: bar,
+            end: later,
+            times: u8::try_from(2 + b % 2).ok()?,
+        },
+        16 => {
+            let second = *bars.get((a + 1) % bars.len())?;
+            Command::AddVoltas(vec![
+                NewVolta {
+                    first: bar,
+                    last: bar,
+                    passes: PassSet::of(&[1]).ok()?,
+                    closed: true,
+                    text: None,
+                },
+                NewVolta {
+                    first: second,
+                    last: second,
+                    passes: PassSet::of(&[2]).ok()?,
+                    closed: false,
+                    text: None,
+                },
+            ])
+        }
+        17 => match b % 3 {
+            0 => Command::AddMark(MarkSpec::Marker {
+                bar,
+                kind: [MarkerKind::Segno, MarkerKind::Coda, MarkerKind::Fine][a % 3],
+                text: None,
+            }),
+            1 => Command::AddMark(MarkSpec::Jump {
+                bar,
+                spec: JumpSpec::da_capo(),
+                text: None,
+            }),
+            _ => Command::AddMark(MarkSpec::BarRepeat {
+                staff,
+                first: bar,
+                count: 1,
+                span: BarRepeatSpan::One,
+            }),
+        },
+        18 => match b % 3 {
+            0 => Command::AddTuplet {
+                voice,
+                tuplet: Tuplet::new(3, 2, eighth).ok()?,
+                parent: tuplets
+                    .get(a % tuplets.len().max(1))
+                    .copied()
+                    .filter(|_| a.is_multiple_of(2)),
+            },
+            1 => Command::ChangeTuplet {
+                tuplet: *tuplets.get(a % tuplets.len().max(1))?,
+                to: Tuplet::new(u8::try_from(2 + a % 4).ok()?, 2, eighth).ok()?,
+            },
+            _ => Command::RemoveTuplet(*tuplets.get(a % tuplets.len().max(1))?),
+        },
+        19 => match b % 3 {
+            0 => Command::AddMark(MarkSpec::Clef {
+                staff,
+                at: point,
+                clef: Clef::BASS,
+            }),
+            1 => Command::AddMark(MarkSpec::Key {
+                at: point,
+                key: Key::traditional(i8::try_from(a % 5).ok()?, Mode::Major).ok()?,
+            }),
+            _ => Command::AddMark(MarkSpec::KeyOverride {
+                instrument: instrument.id(),
+                at: point,
+                key: KeyOverride::Signature(KeySignature::NoSignature),
+            }),
+        },
+        _ => match b % 4 {
+            0 => Command::SetBarGrouping {
+                bar,
+                grouping: (a.is_multiple_of(2))
+                    .then(|| BeatGrouping::new(&[3, 3, 2], 8).ok())
+                    .flatten(),
+            },
+            1 => Command::SetUncounted {
+                bar,
+                uncounted: a.is_multiple_of(2),
+            },
+            2 => Command::SetNumberingRestart {
+                bar,
+                number: (a.is_multiple_of(2)).then_some(u32::try_from(a).ok()?),
+            },
+            _ => Command::SetInitial(Initial::Key(
+                Key::traditional(i8::try_from(a % 3).ok()?, Mode::Minor).ok()?,
+            )),
+        },
+    })
+}
+
 /// The errors a random command may meet: refusals of the commands, never a bug of the model.
 fn expected_refusal(error: CommandError) -> bool {
     !matches!(
@@ -979,7 +1323,7 @@ proptest! {
     /// unchanged after a refusal, back to the original after undoing everything.
     #[test]
     fn commands_keep_the_document_valid(
-        steps in prop::collection::vec((0_u8..9, 0_usize..64, 0_usize..64, 0_u8..4), 1..24),
+        steps in prop::collection::vec((0_u8..OPS, 0_usize..64, 0_usize..64, 0_u8..4), 1..24),
     ) {
         let mut editor = Editor::new(rich());
         let original = editor.document().clone();
@@ -1061,7 +1405,7 @@ fn deleting_the_start_of_a_gradual_change_starts_at_its_target() {
     let Some(TempoMarkChange::Gradual(mut gradual)) = mark.value().change() else {
         panic!("the rich document's second tempo mark is gradual");
     };
-    gradual.end = crate::marks::ScorePoint::start_of(i.bars[7]);
+    gradual.end = ScorePoint::start_of(i.bars[7]);
     editor
         .transact(|tx| {
             tx.apply(crate::edit::Edit::Replace(crate::edit::Object::TempoMark(

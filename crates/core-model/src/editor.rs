@@ -28,8 +28,8 @@
 //! A [`Command`] (`crate::command`) runs inside a transaction with [`Transaction::execute`], or
 //! in a transaction of its own with [`Editor::execute`]. A command is **atomic** even inside a
 //! larger transaction: if it fails, the edits it had applied are reverted at once and the
-//! transaction goes on as if it had not been tried. The event commands then pass the **local
-//! check** (`Document::check_cells`) on the cells they touched; a refusal is reverted the same
+//! transaction goes on as if it had not been tried. A command then passes the **local check**
+//! (`crate::command::check`: the cells and the marks it touched); a refusal is reverted the same
 //! way.
 //!
 //! # Gestures (ADR-0026 §4, U4)
@@ -154,9 +154,16 @@ struct Step {
 impl Step {
     /// A step from edits listed in the order they were **applied**; the step holds their inverses
     /// in the order that undoes them (last applied, first undone). O(edits).
+    ///
+    /// The vector is shrunk to its length: it grew by doubling while the transaction ran, so up
+    /// to half of it could be spare capacity, which the estimate would not see and the history
+    /// would keep for as long as the step lives (measured by `tests/history_memory.rs`: 200 notes
+    /// pasted held 53 kB for an estimate of 42 kB). The shrink is one reallocation and copy of the
+    /// edits, O(edits), the same order as the reversal.
     fn undoing(applied_inverses: Vec<Edit>) -> Self {
         let mut edits = applied_inverses;
         edits.reverse();
+        edits.shrink_to_fit();
         let bytes = edits
             .iter()
             .map(Edit::heap_bytes)
@@ -520,12 +527,10 @@ impl Editor {
         // only at what this command touched (and a gesture can return exactly that).
         let outer = std::mem::take(&mut open.changes);
         let mut result = command::run(&mut Transaction { editor: self }, command);
-        if result.is_ok() && command::checks_cells(command) {
+        if result.is_ok() {
             let changes = self.open.as_ref().map(|open| &open.changes);
             result = changes.map_or(Ok(()), |changes| {
-                self.document
-                    .check_cells(changes)
-                    .map_err(CommandError::Document)
+                command::check(&self.document, command, changes).map_err(CommandError::Document)
             });
         }
         let open = self

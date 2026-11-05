@@ -56,6 +56,10 @@
 //!   bars (enter, delete and change events; insert and delete bars), the **gestures** of the
 //!   editor (a drag as one step of undo), and the local check of the musical rules on the cells a
 //!   command touched.
+//! - [`mark_command`] (SCALETTA F1.11b part 2b, ADR-0026 §9 and §11 X1–X10): the commands on
+//!   marks and form markings (added from a [`MarkSpec`], changed keeping their ID, removed with
+//!   the cascade of the form), on tuplets, on the initial values and on the per-bar data that
+//!   does not move a barline.
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -89,6 +93,9 @@ pub mod event;
 pub mod form;
 pub mod id;
 pub mod jump;
+pub mod mark_command;
+#[cfg(test)]
+mod mark_command_tests;
 pub mod marking;
 pub mod marks;
 pub mod pitch;
@@ -122,6 +129,7 @@ pub use id::{
     VoiceId, VoltaId,
 };
 pub use jump::{Jump, JumpFires, JumpSpec, JumpTarget, Marker, MarkerKind, RepeatsAfterJump};
+pub use mark_command::{MarkSpec, NewVolta};
 pub use marking::{
     Arpeggio, Articulation, ArticulationSet, Fermata, Grace, GraceAttach, GraceKind, Ornament,
     OrnamentError, PerformanceOffsets, TremoloStrokes,

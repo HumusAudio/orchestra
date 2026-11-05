@@ -1207,6 +1207,13 @@ impl Document {
             changes.replace(name);
             return Ok(old);
         }
+        if let Object::Tuplet { voice, id, tuplet } = &object
+            && let Some(old) = self.replace_tuplet_in_place(*voice, *id, *tuplet, &mut scratch)?
+        {
+            changes.absorb_effects(scratch);
+            changes.replace(name);
+            return Ok(old);
+        }
         let old = self.remove_object(name, &mut scratch)?;
         if let Err(e) = self.insert_object(object, &mut scratch) {
             // Put the old object back where it was: it was there a moment ago, so it fits.
@@ -1217,6 +1224,72 @@ impl Document {
         changes.absorb_effects(scratch);
         changes.replace(name);
         Ok(old)
+    }
+
+    /// Replaces a tuplet in place when it stays in the same voice with the same parent, and
+    /// returns the old one. Returns `None` (changing nothing) otherwise, so that the caller
+    /// removes and inserts it instead, which a tuplet still in use refuses
+    /// ([`DocumentError::TupletInUse`]): a tuplet with events never changes voice or parent.
+    ///
+    /// # Why in place
+    /// A tuplet's ratio or look changes while its events stay in it (X7): removing it first
+    /// would be refused, since its events use it. The events themselves do not change, but their
+    /// durations do (the ratio scales them), so every cell (voice, bar) holding an event inside
+    /// the tuplet, directly or through nested tuplets, is recorded as changed: layout redraws
+    /// them, and the local check looks for overlaps there.
+    ///
+    /// # Complexity
+    /// O(voices) to find the voice, plus O(events of the voice × depth) to find the cells (at most
+    /// [`MAX_TUPLET_DEPTH`] parent links per event).
+    fn replace_tuplet_in_place(
+        &mut self,
+        voice: VoiceId,
+        id: TupletId,
+        tuplet: Tuplet,
+        changes: &mut ChangeSet,
+    ) -> Result<Option<Object>, DocumentError> {
+        let Ok((t, v)) = self.position_of_voice(voice) else {
+            return Ok(None);
+        };
+        let content = &self.voice_at(t, v)?.content;
+        let Some(old) = content.tuplets.get(&id).copied() else {
+            return Ok(None);
+        };
+        if old.parent() != tuplet.parent() {
+            return Ok(None);
+        }
+        // Whether an event's innermost tuplet is `id` or nested in it.
+        let inside = |innermost: TupletId| {
+            let mut next = Some(innermost);
+            while let Some(current) = next {
+                if current == id {
+                    return true;
+                }
+                next = content.tuplets.get(&current).and_then(|tu| tu.parent());
+            }
+            false
+        };
+        for (index, chunk) in content.chunks.iter().enumerate() {
+            if chunk
+                .events()
+                .iter()
+                .any(|e| e.event().tuplet().is_some_and(inside))
+            {
+                let bar = self
+                    .bars
+                    .ids()
+                    .get(index)
+                    .copied()
+                    .ok_or(DocumentError::Inconsistent)?;
+                changes.cell(voice, bar);
+            }
+        }
+        self.voice_at_mut(t, v)?.content.tuplets.insert(id, tuplet);
+        Ok(Some(Object::Tuplet {
+            voice,
+            id,
+            tuplet: old,
+        }))
     }
 
     /// Replaces an event in place when it stays in the same chunk with the same (offset, slot)
