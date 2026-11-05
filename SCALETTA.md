@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.23, approvata dal proprietario il 2026-11-04.**
+> **Stato di questo documento: v0.24, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -247,7 +247,7 @@ Dettagli:
 | F1.10 | **ADR della forma**: ritornelli, volte, segno/coda, D.C./D.S. — come marcature scritte | ✅ ADR-0025 | 1 |
 | F1.10b | **Ritornelli, volte, segni e salti, ripetizioni di battuta, regole di passaggio, stile di numerazione**, `validate` | ✅ PR #18 | 2 |
 | F1.11 | **ADR dei comandi, dell'undo/redo unico e delle notifiche di modifica a grana fine** | ✅ ADR-0026 | 1 |
-| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | 🔄 parti 1 e 2a fatte | 2–3 |
+| F1.11b | **Il motore dei comandi**: modifiche elementari con inversa, transazioni, cronologia, gesti, insiemi delle modifiche; inserimento e cancellazione di battute in `core-time`; comandi su eventi, marcature, forma e battute | ✅ PR #19 | 2–3 |
 | F1.11c | **Cambio di metro** nelle due modalità (riscrittura di default, battute mantenute) | ⬜ | 1–2 |
 
 Dettagli:
@@ -388,6 +388,18 @@ Dettagli:
   forma valida), i benchmark dell'editor sulla partitura normale e pesante (una nota ≤ 1 ms,
   l'annullamento di un incolla di 200 note, inserire e cancellare una battuta, un gesto di 1 000
   passi) e la memoria per passo della cronologia, poi la PR con ADR-0026 e tutto F1.11b.
+  **Parte 2b fatta il 2026-11-05 (PR #19):** prima del codice il proprietario ha approvato le
+  precisioni X1–X10, ora ADR-0026 §11: volte aggiunte per gruppo intero e ritornelli a coppie;
+  togliere cancella in cascata, aggiungere, spostare e cambiare non cancellano mai nulla; una
+  ripetizione di battuta su battute con musica è rifiutata; cambiare una marcatura = la nuova
+  descrizione intera, stesso ID e stesso tipo; chiavi e armature non cambiano le altezze; gruppi
+  irregolari aggiunti vuoti, cambiati sul posto, tolti con le loro note; valori iniziali impostati,
+  mai tolti; i dati per battuta che non spostano le stanghette qui, il resto in F1.11c; verifica
+  locale anche sulle marcature. Il test di proprietà ha poi trovato che le battute inserite fra due
+  volte cadevano fuori da entrambe: **X11** (scelta del proprietario), entrano nella volta
+  precedente e il ritornello si sposta con loro. Benchmark sulla partitura pesante: una nota ≈ 8 700
+  istruzioni, cancellare una battuta ≈ 978 000, un passo di gesto ≈ 14 500. La stima della memoria
+  della cronologia coincide con la misura (passi ristretti alla loro lunghezza).
 - **F1.11c** Implementa ADR-0026 §7: `Rewrite` (catene di note legate, battuta irregolare finale,
   divisione delle battute sotto le marcature di forma, pause di battuta intera) e `KeepBars`, con
   casi scritti a mano, test di proprietà e benchmark; le regole di §7 si possono precisare con
@@ -435,6 +447,8 @@ Dettagli:
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
   layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
   deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
+  Da F1.11b: il generatore riusabile sostituirà `crates/core-model/tests/common/score.rs`, oggi
+  condiviso dal test della memoria, dal test della cronologia e dai benchmark dell'editor.
 
 **"Primo ascolto" anticipato (approvato il 2026-10-30, D11):**
 **F1.18:** esportazione **MIDI file** (crate `io`) degli eventi
@@ -506,6 +520,9 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 
 - ❓ **Decisione F2.18:** algoritmo di spaziatura (esistono approcci noti in letteratura, es.
   quelli basati sulle durate e sulle "molle"): Claude fa una ricerca e propone.
+- **F2.22** Da ADR-0026 §11 (X4, X6, X7), comandi composti rimandati qui: svuotare le battute e
+  mettere la ripetizione di battuta; ritrascrivere le note dopo un cambio di armatura; trasformare
+  le note di un gruppo irregolare in valori normali.
 - **F2.22b** Requisito del proprietario (2026-10-31, ADR-0019): quando si inserisce un metro misto
   (5/8, 7/8, 11/8…) l'interfaccia chiede **subito** quale raggruppamento usare, elencando le
   opzioni (5/8: 2+3, 3+2 o tenere 5; 7/8: 2+2+3, 3+2+2, 2+3+2 o tenere 7; ecc.), e ricorda che
@@ -699,3 +716,4 @@ raccomandato.
 | 2026-11-04 | 0.21 | F1.11 fatto (ADR-0026 Accepted), D08 e D21 chiuse; F1.11 diviso in F1.11b (il motore dei comandi) e F1.11c (il cambio di metro) | proprietario |
 | 2026-11-04 | 0.22 | F1.11b in corso, parte 1 fatta (modifiche elementari, editor, cronologia); confermate le scelte d'interfaccia; benchmark dell'editor spostati nella parte 2, modifica in blocco della mappa dei metri in F1.11c | proprietario |
 | 2026-11-04 | 0.23 | F1.11b: parte 2 divisa in 2a e 2b, parte 2a fatta (comandi su eventi e battute, gesti, verifica locale); precisazioni V1–V9 e W1–W6 in ADR-0026 §11, con la partenza dal tempo d'arrivo per un cambio graduale tagliato all'inizio; parte 2b definita | proprietario |
+| 2026-11-05 | 0.24 | F1.11b fatto (PR #19): parte 2b con le precisioni X1–X11 in ADR-0026 §11; note per F1.16 (generatore condiviso) e F2.22 (comandi composti rimandati) | proprietario |
