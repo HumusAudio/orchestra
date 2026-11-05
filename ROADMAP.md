@@ -360,8 +360,14 @@ rules as a query; where each bar is played; the pass-specific offsets table move
 rebuild on form, bars or maps; finite by construction). Implemented: the module `unroll`
 (`Unrolled`, `PlayedBar`, `StaffContent`, `UnrollError`); tests: sixteen cases (the hard cases of
 ADR-0025 §10) and a property test on random forms (40 000 cases passed); eight injected bugs
-caught; benchmark ≈ 2.5–3.9 million instructions for 900–1 450 played bars. **Next:** F1.13, the
-playback rules v0 (from the written intent to the played events).
+caught; benchmark ≈ 2.5–3.9 million instructions for 900–1 450 played bars. F1.12 was merged with PR #21 (SCALETTA v0.28).
+**F1.13 in progress** (2026-11-05, `feature/f1-13-adr-playback`): research (Dorico, MuseScore,
+Sibelius, MusicXML 4.0, Standard MIDI File, MIDI 2.0, MIDI Tuning Standard; the owner asked for the
+exchange formats too) and the draft **ADR-0027** (Proposed), with the choices G1–G14 for the owner
+(played notes in exact musical time with exact pitch and 16-bit velocity; ties as one note;
+articulation and dynamic defaults; grace notes on the beat; ornaments and fermatas deferred;
+offsets and bounds; the cell as the incremental unit; intonation D22 after F3.04; the split into
+F1.13b and F1.13c). **Next:** the owner's decisions on G1–G14, then the code.
 
 | Step | What | Status |
 |---|---|---|
