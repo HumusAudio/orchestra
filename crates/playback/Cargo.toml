@@ -15,5 +15,16 @@ publish.workspace = true
 orchestra-core-time.workspace = true
 orchestra-core-model.workspace = true
 
+# Test and benchmark tools only (ADR-0016); never part of the program.
+[dev-dependencies]
+proptest.workspace = true
+gungraun.workspace = true
+
+# Instruction-count benchmark of the unrolling of a score full of repeats and voltas (SCALETTA
+# F1.12, P7).
+[[bench]]
+name = "unroll"
+harness = false
+
 [lints]
 workspace = true

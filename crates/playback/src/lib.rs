@@ -18,6 +18,10 @@
 //!   the corresponding model command.
 //! - Do all of this incrementally: a change to one note re-derives only the affected passes.
 //!
+//! ## Modules
+//! - [`unroll`] (SCALETTA F1.12, ADR-0025 §5): the bars in the order they are played, with their
+//!   pass indices, section plays, times and bar-repeat sources ([`Unrolled`]).
+//!
 //! ## What this crate must NOT do
 //! - Produce audio or talk to devices/plugins (that is `orchestra-audio-engine`).
 //! - Store its output as a second editable copy of the music: the performance is *derived* data,
@@ -27,3 +31,7 @@
 //! `orchestra-core-time`, `orchestra-core-model`.
 
 #![forbid(unsafe_code)]
+
+pub mod unroll;
+
+pub use unroll::{PlayedBar, StaffContent, UnrollError, Unrolled};

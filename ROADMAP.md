@@ -352,7 +352,16 @@ million instructions (200 million before two fixes found with the profile), 10 b
 score ≈ 5.3 million; history 2.9 MB. **Open (owner's choice, 2026-11-05):** that rewrite may exceed
 the 16 ms of ADR-0026 §8 on the reference laptop: accepted for now, to be measured in real time with
 the interface (F2.23) and optimised then if needed (for example with a bulk move of a run of events).
-**Next:** the PR of F1.11c (parts 1, 2a, 2b), then F1.12, the unrolling of the form.
+F1.11c was merged with PR #20 (SCALETTA v0.27); phase F1-B is complete.
+**F1.12 done** (2026-11-05, `feature/f1-12-unroll`, not yet in a PR): before coding, the owner
+approved P1–P8, now ADR-0025 §12 (the path in `orchestra-playback`, derived data; pass index,
+section play, exact start and a time shift per played bar; bar-repeat sources per staff; the pass
+rules as a query; where each bar is played; the pass-specific offsets table moved to F1.14; whole
+rebuild on form, bars or maps; finite by construction). Implemented: the module `unroll`
+(`Unrolled`, `PlayedBar`, `StaffContent`, `UnrollError`); tests: sixteen cases (the hard cases of
+ADR-0025 §10) and a property test on random forms (40 000 cases passed); eight injected bugs
+caught; benchmark ≈ 2.5–3.9 million instructions for 900–1 450 played bars. **Next:** F1.13, the
+playback rules v0 (from the written intent to the played events).
 
 | Step | What | Status |
 |---|---|---|
