@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.27, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.28, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -441,7 +441,7 @@ Dettagli:
 
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
-| F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ⬜ | 2 |
+| F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ✅ PR #21 | 2 |
 | F1.13 | **Regole di esecuzione v0**: dall'intento agli eventi suonati (legature di valore fuse, articolazioni, dinamiche → velocity, abbellimenti) + scostamenti; aggiornamento incrementale | ⬜ | 3 |
 | F1.14 | **Soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
@@ -461,12 +461,23 @@ Dettagli:
   di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
   prima, da 0; le battute % si suonano dalle battute d'origine e le regole di passaggio filtrano le
   note.
+  **Fatto il 2026-11-05 (PR #21):** prima del codice il proprietario ha approvato P1–P8, ora
+  ADR-0025 §12: il percorso nel modulo `unroll` di `orchestra-playback`, dato ricavato; per ogni
+  battuta suonata la battuta scritta, l'indice di passaggio, l'esecuzione della sezione, l'inizio
+  esatto e uno spostamento nel tempo (esatto a meno di salti dentro un cambio graduale); dove si
+  suona ogni battuta scritta; la battuta d'origine delle note per ogni rigo con %; le regole di
+  passaggio come domanda per F1.13; ricostruzione intera quando cambiano forma, battute o mappe.
+  La tabella degli scostamenti per passaggio passa a F1.14 (P6). Benchmark: ≈ 2,5 milioni di
+  istruzioni per 900 battute suonate.
 - **F1.13** (seguito) Da ADR-0024: pedale e glissando entrano con le regole di esecuzione che li
   usano. Da F1.09c: quale dinamica (o forcella) prevale per una voce quando valgono insieme una di
   strumento e una di voce; gli scostamenti di esecuzione sono salvati senza limiti, quindi le regole
   limitano i risultati (inizio ≥ 0, durata minima, scala della velocity).
 - **F1.14** ❓ **Decisione:** valore di default della soglia (proposta di ADR-0004: 1/32) e se
-  offrire da subito anche la variante in millisecondi.
+  offrire da subito anche la variante in millisecondi. Da F1.12 (ADR-0025 §12 P6): qui entra nel
+  modello la tabella degli scostamenti per singolo passaggio (ADR-0024 §10), con chiave (nota,
+  indice di passaggio), con le sue modifiche elementari e il comando che la scrive; cancellare una
+  nota ne cancella le voci.
 - **F1.15** Candidati da confrontare con i tipi veri: testo strutturato (JSON, RON o simili,
   leggibile e confrontabile con git) eventualmente dentro un contenitore (zip o cartella) per i
   media. Criteri ADR-0010: robustezza, tempo di caricamento, confrontabilità, dimensione,
@@ -756,3 +767,4 @@ raccomandato.
 | 2026-11-05 | 0.25 | F1.11c diviso in due parti, parte 1 fatta (`KeepBars`, precisioni Y1–Y8 in ADR-0026 §11, Y8 corregge `InsertBars`); parte 2 definita | proprietario |
 | 2026-11-05 | 0.26 | F1.11c: parte 2 divisa in 2a e 2b, parte 2a fatta (modifica in blocco della mappa dei metri, note di gruppo irregolare divise alla stanghetta; precisioni Z1–Z5 in ADR-0026 §11); parte 2b definita | proprietario |
 | 2026-11-05 | 0.27 | F1.11c fatto (PR #20): parte 2b, `Rewrite`, con le precisioni R1–R11 in ADR-0026 §11 e il budget accettato da misurare in F2.23; F1-B completata, si passa a F1-C | proprietario |
+| 2026-11-05 | 0.28 | F1.12 fatto (PR #21): srotolamento della forma, precisioni P1–P8 in ADR-0025 §12; la tabella degli scostamenti per passaggio passa a F1.14 | proprietario |
