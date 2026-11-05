@@ -15,6 +15,11 @@
 //! - `undo_paste`: the undo of a transaction of 200 notes (a paste).
 //! - `insert_bar` and `delete_bar`: one bar in the middle of the score (O(bars × voices) pointer
 //!   moves, the meter map, the tempo map; deletion also clips, carries and cascades).
+//! - `change_meter` and `irregular_bar` (F1.11c, `KeepBars`): a 3/4 at the middle bar (on the
+//!   heavy score its section lasts 60 bars, each now overfull, whose ties are checked: Y7), and
+//!   the middle bar made a bar of two quarters.
+//! - `rewrite_meter` (F1.11c part 2b): a 3/4 at the middle bar in `Rewrite` mode, which moves
+//!   every event and mark of its section (60 bars on the heavy score) into the new bars.
 //! - `gesture`: a drag of one note over 1 000 positions, from `begin_gesture` to `end_gesture`
 //!   (each update is a command with its local check and its change set; the compaction keeps one
 //!   old value).
@@ -51,10 +56,12 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::{
     Alteration, BaseValue, Command, Document, DynamicLevel, DynamicMark, DynamicPlacement, Editor,
-    EventChange, EventId, MarkSpec, NewBody, NewEvent, NoteValue, Pitch, Placement, ScorePoint,
-    Step,
+    EventChange, EventId, MarkSpec, MeterMode, NewBody, NewEvent, NoteValue, Pitch, Placement,
+    ScorePoint, Step,
 };
-use orchestra_core_time::{BarIndex, Duration, Rational};
+use orchestra_core_time::{
+    BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, Rational,
+};
 
 #[path = "../tests/common/score.rs"]
 mod score;
@@ -226,6 +233,73 @@ fn delete_bar(input: Editor) -> Editor {
     editor
 }
 
+// An editor and the `Rewrite` meter change to 3/4 at the middle bar, checked to succeed outside
+// the measured region: on the heavy score it rewrites the 60 bars up to the 6/8 of bar 560, on the
+// normal score the 10 bars up to the 6/8 of bar 60.
+fn rewrite_command(size: Size) -> (Editor, Command) {
+    let editor = editor(size);
+    let bar = editor.document().bars().ids()[usize::try_from(bar_count(size) / 2).unwrap()];
+    let command = Command::ChangeMeter {
+        bar,
+        change: Some(MeterChange::new(Meter::new(&[3], 4).unwrap())),
+        mode: MeterMode::Rewrite,
+    };
+    all_succeed(&editor, std::slice::from_ref(&command));
+    (editor, command)
+}
+
+#[library_benchmark]
+#[bench::normal(rewrite_command(Size::Normal))]
+#[bench::heavy(rewrite_command(Size::Heavy))]
+fn rewrite_meter(input: (Editor, Command)) -> (Editor, Command) {
+    let (mut editor, command) = input;
+    let _ = black_box(editor.execute(black_box(&command)));
+    (editor, command)
+}
+
+// An editor and the `KeepBars` command for the middle bar, checked to succeed outside the
+// measured region.
+fn meter_command(size: Size, meter: bool) -> (Editor, Command) {
+    let editor = editor(size);
+    let bar = editor.document().bars().ids()[usize::try_from(bar_count(size) / 2).unwrap()];
+    let command = if meter {
+        Command::ChangeMeter {
+            bar,
+            change: Some(MeterChange::new(Meter::new(&[3], 4).unwrap())),
+            mode: MeterMode::KeepBars,
+        }
+    } else {
+        Command::SetIrregularBar {
+            bar,
+            irregular: Some(IrregularBar {
+                length: Duration::from_rational(Rational::new(1, 2).unwrap()),
+                kind: BarKind::AlignStart,
+            }),
+            mode: MeterMode::KeepBars,
+        }
+    };
+    all_succeed(&editor, std::slice::from_ref(&command));
+    (editor, command)
+}
+
+#[library_benchmark]
+#[bench::normal(meter_command(Size::Normal, true))]
+#[bench::heavy(meter_command(Size::Heavy, true))]
+fn change_meter(input: (Editor, Command)) -> (Editor, Command) {
+    let (mut editor, command) = input;
+    let _ = black_box(editor.execute(black_box(&command)));
+    (editor, command)
+}
+
+#[library_benchmark]
+#[bench::normal(meter_command(Size::Normal, false))]
+#[bench::heavy(meter_command(Size::Heavy, false))]
+fn irregular_bar(input: (Editor, Command)) -> (Editor, Command) {
+    let (mut editor, command) = input;
+    let _ = black_box(editor.execute(black_box(&command)));
+    (editor, command)
+}
+
 #[library_benchmark]
 #[bench::normal(dragged(Size::Normal))]
 #[bench::heavy(dragged(Size::Heavy))]
@@ -258,6 +332,9 @@ library_benchmark_group!(
         undo_paste,
         insert_bar,
         delete_bar,
+        change_meter,
+        irregular_bar,
+        rewrite_meter,
         gesture
     ]
 );

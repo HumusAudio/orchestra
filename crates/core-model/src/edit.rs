@@ -256,7 +256,9 @@ impl Object {
 
 /// An edit of the meter map's source data, at a bar named by its ID (ADR-0018, ADR-0019). `None`
 /// (or `false`) removes the entry. Each returns the previous value as its inverse.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Not `Copy` since [`Span`](Self::Span) carries a [`BarSpan`] (vectors).
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MeterEdit {
     /// The meter change at a bar (never `None` at the first bar: some meter is always in force).
     MeterChange {
@@ -292,6 +294,16 @@ pub enum MeterEdit {
         bar: BarId,
         /// The number it restarts with, or `None` to remove the restart.
         number: Option<u32>,
+    },
+    /// The whole source data of the `span.count()` bars from `bar` on, replaced at once
+    /// (`MeterMap::replace_span`, ADR-0026 §11 Z1): what the meter change that rewrites the
+    /// music needs, since its bars change together and may pass through states that are not
+    /// valid one bar at a time. Its inverse is the same edit with the data the bars had.
+    Span {
+        /// The first bar of the run.
+        bar: BarId,
+        /// The new data of the run's bars, at bars relative to it.
+        span: BarSpan,
     },
 }
 
@@ -358,21 +370,28 @@ impl Edit {
         let owned = match self {
             Self::Insert(object) | Self::Replace(object) => object.heap_bytes(),
             Self::InsertBars { ids, meter, .. } => {
-                let entries = meter
-                    .meter_changes()
-                    .len()
-                    .saturating_add(meter.irregular_bars().len())
-                    .saturating_add(meter.bar_groupings().len())
-                    .saturating_add(meter.uncounted_bars().len())
-                    .saturating_add(meter.numbering_restarts().len());
-                ids.len()
-                    .saturating_mul(size_of::<BarId>())
-                    .saturating_add(entries.saturating_mul(size_of::<(BarIndex, MeterChange)>()))
+                ids.len().saturating_mul(size_of::<BarId>()).saturating_add(
+                    span_entries(meter).saturating_mul(size_of::<(BarIndex, MeterChange)>()),
+                )
+            }
+            Self::Meter(MeterEdit::Span { span, .. }) => {
+                span_entries(span).saturating_mul(size_of::<(BarIndex, MeterChange)>())
             }
             Self::Remove(_) | Self::RemoveBars { .. } | Self::Meter(_) | Self::SetInitial(_) => 0,
         };
         size_of::<Self>().saturating_add(owned)
     }
+}
+
+/// How many source entries a span holds, of every kind: what its vectors cost in the history's
+/// estimate (each entry is counted at the size of the largest kind, a meter change). O(1).
+fn span_entries(span: &BarSpan) -> usize {
+    span.meter_changes()
+        .len()
+        .saturating_add(span.irregular_bars().len())
+        .saturating_add(span.bar_groupings().len())
+        .saturating_add(span.uncounted_bars().len())
+        .saturating_add(span.numbering_restarts().len())
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -1599,6 +1618,10 @@ impl Document {
 
     /// Applies a meter map edit and returns the edit that restores the previous value. On error
     /// nothing changed. O(m log m) for the rebuild (none for the numbering entries).
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm per kind of meter edit: splitting the match would only scatter it"
+    )]
     fn edit_meter(
         &mut self,
         edit: MeterEdit,
@@ -1668,6 +1691,25 @@ impl Document {
                     MeterEdit::Uncounted {
                         bar,
                         uncounted: previous,
+                    },
+                )
+            }
+            MeterEdit::Span { bar, span } => {
+                let index = self
+                    .bars
+                    .index_of(bar)
+                    .ok_or(DocumentError::UnknownBar(bar))?;
+                // A run past the last bar would leave entries on bars the document does not have.
+                let end = u64::from(index.get()).saturating_add(u64::from(span.count()));
+                if end > u64::try_from(self.bars.len()).unwrap_or(u64::MAX) {
+                    return Err(DocumentError::TooManyBars);
+                }
+                let previous = map.replace_span(index, &span)?;
+                (
+                    index,
+                    MeterEdit::Span {
+                        bar,
+                        span: previous,
                     },
                 )
             }

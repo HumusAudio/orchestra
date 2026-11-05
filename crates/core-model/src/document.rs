@@ -212,9 +212,6 @@ pub enum DocumentError {
     /// Bars to be removed still hold an event or carry something anchored on them; the bar named
     /// is the first one found.
     BarsNotEmpty(BarId),
-    /// A command enters a note of a tuplet that would cross a barline (owner's decision V4 of
-    /// 2026-11-04: the split inside a tuplet comes with the meter change, F1.11c).
-    TupletAcrossBarline,
     /// A command enters an event that would reach past the end of the last bar (W3): the bars
     /// must be added first, in the same transaction if need be.
     PastLastBar,
@@ -336,9 +333,6 @@ impl fmt::Display for DocumentError {
                     "bar {} still holds something and cannot be removed",
                     id.get()
                 )
-            }
-            Self::TupletAcrossBarline => {
-                f.write_str("a note of a tuplet cannot be entered across a barline")
             }
             Self::PastLastBar => f.write_str("the event would reach past the last bar"),
             Self::StartsPastBarline => f.write_str("the event would start after its bar ends"),

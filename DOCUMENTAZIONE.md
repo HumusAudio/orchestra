@@ -587,6 +587,39 @@ indietro) sono stati presi. **Benchmark** (stesso file delle ricerche): inserire
 metà della mappa di riferimento ≈ 95 000 istruzioni, toglierne quattro ≈ 94 700, circa quanto un
 cambio di metro.
 
+#### Sostituire un tratto di battute in un colpo solo
+
+Il cambio di metro che riscrive la musica (F1.11c parte 2, `Rewrite`) cambia insieme lunghezze, tipi e
+raggruppamenti di molte battute. Una modifica per battuta ricostruirebbe la mappa una volta per
+battuta e potrebbe passare per stati che la mappa rifiuta (una levata per un istante più lunga di un
+metro che sta per cambiare). Da F1.11c parte 2a (ADR-0026 §11 Z1) `replace_span(at, &span)` sostituisce
+in un colpo solo i dati di origine delle `span.count()` battute da `at` in poi con quelli dello span, e
+restituisce quelli che avevano: rimetterli è l'inversa esatta. Il numero di battute non cambia.
+`BarSpan` ha avuto i metodi che gli mancavano (`set_irregular_bar`, `set_bar_grouping`,
+`set_uncounted`, `set_numbering_restart`), così un comando può costruire i dati nuovi di un tratto.
+
+```rust
+// 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
+let mut span = BarSpan::empty(60);
+span.set_meter_change(BarIndex::new(0), MeterChange::new(Meter::new(&[3], 4)?));
+span.set_irregular_bar(
+    BarIndex::new(59),
+    IrregularBar { length: half, kind: BarKind::AlignStart },
+);
+let old = map.replace_span(BarIndex::new(100), &span)?;
+// Putting the old data back is the exact inverse.
+map.replace_span(BarIndex::new(100), &old)?;
+```
+
+Per la mappa dei tempi non esiste un'operazione simile (Z2): si ricava dalle indicazioni di tempo una
+volta sola, alla fine di ogni transazione (ADR-0024 §11), il che è già "in un colpo solo".
+
+**Test** (stesso file): due casi scritti a mano (un tratto sostituito e rimesso; voci fuori dallo span
+e un tratto alla battuta 0 senza metro rifiutati) e un test di proprietà contro l'oracolo, con lo span
+preso da un'altra mappa casuale; un bug iniettato (voci dello span spostate sulla battuta sbagliata) è
+stato preso. **Benchmark:** sostituire 60 battute a metà della mappa di riferimento ≈ 77 000
+istruzioni, meno di un cambio di metro, qualunque sia la lunghezza del tratto.
+
 #### Tempo, secondi, campioni e fotogrammi
 
 `src/tempo.rs` e `src/clock.rs` contengono le unità del tempo reale che usa la mappa dei tempi
@@ -1549,9 +1582,10 @@ I comandi della parte 2a:
   legate** (V3): si taglia a ogni stanghetta, ogni pezzo si scrive con le figure più lunghe per
   prime (al massimo due punti: cinque crome sono una minima e una croma), le teste di un accordo si
   legano altezza per altezza; una pausa diventa più pause. Oltre la fine di una battuta **libera**
-  la battuta invece si allunga (V5). Rifiutati: una nota di gruppo irregolare a cavallo della
-  stanghetta (V4, arriva con F1.11c), oltre l'ultima battuta (W3), una durata che nessuna figura
-  può scrivere (`NotWritable`).
+  la battuta invece si allunga (V5). Una nota di gruppo irregolare a cavallo
+  della stanghetta era rifiutata (V4) fino a F1.11c parte 2a, che la divide dentro il suo gruppo
+  (vedi sotto). Rifiutati: oltre l'ultima battuta (W3), una durata che nessuna figura può scrivere
+  (`NotWritable`).
 - `DeleteEvent(EventId)`: lascia un **buco** (V6: non si scrive nessuna pausa, la riempie
   l'incisione, come le pause implicite di Dorico), e porta via con sé gli abbellimenti che ornano
   l'evento, le legature di portamento su di lui e i gruppi irregolari rimasti vuoti; le legature di
@@ -1734,6 +1768,176 @@ one note entered                                  208          336
 
 La differenza di 128 byte è il contenitore della cronologia stessa. Il test fallisce se la stima
 scende sotto il 90% della misura, così il limite di 128 MB resta onesto.
+
+#### Cambi di metro e battute irregolari (KeepBars)
+
+F1.11c parte 1 aggiunge i comandi che cambiano la lunghezza delle battute (modulo `meter_command`,
+ADR-0026 §7 con le precisazioni Y1–Y7 di §11, approvate dal proprietario il 2026-11-05):
+`ChangeMeter { bar, change, mode }` imposta un cambio di metro, o lo toglie con `None` (mai alla
+battuta 0), e `SetIrregularBar { bar, irregular, mode }` rende una battuta più lunga o più corta,
+una levata o una battuta libera, o di nuovo regolare. Entrambi prendono un **`MeterMode`**, che dice
+cosa succede alla musica già scritta. Questa parte realizza **`KeepBars`**: ogni battuta tiene i suoi
+eventi, le marcature e le marcature di forma ai loro offset, cambiano solo le lunghezze, e la musica
+dopo il cambio si sposta nel tempo. `Rewrite`, il default che offrirà l'interfaccia (la musica resta
+dove suona e si spostano le stanghette), arriva nella parte 2; per questo `MeterMode` è
+`#[non_exhaustive]`.
+
+```rust
+// A 3/4 from bar 9: the bars keep their music, the bars after them move in time.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_9,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::KeepBars,
+})?;
+// The first bar becomes a pickup of one quarter.
+editor.execute(&Command::SetIrregularBar {
+    bar: first_bar,
+    irregular: Some(IrregularBar { length: quarter, kind: BarKind::AlignEnd }),
+    mode: MeterMode::KeepBars,
+})?;
+```
+
+Cosa fa il comando oltre alla modifica della mappa dei metri:
+
+- **Y3**: i raggruppamenti per battuta della sezione che non tornano più con il nuovo metro si tolgono
+  nello stesso passo (descrivevano come si contava il metro vecchio); una battuta libera perde il suo
+  raggruppamento.
+- **Y4**: una levata più lunga del nuovo metro, o un raggruppamento della sezione che non torna, è
+  rifiutato con l'errore della mappa (`PickupLongerThanMeter`, `GroupingLengthMismatch`).
+- **Y5**: dentro una ripetizione di battuta il cambio è rifiutato (`InsideBarRepeat`), perché una
+  battuta ripetuta avrebbe una lunghezza diversa dalla sua origine; un cambio di metro proprio alla
+  prima battuta d'origine cambia allo stesso modo tutte le battute dell'intervallo ed è accettato.
+- **Y7**: una battuta accorciata può diventare troppo piena (valido, ADR-0022 §4), ma se una nota
+  oltre la nuova stanghetta è legata (di valore o di portamento) alla battuta dopo, la sua legatura
+  non va più in avanti nell'ordine della partitura, che è per posizione (ADR-0024): il cambio è
+  rifiutato con `TieNotForward` o `SlurNotForward`. Il test di proprietà ha trovato il caso; il
+  proprietario ha scelto il rifiuto. La verifica (`check_overfull`) guarda l'ultimo evento di ogni
+  chunk delle battute cambiate ed esegue la verifica locale solo sulle celle troppo piene.
+
+Le indicazioni di tempo oltre una stanghetta accorciata non chiedono nulla: la mappa dei tempi le
+limita già alla loro stanghetta (F1.09c).
+
+**Y8, una correzione di `InsertBars`.** Il test di proprietà ha trovato anche che una regola di
+passaggio che finisce proprio all'inizio della battuta *i* (la fine è esclusiva) si allungava sulle
+battute inserite prima della *i*, e poteva uscire dalla sua sezione ripetuta. Il proprietario ha
+scelto che una fine che cade proprio sul punto d'inserimento non lo copra: forcelle, regole di
+passaggio e cambi di tempo graduali che finiscono lì continuano a finire prima delle battute nuove,
+ancorati all'inizio della prima.
+
+**Test** (`src/meter_command_tests.rs`): otto casi scritti a mano (la musica che si sposta, un cambio
+tolto, i raggruppamenti che non tornano, le contraddizioni, la ripetizione di battuta, battute
+irregolari e libere, la legatura di Y7, le fini di Y8) e due nuovi tipi di comando nel test di proprietà (23 in
+tutto; 12 000 sequenze passate). Sei bug iniettati (niente verifica Y7, raggruppamenti vecchi
+tenuti, niente controllo delle ripetizioni di battuta, prima battuta d'origine rifiutata, battuta
+libera che tiene il raggruppamento, niente Y8) sono stati tutti presi. **Benchmark** (`benches/editor.rs`,
+partitura pesante): un 3/4 alla battuta di mezzo ≈ 5,7 milioni di istruzioni (la sua sezione di 60
+battute diventa troppo piena in ogni voce e viene verificata), una battuta di due quarti ≈ 122 000:
+al più qualche millisecondo, sotto i 16 ms di ADR-0007.
+
+#### Note di gruppo irregolare a cavallo della stanghetta
+
+Da F1.11c parte 2a (ADR-0026 §11 Z3–Z5) una nota di gruppo irregolare che scavalca la stanghetta non è
+più rifiutata (V4 cade): si divide in note legate che **restano nello stesso gruppo irregolare**, come
+prescrive ADR-0024 (C4) e come fa Dorico ("spans barline"). Il tratto che resta in ogni battuta si
+riporta ai valori scritti del gruppo, dividendolo per il prodotto dei rapporti della sua catena di
+gruppi (annidati compresi), e si scrive con i valori più lunghi prima, come fuori da un gruppo (V3). Un
+tratto che nessuna figura con al più due punti può scrivere è rifiutato (`NotWritable`); l'errore
+`TupletAcrossBarline` non esiste più.
+
+```rust
+// A triplet eighth (1/12 in the bar) entered 1/24 before the barline:
+editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(voice, bar_1, Duration::from_rational(Rational::new(23, 24)?))
+        .in_tuplet(triplet),
+    body: NewBody::Rest(RestValue::Value(NoteValue::plain(BaseValue::Eighth))),
+}))?;
+// Now two triplet sixteenths: 1/24 before the barline, 1/24 after it, both in the triplet.
+```
+
+Lo fa una sola funzione (`command::split_values`, con `tuplet_ratio`), condivisa adesso da `EnterEvent`
+e nella parte 2b dal cambio di metro che riscrive la musica (Z5). **Test** (`src/command_tests.rs`): tre
+casi scritti a mano (una nota di terzina a cavallo, un tratto di due figure distanziate secondo il
+rapporto, una terzina annidata in una quintina), il vecchio caso di rifiuto diventato un caso
+`NotWritable`, e il test di proprietà che ora inserisce note dentro i gruppi irregolari. Due bug
+iniettati (il tratto non diviso per il rapporto, le figure di un tratto non distanziate secondo il
+rapporto) sono stati presi, il secondo solo dal caso scritto apposta: un buco fra due figure è uno
+stato valido, quindi `validate` non può vederlo.
+
+#### Rewrite: la musica resta dove suona
+
+F1.11c parte 2b aggiunge il cambio di metro che riscrive la musica (modulo `rewrite`, ADR-0026 §7 con
+le precisazioni R1–R11 di §11, approvate dal proprietario il 2026-11-05): `MeterMode::Rewrite`, la
+modalità che l'interfaccia offrirà di default, come fanno Dorico, MuseScore e Sibelius. La musica
+resta dove suona e si spostano le stanghette, dalla battuta del cambio fino al prossimo cambio di
+metro, alla prossima battuta libera o alla fine della partitura (la **regione**, R1).
+
+```rust
+// 8 bars of 4/4; a 3/4 at bar 3 rewrites bars 3–7 (20 quarters) into new bars.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_3,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::Rewrite,
+})?;
+// A whole note of old bar 3 is now a dotted half tied to a quarter of bar 4; the Fine at the end
+// of old bar 4 split a bar of 3/4 into 2/4 + 1/4 (the second uncounted), so the form plays as it did.
+```
+
+Come funziona, in ordine (`rewrite::rewrite`):
+
+1. **La regione e la nuova divisione** (R1–R4): battute del metro dall'inizio della regione,
+   un'ultima battuta irregolare con ciò che resta così che nulla dopo la regione si sposti (alla fine
+   della partitura l'ultima battuta resta intera), una levata o una battuta libera al cambio tenuta
+   come prima battuta. Lo stesso algoritmo serve `SetIrregularBar` in modalità `Rewrite` (aggiungere
+   una levata a musica già scritta sposta ogni stanghetta) e la rimozione di un cambio.
+2. **Le divisioni per la forma** (R9): una vecchia stanghetta che porta un ritornello, una volta, un
+   segno o un salto e che non è una stanghetta della nuova divisione divide la battuta nuova che la
+   contiene in due battute irregolari, la seconda non contata, come ADR-0025 §1 scrive un ritornello
+   a metà battuta.
+3. **Battute nuove** in fondo alla regione se la divisione ne ha di più.
+4. **Gli eventi** (R5, R6, R8), letti tutti prima di spostare qualcosa (le battute nuove riusano gli
+   ID delle battute della regione, quindi leggere una battuta vecchia dopo che gli spostamenti verso
+   di lei sono cominciati rileggerebbe eventi già spostati: la prima versione lo faceva, e tutti i
+   test fallivano): ognuno si sposta con un `Replace`; uno che ora scavalca una stanghetta diventa una
+   catena di note legate dentro il suo gruppo irregolare (`split_values`, Z5), con la prima parte che
+   tiene ID e segni; le sue legature ripartono dall'ultima parte, e così le legature di portamento che
+   finivano su di lui; gli abbellimenti "dopo" restano in fondo alla loro battuta; le pause di battuta
+   intera diventano pause scritte.
+5. **Le marcature e le marcature di forma** (R7, R9): tolte, poi reinserite al loro posto nuovo (due
+   fasi, così una marcatura non arriva mai dove un'altra non se n'è ancora andata).
+6. **La mappa dei metri** della regione in una modifica in blocco (`MeterEdit::Span`, Z1), poi si
+   tolgono le battute che la nuova divisione non usa più.
+
+Una ripetizione di battuta che tocca la regione fa rifiutare la riscrittura (R10). Poi la verifica
+locale controlla ogni cella e ogni marcatura toccata.
+
+**Costo** (R11, `benches/editor.rs`):
+
+```text
+operation (heavy score)                       instructions
+rewrite of 60 bars × 41 voices (≈ 14 000 events)   ≈ 118 000 000
+the same before the fixes found by the profile     ≈ 200 000 000
+rewrite of 10 bars of the normal score             ≈   5 300 000
+```
+
+Il profilo ha mostrato due sprechi, ora tolti: le celle dell'insieme delle modifiche (ogni evento
+spostato registrava le sue due celle, e la lista si ordinava con migliaia di doppioni: ora
+`ChangeSet::cell` scarta una cella uguale a una delle ultime due, e l'editor toglie i doppioni prima
+della verifica locale) e una scansione di tutte le battute nuove per ogni evento (ora due ricerche
+binarie). Resta circa 8 000 istruzioni per evento spostato. Il proprietario l'ha accettato per ora:
+una riscrittura di una sezione lunga della partitura pesante può superare i 16 ms; si misurerà in
+tempo reale con l'interfaccia (F2.23). La cronologia trattiene 2,9 MB per le 60 battute
+(`tests/history_memory.rs`, stima esatta).
+
+**Test** (`src/meter_command_tests.rs`): nove casi scritti a mano (il caso di riferimento con il Fine
+diviso e il D.S. alla fine, la fermata al prossimo cambio di metro con un'ultima battuta irregolare,
+pause di battuta intera tagliate e allineate, la fine di una legatura di portamento spostata, una
+legatura di valore e un abbellimento "dopo" conservati, una levata aggiunta e conservata, il rifiuto
+per la ripetizione di battuta), e `Rewrite` nel test di proprietà, metà dei cui casi ora parte senza
+la ripetizione di battuta del documento ricco così che le riscritture vengano eseguite (12 000
+sequenze passate). Sette bug iniettati sono stati presi, cinque solo dopo aver scritto un caso
+apposta (i documenti del test di proprietà non avevano una nota spezzata già legata, un abbellimento
+"dopo", una ripartenza della numerazione, una pausa di battuta intera allineata, una sezione che
+finisce prima del cambio di metro successivo).
 
 ### orchestra-playback
 

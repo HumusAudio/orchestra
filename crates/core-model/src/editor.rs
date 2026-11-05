@@ -528,6 +528,9 @@ impl Editor {
         let outer = std::mem::take(&mut open.changes);
         let mut result = command::run(&mut Transaction { editor: self }, command);
         if result.is_ok() {
+            if let Some(open) = self.open.as_mut() {
+                open.changes.tidy_cells();
+            }
             let changes = self.open.as_ref().map(|open| &open.changes);
             result = changes.map_or(Ok(()), |changes| {
                 command::check(&self.document, command, changes).map_err(CommandError::Document)

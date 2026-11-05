@@ -33,8 +33,8 @@
 //! - **V2**: an event is entered only into free space; entering over other events is refused.
 //! - **V3**: an event that crosses a barline becomes a **tie chain** (a rest: several rests): each
 //!   part is written with the longest values first, with at most two dots.
-//! - **V4**: a tuplet note that would cross a barline is refused (the split inside a tuplet comes
-//!   with the meter change of F1.11c).
+//! - **V4** (lifted by **Z4**, F1.11c part 2a): a tuplet note that crosses a barline is split
+//!   into tied notes that stay in the same tuplet, written in its own values (Z3).
 //! - **V5**: an event entered past the end of a **free** bar lengthens the bar instead.
 //! - **V6**: deleting an event leaves a gap (no rest is added) and deletes with it the slurs on
 //!   it, the grace notes that ornament it and the tuplets left without members; the ties leading
@@ -47,7 +47,9 @@
 
 use std::collections::HashSet;
 
-use orchestra_core_time::{BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar};
+use orchestra_core_time::{
+    BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar, MeterChange,
+};
 
 use crate::bar_repeat::BarRepeat;
 use crate::document::{Document, DocumentError, Placement};
@@ -63,6 +65,7 @@ use crate::marking::{
     Arpeggio, ArticulationSet, Fermata, Grace, GraceAttach, Ornament, PerformanceOffsets,
 };
 use crate::marks::{Mark, ScorePoint, point_key};
+use crate::meter_command::{self, MeterMode};
 use crate::pitch::Pitch;
 use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
 use crate::validate::Violation;
@@ -80,13 +83,14 @@ const MAX_VALUES_PER_PART: usize = 16;
 ///
 /// The list is the part of ADR-0026 §9 that F1.11b implements: the event commands and the bar
 /// commands (part 2a), the commands on marks, form markings, tuplets, the initial values and the
-/// per-bar data (part 2b, `crate::mark_command`). The meter change (F1.11c) will be added as a new
-/// variant; `#[non_exhaustive]` lets that happen without breaking callers.
+/// per-bar data (part 2b, `crate::mark_command`); F1.11c adds the changes of bar lengths
+/// (`crate::meter_command`), whose `Rewrite` mode comes in its part 2. `#[non_exhaustive]` lets
+/// new variants come without breaking callers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Command {
-    /// Enters a new event into free space (V2), as a tie chain if it crosses a barline (V3),
-    /// lengthening a free bar instead (V5).
+    /// Enters a new event into free space (V2), as a tie chain if it crosses a barline (V3, and
+    /// inside its tuplet for a tuplet note: Z3, Z4), lengthening a free bar instead (V5).
     EnterEvent(NewEvent),
     /// Deletes an event, leaving a gap (V6), with the slurs on it, the grace notes ornamenting it
     /// and the tuplets left without members; the ties leading into it are cleared.
@@ -102,8 +106,8 @@ pub enum Command {
     /// Inserts `count` empty bars before the bar at `at` (`at` = the number of bars appends them)
     /// (ADR-0026 §6). The new bars take the meter, clef, key and tempo in force just before `at`
     /// (at `at` = 0, those of the first bar); what stood at the start of bar `at` moves on with
-    /// it. Ranges spanning the point grow; between two voltas of a group the new bars join the
-    /// earlier one (X11). Refused between the source and the end of a bar repeat (W6).
+    /// it. Ranges spanning the point grow, those ending exactly at it do not (Y8); between two
+    /// voltas of a group the new bars join the earlier one (X11). Refused between the source and the end of a bar repeat (W6).
     InsertBars {
         /// Where the new bars go.
         at: BarIndex,
@@ -191,6 +195,26 @@ pub enum Command {
         bar: BarId,
         /// The number it restarts with.
         number: Option<u32>,
+    },
+    /// Sets the meter change at a bar, or removes it with `None` (never at bar 0), in a mode that
+    /// says what happens to the music already written (ADR-0026 §7, Y1–Y5).
+    ChangeMeter {
+        /// The bar.
+        bar: BarId,
+        /// The new meter change (meter and section grouping), or `None`.
+        change: Option<MeterChange>,
+        /// What happens to the music.
+        mode: MeterMode,
+    },
+    /// Makes a bar irregular (another length, a pickup, a free bar), or regular again with `None`,
+    /// in a mode as [`ChangeMeter`](Self::ChangeMeter) (Y1).
+    SetIrregularBar {
+        /// The bar.
+        bar: BarId,
+        /// Its new length and kind, or `None`.
+        irregular: Option<IrregularBar>,
+        /// What happens to the music.
+        mode: MeterMode,
     },
 }
 
@@ -312,6 +336,14 @@ pub(crate) fn run(tx: &mut Transaction<'_>, command: &Command) -> Result<(), Com
         Command::SetNumberingRestart { bar, number } => {
             mark_command::set_numbering_restart(tx, *bar, *number)
         }
+        Command::ChangeMeter { bar, change, mode } => {
+            meter_command::change_meter(tx, *bar, *change, *mode)
+        }
+        Command::SetIrregularBar {
+            bar,
+            irregular,
+            mode,
+        } => meter_command::set_irregular_bar(tx, *bar, *irregular, *mode),
     }
 }
 
@@ -402,7 +434,7 @@ fn written_values(length: Duration) -> Result<Vec<NoteValue>, DocumentError> {
 /// # Errors
 /// [`DocumentError::EmptyChord`] for no notehead; [`DocumentError::Pitch`] if a sounding pitch
 /// overflows.
-fn chord_from(
+pub(crate) fn chord_from(
     value: NoteValue,
     tuplet: Option<TupletId>,
     grace: Option<Grace>,
@@ -449,6 +481,34 @@ fn current(doc: &Document, id: EventId) -> Result<(VoiceId, BarId, PlacedEvent),
     ))
 }
 
+/// Puts an existing event (same ID) at `bar` and `offset` of `voice` with the content `event`,
+/// unless it is already exactly there: the move of the meter change that rewrites the music
+/// (`crate::rewrite`), which leaves an event that does not move untouched (no history). O(event
+/// lookup) + the replacement.
+///
+/// # Errors
+/// [`DocumentError::UnknownEvent`]; the edit's.
+pub(crate) fn replace_event_at(
+    tx: &mut Transaction<'_>,
+    voice: VoiceId,
+    bar: BarId,
+    offset: Duration,
+    event: Event,
+) -> Result<(), CommandError> {
+    let found = tx
+        .document()
+        .event(event.id())
+        .ok_or(DocumentError::UnknownEvent(event.id()))?;
+    if found.voice() == voice
+        && found.bar() == bar
+        && found.offset() == offset
+        && *found.event() == event
+    {
+        return Ok(());
+    }
+    replace_event(tx, voice, bar, PlacedEvent::new(offset, event))
+}
+
 /// Sends an event back with a new content or place ([`Edit::Replace`], `place: None`: in place
 /// when its sort key is unchanged, otherwise after the events with the same key at its new
 /// place).
@@ -478,9 +538,10 @@ fn replace_event(
 ///    their bar, so they never cross a barline.
 /// 3. An event that ends inside its bar is entered with the value the user gave. One that ends
 ///    past the end of a **free** bar lengthens the bar to its end (V5).
-/// 4. Otherwise (it crosses a barline, outside a tuplet: V4) it is cut at every barline, each
-///    part is written with [`written_values`], and a chord's parts are tied notehead by notehead
-///    (V3). Rests are not tied. Past the last bar it is refused (W3).
+/// 4. Otherwise (it crosses a barline) it is cut at every barline, each part is written with
+///    [`split_values`], and a chord's parts are tied notehead by notehead (V3). Rests are not tied.
+///    Inside a tuplet every part stays in the same tuplet, written in its own values (Z3, Z4;
+///    ADR-0024 C4, Dorico's "spans barline"). Past the last bar it is refused (W3).
 ///
 /// Free space (V2) is not checked here: the local check that follows refuses an overlap.
 ///
@@ -582,20 +643,18 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         }))?;
         return insert_chain(tx, &at, staff, kind, &single);
     }
-    // A tuplet note is not split across a barline (V4).
-    if at.tuplet.is_some() {
-        return Err(DocumentError::TupletAcrossBarline.into());
-    }
-
     // Cut at every barline: the first part fills its bar, the next ones fill whole bars, the last
-    // one what is left (V3). Past the last bar it is refused (W3).
+    // one what is left (V3). Past the last bar it is refused (W3). Inside a tuplet the parts stay
+    // in the tuplet and are written in its own values (Z3, Z4): how much a written value lasts in
+    // the bar is scaled by the tuplet chain's ratio, the same for every value of the chain.
+    let ratio = tuplet_ratio(voice, &probe, value)?;
     let doc = tx.document();
     let mut chain: Vec<(BarId, Duration, NoteValue)> = Vec::new();
     let mut push_part = |bar: BarId, start: Duration, length: Duration| {
         let mut offset = start;
-        for value in written_values(length)? {
+        for value in split_values(length, ratio)? {
             chain.push((bar, offset, value));
-            offset = offset.checked_add(value.length()?)?;
+            offset = offset.checked_add(value.length()?.checked_mul(ratio)?)?;
         }
         Ok::<(), DocumentError>(())
     };
@@ -614,6 +673,43 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         left = left.checked_sub(take)?;
     }
     insert_chain(tx, &at, staff, kind, &chain)
+}
+
+/// How much longer (or shorter) a written value lasts in the bar inside the tuplet chain of
+/// `probe` than outside: the metric duration of the probe divided by the length of its written
+/// value. 1 outside any tuplet, 2/3 in a triplet, 2/3 × 4/5 in a triplet inside a quintuplet. The
+/// probe carries the innermost tuplet, so the voice's table gives the whole chain
+/// (`Voice::metric_duration`). O(depth), at most four links.
+///
+/// # Errors
+/// The arithmetic errors of the durations (absurd values only).
+fn tuplet_ratio(
+    voice: &crate::document::Voice,
+    probe: &Event,
+    value: NoteValue,
+) -> Result<orchestra_core_time::Rational, DocumentError> {
+    // A whole-bar length is never asked for: the probe is a rest of a written value.
+    let metric = voice.metric_duration(probe, Duration::ZERO)?;
+    Ok(metric.checked_ratio(value.length()?)?)
+}
+
+/// The written values of one part of a chain that lasts `length` in its bar, inside a tuplet
+/// chain whose ratio is `ratio` (Z3): the part is brought back to the tuplet's own written values
+/// (divided by the ratio) and written with the longest values first, as outside a tuplet (V3). A
+/// triplet quarter (1/6) with 1/12 left in the bar becomes two triplet eighths: 1/12 ÷ 2/3 = 1/8.
+/// Shared with the meter change that rewrites the music (F1.11c part 2, Z5).
+///
+/// # Complexity
+/// As [`written_values`].
+///
+/// # Errors
+/// [`DocumentError::NotWritable`] if the written length is no sum of values with at most two dots
+/// (a part of a quintuplet cut at a third of a beat); the arithmetic errors.
+pub(crate) fn split_values(
+    length: Duration,
+    ratio: orchestra_core_time::Rational,
+) -> Result<Vec<NoteValue>, DocumentError> {
+    written_values(length.checked_div(ratio)?)
 }
 
 /// What the events of an entered chain are.
@@ -1148,6 +1244,11 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
 /// first bar keep the same meter, and the initial clef, key and tempo now apply to the new bars
 /// first. Ranges whose ends are on both sides of the point grow, because their ends are `BarId`s.
 ///
+/// # Ends at the insertion point (Y8)
+/// A hairpin, a pass rule or a gradual tempo change that ends exactly at the start of bar `at`
+/// (its end is exclusive) does not span the point: it keeps ending there, before the new bars,
+/// anchored to the start of the first new bar (owner's choice, 2026-11-05).
+///
 /// # Between two voltas of a group (X11)
 /// A point between two voltas of one group (the first one ending on the bar before `at`, the
 /// next one starting on bar `at`) is spanned by no range, so the new bars would fall between the
@@ -1227,7 +1328,21 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
         ids.push(BarId::from_counter(tx.new_id()?));
     }
     let last = *ids.last().ok_or(DocumentError::Inconsistent)?;
+    let first_new = *ids.first().ok_or(DocumentError::Inconsistent)?;
+    // Y8: the exclusive ends exactly at the start of bar `at`, read before the bars move.
+    let doc = tx.document();
+    let ends = match doc.bars().id_at(at) {
+        Some(next) => ends_at(
+            doc,
+            ScorePoint::start_of(next),
+            ScorePoint::start_of(first_new),
+        )?,
+        None => Vec::new(),
+    };
     tx.apply(Edit::InsertBars { at, ids, meter })?;
+    for edit in ends {
+        tx.apply(edit)?;
+    }
     for volta in grow {
         tx.apply(Edit::Replace(Object::Volta(crate::form::Volta::new(
             volta.id(),
@@ -1244,6 +1359,58 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
         )))?;
     }
     Ok(())
+}
+
+/// The edits that keep the exclusive ends lying exactly at `point` (the start of the bar before
+/// which bars are inserted) where they are, before the new bars, by anchoring them to `to` (the
+/// start of the first new bar) (Y8): hairpins, pass rules and gradual tempo changes "up to" that
+/// barline do not span the insertion point, so they must not grow over the new bars. Otherwise a
+/// pass rule could reach out of its repeated section.
+///
+/// # Complexity
+/// O(hairpins + pass rules + tempo marks).
+///
+/// # Errors
+/// [`DocumentError::EmptyTempoMark`] cannot happen (a gradual mark keeps its change), but the
+/// constructor's error is propagated rather than unwrapped.
+fn ends_at(doc: &Document, point: ScorePoint, to: ScorePoint) -> Result<Vec<Edit>, DocumentError> {
+    let mut edits = Vec::new();
+    for instrument in doc.instruments() {
+        for h in instrument.hairpins().iter().filter(|h| h.end() == point) {
+            edits.push(Edit::Replace(Object::Hairpin {
+                instrument: instrument.id(),
+                hairpin: Hairpin::new(h.id(), h.start(), to, h.placement(), h.shape()),
+            }));
+        }
+        for r in instrument.pass_rules().iter().filter(|r| r.end() == point) {
+            edits.push(Edit::Replace(Object::PassRule {
+                instrument: instrument.id(),
+                rule: crate::bar_repeat::PassRule::new(
+                    r.id(),
+                    r.start(),
+                    to,
+                    r.scope(),
+                    r.plays(),
+                    r.text().map(Box::from),
+                ),
+            }));
+        }
+    }
+    for mark in doc.tempo_marks().as_slice() {
+        if let Some(TempoMarkChange::Gradual(g)) = mark.value().change()
+            && g.end == point
+        {
+            let mut moved = g;
+            moved.end = to;
+            edits.push(Edit::Replace(Object::TempoMark(Mark::new(
+                mark.id(),
+                mark.bar(),
+                mark.offset(),
+                TempoMark::new(mark.value().text(), Some(TempoMarkChange::Gradual(moved)))?,
+            ))));
+        }
+    }
+    Ok(edits)
 }
 
 // ------------------------------------------------------------------------------------------------

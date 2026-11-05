@@ -160,6 +160,23 @@ fn the_history_estimate_follows_the_heap() {
     rows.push(("1 000-update gesture", estimate, freed));
 
     let (estimate, freed) = measure(score::score(score::Size::Heavy, true), |e| {
+        let bar = e.document().bars().ids()[500];
+        e.execute(&Command::ChangeMeter {
+            bar,
+            change: Some(orchestra_core_time::MeterChange::new(
+                orchestra_core_time::Meter::new(&[3], 4).unwrap(),
+            )),
+            mode: orchestra_core_model::MeterMode::Rewrite,
+        })
+        .unwrap();
+    });
+    rows.push((
+        "a 3/4 rewriting 60 bars of the heavy score",
+        estimate,
+        freed,
+    ));
+
+    let (estimate, freed) = measure(score::score(score::Size::Heavy, true), |e| {
         e.execute(&Command::DeleteBars {
             at: BarIndex::new(100),
             count: 100,

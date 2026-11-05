@@ -555,6 +555,39 @@ left behind; the entries after a removal not moved back) were caught. **Benchmar
 the lookups): inserting four bars in the middle of the reference map ≈ 95 000 instructions, removing
 four ≈ 94 700, about one meter change.
 
+#### Replacing a run of bars at once
+
+The meter change that rewrites the music (F1.11c part 2, `Rewrite`) changes the lengths, kinds and
+groupings of many bars together. One edit per bar would rebuild the map once per bar and could pass
+through states the map refuses (a pickup briefly longer than a meter about to change). Since F1.11c
+part 2a (ADR-0026 §11 Z1) `replace_span(at, &span)` replaces the source data of the `span.count()`
+bars from `at` on with the span's, all at once, and returns the data they had: putting that back is
+the exact inverse. The number of bars does not change. `BarSpan` gained the setters it lacked
+(`set_irregular_bar`, `set_bar_grouping`, `set_uncounted`, `set_numbering_restart`), so a command
+can build the new data of a run.
+
+```rust
+// 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
+let mut span = BarSpan::empty(60);
+span.set_meter_change(BarIndex::new(0), MeterChange::new(Meter::new(&[3], 4)?));
+span.set_irregular_bar(
+    BarIndex::new(59),
+    IrregularBar { length: half, kind: BarKind::AlignStart },
+);
+let old = map.replace_span(BarIndex::new(100), &span)?;
+// Putting the old data back is the exact inverse.
+map.replace_span(BarIndex::new(100), &old)?;
+```
+
+There is no such operation for the tempo map (Z2): it is derived from the tempo marks once, at the
+end of every transaction (ADR-0024 §11), which is already "all at once".
+
+**Tests** (same file): two hand-written cases (a run replaced and put back; entries outside the span
+and a run at bar 0 without a meter refused) and a property test against the oracle, with the span
+taken from another random map; an injected bug (span entries moved to the wrong bar) was caught.
+**Benchmark:** replacing 60 bars in the middle of the reference map ≈ 77 000 instructions, less than
+one meter change, whatever the length of the run.
+
 #### Tempo, seconds, samples and frames
 
 `src/tempo.rs` and `src/clock.rs` hold the units of real time that the tempo map (step F1.05b)
@@ -1456,9 +1489,9 @@ The commands of part 2a:
   another event it is refused). Across a barline it becomes a **tie chain** (V3): cut at every
   barline, each part written with the longest values first (at most two dots: five eighths are a
   half and an eighth), the noteheads of a chord tied pitch by pitch; a rest becomes several rests.
-  Past the end of a **free** bar the bar grows instead (V5). Refused: a tuplet note across a
-  barline (V4, it comes with F1.11c), past the last bar (W3), a length no value can write
-  (`NotWritable`).
+  Past the end of a **free** bar the bar grows instead (V5). A tuplet note across a barline
+  was refused (V4) until F1.11c part 2a, which splits it inside its tuplet (see below). Refused:
+  past the last bar (W3), a length no value can write (`NotWritable`).
 - `DeleteEvent(EventId)`: leaves a **gap** (V6: no rest is written, engraving fills it, like
   Dorico's implicit rests), and takes along the grace notes ornamenting the event, the slurs on it
   and the tuplets left empty; the ties leading into it become `Tie::None`.
@@ -1628,6 +1661,165 @@ one note entered                                  208          336
 
 The difference of 128 bytes is the deque of the history itself. The test fails if the estimate
 falls below 90% of the measure, so the 128 MB limit stays honest.
+
+#### Meter changes and irregular bars (KeepBars)
+
+F1.11c part 1 adds the commands that change how long bars are (module `meter_command`,
+ADR-0026 §7 with the precisions Y1–Y7 of §11, approved by the owner on 2026-11-05):
+`ChangeMeter { bar, change, mode }` sets a meter change, or removes it with `None` (never at bar
+0), and `SetIrregularBar { bar, irregular, mode }` makes one bar longer or shorter, a pickup or a
+free bar, or regular again. Both take a **`MeterMode`**, which says what happens to the music
+already written. This part implements **`KeepBars`**: every bar keeps its events, marks and form
+markings at their offsets, only the lengths change, and the music after the change moves in time.
+`Rewrite`, the default the interface will offer (the music stays where it sounds and the barlines
+move), comes in part 2; `MeterMode` is `#[non_exhaustive]` for that.
+
+```rust
+// A 3/4 from bar 9: the bars keep their music, the bars after them move in time.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_9,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::KeepBars,
+})?;
+// The first bar becomes a pickup of one quarter.
+editor.execute(&Command::SetIrregularBar {
+    bar: first_bar,
+    irregular: Some(IrregularBar { length: quarter, kind: BarKind::AlignEnd }),
+    mode: MeterMode::KeepBars,
+})?;
+```
+
+What the command does beyond the meter map edit:
+
+- **Y3**: the per-bar groupings of the section that no longer add up to the new meter are removed
+  in the same step (they described how the old meter was counted); a free bar loses its grouping.
+- **Y4**: a pickup longer than the new meter, or a section grouping that does not add up, is
+  refused with the meter map's error (`PickupLongerThanMeter`, `GroupingLengthMismatch`).
+- **Y5**: inside a bar repeat the change is refused (`InsideBarRepeat`), because a repeated bar
+  would differ in length from its source; a meter change exactly at the first source bar changes
+  every bar of the range alike and is accepted.
+- **Y7**: a shortened bar may become overfull (valid, ADR-0022 §4), but if a note past the new
+  barline is tied or slurred into the next bar, its tie or slur no longer goes forward in score
+  order, which is by position (ADR-0024): the change is refused with `TieNotForward` or
+  `SlurNotForward`. The property test found the case; the owner chose the refusal. The check
+  (`check_overfull`) looks at the last event of each chunk of the changed bars and runs the local
+  check only on the overfull cells.
+
+Tempo marks past a shortened barline need nothing: the tempo map already clamps them to their
+barline (F1.09c).
+
+**Y8, a correction of `InsertBars`.** The property test also found that a pass rule ending
+exactly at the start of bar *i* (its end is exclusive) grew over bars inserted before *i*, and
+could reach out of its repeated section. The owner chose that an end lying exactly at the
+insertion point does not span it: hairpins, pass rules and gradual tempo changes ending there keep
+ending before the new bars, anchored to the start of the first one.
+
+**Tests** (`src/meter_command_tests.rs`): eight hand-written cases (the music moving, a removed
+change, the stale groupings, the contradictions, the bar repeat, irregular and free bars, the tie
+of Y7, the ends of Y8) and two new kinds of command in the property test (23 in all; 12 000 sequences passed).
+Six injected bugs (no Y7 check, stale groupings kept, no bar-repeat check, the first source bar
+refused, a free bar keeping its grouping, no Y8) were all caught. **Benchmarks** (`benches/editor.rs`,
+heavy score): a 3/4 at the middle bar ≈ 5.7 million instructions (its section of 60 bars becomes
+overfull in every voice and is checked), a bar of two quarters ≈ 122 000: a few milliseconds at
+most, under the 16 ms of ADR-0007.
+
+#### Tuplet notes across a barline
+
+Since F1.11c part 2a (ADR-0026 §11 Z3–Z5) a note of a tuplet that crosses a barline is no longer
+refused (V4 is lifted): it is split into tied notes that **stay in the same tuplet**, as ADR-0024
+(C4) prescribes and Dorico does ("spans barline"). The part left in each bar is brought back to the
+tuplet's own written values, dividing it by the product of the ratios of its tuplet chain (nested
+tuplets included), and written with the longest values first, as outside a tuplet (V3). A part no
+value with at most two dots can write is refused (`NotWritable`); the error `TupletAcrossBarline`
+is gone.
+
+```rust
+// A triplet eighth (1/12 in the bar) entered 1/24 before the barline:
+editor.execute(&Command::EnterEvent(NewEvent {
+    at: Placement::new(voice, bar_1, Duration::from_rational(Rational::new(23, 24)?))
+        .in_tuplet(triplet),
+    body: NewBody::Rest(RestValue::Value(NoteValue::plain(BaseValue::Eighth))),
+}))?;
+// Now two triplet sixteenths: 1/24 before the barline, 1/24 after it, both in the triplet.
+```
+
+One function does it (`command::split_values`, with `tuplet_ratio`), shared by `EnterEvent` now and
+by the meter change that rewrites the music in part 2b (Z5). **Tests** (`src/command_tests.rs`): three
+hand-written cases (a triplet note across a barline, a part of two values spaced by the ratio, a
+triplet nested in a quintuplet), the old refusal case turned into a `NotWritable` case, and the
+property test now entering notes inside tuplets. Two injected bugs (the part not divided by the
+ratio, the values of a part not spaced by it) were caught, the second only by the case written for
+it: a gap between two values is a valid state, so `validate` cannot see it.
+
+#### Rewrite: the music stays where it sounds
+
+F1.11c part 2b adds the meter change that rewrites the music (module `rewrite`, ADR-0026 §7 with
+the precisions R1–R11 of §11, approved by the owner on 2026-11-05): `MeterMode::Rewrite`, the mode
+the interface will offer by default, as Dorico, MuseScore and Sibelius do. The music keeps its
+place in time and the barlines move, from the bar of the change up to the next meter change, the
+next free bar or the end of the score (the **region**, R1).
+
+```rust
+// 8 bars of 4/4; a 3/4 at bar 3 rewrites bars 3–7 (20 quarters) into new bars.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_3,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::Rewrite,
+})?;
+// A whole note of old bar 3 is now a dotted half tied to a quarter of bar 4; the Fine at the end
+// of old bar 4 split a bar of 3/4 into 2/4 + 1/4 (the second uncounted), so the form plays as it did.
+```
+
+How it works, in order (`rewrite::rewrite`):
+
+1. **The region and the new grid** (R1–R4): bars of the meter from the start of the region, an
+   irregular last bar with what is left so that nothing after the region moves (at the end of the
+   score the last bar stays full), a pickup or free bar at the change kept as the first bar. The
+   same algorithm serves `SetIrregularBar` in `Rewrite` mode (adding a pickup to music already
+   written shifts every barline) and removing a change.
+2. **The splits of the form** (R9): an old barline that carries a repeat, a volta, a marker or a
+   jump and is no barline of the grid splits the new bar holding it into two irregular bars, the
+   second uncounted, as ADR-0025 §1 writes a mid-bar repeat.
+3. **New bars** at the end of the region if the grid has more bars.
+4. **The events** (R5, R6, R8), all read before anything moves (the new bars reuse the region's
+   bar IDs, so reading an old bar after moves into it began would read moved events again: the
+   first version did, and every test failed): each moves with one `Replace`; one that now crosses
+   a barline becomes a tie chain inside its tuplet (`split_values`, Z5), its first part keeping
+   its IDs and markings; its ties go on from the last part, and so do the slurs that ended on it;
+   `After` graces stay at the end of their bar; whole-bar rests become written rests.
+5. **The marks and the form markings** (R7, R9): removed, then inserted again at their new places
+   (two phases, so that a mark never lands where another has not left yet).
+6. **The meter map** of the region in one bulk edit (`MeterEdit::Span`, Z1), then the bars the grid
+   no longer needs removed.
+
+A bar repeat that meets the region refuses the rewrite (R10). Then the local check verifies every
+cell and mark touched.
+
+**Cost** (R11, `benches/editor.rs`):
+
+```text
+operation (heavy score)                       instructions
+rewrite of 60 bars × 41 voices (≈ 14 000 events)   ≈ 118 000 000
+the same before the fixes found by the profile     ≈ 200 000 000
+rewrite of 10 bars of the normal score             ≈   5 300 000
+```
+
+The profile showed two waste sources, now gone: the cells of the change set (every moved event
+recorded its two cells, and the list was sorted with thousands of duplicates: `ChangeSet::cell` now
+drops a cell equal to one of the last two, and the editor deduplicates the cells before the local
+check), and a scan of every new bar per event (now two binary searches). What remains is about 8 000
+instructions per event moved. The owner accepted it for now: a rewrite of a long section of the
+heavy score may take more than 16 ms; it will be measured in real time with the interface (F2.23).
+The history holds 2.9 MB for the 60 bars (`tests/history_memory.rs`, estimate exact).
+
+**Tests** (`src/meter_command_tests.rs`): nine hand-written cases (the reference case with the Fine
+split and the D.S. at the end, the stop at the next meter change with an irregular last bar, whole-
+bar rests cut and aligned, a slur end moved, a tie and an `After` grace kept, a pickup added and
+kept, the bar repeat refusal), and `Rewrite` in the property test, half of whose cases now start
+without the bar repeat of the rich document so that rewrites are carried out (12 000 sequences
+passed). Seven injected bugs were caught, five of them only after a case was written for them (the
+property test's documents had no tied split note, no `After` grace, no numbering restart, no aligned
+whole-bar rest, no section ending before the next meter change).
 
 ### orchestra-playback
 

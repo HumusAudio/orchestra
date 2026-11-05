@@ -5,7 +5,10 @@
   into F1.11b and F1.11c (Consequences).
   The precisions of §11 (V1–V9, W1–W6) were approved on 2026-11-04, while implementing F1.11b
   part 2a; X1–X10 on 2026-11-05, before part 2b was written, and X11 the same day, when the
-  property test of part 2b found the case.
+  property test of part 2b found the case; Y1–Y6 the same day before F1.11c part 1 was written,
+  and Y7 and Y8 when its property test found their cases; Z1–Z5 the same day before F1.11c part
+  2a was written; R1–R11 before part 2b was written, and the budget note of R11 when it was
+  measured.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with
@@ -275,11 +278,13 @@ voice) arrive with the first interface that needs them (F2), using the same mech
 | U10 | Marks inside deleted bars | **state marks (meter, clef, key, tempo) carried to the next bar, dynamics deleted**; delete all; carry all | **The first**: the remaining music keeps its meaning (pitches, meter, tempo); a dynamic belongs to the deleted music |
 | U11 | Form markings made invalid by a deletion | **cascade (delete them too, report them)**; refuse the deletion | **Cascade**: the deletion is one undo step, so nothing is lost; refusing would make the user hunt for the markings first |
 
-### 11. Precisions made while implementing F1.11b (owner, 2026-11-04 and 2026-11-05)
+### 11. Precisions made while implementing F1.11b and F1.11c (owner, 2026-11-04 and 2026-11-05)
 
-Approved by the owner before the code of F1.11b part 2a (V, W) and part 2b (X1–X10) was written,
-as §7 allows for the meter change; X11 when the property test of part 2b found its case. They make
-§1, §4, §6 and §9 precise; none of them changes a decision above.
+Approved by the owner before the code of F1.11b part 2a (V, W), part 2b (X1–X10) and F1.11c
+part 1 (Y1–Y6) was written, as §7 allows for the meter change; X11 and Y7 when the property tests
+found their cases (Y8 corrects the bar insertion of part 2a); Z1–Z5 and R1–R11 before F1.11c parts
+2a and 2b. They make §1, §4, §6, §7 and §9 precise; none of them changes a decision
+above.
 
 | # | Precision |
 |---|---|
@@ -309,6 +314,30 @@ as §7 allows for the meter change; X11 when the property test of part 2b found 
 | X9 | The per-bar data that **does not move a barline** (beat grouping, uncounted bar, numbering restart) has its commands in F1.11b; irregular and free bars and meter changes, which do, belong to F1.11c. |
 | X10 | The local check extends to the marks: the ends of a slur, the hairpins of its instrument, the tempo marks (one walk), the form (rules 8–11), only when the command touched them; the property test keeps running the full `validate` after every command. |
 | X11 | Bars inserted **between two voltas of a group** (the earlier one ending just before the point, the next one starting at it) **join the earlier volta**, and the end repeat that closed it moves to the end of the last new bar (owner's choice, 2026-11-05): otherwise they would fall outside both voltas and the group would be invalid. |
+| Y1 | A meter change is `ChangeMeter { bar, change: Option<MeterChange>, mode }` (`None` removes it, never at bar 0), and a change of one bar's length (irregular, pickup, free) is `SetIrregularBar { bar, irregular: Option<IrregularBar>, mode }`, both with a `MeterMode`. F1.11c part 1 implements `KeepBars`; `Rewrite` is added in part 2. |
+| Y2 | `KeepBars` makes one change in the meter map: events, marks and the form stay in their bars at their offsets; a shortened bar may become overfull; the music after the change moves in time and the tempo map is derived again (a tempo mark past a shortened barline is already clamped to it). |
+| Y3 | The per-bar beat groupings of the section that no longer add up to the new meter are removed in the same command; a free bar loses its per-bar grouping. |
+| Y4 | A pickup longer than the new meter, or a section grouping that does not add up to it, is **refused** with the meter map's typed error. |
+| Y5 | Inside a bar repeat the change is **refused** (`InsideBarRepeat`): a meter change strictly after the first source bar, a change of one bar's length anywhere from the first source bar to the end. |
+| Y6 | The bulk edit of the meter map comes with `Rewrite` (part 2): `KeepBars` makes edits in sequence, each valid on its own. |
+| Y7 | A `KeepBars` change that leaves a tied or slurred note past a shortened barline, so that its tie or slur no longer goes forward in score order (by position, ADR-0024), is **refused** with the violation (owner's choice, 2026-11-05): `Rewrite` moves the barlines instead. |
+| Y8 | A hairpin, a pass rule or a gradual tempo change that **ends exactly at the start of the bar before which bars are inserted** (its end is exclusive) does not span the point (§6): it keeps ending there, before the new bars, anchored to the start of the first new bar (owner's choice, 2026-11-05). Otherwise a pass rule could reach out of its repeated section. |
+| Z1 | The bulk edit of the meter map is `MeterMap::replace_span(at, &BarSpan)`: the source data of the `span.count()` bars from `at` on replaced at once, the old data returned as the exact inverse; in the model, the primitive edit `MeterEdit::Span { bar, span }`. The number of bars does not change. |
+| Z2 | **No bulk edit for the tempo map**: it is derived from the tempo marks once, at the end of every transaction (ADR-0024 §11), which is already "all at once". |
+| Z3 | A **tuplet note across a barline** is split into tied notes (pitch by pitch; rests into rests) that stay in the **same innermost tuplet**: each part is brought back to the tuplet's own written values (divided by the product of the ratios of the tuplet chain) and written with the longest values first, at most two dots (V3); a part no such value can write is refused (`NotWritable`). |
+| Z4 | V4 is lifted: `EnterEvent` splits a tuplet note across one or more barlines as Z3 says; a free bar still grows instead (V5). |
+| Z5 | One splitting function serves `EnterEvent` and the meter change that rewrites the music (`Rewrite`, F1.11c part 2b). |
+| R1 | `Rewrite` rewrites the **region**: from the bar of the change up to the next meter change, the next free bar or the end of the score. The irregular bars and per-bar groupings inside it are not kept: the bars are divided again. |
+| R2 | The **grid**: bars of the meter from the start of the region; if the region does not end on a barline of the grid, its last bar is an irregular (`AlignStart`) bar with what is left, so nothing after the region moves; at the end of the score the last bar keeps its full length, empty in its tail. Bars are added or removed at the end of the region, the region's bar IDs reused in order. |
+| R3 | A **pickup** (`AlignEnd`) or a **free bar** at the bar of a meter change stays as the first bar of the grid (a pickup longer than the new meter is refused by the meter map, as Y4). |
+| R4 | The same algorithm serves `SetIrregularBar` in `Rewrite` mode (the grid starts with the bar asked for, then the meter in force) and the removal of a meter change or of an irregular bar. |
+| R5 | Every **event** goes into the new bar where it falls; one that crosses a barline of the grid becomes a tie chain (inside its tuplet, Z3): the first part keeps its IDs and markings, the others get new IDs, plain noteheads and no offsets (§7 rule 2); the original ties go on from the last part; a slur that ended on it ends on the last part; `Before` graces stay with the first part, `After` graces with the last, at the end of its bar. Existing ties are never merged. |
+| R6 | **Whole-bar rests** become rests of written values covering the same silence, cut at the new barlines, even where no barline cuts them. |
+| R7 | **Marks with a point** (dynamics, hairpin ends, tempo marks and the ends of gradual changes, clef and key changes, key overrides, pass rule ends) go to the point where they sound; a point exactly on a new barline is the start of that bar. |
+| R8 | Events and marks **past the end of the region** (an overfull last bar) stay in the last bar of the region, overfull. An overfull bar in the middle of the region whose overflow now overlaps the music after it is refused by the local check (`Overlap`, X3). |
+| R9 | A **form marking** on an old barline that is no barline of the grid splits the new bar holding it into irregular bars (§7 rule 4, ADR-0025 §1): the first part begins the bar, the last (`AlignEnd`) completes it and is uncounted. At the end of the score a form marking at the very end ends the last bar there instead of leaving an empty tail. **Numbering restarts** go to the new bar where their old bar started. |
+| R10 | A rewrite whose region meets a **bar repeat** (its source or its repeated bars) is **refused** (`InsideBarRepeat`): repeated bars hold no notes to divide again. |
+| R11 | **Cost**: one `Replace` per event of the region, so time and history grow with the region's events (≈ 208 bytes of history per event: 2.9 MB for 60 bars of the heavy score, measured). **Budget note** (owner, 2026-11-05): a rewrite of 60 bars × 41 voices of the heavy score costs ≈ 118 million instructions (≈ 8 000 per event moved), which may exceed the 16 ms of §8 on the reference laptop; it is accepted for now, as a rare and explicit command, and is to be measured in real time with the interface (F2.23) and optimised then (for example with a bulk move of a run of events) if needed. On the normal score (10 bars) it costs ≈ 5 million. |
 
 ## Alternatives rejected
 
@@ -327,7 +356,7 @@ as §7 allows for the meter change; X11 when the property test of part 2b found 
 
 - `core-model` gains `edit`, `command`, `history`, `change`; the builder stays for new documents
   and the file loader (F1.08). `core-time` gains bar insertion/deletion in the meter map and bulk
-  edits for both maps.
+  edits for both maps (the meter map's is `replace_span`; the tempo map needs none, Z2).
 - Every later feature that changes the document adds edits (if it adds a kind of object) and
   commands; nothing else.
 - Proposed split of the step (SCALETTA): **F1.11** this ADR; **F1.11b** the engine (edits,
