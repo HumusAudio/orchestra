@@ -1863,6 +1863,82 @@ iniettati (il tratto non diviso per il rapporto, le figure di un tratto non dist
 rapporto) sono stati presi, il secondo solo dal caso scritto apposta: un buco fra due figure è uno
 stato valido, quindi `validate` non può vederlo.
 
+#### Rewrite: la musica resta dove suona
+
+F1.11c parte 2b aggiunge il cambio di metro che riscrive la musica (modulo `rewrite`, ADR-0026 §7 con
+le precisazioni R1–R11 di §11, approvate dal proprietario il 2026-11-05): `MeterMode::Rewrite`, la
+modalità che l'interfaccia offrirà di default, come fanno Dorico, MuseScore e Sibelius. La musica
+resta dove suona e si spostano le stanghette, dalla battuta del cambio fino al prossimo cambio di
+metro, alla prossima battuta libera o alla fine della partitura (la **regione**, R1).
+
+```rust
+// 8 bars of 4/4; a 3/4 at bar 3 rewrites bars 3–7 (20 quarters) into new bars.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_3,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::Rewrite,
+})?;
+// A whole note of old bar 3 is now a dotted half tied to a quarter of bar 4; the Fine at the end
+// of old bar 4 split a bar of 3/4 into 2/4 + 1/4 (the second uncounted), so the form plays as it did.
+```
+
+Come funziona, in ordine (`rewrite::rewrite`):
+
+1. **La regione e la nuova divisione** (R1–R4): battute del metro dall'inizio della regione,
+   un'ultima battuta irregolare con ciò che resta così che nulla dopo la regione si sposti (alla fine
+   della partitura l'ultima battuta resta intera), una levata o una battuta libera al cambio tenuta
+   come prima battuta. Lo stesso algoritmo serve `SetIrregularBar` in modalità `Rewrite` (aggiungere
+   una levata a musica già scritta sposta ogni stanghetta) e la rimozione di un cambio.
+2. **Le divisioni per la forma** (R9): una vecchia stanghetta che porta un ritornello, una volta, un
+   segno o un salto e che non è una stanghetta della nuova divisione divide la battuta nuova che la
+   contiene in due battute irregolari, la seconda non contata, come ADR-0025 §1 scrive un ritornello
+   a metà battuta.
+3. **Battute nuove** in fondo alla regione se la divisione ne ha di più.
+4. **Gli eventi** (R5, R6, R8), letti tutti prima di spostare qualcosa (le battute nuove riusano gli
+   ID delle battute della regione, quindi leggere una battuta vecchia dopo che gli spostamenti verso
+   di lei sono cominciati rileggerebbe eventi già spostati: la prima versione lo faceva, e tutti i
+   test fallivano): ognuno si sposta con un `Replace`; uno che ora scavalca una stanghetta diventa una
+   catena di note legate dentro il suo gruppo irregolare (`split_values`, Z5), con la prima parte che
+   tiene ID e segni; le sue legature ripartono dall'ultima parte, e così le legature di portamento che
+   finivano su di lui; gli abbellimenti "dopo" restano in fondo alla loro battuta; le pause di battuta
+   intera diventano pause scritte.
+5. **Le marcature e le marcature di forma** (R7, R9): tolte, poi reinserite al loro posto nuovo (due
+   fasi, così una marcatura non arriva mai dove un'altra non se n'è ancora andata).
+6. **La mappa dei metri** della regione in una modifica in blocco (`MeterEdit::Span`, Z1), poi si
+   tolgono le battute che la nuova divisione non usa più.
+
+Una ripetizione di battuta che tocca la regione fa rifiutare la riscrittura (R10). Poi la verifica
+locale controlla ogni cella e ogni marcatura toccata.
+
+**Costo** (R11, `benches/editor.rs`):
+
+```text
+operation (heavy score)                       instructions
+rewrite of 60 bars × 41 voices (≈ 14 000 events)   ≈ 118 000 000
+the same before the fixes found by the profile     ≈ 200 000 000
+rewrite of 10 bars of the normal score             ≈   5 300 000
+```
+
+Il profilo ha mostrato due sprechi, ora tolti: le celle dell'insieme delle modifiche (ogni evento
+spostato registrava le sue due celle, e la lista si ordinava con migliaia di doppioni: ora
+`ChangeSet::cell` scarta una cella uguale a una delle ultime due, e l'editor toglie i doppioni prima
+della verifica locale) e una scansione di tutte le battute nuove per ogni evento (ora due ricerche
+binarie). Resta circa 8 000 istruzioni per evento spostato. Il proprietario l'ha accettato per ora:
+una riscrittura di una sezione lunga della partitura pesante può superare i 16 ms; si misurerà in
+tempo reale con l'interfaccia (F2.23). La cronologia trattiene 2,9 MB per le 60 battute
+(`tests/history_memory.rs`, stima esatta).
+
+**Test** (`src/meter_command_tests.rs`): nove casi scritti a mano (il caso di riferimento con il Fine
+diviso e il D.S. alla fine, la fermata al prossimo cambio di metro con un'ultima battuta irregolare,
+pause di battuta intera tagliate e allineate, la fine di una legatura di portamento spostata, una
+legatura di valore e un abbellimento "dopo" conservati, una levata aggiunta e conservata, il rifiuto
+per la ripetizione di battuta), e `Rewrite` nel test di proprietà, metà dei cui casi ora parte senza
+la ripetizione di battuta del documento ricco così che le riscritture vengano eseguite (12 000
+sequenze passate). Sette bug iniettati sono stati presi, cinque solo dopo aver scritto un caso
+apposta (i documenti del test di proprietà non avevano una nota spezzata già legata, un abbellimento
+"dopo", una ripartenza della numerazione, una pausa di battuta intera allineata, una sezione che
+finisce prima del cambio di metro successivo).
+
 ### orchestra-playback
 
 Ricava ciò che si suona da ciò che è scritto: ritornelli e salti srotolati, legature di valore

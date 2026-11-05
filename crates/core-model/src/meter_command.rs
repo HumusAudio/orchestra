@@ -39,14 +39,34 @@ use crate::document::{Document, DocumentError};
 use crate::edit::{Edit, MeterEdit};
 use crate::editor::{CommandError, Transaction};
 use crate::id::BarId;
+use crate::rewrite::FirstMeter;
 
 /// What a change of bar lengths does to the music already written (ADR-0026 §7, Y1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum MeterMode {
+    /// The music keeps its place in time and the barlines move, up to the next meter change, the
+    /// next free bar or the end of the score (ADR-0026 §7, R1–R11; `crate::rewrite`). What the
+    /// interface offers by default, as Dorico, `MuseScore` and Sibelius do.
+    Rewrite,
     /// Every bar keeps its contents and offsets; only the bar lengths change, and the music after
     /// the change moves in time (Dorico's Insert mode counterpart).
     KeepBars,
+}
+
+/// The meter change in force at `at`, with its section grouping: the last entry at or before
+/// it. O(m) for the m meter changes.
+///
+/// # Errors
+/// [`DocumentError::Inconsistent`] if there is none (the map always has one at bar 0).
+fn change_in_force(doc: &Document, at: BarIndex) -> Result<MeterChange, DocumentError> {
+    doc.meter_map()
+        .meter_changes()
+        .iter()
+        .rev()
+        .find(|(b, _)| *b <= at)
+        .map(|(_, c)| *c)
+        .ok_or(DocumentError::Inconsistent)
 }
 
 /// Refuses a change of bar lengths inside a bar repeat (Y5).
@@ -109,9 +129,27 @@ pub(crate) fn change_meter(
     change: Option<MeterChange>,
     mode: MeterMode,
 ) -> Result<(), CommandError> {
-    let MeterMode::KeepBars = mode;
     let doc = tx.document();
     let at = doc.bar_index(bar)?;
+    if mode == MeterMode::Rewrite {
+        // The meter of the grid: the new one, or (removing the change) the one before it.
+        let meter = if let Some(change) = change {
+            change
+        } else {
+            let before = at.get().checked_sub(1).ok_or(DocumentError::MeterMap(
+                orchestra_core_time::MeterMapError::NoMeterAtStart,
+            ))?;
+            change_in_force(doc, BarIndex::new(before))?
+        };
+        // R3: a pickup or a free bar at the change stays as the grid's first bar.
+        let first = doc
+            .meter_map()
+            .irregular_bars()
+            .iter()
+            .find(|(b, i)| *b == at && matches!(i.kind, BarKind::AlignEnd | BarKind::Free))
+            .map(|(_, i)| *i);
+        return crate::rewrite::rewrite(tx, at, first, FirstMeter::Set(change), meter);
+    }
     check_bar_repeats(doc, at, true)?;
     let map = doc.meter_map();
     // The meter that will be in force at `at`: the new one, or (when removing) the one before.
@@ -170,9 +208,13 @@ pub(crate) fn set_irregular_bar(
     irregular: Option<IrregularBar>,
     mode: MeterMode,
 ) -> Result<(), CommandError> {
-    let MeterMode::KeepBars = mode;
     let doc = tx.document();
     let at = doc.bar_index(bar)?;
+    if mode == MeterMode::Rewrite {
+        // R4: the grid starts with the bar asked for (or a regular one), in the meter in force.
+        let meter = change_in_force(doc, at)?;
+        return crate::rewrite::rewrite(tx, at, irregular, FirstMeter::Keep, meter);
+    }
     check_bar_repeats(doc, at, false)?;
     let has_grouping = doc
         .meter_map()

@@ -119,8 +119,18 @@ impl ChangeSet {
     // --------------------------------------------------------------------------------------------
 
     /// Records that the events of `voice` in `bar` changed. O(1) amortised.
+    ///
+    /// A cell equal to one of the last two recorded is not recorded again: moving many events of
+    /// one bar records the same pair of cells (where an event left, where it arrived) over and
+    /// over, and the list would otherwise grow with the events instead of the cells. The lists
+    /// are deduplicated anyway when they are tidied; this only keeps them short (measured: the
+    /// sort of the cells was a fifth of a meter change that rewrites 60 bars of the heavy score).
     pub(crate) fn cell(&mut self, voice: VoiceId, bar: BarId) {
-        self.cells.push((voice, bar));
+        let cell = (voice, bar);
+        let recent = self.cells.iter().rev().take(2).any(|&c| c == cell);
+        if !recent {
+            self.cells.push(cell);
+        }
     }
 
     /// Records an inserted object. O(1) amortised.
@@ -176,7 +186,10 @@ impl ChangeSet {
     /// the flags), but not its object lists: a replacement made of a removal and an insertion is
     /// reported once, as "replaced", by the caller. O(cells of `other`).
     pub(crate) fn absorb_effects(&mut self, other: Self) {
-        self.cells.extend(other.cells);
+        // Through `cell`, so that the recent duplicates are dropped here too.
+        for (voice, bar) in other.cells {
+            self.cell(voice, bar);
+        }
         if let Some(bar) = other.meter_from {
             self.meter(bar);
         }
@@ -197,6 +210,16 @@ impl ChangeSet {
             self.tempo_from = Some(self.tempo_from.map_or(from, |mine| mine.min(from)));
         }
         self.absorb_effects(other);
+    }
+
+    /// Sorts and deduplicates the cells, so that the local check (`Document::check_cells`) checks
+    /// each cell once: a command that moves thousands of events records every cell twice per
+    /// event (where the event left and where it arrived), and checking each entry would cost
+    /// O(events × chunk). In place, no allocation; O(c log c). [`finish`](Self::finish) sorts them
+    /// again later at no extra cost.
+    pub(crate) fn tidy_cells(&mut self) {
+        self.cells.sort_unstable();
+        self.cells.dedup();
     }
 
     /// Sorts and deduplicates every list, once the transaction is over. O(e log e).

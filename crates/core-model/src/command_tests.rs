@@ -1223,24 +1223,26 @@ fn all_marks(doc: &Document) -> Vec<ObjectRef> {
     marks
 }
 
-/// One random change of bar lengths of F1.11c (`op` 21 or 22), in `KeepBars` mode: a meter
-/// change (often refused inside the bar repeat, or by a pickup) or one bar made irregular,
-/// a pickup, free or regular again.
+/// One random change of bar lengths of F1.11c (`op` 21 or 22), in either mode: a meter change
+/// (often refused inside the bar repeat, or by a pickup) or one bar made irregular, a pickup, free
+/// or regular again.
 fn random_meter_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command> {
     let bars = doc.bars().ids();
     let bar = *bars.get(a % bars.len())?;
     let length = Duration::from_rational(Rational::new(i64::try_from(1 + b % 6).ok()?, 4).ok()?);
+    // Half the time the music is rewritten (part 2b), half the bars keep their contents (part 1).
+    let mode = if (a / 3).is_multiple_of(2) {
+        MeterMode::Rewrite
+    } else {
+        MeterMode::KeepBars
+    };
     Some(if op == 21 {
         let meters = [(2, 4), (3, 4), (4, 4), (6, 8), (5, 8)];
         let change = (b % 6 != 5).then(|| {
             let (n, den) = meters[b % 5];
             MeterChange::new(Meter::new(&[n], den).unwrap())
         });
-        Command::ChangeMeter {
-            bar,
-            change,
-            mode: MeterMode::KeepBars,
-        }
+        Command::ChangeMeter { bar, change, mode }
     } else {
         let kinds = [BarKind::AlignStart, BarKind::AlignEnd, BarKind::Free];
         Command::SetIrregularBar {
@@ -1249,7 +1251,7 @@ fn random_meter_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Co
                 length,
                 kind: kinds[a % 3],
             }),
-            mode: MeterMode::KeepBars,
+            mode,
         }
     })
 }
@@ -1518,8 +1520,20 @@ proptest! {
     #[test]
     fn commands_keep_the_document_valid(
         steps in prop::collection::vec((0_u8..OPS, 0_usize..64, 0_usize..64, 0_u8..4), 1..24),
+        without_bar_repeat in any::<bool>(),
     ) {
         let mut editor = Editor::new(rich());
+        // Half the cases start without the flute's bar repeat, which refuses every rewrite that
+        // reaches it (R10), so that the rewrites are often carried out.
+        if without_bar_repeat {
+            let repeat = editor.document().instruments().nth(1).unwrap().bar_repeats()[0].id();
+            let document = {
+                let mut first = Editor::new(editor.document().clone());
+                first.execute(&Command::RemoveMark(ObjectRef::BarRepeat(repeat))).unwrap();
+                first.into_document()
+            };
+            editor = Editor::new(document);
+        }
         let original = editor.document().clone();
         for (op, a, b, action) in steps {
             let Some(command) = random_command(editor.document(), op, a, b) else { continue };

@@ -104,6 +104,7 @@ pub mod meter_command;
 #[cfg(test)]
 mod meter_command_tests;
 pub mod pitch;
+mod rewrite;
 pub mod slur;
 pub mod tempo_mark;
 pub mod validate;

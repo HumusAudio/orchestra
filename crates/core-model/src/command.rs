@@ -434,7 +434,7 @@ fn written_values(length: Duration) -> Result<Vec<NoteValue>, DocumentError> {
 /// # Errors
 /// [`DocumentError::EmptyChord`] for no notehead; [`DocumentError::Pitch`] if a sounding pitch
 /// overflows.
-fn chord_from(
+pub(crate) fn chord_from(
     value: NoteValue,
     tuplet: Option<TupletId>,
     grace: Option<Grace>,
@@ -479,6 +479,34 @@ fn current(doc: &Document, id: EventId) -> Result<(VoiceId, BarId, PlacedEvent),
         found.bar(),
         PlacedEvent::new(found.offset(), found.event().clone()),
     ))
+}
+
+/// Puts an existing event (same ID) at `bar` and `offset` of `voice` with the content `event`,
+/// unless it is already exactly there: the move of the meter change that rewrites the music
+/// (`crate::rewrite`), which leaves an event that does not move untouched (no history). O(event
+/// lookup) + the replacement.
+///
+/// # Errors
+/// [`DocumentError::UnknownEvent`]; the edit's.
+pub(crate) fn replace_event_at(
+    tx: &mut Transaction<'_>,
+    voice: VoiceId,
+    bar: BarId,
+    offset: Duration,
+    event: Event,
+) -> Result<(), CommandError> {
+    let found = tx
+        .document()
+        .event(event.id())
+        .ok_or(DocumentError::UnknownEvent(event.id()))?;
+    if found.voice() == voice
+        && found.bar() == bar
+        && found.offset() == offset
+        && *found.event() == event
+    {
+        return Ok(());
+    }
+    replace_event(tx, voice, bar, PlacedEvent::new(offset, event))
 }
 
 /// Sends an event back with a new content or place ([`Edit::Replace`], `place: None`: in place

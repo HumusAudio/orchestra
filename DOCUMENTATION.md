@@ -1751,6 +1751,76 @@ property test now entering notes inside tuplets. Two injected bugs (the part not
 ratio, the values of a part not spaced by it) were caught, the second only by the case written for
 it: a gap between two values is a valid state, so `validate` cannot see it.
 
+#### Rewrite: the music stays where it sounds
+
+F1.11c part 2b adds the meter change that rewrites the music (module `rewrite`, ADR-0026 §7 with
+the precisions R1–R11 of §11, approved by the owner on 2026-11-05): `MeterMode::Rewrite`, the mode
+the interface will offer by default, as Dorico, MuseScore and Sibelius do. The music keeps its
+place in time and the barlines move, from the bar of the change up to the next meter change, the
+next free bar or the end of the score (the **region**, R1).
+
+```rust
+// 8 bars of 4/4; a 3/4 at bar 3 rewrites bars 3–7 (20 quarters) into new bars.
+editor.execute(&Command::ChangeMeter {
+    bar: bar_3,
+    change: Some(MeterChange::new(Meter::new(&[3], 4)?)),
+    mode: MeterMode::Rewrite,
+})?;
+// A whole note of old bar 3 is now a dotted half tied to a quarter of bar 4; the Fine at the end
+// of old bar 4 split a bar of 3/4 into 2/4 + 1/4 (the second uncounted), so the form plays as it did.
+```
+
+How it works, in order (`rewrite::rewrite`):
+
+1. **The region and the new grid** (R1–R4): bars of the meter from the start of the region, an
+   irregular last bar with what is left so that nothing after the region moves (at the end of the
+   score the last bar stays full), a pickup or free bar at the change kept as the first bar. The
+   same algorithm serves `SetIrregularBar` in `Rewrite` mode (adding a pickup to music already
+   written shifts every barline) and removing a change.
+2. **The splits of the form** (R9): an old barline that carries a repeat, a volta, a marker or a
+   jump and is no barline of the grid splits the new bar holding it into two irregular bars, the
+   second uncounted, as ADR-0025 §1 writes a mid-bar repeat.
+3. **New bars** at the end of the region if the grid has more bars.
+4. **The events** (R5, R6, R8), all read before anything moves (the new bars reuse the region's
+   bar IDs, so reading an old bar after moves into it began would read moved events again: the
+   first version did, and every test failed): each moves with one `Replace`; one that now crosses
+   a barline becomes a tie chain inside its tuplet (`split_values`, Z5), its first part keeping
+   its IDs and markings; its ties go on from the last part, and so do the slurs that ended on it;
+   `After` graces stay at the end of their bar; whole-bar rests become written rests.
+5. **The marks and the form markings** (R7, R9): removed, then inserted again at their new places
+   (two phases, so that a mark never lands where another has not left yet).
+6. **The meter map** of the region in one bulk edit (`MeterEdit::Span`, Z1), then the bars the grid
+   no longer needs removed.
+
+A bar repeat that meets the region refuses the rewrite (R10). Then the local check verifies every
+cell and mark touched.
+
+**Cost** (R11, `benches/editor.rs`):
+
+```text
+operation (heavy score)                       instructions
+rewrite of 60 bars × 41 voices (≈ 14 000 events)   ≈ 118 000 000
+the same before the fixes found by the profile     ≈ 200 000 000
+rewrite of 10 bars of the normal score             ≈   5 300 000
+```
+
+The profile showed two waste sources, now gone: the cells of the change set (every moved event
+recorded its two cells, and the list was sorted with thousands of duplicates: `ChangeSet::cell` now
+drops a cell equal to one of the last two, and the editor deduplicates the cells before the local
+check), and a scan of every new bar per event (now two binary searches). What remains is about 8 000
+instructions per event moved. The owner accepted it for now: a rewrite of a long section of the
+heavy score may take more than 16 ms; it will be measured in real time with the interface (F2.23).
+The history holds 2.9 MB for the 60 bars (`tests/history_memory.rs`, estimate exact).
+
+**Tests** (`src/meter_command_tests.rs`): nine hand-written cases (the reference case with the Fine
+split and the D.S. at the end, the stop at the next meter change with an irregular last bar, whole-
+bar rests cut and aligned, a slur end moved, a tie and an `After` grace kept, a pickup added and
+kept, the bar repeat refusal), and `Rewrite` in the property test, half of whose cases now start
+without the bar repeat of the rich document so that rewrites are carried out (12 000 sequences
+passed). Seven injected bugs were caught, five of them only after a case was written for them (the
+property test's documents had no tied split note, no `After` grace, no numbering restart, no aligned
+whole-bar rest, no section ending before the next meter change).
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics

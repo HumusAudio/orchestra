@@ -338,8 +338,21 @@ one splitting function, `command::split_values`, for `EnterEvent` and `Rewrite`)
 `TupletAcrossBarline` is gone; `BarSpan` gained its setters. Tests: two cases and an oracle property
 test for `replace_span`, three cases for tuplet splits, the command property test now entering
 notes inside tuplets; three injected bugs caught (one only by a case written for it). Benchmark:
-`replace_span` of 60 bars ≈ 77 000 instructions. **Next: F1.11c part 2b**, `Rewrite` (ADR-0026 §7
-rules 1–5), then the PR of F1.11c.
+`replace_span` of 60 bars ≈ 77 000 instructions. **F1.11c part 2b done** (2026-11-05, same branch): before
+coding, the owner approved R1–R11, now ADR-0026 §11 (the region up to the next meter change or free
+bar; a grid with an irregular last bar so nothing after moves; pickups and free bars kept; the same
+algorithm for `SetIrregularBar` and removals; events and marks placed by position, tie chains inside
+tuplets, ties and slur ends moved to the last part; whole-bar rests written out; bars split under
+form markings; bar repeats refuse). Implemented in `core-model`: the module `rewrite`
+(`MeterMode::Rewrite`), `command::replace_event_at`; `ChangeSet::cell` drops recent duplicates and
+the editor deduplicates the cells before the local check. Tests: nine hand-written cases, `Rewrite`
+in the property test (half the cases without the bar repeat), seven injected bugs caught (five only
+by cases written for them). Benchmarks: a rewrite of 60 bars × 41 voices of the heavy score ≈ 118
+million instructions (200 million before two fixes found with the profile), 10 bars of the normal
+score ≈ 5.3 million; history 2.9 MB. **Open (owner's choice, 2026-11-05):** that rewrite may exceed
+the 16 ms of ADR-0026 §8 on the reference laptop: accepted for now, to be measured in real time with
+the interface (F2.23) and optimised then if needed (for example with a bulk move of a run of events).
+**Next:** the PR of F1.11c (parts 1, 2a, 2b), then F1.12, the unrolling of the form.
 
 | Step | What | Status |
 |---|---|---|

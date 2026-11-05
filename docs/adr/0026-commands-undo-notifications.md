@@ -7,7 +7,8 @@
   part 2a; X1–X10 on 2026-11-05, before part 2b was written, and X11 the same day, when the
   property test of part 2b found the case; Y1–Y6 the same day before F1.11c part 1 was written,
   and Y7 and Y8 when its property test found their cases; Z1–Z5 the same day before F1.11c part
-  2a was written.
+  2a was written; R1–R11 before part 2b was written, and the budget note of R11 when it was
+  measured.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with
@@ -281,7 +282,8 @@ voice) arrive with the first interface that needs them (F2), using the same mech
 
 Approved by the owner before the code of F1.11b part 2a (V, W), part 2b (X1–X10) and F1.11c
 part 1 (Y1–Y6) was written, as §7 allows for the meter change; X11 and Y7 when the property tests
-found their cases (Y8 corrects the bar insertion of part 2a); Z1–Z5 before F1.11c part 2a. They make §1, §4, §6, §7 and §9 precise; none of them changes a decision
+found their cases (Y8 corrects the bar insertion of part 2a); Z1–Z5 and R1–R11 before F1.11c parts
+2a and 2b. They make §1, §4, §6, §7 and §9 precise; none of them changes a decision
 above.
 
 | # | Precision |
@@ -325,6 +327,17 @@ above.
 | Z3 | A **tuplet note across a barline** is split into tied notes (pitch by pitch; rests into rests) that stay in the **same innermost tuplet**: each part is brought back to the tuplet's own written values (divided by the product of the ratios of the tuplet chain) and written with the longest values first, at most two dots (V3); a part no such value can write is refused (`NotWritable`). |
 | Z4 | V4 is lifted: `EnterEvent` splits a tuplet note across one or more barlines as Z3 says; a free bar still grows instead (V5). |
 | Z5 | One splitting function serves `EnterEvent` and the meter change that rewrites the music (`Rewrite`, F1.11c part 2b). |
+| R1 | `Rewrite` rewrites the **region**: from the bar of the change up to the next meter change, the next free bar or the end of the score. The irregular bars and per-bar groupings inside it are not kept: the bars are divided again. |
+| R2 | The **grid**: bars of the meter from the start of the region; if the region does not end on a barline of the grid, its last bar is an irregular (`AlignStart`) bar with what is left, so nothing after the region moves; at the end of the score the last bar keeps its full length, empty in its tail. Bars are added or removed at the end of the region, the region's bar IDs reused in order. |
+| R3 | A **pickup** (`AlignEnd`) or a **free bar** at the bar of a meter change stays as the first bar of the grid (a pickup longer than the new meter is refused by the meter map, as Y4). |
+| R4 | The same algorithm serves `SetIrregularBar` in `Rewrite` mode (the grid starts with the bar asked for, then the meter in force) and the removal of a meter change or of an irregular bar. |
+| R5 | Every **event** goes into the new bar where it falls; one that crosses a barline of the grid becomes a tie chain (inside its tuplet, Z3): the first part keeps its IDs and markings, the others get new IDs, plain noteheads and no offsets (§7 rule 2); the original ties go on from the last part; a slur that ended on it ends on the last part; `Before` graces stay with the first part, `After` graces with the last, at the end of its bar. Existing ties are never merged. |
+| R6 | **Whole-bar rests** become rests of written values covering the same silence, cut at the new barlines, even where no barline cuts them. |
+| R7 | **Marks with a point** (dynamics, hairpin ends, tempo marks and the ends of gradual changes, clef and key changes, key overrides, pass rule ends) go to the point where they sound; a point exactly on a new barline is the start of that bar. |
+| R8 | Events and marks **past the end of the region** (an overfull last bar) stay in the last bar of the region, overfull. An overfull bar in the middle of the region whose overflow now overlaps the music after it is refused by the local check (`Overlap`, X3). |
+| R9 | A **form marking** on an old barline that is no barline of the grid splits the new bar holding it into irregular bars (§7 rule 4, ADR-0025 §1): the first part begins the bar, the last (`AlignEnd`) completes it and is uncounted. At the end of the score a form marking at the very end ends the last bar there instead of leaving an empty tail. **Numbering restarts** go to the new bar where their old bar started. |
+| R10 | A rewrite whose region meets a **bar repeat** (its source or its repeated bars) is **refused** (`InsideBarRepeat`): repeated bars hold no notes to divide again. |
+| R11 | **Cost**: one `Replace` per event of the region, so time and history grow with the region's events (≈ 208 bytes of history per event: 2.9 MB for 60 bars of the heavy score, measured). **Budget note** (owner, 2026-11-05): a rewrite of 60 bars × 41 voices of the heavy score costs ≈ 118 million instructions (≈ 8 000 per event moved), which may exceed the 16 ms of §8 on the reference laptop; it is accepted for now, as a rare and explicit command, and is to be measured in real time with the interface (F2.23) and optimised then (for example with a bulk move of a run of events) if needed. On the normal score (10 bars) it costs ≈ 5 million. |
 
 ## Alternatives rejected
 
