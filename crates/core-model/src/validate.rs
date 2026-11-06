@@ -40,6 +40,9 @@
 //!     the target and the jump, `OnPass(n)` only inside a repeated section with at most n plays
 //!     (`crate::jump`).
 //! 11. **Bar repeats and pass rules** (ADR-0025 §6–§7): see `crate::bar_repeat`.
+//! 12. **The DAW move's data** (ADR-0028 §1, §5): every entry of an instrument's pass-offset
+//!     table names a notehead of that instrument (the editor removes the entries of deleted notes,
+//!     T5), and every tolerance override names an existing track with a positive threshold.
 //!
 //! `DocumentBuilder::build` calls it, so no invalid document can exist (owner's decision of
 //! 2026-11-02); the file loader of F1.15 builds through the builder and gets it for free.
@@ -55,7 +58,7 @@ use crate::dynamic::DynamicScope;
 use crate::event::{EventBody, Note, PlacedEvent, Tie};
 use crate::id::{
     BarRepeatId, EventId, HairpinId, IdMap, InstrumentId, JumpId, NoteId, PassRuleId, RepeatId,
-    SlurId, TempoMarkId, VoiceId, VoltaId,
+    SlurId, TempoMarkId, TrackId, VoiceId, VoltaId,
 };
 use crate::marking::GraceAttach;
 use crate::marks::point_key;
@@ -130,6 +133,11 @@ pub enum Violation {
     PassRulePasses(PassRuleId),
     /// This pass rule starts before the previous rule of its scope has ended.
     PassRuleOverlap(PassRuleId),
+    /// A pass-specific offset names this notehead, which the instrument does not have.
+    PassOffsetWithoutNote(NoteId),
+    /// A tolerance override names this track, which the document does not have, or is not
+    /// strictly positive.
+    ToleranceOverride(TrackId),
 }
 
 impl fmt::Display for Violation {
@@ -281,6 +289,16 @@ impl fmt::Display for Violation {
                 "pass rule {} starts before the previous rule of its scope ends",
                 id.get()
             ),
+            Self::PassOffsetWithoutNote(id) => write!(
+                f,
+                "a pass-specific offset names notehead {}, which its instrument does not have",
+                id.get()
+            ),
+            Self::ToleranceOverride(id) => write!(
+                f,
+                "the tolerance override of track {} names no track or is not positive",
+                id.get()
+            ),
         }
     }
 }
@@ -341,10 +359,38 @@ impl Document {
         for instrument in self.instruments() {
             self.check_bar_repeats_and_pass_rules(instrument)?;
         }
+        // Rule 12: the DAW move's data.
+        self.check_daw_data(&owner)?;
         // Rule 7: the walk that derives the tempo map checks the rules of the marks. The map
         // itself is not rebuilt (the builder derived it when each mark was added), so nothing is
         // allocated.
         self.walk_tempo_marks(|_, _| {})?;
+        Ok(())
+    }
+
+    /// Checks rule 12: every pass-offset entry names a notehead of its own instrument, and every
+    /// tolerance override an existing track with a positive threshold (the project value is
+    /// checked too, for a file loaded in F1.15). O(entries × (1 + voices)) for the note lookups,
+    /// O(overrides × tracks); no allocation.
+    fn check_daw_data(&self, owner: &IdMap<VoiceId, InstrumentId>) -> Result<(), DocumentError> {
+        for instrument in self.instruments() {
+            for entry in instrument.pass_offsets().entries() {
+                let mine = self
+                    .note(entry.note)
+                    .is_some_and(|(event, _)| owner.get(&event.voice()) == Some(&instrument.id()));
+                if !mine {
+                    return Err(DocumentError::Invalid(Violation::PassOffsetWithoutNote(
+                        entry.note,
+                    )));
+                }
+            }
+        }
+        self.tolerance().project().check()?;
+        for &(track, tolerance) in self.tolerance().per_track() {
+            if self.track(track).is_none() || tolerance.check().is_err() {
+                return Err(DocumentError::Invalid(Violation::ToleranceOverride(track)));
+            }
+        }
         Ok(())
     }
 

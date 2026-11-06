@@ -62,6 +62,11 @@
 //!   does not move a barline.
 //! - [`meter_command`] (SCALETTA F1.11c, ADR-0026 §7 and §11 Y1–Y6): the changes of bar lengths,
 //!   meter changes and irregular, pickup and free bars, in a [`MeterMode`] (`KeepBars` for now).
+//! - [`tolerance`], [`pass_offsets`] and [`daw_command`] (SCALETTA F1.14b, ADR-0028): the
+//!   [`Tolerance`] threshold of the project and of each track, the [`PassOffsets`] of each
+//!   instrument (performance offsets of one pass of a repeat), and the DAW move
+//!   ([`MovePlayed`]) that keeps a small move as an offset and turns a larger one into a written
+//!   move, unless the user consciously chose [`MoveMode::PerformanceOnly`].
 //!
 //! ## What this crate must NOT do
 //! - Lay out notation, render anything, play audio or touch files: those are separate crates that
@@ -85,6 +90,9 @@ pub mod command;
 #[cfg(test)]
 mod command_tests;
 pub mod content;
+pub mod daw_command;
+#[cfg(test)]
+mod daw_command_tests;
 pub mod document;
 pub mod dynamic;
 pub mod edit;
@@ -103,16 +111,19 @@ pub mod marks;
 pub mod meter_command;
 #[cfg(test)]
 mod meter_command_tests;
+pub mod pass_offsets;
 pub mod pitch;
 mod rewrite;
 pub mod slur;
 pub mod tempo_mark;
+pub mod tolerance;
 pub mod validate;
 
 pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 pub use change::ChangeSet;
 pub use command::{Command, EventChange, NewBody, NewEvent};
 pub use content::Chunk;
+pub use daw_command::{MoveMode, MovePlayed, ResizePlayed};
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
     MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track, Voice,
@@ -142,9 +153,11 @@ pub use marking::{
 };
 pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList, ScorePoint};
 pub use meter_command::MeterMode;
+pub use pass_offsets::{PassOffset, PassOffsets};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
 pub use slur::{Slur, SlurPlacement};
 pub use tempo_mark::{GradualMark, Metronome, TempoMark, TempoMarkChange};
+pub use tolerance::{Tolerance, ToleranceSettings};
 pub use validate::Violation;

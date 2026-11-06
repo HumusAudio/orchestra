@@ -25,8 +25,10 @@
 //!    acciaccaturas **before** the beat, taking time from the previous note of the voice (the main
 //!    note starts when it is written); `After` graces at the end of the note they follow.
 //! 5. **Arpeggios** (§6, N7): the notes of the chord start one after the other, 1/64 apart.
-//! 6. **Offsets and bounds** (§8, N8): the performance offsets of the chain are added, then a note
-//!    lasts at least 1/1024 of a whole note.
+//! 6. **Offsets and bounds** (§8, N8): the performance offsets of the chain are added, with the
+//!    **pass-specific** offsets of the pass being played (ADR-0028 §5, T3: the onset and the
+//!    velocity of the first notehead in its pass, the lengths of every notehead in its own pass),
+//!    then a note lasts at least 1/1024 of a whole note.
 //! 7. **Loudness** (§4, §14, H1–H17; module `loudness`): the level in force at the note's written
 //!    point along the path (dynamics and hairpins), the dynamic accent written exactly there, the
 //!    articulation accents of its first notehead and its velocity offset give its **attack
@@ -49,7 +51,8 @@ use std::fmt;
 
 use orchestra_core_model::{
     Arpeggio, Articulation, ArticulationSet, Chord, Document, DocumentError, Event, EventBody,
-    EventId, GraceAttach, GraceKind, InstrumentId, NoteId, PitchError, StaffId, Tie, VoiceId,
+    EventId, GraceAttach, GraceKind, InstrumentId, NoteId, PassOffsets, PerformanceOffsets,
+    PitchError, StaffId, Tie, VoiceId,
 };
 use orchestra_core_time::{Duration, Position, Rational, RationalError, Seconds};
 
@@ -531,7 +534,14 @@ fn perform_range(
     // The notes of the chains, before the grace notes move their starts and ends.
     let mut notes: Vec<(Chain, Slot)> = Vec::new();
     for chain in chains {
-        let note = chain_note(&items, timelines, instrument.id(), voices, &chain)?;
+        let note = chain_note(
+            &items,
+            timelines,
+            instrument.id(),
+            voices,
+            instrument.pass_offsets(),
+            &chain,
+        )?;
         notes.push((chain, note));
     }
     // The notes of the grace chords, and the time they take from their neighbours (§5, N5, N6).
@@ -541,8 +551,7 @@ fn perform_range(
             list,
             v,
             timelines,
-            instrument.id(),
-            voices,
+            (instrument.id(), voices, instrument.pass_offsets()),
             &mut notes,
             &mut graces,
         )?;
@@ -683,6 +692,7 @@ fn chain_note(
     timelines: &[Timeline],
     instrument: InstrumentId,
     voices: &[orchestra_core_model::Voice],
+    passes: &PassOffsets,
     chain: &Chain,
 ) -> Result<Slot, PerformError> {
     let link = |k: usize| -> Result<(&Item, orchestra_core_model::Note), PerformError> {
@@ -708,13 +718,21 @@ fn chain_note(
         .length
         .checked_mul(length_factor(last_chord.articulations())?)?;
     let mut end = last.start.checked_add(last_length)?;
-    // N8: the onset and the velocity from the first notehead, the lengths of every notehead added.
+    // N8: the onset and the velocity from the first notehead, the lengths of every notehead added;
+    // T3: each notehead's pass-specific offsets of its own pass added to its inline ones.
     let mut length_offset = Duration::ZERO;
     for k in 0..chain.links.len() {
-        let (_, note) = link(k)?;
+        let (item, note) = link(k)?;
         length_offset = length_offset.checked_add(note.offsets().length)?;
+        // Most tables are empty: skip the lookup and the (gcd-costing) addition of a zero then.
+        if !passes.is_empty() {
+            length_offset = length_offset.checked_add(passes.get(note.id(), item.pass).length)?;
+        }
     }
-    let offsets = first_note.offsets();
+    let offsets = with_pass(
+        first_note.offsets(),
+        passes.get(first_note.id(), first.pass),
+    )?;
     let start = first.start.checked_add(offsets.onset)?;
     end = end.checked_add(offsets.onset)?.checked_add(length_offset)?;
     let &(v, _, _) = chain.links.first().ok_or(UnrollError::Endless)?;
@@ -771,8 +789,7 @@ fn place_graces(
     list: &[Item],
     v: usize,
     timelines: &[Timeline],
-    instrument: InstrumentId,
-    voices: &[orchestra_core_model::Voice],
+    (instrument, voices, passes): (InstrumentId, &[orchestra_core_model::Voice], &PassOffsets),
     notes: &mut [(Chain, Slot)],
     graces: &mut Vec<Slot>,
 ) -> Result<(), PerformError> {
@@ -847,7 +864,7 @@ fn place_graces(
                     list,
                     g,
                     timelines,
-                    (v, instrument, voice),
+                    (v, instrument, voice, passes),
                     start,
                     each,
                     graces,
@@ -907,7 +924,7 @@ fn place_graces(
                     list,
                     g,
                     timelines,
-                    (v, instrument, voice),
+                    (v, instrument, voice, passes),
                     start,
                     each,
                     graces,
@@ -937,7 +954,7 @@ fn place_graces(
                     list,
                     g,
                     timelines,
-                    (v, instrument, voice),
+                    (v, instrument, voice, passes),
                     start,
                     each,
                     graces,
@@ -998,6 +1015,30 @@ fn shorten_previous(notes: &mut [(Chain, Slot)], v: usize, at: Position, from: P
     }
 }
 
+/// The inline offsets of a notehead with the pass-specific offsets of the pass being played added
+/// (ADR-0028 §5): onsets and lengths added exactly, velocities added with saturation (both are
+/// unbounded deltas; the bounds of ADR-0027 §8 come later). O(1).
+///
+/// Without an entry (the common case: most notes have none, most tables are empty) the inline
+/// offsets are returned as they are: adding a zero rational still costs a gcd, and doing it for
+/// every note of the heavy score measured +7% on the whole performance.
+///
+/// # Errors
+/// [`RationalError`] if an addition of durations overflows (absurd values only).
+fn with_pass(
+    inline: PerformanceOffsets,
+    pass: PerformanceOffsets,
+) -> Result<PerformanceOffsets, RationalError> {
+    if pass.is_none() {
+        return Ok(inline);
+    }
+    Ok(PerformanceOffsets {
+        onset: inline.onset.checked_add(pass.onset)?,
+        length: inline.length.checked_add(pass.length)?,
+        velocity: inline.velocity.saturating_add(pass.velocity),
+    })
+}
+
 /// Appends the notes of the grace chord of item `g`, from `start`, lasting `length`. Their loudness
 /// is the level in force at their written point (their main note's), hairpins included, with
 /// their own articulations but **without** the dynamic accent written there, which belongs to
@@ -1006,7 +1047,7 @@ fn push_grace(
     list: &[Item],
     g: usize,
     timelines: &[Timeline],
-    (v, instrument, voice): (usize, InstrumentId, VoiceId),
+    (v, instrument, voice, passes): (usize, InstrumentId, VoiceId, &PassOffsets),
     start: Position,
     length: Duration,
     graces: &mut Vec<Slot>,
@@ -1016,7 +1057,7 @@ fn push_grace(
         return Ok(());
     };
     for note in chord.notes() {
-        let offsets = note.offsets();
+        let offsets = with_pass(note.offsets(), passes.get(note.id(), item.pass))?;
         let basis = Basis {
             voice: v,
             point: (item.played, item.offset),

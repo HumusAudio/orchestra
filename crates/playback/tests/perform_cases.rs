@@ -424,3 +424,97 @@ fn after_graces_come_before_the_next_acciaccatura() {
         ]
     );
 }
+
+/// ADR-0028 §5: an offset of one pass applies to that pass only, added to the inline offsets. A
+/// whole note in a bar played twice, with an inline onset of 1/32 and, on its second pass, 1/16
+/// later, 1/8 shorter and 1000 steps louder.
+#[test]
+fn a_pass_offset_changes_only_its_pass() {
+    let mut s = score(1);
+    let (_, note) = s.note(0, Duration::ZERO, v(BaseValue::Whole));
+    s.b.add_repeat_end(s.bars[0], 2).unwrap();
+    s.b.set_offsets(
+        note,
+        PerformanceOffsets {
+            onset: d(1, 32),
+            ..PerformanceOffsets::NONE
+        },
+    )
+    .unwrap();
+    s.b.set_pass_offsets(
+        note,
+        1,
+        PerformanceOffsets {
+            onset: d(1, 16),
+            length: d(-1, 8),
+            velocity: 1000,
+        },
+    )
+    .unwrap();
+    let notes = played(s);
+    assert_eq!(
+        spans(&notes),
+        [(p(1, 32), p(33, 32)), (p(35, 32), p(63, 32))]
+    );
+    assert_eq!(notes[1].pass, 1);
+    assert_eq!(
+        i32::from(notes[1].velocity) - i32::from(notes[0].velocity),
+        1000
+    );
+}
+
+/// T4: on a staff with a bar repeat, the copy has its own pass, so an entry of pass 1 moves the
+/// copy and leaves the original alone.
+#[test]
+fn a_pass_offset_tells_a_bar_repeat_from_its_source() {
+    let mut s = score(2);
+    let (_, note) = s.note(0, Duration::ZERO, v(BaseValue::Whole));
+    let staff = s.staff;
+    s.b.add_bar_repeat(staff, s.bars[1], 1, BarRepeatSpan::One)
+        .unwrap();
+    s.b.set_pass_offsets(
+        note,
+        1,
+        PerformanceOffsets {
+            onset: d(-1, 16),
+            ..PerformanceOffsets::NONE
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        spans(&played(s)),
+        [(p(0, 1), p(1, 1)), (p(15, 16), p(31, 16))]
+    );
+}
+
+/// T3: along a tie chain, the onset comes from the first notehead's entry, the lengths from every
+/// notehead's entry in its own pass. A half tied to a half across the barline, pass 0: the first
+/// notehead's entry starts the note 1/32 later, the second notehead's entry makes it 1/16 longer
+/// and its onset is ignored.
+#[test]
+fn pass_offsets_along_a_tie_chain() {
+    let mut s = score(2);
+    let (_, first) = s.note(0, d(1, 2), v(BaseValue::Half));
+    let (_, second) = s.note(1, Duration::ZERO, v(BaseValue::Half));
+    s.b.set_tie(first, Tie::To(second)).unwrap();
+    s.b.set_pass_offsets(
+        first,
+        0,
+        PerformanceOffsets {
+            onset: d(1, 32),
+            ..PerformanceOffsets::NONE
+        },
+    )
+    .unwrap();
+    s.b.set_pass_offsets(
+        second,
+        0,
+        PerformanceOffsets {
+            onset: d(1, 4),
+            length: d(1, 16),
+            velocity: 0,
+        },
+    )
+    .unwrap();
+    assert_eq!(spans(&played(s)), [(p(17, 32), p(51, 32))]);
+}

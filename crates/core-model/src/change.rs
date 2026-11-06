@@ -52,6 +52,9 @@ pub struct ChangeSet {
     /// H11): playback recomputes the velocities of these instruments only. The object lists name
     /// a removed dynamic by ID alone, and the document no longer holds it to say whose it was.
     dynamics: Vec<InstrumentId>,
+    /// Whether the tolerance thresholds of the DAW move changed (ADR-0028 §1): nothing derived
+    /// depends on them today, but the DAW view shows them.
+    tolerance: bool,
     /// Whether the tempo map must be derived again when the transaction ends: a tempo mark changed,
     /// or bars moved. Internal bookkeeping of the editor, not part of what consumers read.
     pub(crate) tempo_dirty: bool,
@@ -112,6 +115,12 @@ impl ChangeSet {
         &self.dynamics
     }
 
+    /// Whether the tolerance thresholds changed (ADR-0028 §1). O(1).
+    #[must_use]
+    pub const fn tolerance_changed(&self) -> bool {
+        self.tolerance
+    }
+
     /// Whether nothing at all changed. O(1).
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -123,6 +132,7 @@ impl ChangeSet {
             && self.tempo_from.is_none()
             && !self.form
             && self.dynamics.is_empty()
+            && !self.tolerance
     }
 
     // --------------------------------------------------------------------------------------------
@@ -150,6 +160,11 @@ impl ChangeSet {
         if self.dynamics.last() != Some(&instrument) {
             self.dynamics.push(instrument);
         }
+    }
+
+    /// Records that the tolerance thresholds changed. O(1).
+    pub(crate) const fn tolerance(&mut self) {
+        self.tolerance = true;
     }
 
     /// Records an inserted object. O(1) amortised.
@@ -213,6 +228,7 @@ impl ChangeSet {
             self.meter(bar);
         }
         self.form |= other.form;
+        self.tolerance |= other.tolerance;
         for instrument in other.dynamics {
             self.dynamics(instrument);
         }

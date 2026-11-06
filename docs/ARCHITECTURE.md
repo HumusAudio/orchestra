@@ -17,8 +17,8 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 | Directory | Package | Responsibility |
 |---|---|---|
 | `crates/core-time` | `orchestra-core-time` | Rational musical time, tempo/meter map, conversions to seconds, samples, video frames |
-| `crates/core-model` | `orchestra-core-model` | The single document: tracks, two-layer notes, form (repeats/jumps), commands, undo/redo |
-| `crates/playback` | `orchestra-playback` | Written intent → performance; unrolled timeline; tolerance-threshold logic |
+| `crates/core-model` | `orchestra-core-model` | The single document: tracks, two-layer notes, form (repeats/jumps), commands (including the DAW move with its tolerance threshold, ADR-0028), undo/redo |
+| `crates/playback` | `orchestra-playback` | Written intent → performance; unrolled timeline; inline and pass-specific offsets applied |
 | `crates/notation-layout` | `orchestra-notation-layout` | Incremental engraving into positioned glyphs (no drawing) |
 | `crates/plugin-host` | `orchestra-plugin-host` | Our `PluginHost` interface; out-of-process CLAP/VST3/LV2 (+AU) |
 | `crates/audio-engine` | `orchestra-audio-engine` | Real-time graph, mixing, device backends behind traits, null/offline backend |
