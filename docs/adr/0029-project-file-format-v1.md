@@ -1,6 +1,10 @@
 # ADR-0029 — Project file format v1: plain JSON, a schema of its own, strict loading
 
-- **Status:** Proposed (SCALETTA F1.15, decision D10). Choices S1–S14 below wait for the owner.
+- **Status:** Accepted (owner's decision, 2026-11-06; SCALETTA F1.15, decision D10). The owner
+  approved S1–S14 as recommended (one plain JSON file in version 1, a 1 GiB file limit), after
+  confirming that compression can come later as an ordinary format version (S2), and added two
+  precisions: the version-1 reader already recognises compressed containers (S5), and user
+  settings are always written, only structural absences are omitted (S6).
 - **Date:** 2026-11-06
 - **Completes:** ADR-0010 (its "Proposed part": the concrete format). ADR-0010's accepted policy
   (format version in a header, migrations `vN → vN+1`, golden files, refusal of newer files,
@@ -146,7 +150,12 @@ independent of the program's version, ADR-0010 §1), followed by `"written_by": 
 - version > supported → `LoadError::NewerFormat { found, supported }` ("made with a newer
   Orchestra", ADR-0010 §4), nothing loaded;
 - version = current → typed reading (fast path);
-- version < current → migrations (S11).
+- version < current → migrations (S11);
+- the first bytes are a **zip** (`PK\x03\x04`) or **gzip** (`\x1F\x8B`) signature →
+  `LoadError::NewerFormat` too, not `NotAProject`: a later version may put the document in a
+  compressed container (S2), and an older Orchestra opening such a file must say "made with a newer
+  Orchestra", which is true, instead of "not a project", which would mislead. The check costs a
+  comparison of four bytes (owner's precision, 2026-11-06).
 
 Because the writer always puts the key first, a hand-edited file that moves it is refused as "not a
 project": strict, simple, and stated in the error message.
@@ -174,10 +183,20 @@ project": strict, simple, and stated in the error message.
   translated.
 - **Free texts** (instrument names, text tempo marks, jump texts) as JSON strings, as typed, any
   language.
-- **Defaults omitted**: a field at its documented default (no dots, no tie, no offsets, no
-  fermata…) is not written, and the reader fills it in. Files get smaller and diffs cleaner; the
-  rule that follows is that **changing a documented default is a format change** (new version and
-  migration).
+- **Structural absences omitted, user settings always written** (owner's precision, 2026-11-06).
+  Two kinds of default are told apart:
+  - a field that only says that **something is absent** (no dots, no tie, no fermata, no
+    ornament, no grace, no tuplet, zero performance offsets, an empty list…) is **not written**
+    when absent, and the reader fills the absence in: `{"id":145,"pitch":"C4"}` instead of
+    `{"id":145,"pitch":"C4","tie":"none","offsets":{"onset":"0","length":"0","velocity":"0"}}`.
+    Files get smaller and a diff shows only what was really set. "Absent" can never change
+    meaning, but the rule stays: changing what an omitted field means is a format change (new
+    version and migration);
+  - a **setting the user can choose** whose program default may be revised (the tolerance
+    threshold of ADR-0028, 1/32 today and still to be validated with users; the bar-numbering
+    style; every future project option) is **always written**, even at its default value. If the
+    program's default changes one day, every saved project keeps the value it was written with,
+    with no migration needed.
 
 ### S7 — What is saved, and what is not
 

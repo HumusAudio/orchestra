@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.35, approvata dal proprietario il 2026-11-06.**
+> **Stato di questo documento: v0.36, approvata dal proprietario il 2026-11-06.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -448,7 +448,9 @@ Dettagli:
 | F1.14 | **ADR della soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ✅ ADR-0028 | 1 |
 | F1.14b | **Spostamento dell'attacco dalla DAW**: soglia nel documento, modo "solo esecuzione", tabella degli scostamenti per passaggio, aggiornamento delle note suonate | ✅ | 1–2 |
 | F1.14c | **Durate dalla DAW** oltre la soglia e "sposta comunque" (divisione in legature) | ✅ PR #23 | 1–2 |
-| F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
+| F1.15 | **ADR: formato concreto del file** (completa ADR-0010) | ✅ ADR-0029 | 1 |
+| F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ⬜ | 2 |
+| F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ⬜ | 1 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
@@ -547,6 +549,29 @@ Dettagli:
   numero di tracce all'apertura di un file (righi e voci ce l'hanno già), e se rifiutare i cambi di
   metro e di tempo oltre l'ultima battuta (oggi nessuno lo controlla; vale anche per i comandi di
   F1.11).
+  **Fatto il 2026-11-06 (ADR-0029 Accepted, D10 chiusa):** una prova in `spikes/fileformat/`
+  sulle vere partiture normale e pesante (JSON compatto: 100 battute lette in ≈ 3 ms, la pesante in
+  ≈ 100 ms; RON 3–5 volte più lento e senza migrazioni possibili sul suo albero; binario non
+  confrontabile). Il proprietario ha approvato S1–S14: JSON con `serde`/`serde_json` solo in `io`;
+  nella versione 1 un solo file JSON non compresso (la compressione potrà arrivare come versione
+  nuova; audio e video accanto al file, mai dentro); un record per riga, scrittura deterministica;
+  schema del file separato dal modello, caricamento con `Document::from_parts` che conserva gli ID e
+  verifica tutto; versione come primo campo; frazioni canoniche, niente decimali; caricamento
+  rigido (campi sconosciuti rifiutati); al massimo 1 024 tracce e 1 GiB; regola 13 contro i cambi di
+  metro oltre l'ultima battuta; migrazioni sull'albero di `serde_json`; estensione `.orchestra`.
+  Due precisazioni del proprietario: il lettore della versione 1 riconosce già zip e gzip come
+  "fatto con un Orchestra più nuovo" (S5); si omettono solo le assenze strutturali, le impostazioni
+  dell'utente si scrivono sempre (S6). Diviso in F1.15b e F1.15c, con una PR unica alla fine.
+- **F1.15b** Implementa ADR-0029 S1–S10 e S12–S13 tranne i file golden: schema `io::project::v1`
+  con il formattatore "un record per riga", API di lettura e `Document::from_parts` in
+  `core-model`, `Display`/`FromStr` di `Rational` in `core-time`, regola 13 di `validate` e la
+  verifica nel test di proprietà dei comandi, limiti, salvataggio sicuro (da provare anche su
+  Windows in CI), test di andata e ritorno su documenti da sequenze casuali di comandi, test di
+  robustezza (mai un panic), benchmark di salvataggio e caricamento, misura della dimensione del
+  binario.
+- **F1.15c** Implementa ADR-0029 S11–S12: i file golden della versione 1 (uno per tipo di oggetto e
+  uno con tutto), mai rigenerati; la catena delle migrazioni sull'albero, provata con una
+  migrazione `v1 → v2` solo di test; poi la PR di tutto F1.15.
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
   layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
   deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
@@ -789,7 +814,7 @@ modifica.
 | D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | **chiusa** 2026-11-01: ADR-0023 (alterazione razionale in semitoni; l'intonazione è rimandata) |
 | D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | **chiusa** 2026-11-04: ADR-0026 (memoria, 128 MB; gesti espliciti) |
 | D09 | Soglia di tolleranza di default; variante in ms | F1.14 | **chiusa** 2026-11-06: ADR-0028 (1/32, variante in ms) |
-| D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | aperta |
+| D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | **chiusa** 2026-11-06: ADR-0029 (JSON semplice, `serde` solo in `io`, `.orchestra`) |
 | D11 | Esportazione MIDI anticipata (F1.18) | fine F1-B | **chiusa** 2026-10-30: sì |
 | D12 | Widget retained o immediato; layout; appunti | F2.08 | aperta |
 | D13 | Salvataggio automatico già in F2A | F2.14 | aperta |
@@ -851,3 +876,4 @@ raccomandato.
 | 2026-11-06 | 0.33 | F1.14 fatto (ADR-0028 Accepted), D09 chiusa; nuovi F1.14b e F1.14c, PR unica per F1.14 | proprietario |
 | 2026-11-06 | 0.34 | F1.14b fatto (precisioni T1–T7 in ADR-0028 §10); note per F1.14c (T2, "sposta comunque") | proprietario |
 | 2026-11-06 | 0.35 | F1.14c fatto (precisioni U1–U9 in ADR-0028 §11), F1.14 completo (PR #23) | proprietario |
+| 2026-11-06 | 0.36 | F1.15 fatto (ADR-0029 Accepted, precisazioni S5 e S6 del proprietario), D10 chiusa; nuovi F1.15b e F1.15c, PR unica per F1.15 | proprietario |

@@ -1,7 +1,7 @@
 # ADR-0010 — Project file format: versioned, with migrations from day one
 
-- **Status:** Accepted for the versioning/migration policy · **Proposed** for the concrete format
-  (decided in Phase 1, when the model types exist)
+- **Status:** Accepted for the versioning/migration policy · the concrete format is decided by
+  **ADR-0029** (Accepted, 2026-11-06), which completes the "Proposed part" below
 - **Date:** 2026-10-28
 
 ## Context
