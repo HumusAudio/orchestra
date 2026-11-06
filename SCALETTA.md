@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.38, approvata dal proprietario il 2026-11-06.**
+> **Stato di questo documento: v0.39, approvata dal proprietario il 2026-11-06.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -450,7 +450,7 @@ Dettagli:
 | F1.14c | **Durate dalla DAW** oltre la soglia e "sposta comunque" (divisione in legature) | ✅ PR #23 | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) | ✅ ADR-0029 | 1 |
 | F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ✅ | 2 |
-| F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ⬜ | 1 |
+| F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ✅ PR #25 | 1 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
@@ -596,6 +596,12 @@ Dettagli:
 - **F1.15c** Implementa ADR-0029 S11–S12: i file golden della versione 1 (uno per tipo di oggetto e
   uno con tutto), mai rigenerati; la catena delle migrazioni sull'albero, provata con una
   migrazione `v1 → v2` solo di test; poi la PR di tutto F1.15.
+  **Fatto il 2026-11-06 (PR #25):** 15 file golden in `crates/io/tests/golden/v1/` (uno per tipo di
+  oggetto salvato, un contatore esaurito, uno con tutto), costruiti anche da codice e confrontati
+  con il documento e byte per byte; scritti una volta da un test ignorato che non sovrascrive mai;
+  ogni troncamento rifiutato, JSON casuale senza panico. Catena delle migrazioni sull'albero JSON
+  (vuota, provata con una catena di prova), `LoadError::Migration`. **Da fare dal proprietario:**
+  rivedere a occhio i file golden (ADR-0029 S12). F1.15 completo.
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
   layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
   deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
@@ -905,3 +911,4 @@ raccomandato.
 | 2026-11-06 | 0.36 | F1.15 fatto (ADR-0029 Accepted, precisazioni S5 e S6 del proprietario), D10 chiusa; nuovi F1.15b e F1.15c, PR unica per F1.15 | proprietario |
 | 2026-11-06 | 0.37 | F1.15b diviso in due parti, parte 1 fatta (precisioni L1–L8 in ADR-0029); bug del `Rewrite` dopo una battuta libera da correggere su un branch separato (opzione A) | proprietario |
 | 2026-11-06 | 0.38 | F1.15b fatto (parte 2: precisioni I1–I10 in ADR-0029); misura dell'apertura della partitura pesante in F2.23 | proprietario |
+| 2026-11-06 | 0.39 | F1.15c fatto, F1.15 completo (PR #25); revisione dei file golden da parte del proprietario | proprietario |
