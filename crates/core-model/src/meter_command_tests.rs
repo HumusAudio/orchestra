@@ -723,3 +723,102 @@ fn rewrite_keeps_ties_and_after_graces() {
     assert!(end_of_bar_0.event().grace().is_some());
     assert_eq!(end_of_bar_0.offset(), d(3, 4));
 }
+
+/// R12 (owner's choice of 2026-11-06): a region that ends at a free bar is rewritten alone, and
+/// the old meter resumes after the free bar, so that nothing after it moves. The case the command
+/// property test found: a dotted whole in the right hand's triplet at bar 4, which becomes a tie
+/// chain into bar 5; bar 1 made a free bar of a quarter; then 5/8 at bar 0. Before R12 the bars
+/// after the free bar became 5/8 bars still holding their 4/4 music, and the tie of bar 4 pointed
+/// backwards. Now they keep their 4/4 (an explicit 4/4 is set after the free bar), and every event
+/// after the region sounds where it did.
+#[test]
+fn rewrite_resumes_the_meter_after_a_free_bar() {
+    use crate::command::{NewBody, NewEvent};
+    use crate::document::Placement;
+    use crate::event::{BaseValue, NoteValue};
+    use crate::pitch::{Alteration, Pitch, Step};
+    let mut editor = Editor::new(rich());
+    let bars = editor.document().bars().ids().to_vec();
+    let rh = editor.document().instruments().next().unwrap().voices()[0].id();
+    let triplet = editor.document().events(rh, bars[1]).unwrap()[0]
+        .event()
+        .chord()
+        .unwrap()
+        .tuplet()
+        .unwrap();
+    execute_checked(
+        &mut editor,
+        &Command::EnterEvent(NewEvent {
+            at: Placement::new(rh, bars[4], d(2, 3)).in_tuplet(triplet),
+            body: NewBody::Chord {
+                value: NoteValue::new(BaseValue::Whole, 1).unwrap(),
+                pitches: vec![Pitch::new(Step::F, Alteration::NATURAL, 4)],
+                grace: None,
+            },
+        }),
+    );
+    execute_checked(
+        &mut editor,
+        &irregular(
+            bars[1],
+            Some(IrregularBar {
+                length: d(1, 4),
+                kind: BarKind::Free,
+            }),
+        ),
+    );
+    // Where every event after the region (old bars 2–7) sounds, before the rewrite.
+    let after_region = |editor: &Editor| {
+        let doc = editor.document();
+        let mut placed = Vec::new();
+        for instrument in doc.instruments() {
+            for voice in instrument.voices() {
+                for &bar in &bars[2..] {
+                    for e in doc.events(voice.id(), bar).unwrap() {
+                        let id = e.event().id();
+                        placed.push((id, doc.event_position(id).unwrap()));
+                    }
+                }
+            }
+        }
+        placed
+    };
+    let before = after_region(&editor);
+    execute_checked(&mut editor, &rewrite(bars[0], Some(meter(5, 8))));
+    let doc = editor.document();
+    // Bar 0 became 5/8 + 3/8 (R2); the free bar follows; then the 4/4 bars, unchanged.
+    let two = doc.bars().index_of(bars[2]).unwrap();
+    assert_eq!(two, BarIndex::new(3));
+    assert_eq!(lengths(&editor, 0)[..3], [d(5, 8), d(3, 8), d(1, 4)]);
+    assert!(lengths(&editor, 3).iter().all(|&l| l == d(1, 1)));
+    assert!(
+        doc.meter_map()
+            .meter_changes()
+            .contains(&(two, meter(4, 4))),
+        "the old meter is set again after the free bar"
+    );
+    assert_eq!(after_region(&editor), before);
+}
+
+/// R12 adds nothing when the bar after the free bar already sets its own meter, nor when the
+/// region does not end at a free bar.
+#[test]
+fn rewrite_adds_no_meter_after_a_free_bar_that_needs_none() {
+    let mut editor = Editor::new(rich());
+    let bars = editor.document().bars().ids().to_vec();
+    execute_checked(
+        &mut editor,
+        &irregular(
+            bars[1],
+            Some(IrregularBar {
+                length: d(1, 4),
+                kind: BarKind::Free,
+            }),
+        ),
+    );
+    execute_checked(&mut editor, &change(bars[2], Some(meter(3, 4))));
+    let entries = editor.document().meter_map().meter_changes().len();
+    execute_checked(&mut editor, &rewrite(bars[0], Some(meter(5, 8))));
+    // Only the entry at bar 0 changed: bar 2 already had its 3/4.
+    assert_eq!(editor.document().meter_map().meter_changes().len(), entries);
+}

@@ -516,6 +516,15 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
    with RT signalling and bounded waits, editors in separate windows owned by the bridge.
 5. **Phase 5 — video:** video tracks with proxies on the shared timeline.
 
+**Fix of the meter rewrite after a free bar** (2026-11-06, branch `fix/rewrite-after-free-bar`,
+from `main`, while F1.15b was in progress on its own branch): the command property test of F1.15b
+found that a `ChangeMeter` in `Rewrite` mode whose region ends at a free bar let the new meter reach
+the bars after the free bar, which kept their old music (overfull bars, and a tie pointing
+backwards). The owner chose **R12** (ADR-0026 §11): the old meter is set again after the free bars.
+Implemented in `rewrite.rs` (`meter_after_free_bars`, step 8), two cases in
+`meter_command_tests.rs`, the seed in the proptest regressions; the property test passed 4 000
+cases in release.
+
 ## Open decisions and open items
 
 - **Pre-existing bug in the meter rewrite (F1.11c), found on 2026-11-06, NOT fixed, waiting for
