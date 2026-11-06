@@ -1907,6 +1907,17 @@ Come funziona, in ordine (`rewrite::rewrite`):
    fasi, così una marcatura non arriva mai dove un'altra non se n'è ancora andata).
 6. **La mappa dei metri** della regione in una modifica in blocco (`MeterEdit::Span`, Z1), poi si
    tolgono le battute che la nuova divisione non usa più.
+7. **Il metro dopo una battuta libera** (R12, scelta del proprietario del 2026-11-06): quando la
+   regione finisce a una battuta libera, il metro di prima viene rimesso, con un cambio di metro
+   esplicito, alla prima battuta dopo le battute libere (a meno che quella battuta abbia già un suo
+   cambio di metro, o che le battute libere arrivino alla fine). Una battuta libera sospende il
+   metro senza chiuderlo, quindi senza questo passo il nuovo metro arriverebbe alle battute dopo la
+   battuta libera lasciando la loro musica com'era, come con `KeepBars`. L'ha trovato il test di
+   proprietà dei comandi: quelle battute diventavano troppo piene e una legatura di valore a
+   cavallo di una loro stanghetta puntava all'indietro (`TieNotForward`), l'unico sintomo visibile,
+   perché le battute troppo piene sono uno stato valido. `meter_after_free_bars` legge la battuta e
+   il suo metro **prima** della riscrittura (per ID di battuta, perché la riscrittura aggiunge o
+   toglie battute), e l'ultimo passo lo confronta con il metro in vigore dopo.
 
 Una ripetizione di battuta che tocca la regione fa rifiutare la riscrittura (R10). Poi la verifica
 locale controlla ogni cella e ogni marcatura toccata.
@@ -1938,7 +1949,10 @@ la ripetizione di battuta del documento ricco così che le riscritture vengano e
 sequenze passate). Sette bug iniettati sono stati presi, cinque solo dopo aver scritto un caso
 apposta (i documenti del test di proprietà non avevano una nota spezzata già legata, un abbellimento
 "dopo", una ripartenza della numerazione, una pausa di battuta intera allineata, una sezione che
-finisce prima del cambio di metro successivo).
+finisce prima del cambio di metro successivo). Per R12, due casi in più: la sequenza trovata dal
+test di proprietà (con la verifica che ogni evento dopo la regione suoni dove suonava, che fallisce
+senza la correzione), e una battuta libera seguita da una battuta che ha già un suo metro (nulla
+aggiunto); il seme del test di proprietà è conservato in `proptest-regressions/command_tests.txt`.
 
 #### Lo spostamento dalla DAW e la soglia di tolleranza
 
