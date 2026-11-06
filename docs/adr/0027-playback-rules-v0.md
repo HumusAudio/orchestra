@@ -1,0 +1,343 @@
+# ADR-0027 — Playback rules v0: from the written intent to the played notes
+
+- **Status:** Accepted (owner's decision, 2026-11-05; SCALETTA F1.13, decision D22). The owner
+  changed three recommendations: G4 (dynamics bounded to *pppp*–*ffff*, more *p*s or *f*s written
+  but played as the extremes, the ten levels spread evenly: values of §4 approved), G7
+  (acciaccaturas before the beat, taking time from the previous note, the details of §5 approved;
+  appoggiaturas on the beat) and G9 (fermatas deferred, and then a longer sound, never a slower
+  tempo); and approved every other recommendation of §12 as written.
+- **Amended** by the owner on 2026-11-05, before the code of F1.13c (§14): the dynamics and
+  hairpins made precise (H1–H13), accents as fixed steps instead of percentages (§3), and an
+  **attack profile** in every played note, so that accents, *sf*-like marks, *fp* and *pf* shape
+  the sound inside the note (§1 and §4: held notes are no longer only a velocity).
+- **Date:** 2026-11-05
+- **Refines:** ADR-0004 (two layers: written intent and performance, derived plus explicit
+  offsets), ADR-0024 §4–§10 (ties, grace notes, articulations, ornaments, fermatas, arpeggios,
+  dynamics, hairpins, performance offsets), ADR-0025 §12 (the path of F1.12: pass index, section
+  play, bar-repeat sources, pass rules, the time shift).
+- **Amends:** nothing.
+
+## Context
+
+F1.12 gives the **path**: the bars in the order they are played. F1.13 turns the written notes
+along that path into **played notes**: when each one starts and ends on the unrolled timeline,
+at which pitch, how loud. It is where "written intent + explicit offsets" (ADR-0004) becomes
+concrete, and its output is what the MIDI export (F1.18) and the audio engine (F3) will receive:
+`audio-engine` never sees `core-model` (docs/ARCHITECTURE.md).
+
+Already fixed by Accepted ADRs:
+
+- A note has its written intent (pitch with spelling, rational value, voice, articulations,
+  dynamics) and its **performance offsets** (ADR-0024 §10): `onset` and `length` as signed deltas
+  in **musical time**, `velocity` as a signed delta on the **16-bit scale of MIDI 2.0**. They are
+  stored without limits (F1.09c), so the rules must bound the results.
+- Pitches are stored spelled at **concert pitch** with a rational alteration in semitones
+  (ADR-0023); 12-TET is the reference of ADR-0023 §2–§3, and the intonation (temperaments, just
+  intonation, comma signs) is open (**D22**, to be decided by F1.13).
+- Ties are forward links between noteheads (ADR-0024 §4); grace notes have a kind (acciaccatura,
+  appoggiatura) and attach before or after their main event (ADR-0024 §5).
+- Dynamics apply to an instrument or to one voice (ADR-0024 §8); which one wins for a voice is a
+  playback rule, left to F1.13 (SCALETTA F1.09c note).
+- Pedal and glissando come with the rules that use them (SCALETTA F1.13); the pass-specific
+  offsets table comes with F1.14 (ADR-0025 §12 P6).
+- Derived data is a cache, updated incrementally (ADR-0003 §6; ADR-0007: re-layout ≤ 16 ms, the
+  same spirit for playback).
+
+The model has, today: articulations `Accent`, `Marcato`, `Staccato`, `Staccatissimo`, `Spiccato`,
+`Tenuto`, `Portato`, `Stress`, `Unstress`, `SoftAccent`; ornaments `Trill`, `Turn`,
+`InvertedTurn`, `Mordent`, `UpperMordent`, `Tremolo(strokes)`; fermatas `Short`, `Normal`, `Long`,
+`VeryLong`; arpeggios `Plain`, `Up`, `Down`, `NonArpeggio`; dynamic levels from *pppppp* to
+*ffffff* and the marks `sf`, `sfz`, `sffz`, `fz`, `rf`, `rfz`, `fp`, `sfp`, `sfpp`, `pf`, `n` and
+free text with an optional level.
+
+### Sources checked (2026-11-05)
+
+Most public information on the defaults of notation programs comes from their forums, not from
+their manuals: the numbers below are what users and support staff report, to be confirmed where
+marked.
+
+**Notation programs**
+
+- **Dorico** (Steinberg forum threads; steinberg.help): staccato plays at **50%** of the written
+  length and staccatissimo at **25%**, both editable in Playback Options › Timing › Note
+  Durations; the shortening applies to the **last note of a tie chain**; Dorico 4.3 added a
+  maximum duration for staccato playback. Dynamics become velocity and controller data through a
+  project-wide **dynamic curve** (a power, 1 = straight line); MIDI export uses the same
+  velocities as playback. Beat stress and humanising exist as playback options. Grace notes
+  always precede the next rhythmic note. **Fermatas** lengthen the notes ("hold duration %") and
+  insert a gap after them ("gap duration %"), per fermata type in Playback Options › Timing ›
+  Pauses and per fermata in the Properties panel; they have no effect inside a gradual tempo
+  change. No built-in ornament playback reported. Microtones: through VST3 note expression, or
+  since Dorico 5 through **MIDI pitch bend** (the note snapped to the nearest 12-EDO pitch plus a
+  bend), which is the only method that survives MIDI export.
+- **MuseScore** (forum, developer comments, the `gm` R package that documents MuseScore's table):
+  dynamic velocities **ppp 16, pp 33, p 49, mp 64, mf 80, f 96, ff 112, fff 126** (MIDI 1.0
+  scale; to confirm in the source). Sforzato is treated as a dynamic, not an articulation.
+  Grace notes: the written value is ignored; an **acciaccatura** lasts the smaller of half the
+  main note and **65 ms**, an **appoggiatura** half the main note (2/3 of a dotted one, 4/7 of a
+  double-dotted one), several graces sharing that time; both played **on the beat**, taking time
+  from the main note; grace notes after a note are not played. Hairpins: velocity per note, with
+  proposals to shape held notes with CC11/CC2. Microtones through per-note pitch bend.
+- **Sibelius** (VSL forum, support replies): staccato at **50%**; an accent **20% louder**,
+  editable in the playback dictionary; an "espressivo" layer adds its own variation.
+
+**Exchange formats**
+
+- **MusicXML 4.0** (W3C reference): `<sound dynamics="…">` and the `dynamics` attribute of
+  `<note>` are a percentage of a default forte of **90 on the MIDI 1.0 scale** (90 = forte);
+  `end-dynamics` is the note-off velocity. `attack` and `release` on `<note>` move the start and
+  the end of a note from where the durations put it, in divisions: the performance offsets of
+  ADR-0024 §10 (a note ending a tie has no attack, one starting a tie no release). `<duration>`
+  keeps the written length; interpretation belongs to `attack`/`release`.
+- **Standard MIDI File**: time in ticks per quarter note (the header's division), tempo as
+  microseconds per quarter note (meta event FF 51 03, 120 bpm if absent), note-off with its own
+  velocity 0–127 (a note-on with velocity 0 is also read as a note-off).
+- **MIDI 2.0** (MIDI Association): note-on and note-off velocity on **16 bits** (0–65 535); the
+  translation to and from 7 bits is normative in the Bit Scaling and Resolution specification
+  (M2-115); a common up-scaling is `v << 9 | v << 2 | v >> 5`, the down-scaling keeps the top 7
+  bits, and a MIDI 2.0 note-on of velocity 0 becomes 1 in MIDI 1.0 (0 is not a note-off there).
+- **MIDI Tuning Standard**: a semitone in 2¹⁴ = 16 384 steps; with the usual ±200-cent bend range
+  a pitch-bend step is ≈ 0.024 cents.
+
+What the sources show: the programs agree on the **order of magnitude** of the rules (staccato
+about half, accents about a fifth louder, dynamics on a curve of about 16 velocity steps per
+level, short grace notes of tens of milliseconds) and all make them **editable** as playback
+options. None plays ornaments well by default. Timing effects that change the clock (fermatas,
+pauses) are handled through the tempo, not through the notes.
+
+## Decision
+
+A new module `perform` in `orchestra-playback`, next to `unroll`.
+
+### 1. What comes out: played notes, in a neutral form
+
+```text
+PlayedNote {
+    note: NoteId,            // the first notehead of its tie chain: the link back to the score
+    event: EventId,          // its event
+    instrument, voice, staff,
+    played: u32,             // the played bar (index on the path) where it starts
+    pass: u32,               // the pass index of its notes (F1.12; the bar-repeat source's pass)
+    start: Position,         // on the unrolled timeline, exact
+    end: Position,           // exclusive, exact
+    pitch: Rational,         // sounding pitch in semitones, 60 = middle C, exact (microtones kept)
+    velocity: u16,           // MIDI 2.0 scale, 1..=65 535
+}
+```
+
+- **Musical time only**, exact: seconds come from the path's `time_at` (the tempo map plus the
+  shift of F1.12), computed by whoever needs them (the MIDI export, the audio engine), so the
+  rules never depend on the tempo and a tempo edit does not recompute the notes.
+- **Pitch as an exact number of semitones**, not a MIDI note: a quarter-tone stays a quarter-tone.
+  It is the model's own `Pitch::sounding` (C4 = 60, ADR-0023 §3); turning it into a key number and
+  a bend (Dorico's method, already `Pitch::midi` in the model) or into MPE is the job of F1.18
+  and F3.
+- **No samples, no buffers, no threads**: those are F3.01's (the audio architecture).
+- One list per instrument, sorted by start (then pitch), so that consumers read it in order.
+
+### 2. Ties
+
+A tie chain is **one played note**, from the start of its first notehead to the end of its last,
+keyed by the first notehead's ID. Articulations that shorten (staccato…) apply to the **last**
+notehead of the chain, as in Dorico; accents to the **first**.
+
+### 3. Articulations (defaults, all to become playback options later, F2.12)
+
+*The velocity column is amended by §14 (H15): fixed steps and an attack profile.*
+
+| Articulation | Length (of the written value) | Velocity |
+|---|---|---|
+| none | 100% | — |
+| staccato | 50% | — |
+| staccatissimo | 25% | — |
+| spiccato | 25% | — |
+| tenuto | 100% (not shortened by anything else) | — |
+| portato | 75% | — |
+| accent | — | +20% |
+| marcato | 75% | +30% |
+| soft accent | — | +10% |
+| stress | — | +10% |
+| unstress | — | −10% |
+
+Several articulations combine: lengths multiply, velocity changes add. A percentage of velocity
+is of the note's dynamic velocity (§4), bounded to the scale.
+
+### 4. Dynamics and hairpins
+
+- **Levels → velocity** on the 16-bit scale. The musical extremes are ***pppp*** and ***ffff***
+  (owner, 2026-11-05): more *p*s or *f*s can still be written (the model keeps *ppppp*…*ffffff*
+  as written), but they play as *pppp* and *ffff*: no softer, no louder. The ten playable levels
+  are spread evenly over the MIDI 1.0 scale, one step of about 13, then up-scaled to 16 bits
+  (`v << 9 | v << 2 | v >> 5`):
+
+  | | *pppp* | *ppp* | *pp* | *p* | *mp* | *mf* | *f* | *ff* | *fff* | *ffff* |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | 7-bit | 10 | 23 | 36 | 49 | 62 | 75 | 88 | 101 | 114 | 127 |
+
+  *p* keeps MuseScore's 49, and *f* (88) falls next to MusicXML's forte of 90, so an import or an
+  export through MusicXML's percentage changes almost nothing.
+- **Which dynamic is in force for a voice:** the latest one at or before the note's written
+  position on the path, of the voice's scope or of the instrument's; at the same point, the
+  voice's wins (the more specific).
+- **sf, sfz, sffz, fz, rf, rfz:** the note at that point is louder (by one, two or three levels
+  above the level in force, never above *ffff*), the level in force afterwards unchanged; **fp, sfp, sfpp**: the note
+  at that point loud, the following ones at *p* (or *pp*); **pf**: the note at *p*, the following
+  ones at *f*; **n**: velocity 1 (or silence); free text: its level if it has one, else nothing.
+- **Hairpins:** the velocity of each note starting inside a hairpin is interpolated **linearly in
+  musical position** between the level in force at its start and the level at its end (the next
+  dynamic at or after the end; without one, one level up for a crescendo, one down for a
+  diminuendo). Held notes are not swelled in v0: that needs controller curves, F3's business.
+- *Made precise and amended by §14: H1–H10, the attack profile (H14–H17).*
+
+### 5. Grace notes
+
+- **Acciaccatura: before the beat** (owner, 2026-11-05). The main note starts exactly when it
+  would without the acciaccatura; the acciaccatura takes its time from the **previous** note of
+  the voice, which ends that much earlier. Each acciaccatura lasts 1/32 of a whole note (about
+  65 ms at ♩ = 120, MuseScore's duration), several before one note one after the other, all
+  together at most half of the previous note. After a rest (or a gap) they sound in the silence
+  before the beat; at the very start of the performance they start **before** time 0 (the
+  performance begins a little earlier, the tempo map extending backwards: ADR-0020), so that the
+  first main note still starts at 0.
+- **Appoggiatura: on the beat**, taking its time from the main note: half the main note (2/3 of a
+  dotted one, 4/7 of a double-dotted one), several sharing that time equally.
+- **After** graces take their time from the end of the note they follow.
+
+### 6. Ornaments, arpeggios, fermatas
+
+- **Arpeggios:** the notes of the chord start one after the other, 1/64 of a whole note apart
+  (upwards, or downwards for `Down`), all ending together; `NonArpeggio` plays them together.
+- **Ornaments** (trill, turns, mordents, tremolo) are **played as the written note** in v0:
+  realising them needs the auxiliary note from the key and the accidentals above the sign, and a
+  speed; they come with a later step.
+- **Fermatas** are **played as written** in v0, and come with a later step (owner, 2026-11-05).
+  The requirement is fixed now: a fermata **lengthens the sound** of the notes under it (and the
+  silence of a fermata on a rest), and the music after it starts later by that much; it must
+  **never** be played as a slower tempo (which would bend the time of the notes before it and
+  change the tempo map's meaning). It is therefore time **inserted** into the unrolled timeline of
+  F1.12, where the notes sounding across it are held longer: an amendment of ADR-0025 §12 P2, with
+  the hold of each fermata type to be decided then.
+
+### 7. Pass rules and bar repeats
+
+A note is played only where the path's `plays` says its voice plays (ADR-0025 §12 P4); on a staff
+with bar repeats the notes come from the source bar given by `content`, with that source's pass.
+
+### 8. Performance offsets and bounds
+
+The offsets of ADR-0024 §10 are added **after** the rules: `start + onset`, `length × rules +
+length offset`, `velocity + velocity offset`. Then the results are bounded: a note lasts at least
+1/1024 of a whole note and has a velocity in 1..=65 535; it never starts before the start of the
+performance, which is time 0, or earlier only by the acciaccaturas that precede the first note
+(§5). The pass-specific offsets of F1.14 will be added there, by (note, pass).
+
+### 9. Incremental update
+
+The unit of recomputation is the **cell** (voice, written bar): a change set naming a cell
+recomputes the played notes of that cell in every play of the bar (`plays_of`), plus the notes of
+tie chains crossing into or out of it. A change of a dynamic, a hairpin or a pass rule recomputes
+the instrument from that point to the next dynamic; a change of the path (F1.12 rebuilt) or of
+the meter map recomputes everything. A change of the tempo map recomputes nothing (§1: musical
+time only). Budget: one note entered on the heavy score ≤ 1 ms, as for the editor (ADR-0026 §8).
+
+### 10. Intonation (D22)
+
+v0 plays **12-TET** with the written microtonal alterations exact (ADR-0023). Temperaments, just
+intonation and comma signs (Helmholtz-Ellis, Sagittal) need instruments that can sound them and a
+way to send them (pitch bend, MPE, MIDI Tuning Standard, VST3 note expression), which F3 decides:
+they come as a playback layer after F3.04, in a step of their own.
+
+### 11. Tests and benchmarks
+
+Hand-written cases for every rule above on small scores; a property test: the played notes are
+sorted, never start before 0, last at least the minimum, have velocities in range, and an
+incremental update equals a full recomputation; a benchmark of the full computation on the heavy
+score and of one note's update.
+
+### 12. Choices for the owner
+
+| # | Question | Options | Recommended, with its reason |
+|---|---|---|---|
+| G1 | What F1.13 outputs | **played notes in musical time, exact pitch in semitones, 16-bit velocity**; MIDI-like events with seconds and key numbers | **Musical time and exact pitch**: tempo edits do not recompute the notes, microtones survive, F1.18 and F3 choose their own encoding |
+| G2 | Ties | **one played note per chain, shortening on the last note, accent on the first**; one note per notehead | **One per chain**: what every program plays; Dorico's placement of staccato |
+| G3 | Articulation defaults | **the table of §3** (staccato 50%, staccatissimo 25%, accent +20%…); other values | **§3**: the values Dorico and Sibelius report, editable later (F2.12) |
+| G4 | Dynamic levels | MuseScore's table extrapolated to *pppppp*–*ffffff*; MusicXML's anchor; a power curve | **Owner's decision (2026-11-05):** the extremes are *pppp* and *ffff*; more *p*s or *f*s are written but play as *pppp*/*ffff*; the ten levels spread evenly (step ≈ 13 on 7 bits, table of §4, approved) |
+| G5 | Voice vs instrument dynamic | **latest wins, at the same point the voice's**; the voice's always; the instrument's always | **Latest, then the voice's**: what a player reads |
+| G6 | Hairpins | **velocity per note, linear in musical position, target the next dynamic or one level**; also swell held notes | **Velocity per note**: swelling needs controller curves (F3) |
+| G7 | Grace notes | acciaccatura on the beat; before the beat | **Owner's decision (2026-11-05):** acciaccaturas **before the beat**, taking time from the previous note (the main note starts on time); appoggiaturas **on the beat**, taking time from the main note; 1/32 of a whole note each, at most half of the previous note in all, before time 0 at the very start (approved) |
+| G8 | Ornaments | **played as written in v0, realised in a later step**; realised now | **Later**: they need the auxiliary note and a speed, a step of their own |
+| G9 | Fermatas | as written in v0, later on the clock; lengthen the notes only | **Owner's decision (2026-11-05):** deferred; when done, a fermata lengthens the sound and delays what follows by inserted time, **never** a slower tempo |
+| G10 | Arpeggios | **1/64 of a whole note between notes, ending together**; a fixed time in ms | **Musical time**: follows the tempo like the rest |
+| G11 | Offsets and bounds | **added after the rules; start ≥ 0, length ≥ 1/1024, velocity 1..=65 535** | as proposed: ADR-0024 §10 stores them unbounded |
+| G12 | Incremental unit | **the cell (voice, written bar) in all its plays; dynamics from the point; everything on a path change** | **The cell**: the same unit as the editor's change sets |
+| G13 | Intonation (D22) | **12-TET with exact microtones in v0; tunings as a playback layer after F3.04**; in F1.13 | **After F3.04**: without an instrument that can sound them they cannot be heard or tested |
+| G14 | Split of the step | **F1.13 (this ADR), F1.13b (notes, ties, articulations, grace notes, arpeggios, offsets, pass rules), F1.13c (dynamics, hairpins, incremental update, benchmarks)** | Two parts of about the size of F1.11b's |
+
+### 13. Precisions made while implementing F1.13b (owner, 2026-11-05)
+
+Approved by the owner before the code of F1.13b was written; they make §2–§8 precise.
+
+| # | Precision |
+|---|---|
+| N1 | A tie is followed only if the notehead it leads to **sounds right after** on the path: it starts where this one ends, in the same or the next played bar. At the end of a first ending followed by a repeat, the note ends at the barline; into a passage the pass rules silence, the note ends where the silence begins. |
+| N2 | Every notehead of a chord is a played note of its own, tied pitch by pitch as the written ties say. |
+| N3 | The shortening articulations of a chain are read on its **last** notehead (of that notehead's own length), the accents on its **first**; the articulations of the noteheads in between are ignored. |
+| N4 | **Tenuto with staccato** plays as a portato (3/4); the other shortenings multiply. |
+| N5 | An acciaccatura takes its time from the **previous note of the voice along the path** (also in the previous played bar), shortening the end of its chain; after a rest or a gap it sounds in the silence, without the half-of-the-previous-note bound; it comes after the `After` graces of the previous note. |
+| N6 | Before one note, the acciaccaturas come first (before the beat, in written order), then the appoggiaturas (on the beat). `After` graces last 1/32 each, at most half of the note they follow in all, and end where the next note's acciaccaturas begin. |
+| N7 | An arpeggio moves only the starts of the noteheads of the first chord of the chain: from the lowest for `Plain` and `Up`, from the highest for `Down`; they all end together. |
+| N8 | The offsets of a chain: the onset and the velocity of its first notehead, the **sum** of the length offsets of all its noteheads; then the bounds of §8. |
+| N9 | Until F1.13c brings the dynamics, every note starts from ***mf*** (75 on 7 bits, up-scaled to 16), before articulations and offsets. |
+| N10 | The result is a `Performance` with the played notes of each instrument, sorted by start then pitch, built from the document and the path of F1.12; F1.13b rebuilds it whole, F1.13c adds the update by cell. |
+
+### 14. Precisions and amendment made before implementing F1.13c (owner, 2026-11-05)
+
+Approved by the owner before the code of F1.13c was written. H1–H13 make §4 and §9 precise;
+H14–H17 **amend** §1, §3 and §4: the owner asked that an accent be louder **at the attack only**,
+the sound then going back to the dynamic it sits on at a fixed speed that does not depend on the
+note's length (barely audible on short notes, essential on long ones), and the same for *sf* and
+the like, more slowly. A single velocity cannot do that, so every played note now carries an
+**attack profile**. Every time and level of H14–H17 is a provisional value, to be tuned by ear
+with the owner at F1.18 and in F3, and to become a playback option in F2.12.
+
+| # | Precision |
+|---|---|
+| H1 | The dynamic in force is followed **along the path**, as a player does: after a repeat back to a bar with no dynamic, the last one played stays. Before any dynamic, *mf* (as N9). |
+| H2 | It is read at the **written point** of the note (the first notehead of its chain), before offsets, arpeggios and appoggiaturas. A dynamic written past the barline of an overfull bar counts in its own bar, like the notes there. |
+| H3 | *rf*, *rfz*: +1 level; *sf*, *sfz*, *fz*: +2 levels; *sffz*: +3 levels; never above *ffff*; the level in force afterwards unchanged. They act only on the notes that **start exactly** at their point, in the voices of their scope, each voice from its own level in force; without such a note, nothing. |
+| H4 | After *fp* the level in force is *p*, after *sfp* *p*, after *sfpp* *pp*, after *pf* *f* (the note at the point: H16). Without a note at the point, the second level holds at once. |
+| H5 | *n* (niente) plays at **velocity 1**, a step below *pppp*, so a diminuendo towards it goes down to 1; a hairpin marked *niente* goes to it (diminuendo) or starts from it (crescendo). |
+| H6 | The target of a hairpin is the first dynamic with a level at or after its end, **only within the bar holding the end**, and only if it goes the right way (louder for a crescendo, softer for a diminuendo); otherwise one level up or down (bounded to *pppp*–*ffff*). |
+| H7 | A dynamic inside a hairpin splits it into stretches, each interpolated up to the next dynamic, the last one to the target. **After the hairpin the target stays in force.** |
+| H8 | The interpolation is linear in the **written position** inside the hairpin. The levels and the interpolation are exact on the 0–127 scale, then up-scaled: an integer by the bit replication of §4, a fraction between its two neighbouring integers, rounded to the nearest (halves up). A hairpin played twice starts each time from the level in force then (H1). |
+| H9 | A voice's hairpin wins over an instrument's hairpin on the same note (as G5 for dynamics). |
+| H10 | Grace notes take the level in force at their main note's point, hairpins included, **without** the accent of an *sf* or an *fp* (it belongs to the main note). |
+| H11 | The `ChangeSet` gains the instruments whose dynamics or hairpins changed (a removed dynamic is no longer in the document to say where it was); a change there recomputes **only the velocities** of that instrument, from the data the performance keeps of each note. Budget ≤ 1 ms. |
+| H12 | The window of a cell's recomputation, for every play k of the bar: from the start of the chain that sounds into k (at least from k − 1, for the acciaccaturas) to the end of the chain that leaves k (at least to k + 1). The lists per instrument stay sorted, the recomputed stretches replaced in one O(n) pass. A change of the form or of the bars recomputes everything, one of the tempo nothing. `Performance::update(doc, path, changes)`, called after `Unrolled::update`. |
+| H13 | Benchmarks on the heavy score (the generator of `core-model` included with `#[path]`, until F1.16), with dynamics and hairpins added in the setup: the full computation, the update after one note, the update after one dynamic. |
+| H14 | **Attack profile** (amends §1). A played note has `velocity` (the attack), `hold` and `settle_in` (seconds) and `settle_to` (16-bit): the sound stays at `velocity` for `hold`, then goes **linearly** to `settle_to` in `settle_in`, and stays there; a note that ends earlier simply ends. Without any accent `hold` and `settle_in` are zero and `settle_to` equals `velocity`. The times are in **seconds**, so that the speed is fixed (owner's request) and a tempo edit still recomputes nothing. One profile per tie chain. Who sounds it: F3's instruments as a per-note volume (CLAP and VST3 note expressions); the MIDI export (F1.18) chooses an encoding (MIDI 1.0 has only per-channel controllers, MIDI 2.0 per-note ones). |
+| H15 | **Articulation accents as fixed steps** on the 0–127 scale (amends the velocity column of §3; same values as before at *mf*), with the time to settle back: soft accent and stress +7 in 0.15 s, accent +15 in 0.2 s, marcato +22 in 0.25 s; unstress −7 for the whole note (attack and settling level), no profile. |
+| H16 | **Dynamic accents** (amends §4): *rf*/*rfz* settle back in 0.4 s, *sf*/*sfz*/*fz* in 0.6 s, *sffz* in 0.8 s (to the level in force). ***fp***: *f*, held 0.3 s, then down to *p* in 0.1 s. ***sfp***/***sfpp***: *ff*, then down to *p*/*pp* in 0.3 s. ***pf***: *p*, held 0.3 s, then up to *f* in 0.1 s. |
+| H17 | **Combined:** the attack is the dynamic accent's attack plus the articulation's step; the settling level is the dynamic accent's (the level in force for *sf* and the like, the second level for *fp* and the like), shifted by an unstress; the hold is the dynamic accent's; the settling time the longer of the two. The note's velocity offset (ADR-0024 §10) moves both the attack and the settling level; both are then bounded to 1..=65 535. |
+
+## Alternatives rejected
+
+- **Seconds in the played notes:** every tempo edit would recompute every note; the path already
+  gives the seconds of any written point exactly where the tempo map is.
+- **MIDI key numbers as the pitch:** loses the microtones of ADR-0023 at the very first step.
+- **Swelling held notes with velocity:** velocity is fixed at the attack; a swell is a controller
+  curve, for the instruments of F3.
+- **Realising ornaments now with a fixed pattern:** a trill on the wrong auxiliary note (the key
+  and the accidental above the sign decide it) would be worse than none.
+
+## Consequences
+
+- `orchestra-playback` gains `perform`: the played notes per instrument, derived from the
+  document and the path, updated by cell.
+- Every played note carries an attack profile in seconds (§14, H14): F1.18 must choose how to
+  write it into a MIDI file, F3 how its instruments sound it.
+- F1.18 (MIDI export) turns them into ticks, key numbers and bends; F3 into whatever the
+  instruments take.
+- New SCALETTA entries: ornament realisation, fermatas as inserted time that lengthens the sound
+  (amending ADR-0025 §12),
+  intonation after F3.04, the playback options of the defaults in the Preferences (F2.12).

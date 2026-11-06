@@ -34,3 +34,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0024](0024-voice-content.md) | What a voice contains: events, note values, tuplets, ties, grace notes, markings, offsets | Accepted |
 | [0025](0025-form.md) | The form: repeats, voltas, jumps, bar repeats and pass-specific playing | Accepted |
 | [0026](0026-commands-undo-notifications.md) | Commands, one undo history, fine-grained change notifications | Accepted |
+| [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted |

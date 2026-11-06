@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.28, approvata dal proprietario il 2026-11-05.**
+> **Stato di questo documento: v0.32, approvata dal proprietario il 2026-11-05.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -442,7 +442,9 @@ Dettagli:
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
 | F1.12 | **Srotolamento della forma** in passaggi (written note id, pass index) | ✅ PR #21 | 2 |
-| F1.13 | **Regole di esecuzione v0**: dall'intento agli eventi suonati (legature di valore fuse, articolazioni, dinamiche → velocity, abbellimenti) + scostamenti; aggiornamento incrementale | ⬜ | 3 |
+| F1.13 | **ADR delle regole di esecuzione v0**: dall'intento alle note suonate | ✅ ADR-0027 | 1 |
+| F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ✅ | 1–2 |
+| F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | ✅ | 2 |
 | F1.14 | **Soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
@@ -456,6 +458,43 @@ Dettagli:
   (ARCHITECTURE: `audio-engine` non vede `core-model`). Restano fuori dalla v0 l'**intonazione**
   (temperamenti, intonazione naturale) e i segni di comma (Helmholtz-Ellis, Sagittal): ADR-0023
   §2–§3 usa il 12-TET come riferimento. ❓ **Decisione D22:** in quale passo si fa l'intonazione.
+  **Fatto il 2026-11-05 (ADR-0027 Accepted):** ricerca su Dorico, MuseScore, Sibelius e sui formati
+  di scambio (MusicXML 4.0, file MIDI, MIDI 2.0, MIDI Tuning Standard). Il proprietario ha
+  approvato G1–G14 cambiandone tre: le dinamiche vanno da *pppp* a *ffff* (più *p* o *f* si
+  scrivono ma suonano come gli estremi; dieci livelli a passo uniforme: 10, 23, 36, 49, 62, 75, 88,
+  101, 114, 127 su 7 bit); le **acciaccature prima del tempo**, rubando alla nota precedente (la
+  principale parte all'istante scritto), le appoggiature sul tempo; le **corone rimandate**, e poi
+  un suono allungato con tempo inserito, **mai** un tempo più lento. Uscita in tempo musicale
+  esatto con altezza esatta in semitoni e velocity a 16 bit; una nota per catena di legature;
+  ornamenti suonati come scritti; aggiornamento per cella. **D22:** 12-TET con microtoni esatti ora,
+  intonazioni dopo F3.04. Diviso in F1.13b e F1.13c, con una PR unica alla fine (proprietario).
+- **F1.13b** **Fatto il 2026-11-05:** prima del codice il proprietario ha approvato N1–N10, ora
+  ADR-0027 §13: una legatura si segue solo dove la nota d'arrivo suona subito dopo lungo il
+  percorso; ogni testa di un accordo è una nota; accorciamenti sull'ultima testa della catena,
+  accenti sulla prima; tenuto con staccato suona come portato; l'acciaccatura ruba alla nota
+  precedente della voce lungo il percorso, dopo gli abbellimenti "dopo"; arpeggi sul primo accordo;
+  scostamenti della catena; *mf* per tutte fino alle dinamiche. Modulo `perform` di
+  `orchestra-playback`; limite noto: su una nota molto corta abbellimenti "dopo" e acciaccature
+  insieme possono superarne la metà (la nota scende alla durata minima).
+- **F1.13c** Diviso in due parti (proprietario, 2026-11-05). **Parte 1 fatta il 2026-11-05:** prima
+  del codice il proprietario ha approvato H1–H13 e, chiedendo che un accento sia più forte solo
+  all'attacco e poi torni alla sua dinamica a velocità fissa (più lentamente dopo *sf* e simili),
+  l'**emendamento H14–H17**, ora ADR-0027 §14: la dinamica in vigore si segue lungo il percorso;
+  *rf* +1 livello, *sf* +2, *sffz* +3, solo sulle note che cominciano lì; *n* = velocity 1;
+  l'arrivo di una forcella dentro la battuta della sua fine e nel verso giusto, altrimenti un
+  livello; le dinamiche dentro una forcella la dividono; vince la voce sullo strumento; ogni nota
+  suonata ha un **profilo d'attacco** (attacco, tenuta, ritorno in secondi, livello d'arrivo); gli
+  accenti di articolazione sono gradini fissi (accento +15 in 0,2 s); *fp* è *f* tenuto 0,3 s poi
+  *p* in 0,1 s, *pf* il contrario. Modulo `loudness` di `orchestra-playback`. **Parte 2:** H11–H13,
+  cioè la lista degli strumenti con dinamiche cambiate nel `ChangeSet`, `Performance::update` per
+  cella, i benchmark sulla partitura pesante; poi la PR di tutto F1.13.
+  **Parte 2 fatta il 2026-11-05:** `ChangeSet::dynamics_changed` (anche per una dinamica tolta);
+  `Performance::update`, identico al ricalcolo completo: dopo un cambio di dinamiche solo le velocity
+  del tratto in cui la linea di una voce cambia davvero, dopo un cambio di cella una finestra di
+  battute suonate ricalcolata e rimessa al suo posto; `PlayedBar::written_start`. Sulla partitura
+  pesante: esecuzione completa ≈ 1,67 miliardi di istruzioni, una nota ≈ 1,24 milioni, una dinamica
+  ≈ 2,11 milioni; `add_dynamic` dell'editor +8–9% per la lista nuova, accettato dal proprietario
+  (`Bench-regression: accepted`). F1.13 completo.
 - **F1.12** Da ADR-0024 §10: la tabella degli scostamenti per singolo passaggio (`NoteId`,
   indice del passaggio). Da ADR-0025: lo srotolamento segue le regole di §5; l'indice di passaggio
   di una battuta suonata è il numero di volte che la stessa battuta scritta è già stata suonata
@@ -499,6 +538,11 @@ di F1.13, così il proprietario può *ascoltare* il risultato del modello con qu
 già alla fine della Fase 1, senza aspettare il motore audio. Costo basso, verifica molto utile
 delle regole di esecuzione. Si fa dopo F1.13 e prima della chiusura F1.17 (la tabella elenca i
 passi per argomento, non in ordine stretto di esecuzione).
+
+Da F1.13c (ADR-0027 §14): in **F1.18** si sceglie come scrivere il profilo d'attacco nel file MIDI
+(MIDI 1.0 ha solo il CC11 per canale, che ne approssima la curva; MIDI 2.0 ha i controller per
+nota), ed è il primo momento in cui Claude ricorda al proprietario di **tarare a orecchio** tutti i
+tempi e i gradini di §14 (di nuovo con gli strumenti interni di F3).
 
 **Tappa M1** (§7): "motore musicale senza interfaccia".
 
@@ -567,6 +611,9 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
   cambio di metro `Rewrite` di una sezione lunga della partitura pesante (60 battute × 41 voci,
   ≈ 118 milioni di istruzioni); se supera i 16 ms, ottimizzarlo (per esempio con uno spostamento in
   blocco degli eventi di un tratto di battute, che richiede un emendamento ad ADR-0026 §1).
+  Da F1.13c: misurare lì anche `Performance::update` dopo una nota e dopo una dinamica sulla
+  partitura pesante (≈ 1,2 e ≈ 2,1 milioni di istruzioni; sulla macchina di sviluppo ≈ 0,6–1 ms),
+  con il budget di 1 ms di ADR-0027 §9.
 - **F2.22** Da ADR-0026 §11 (X4, X6, X7), comandi composti rimandati qui: svuotare le battute e
   mettere la ripetizione di battuta; ritrascrivere le note dopo un cambio di armatura; trasformare
   le note di un gruppo irregolare in valori normali.
@@ -673,6 +720,14 @@ Dettaglio volutamente minore: si espande alla chiusura di F3, con quello che avr
 
 ### Oltre (idee da valutare, nessun impegno)
 
+Da ADR-0027 (rimandi decisi, da collocare): la **realizzazione degli ornamenti** (trillo,
+gruppetti, mordenti, tremolo: nota ausiliaria dall'armatura e dall'alterazione sopra il segno,
+velocità); le **corone** come tempo inserito nella linea del tempo srotolata, con il suono delle
+note allungato e mai un tempo più lento (emendamento di ADR-0025 §12); le **intonazioni**
+(temperamenti, intonazione naturale, segni di comma) dopo F3.04; i valori di articolazioni e
+dinamiche come opzioni modificabili nella finestra Preferenze (F2.12), compresi i tempi e i gradini
+del profilo d'attacco di ADR-0027 §14.
+
 Da collocare (ADR-0024 C9): tremolo tra due note, testo cantato (sillabe, strofe, allineamento),
 sigle degli accordi, diteggiature e indicazioni di tecnica. Da ADR-0025: le ripetizioni di
 movimento (un segno che ripete un movimento) e più movimenti in un solo file ("l'inizio della
@@ -725,7 +780,7 @@ modifica.
 | D19 | Lingua della scaletta: italiano (attuale) o inglese come gli altri documenti di progetto | F0.17 | **chiusa** 2026-10-30: italiano |
 | D20 | Ordine alternativo: incisione headless (F2B in PNG) **prima** delle fondamenta UI (F2A) | F0.17 | **chiusa** 2026-10-30: F2A poi F2B |
 | D21 | Cambio di metro: mantenere le battute o riscrivere la musica | F1.11 | **chiusa** 2026-11-04: ADR-0026 (riscrivere di default, mantenere come modalità) |
-| D22 | Intonazione (temperamenti, intonazione naturale, segni di comma): in quale passo | F1.13 | aperta |
+| D22 | Intonazione (temperamenti, intonazione naturale, segni di comma): in quale passo | F1.13 | **chiusa** 2026-11-05: ADR-0027 (12-TET con microtoni esatti ora, intonazioni dopo F3.04) |
 
 Nota su **D20**: `notation-layout` non dipende da `ui`, quindi in teoria si potrebbe incidere la
 musica su immagini PNG (headless) subito dopo la Fase 1, vedendo prima i risultati musicali.
@@ -768,3 +823,7 @@ raccomandato.
 | 2026-11-05 | 0.26 | F1.11c: parte 2 divisa in 2a e 2b, parte 2a fatta (modifica in blocco della mappa dei metri, note di gruppo irregolare divise alla stanghetta; precisioni Z1–Z5 in ADR-0026 §11); parte 2b definita | proprietario |
 | 2026-11-05 | 0.27 | F1.11c fatto (PR #20): parte 2b, `Rewrite`, con le precisioni R1–R11 in ADR-0026 §11 e il budget accettato da misurare in F2.23; F1-B completata, si passa a F1-C | proprietario |
 | 2026-11-05 | 0.28 | F1.12 fatto (PR #21): srotolamento della forma, precisioni P1–P8 in ADR-0025 §12; la tabella degli scostamenti per passaggio passa a F1.14 | proprietario |
+| 2026-11-05 | 0.29 | F1.13 fatto (ADR-0027 Accepted), D22 chiusa; nuovi F1.13b e F1.13c; rimandi di ADR-0027 (ornamenti, corone, intonazioni, opzioni di esecuzione) in "Oltre" | proprietario |
+| 2026-11-05 | 0.30 | F1.13b fatto: le note suonate, precisioni N1–N10 in ADR-0027 §13 | proprietario |
+| 2026-11-05 | 0.31 | F1.13c diviso in due parti, parte 1 fatta (precisioni H1–H13 ed emendamento H14–H17 in ADR-0027 §14: profilo d'attacco); note per F1.18 (codifica del profilo, taratura a orecchio) e F2.12 | proprietario |
+| 2026-11-05 | 0.32 | F1.13c fatto (parte 2: aggiornamento incrementale, benchmark), F1.13 completo; misura in tempo reale dell'aggiornamento delle note suonate in F2.23 | proprietario |

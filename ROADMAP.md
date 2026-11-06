@@ -360,8 +360,56 @@ rules as a query; where each bar is played; the pass-specific offsets table move
 rebuild on form, bars or maps; finite by construction). Implemented: the module `unroll`
 (`Unrolled`, `PlayedBar`, `StaffContent`, `UnrollError`); tests: sixteen cases (the hard cases of
 ADR-0025 §10) and a property test on random forms (40 000 cases passed); eight injected bugs
-caught; benchmark ≈ 2.5–3.9 million instructions for 900–1 450 played bars. **Next:** F1.13, the
-playback rules v0 (from the written intent to the played events).
+caught; benchmark ≈ 2.5–3.9 million instructions for 900–1 450 played bars. F1.12 was merged with PR #21 (SCALETTA v0.28).
+**F1.13 in progress** (2026-11-05, `feature/f1-13-adr-playback`): research (Dorico, MuseScore,
+Sibelius, MusicXML 4.0, Standard MIDI File, MIDI 2.0, MIDI Tuning Standard; the owner asked for the
+exchange formats too) and the draft **ADR-0027** (Proposed), with the choices G1–G14 for the owner
+(played notes in exact musical time with exact pitch and 16-bit velocity; ties as one note;
+articulation and dynamic defaults; grace notes on the beat; ornaments and fermatas deferred;
+offsets and bounds; the cell as the incremental unit; intonation D22 after F3.04; the split into
+F1.13b and F1.13c). **ADR-0027 Accepted** the same day: the owner changed G4 (dynamics bounded to
+*pppp*–*ffff*, more *p*s or *f*s played as the extremes, ten levels spread evenly), G7
+(acciaccaturas before the beat, taking time from the previous note; appoggiaturas on the beat) and
+G9 (fermatas deferred, then a longer sound, never a slower tempo), and approved the rest.
+Decision D22 closed: 12-TET with exact microtones now, tunings after F3.04. **F1.13b done** (2026-11-05,
+same branch): before coding, the owner approved N1–N10, now ADR-0027 §13 (ties followed only where
+their target sounds next; one note per notehead; shortening on the last notehead, accents on the
+first; tenuto with staccato as portato; acciaccaturas from the previous note along the path, after
+its `After` graces; arpeggios; chain offsets; *mf* until the dynamics; a whole `Performance`).
+Implemented: the module `perform` of `orchestra-playback` (`Performance`, `PlayedNote`,
+`PerformError`, `PROVISIONAL_VELOCITY`); fourteen cases and a property test; ten injected bugs
+caught. **F1.13c part 1 done** (2026-11-05, same branch): before coding, the owner approved the
+precisions H1–H13 and, asking that an accent be louder at the attack only and then go back to its
+dynamic at a fixed speed (more slowly after *sf* and the like), the **amendment H14–H17** of
+ADR-0027 (§14): every played note has an attack profile (`velocity`, `hold`, `settle_in` in seconds,
+`settle_to`), articulation accents are fixed steps instead of percentages, *fp* is *f* held 0.3 s
+then *p* in 0.1 s and *pf* the reverse. Implemented: the module `loudness` of `orchestra-playback`
+(per-voice timelines along the path, hairpin plans, dynamic accents, the profile, the exact
+up-scaling; `INITIAL_VELOCITY` replaces `PROVISIONAL_VELOCITY`); sixteen cases in
+`tests/loudness_cases.rs`, the property test with random dynamics, accents and hairpins and an
+oracle of the level along the path; nine injected bugs caught. **F1.13c part 2 done** (2026-11-05,
+same branch): `ChangeSet::dynamics_changed` in `core-model` (recorded by every insertion and removal
+of a dynamic or hairpin, so a removed one still names its instrument); `Performance::update(doc,
+path, changes)` in the new module `perform::update`, identical to a full computation: velocities
+only, in the stretch where a voice's timeline really changed (`Timeline::changed`), after a change
+of the dynamics; a window of played bars around every changed cell, computed by the same
+`perform_range` and spliced in place into the sorted lists (now in a total order: start, pitch,
+voice, notehead, played bar); everything on a change of the form or the bars, nothing on a tempo
+change. `PlayedBar::written_start` added to the path. Tests: six cases with the real editor and a
+property test of random command sequences with undo and redo against a full computation; thirteen
+mutations, ten real bugs caught, three equivalent; one mutation revealed that a window's bounds could
+chase each other for ever (fixed: they only move outwards). Benchmarks `benches/perform.rs` on the
+heavy score: the whole performance ≈ 1.67 billion instructions (≈ 0.5 s natively), a note's update
+≈ 1.24 million (natively ≈ 0.6 ms mean, 0.96 ms worst, on the development machine), a dynamic's
+≈ 2.11 million, after three fixes found with the profile (integer up-scaling, a per-bar summary of
+the notes, `Vec::splice` instead of a new list). **To measure on the reference laptop** with the
+interface (F2.23), as for the meter rewrite. The editor's `add_dynamic` benchmark grew by 8–9% (≈ 440
+instructions per dynamic, the new list of the change set): accepted by the owner with
+`Bench-regression: accepted`. SCALETTA v0.32 closes F1.13c and F1.13. **PR #22 open** (F1.13: ADR-0027,
+parts b and c): Linux, Windows, benchmarks and guides green; the macOS job was cancelled three times
+in a row (2026-11-05) after 15 minutes **without ever getting a runner** (no step ran: GitHub's queue,
+as with PR #18). **Next:** re-run the macOS job (`gh run rerun <id> --failed`); when it is green,
+merge PR #22 and delete the branch (owner's ok, 2026-11-05); then F1.14 (tolerance threshold).
 
 | Step | What | Status |
 |---|---|---|
@@ -408,6 +456,11 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 ## Open decisions and open items
 
 - **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
+- **REMIND THE OWNER (asked on 2026-11-05):** every time and level of ADR-0027 §14 (accent
+  attacks, the hold and the settling times of accents, *sf*-like marks, *fp* and *pf*) is a
+  provisional value to be **tuned by ear** with the owner. Bring it up as soon as the owner can
+  listen: at F1.18 (MIDI export, first listening) and again with the internal instruments of F3;
+  they become playback options in F2.12.
 - **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions
@@ -420,8 +473,6 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - **Non-traditional key signatures** (Bartók, klezmer and Balkan modes, maqam and makam): deferred
   by the owner on 2026-11-01, **to be remembered**; a second variant of `Key` with its own spelling
   rule, at the MusicXML import or at the first concrete need (ADR-0023 §5, SCALETTA §5).
-- **D22, for F1.13:** tuning (temperaments, just intonation, comma accidentals); the MIDI
-  conversion uses 12-TET as the reference (ADR-0023 §3).
 - **"No mode" spelling:** ADR-0023 §6 spells MIDI keys in a key without mode with the C major
   window, whatever its signature; to revisit if open signatures with accidentals turn out common.
 - **From F1.11b part 1, to keep in mind:** while a transaction is open the tempo map is the one

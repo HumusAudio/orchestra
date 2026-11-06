@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0bd421d1c31041d104bec7f1365fab8a058e513703b1e4217efeba7c2a113e00 # shrinks to n = 5, seed = [0, 25, 50, 12, 103, 0, 187, 0, 0, 30, 0, 22, 0, 31, 145, 59, 47, 0, 19], ops = [(2, 35, 179, 52)]
+cc c1fe24c60b05a46054c5efd265eef88b7cf8f66ed42555536effdc9cedb27812 # shrinks to n = 4, seed = [0, 71, 0, 85, 7, 9, 0, 66, 0, 10, 0, 230, 0, 28, 15, 0, 15, 0, 238, 95, 0, 113, 58, 0, 53, 185, 7, 7, 0, 26, 0, 22, 0, 230, 0, 2, 0, 55, 0, 130, 0, 108, 0, 0], ops = [(34, 55, 53, 0)]
+cc 0b7532ffc543b9a57cda8a5d3ce1056c723d0f046f0125d43b04d3f90985ef9b # shrinks to n = 3, seed = [21, 13, 153, 177, 77, 6, 0, 7, 15, 0, 24, 0, 4, 5, 52], ops = [(2, 51, 20, 0)]
+cc 073b297d7cf77508a7db288ea3867a0b49e1cd373f0d181894d003b82795a400 # shrinks to n = 3, seed = [0, 1, 31, 1, 115, 132, 0, 2, 19, 20, 0, 49, 0, 0, 16, 0, 16, 0, 1, 1, 13, 46, 0, 64, 0, 144, 0, 8, 0, 16, 0, 139, 0, 0, 20], ops = [(2, 172, 17, 0), (1, 0, 0, 0), (2, 39, 8, 232)]

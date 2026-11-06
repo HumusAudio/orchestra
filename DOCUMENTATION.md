@@ -1409,8 +1409,9 @@ ADR-0026): the document, its one undo history and the transaction in progress. F
 - `change`: the **`ChangeSet`** every transaction, undo and redo returns: the (voice, bar) cells
   whose events changed, the objects inserted, removed and replaced (bars included), the first bar
   from which the meter map may answer differently, the first position from which the tempo map
-  differs, and whether the form changed. Each edit records its own entries, so no notification can
-  be forgotten; the lists are sorted and deduplicated once at the end.
+  differs, whether the form changed, and (since F1.13c, ADR-0027 §14 H11) the instruments whose
+  dynamics or hairpins changed. Each edit records its own entries, so no notification can be
+  forgotten; the lists are sorted and deduplicated once at the end.
 - `editor`: `Editor::transact` runs a closure as **one transaction = one step of undo**; if the
   closure returns an error, every edit it applied is reverted. The tempo map is derived again once,
   at the end, and only if a tempo mark or a bar start changed; if it fails, the transaction is
@@ -1850,8 +1851,8 @@ unrolled.update(editor.document(), &changes)?;
 
 Each `PlayedBar` knows its written bar, its **pass index** (how many times that written bar was
 played before, from 0: the key of the pass-specific offsets that F1.14 will add, P6), the play of
-its repeated section (1, 2, … for the "tacet 1st time" rules), its start on the unrolled timeline
-in exact whole notes, and a **shift** in seconds. Inside a gradual tempo change the time of a
+its repeated section (1, 2, … for the "tacet 1st time" rules), the written start of its bar (since
+F1.13c), its start on the unrolled timeline in exact whole notes, and a **shift** in seconds. Inside a gradual tempo change the time of a
 barline is irrational (ADR-0021), so instead of an absolute time each played bar stores how far
 its time in the performance is from the tempo map's time of its written start; the shift changes
 only where the path jumps, so it stays exact unless a jump leaves or lands inside a gradual change.
@@ -1880,6 +1881,159 @@ bar by bar; 40 000 cases passed. Eight injected bugs were caught, one only after
 two-bar sign written twice was added. **Benchmark** (`benches/unroll.rs`, the 400-bar score of the
 form benchmarks): ≈ 2.5 million instructions for 900 played bars, ≈ 3.9 million with a D.S. in
 every section (1 450 played bars); the setup checks both lengths.
+
+#### The played notes
+
+Since F1.13b (ADR-0027 §1–§8, with the precisions N1–N10 of §13 approved by the owner on
+2026-11-05) the module `perform` turns the written notes along the path into the notes that sound:
+a `Performance` with, for every instrument, its `PlayedNote`s sorted by start then pitch. A played
+note has an exact start and end on the unrolled timeline (musical time only: the seconds come from
+the path, so a tempo edit recomputes nothing here), its exact sounding pitch (`Pitch::sounding`,
+60 = C4, quarter tones kept), an attack profile on the 16-bit scale, and its way back to the score.
+
+```rust
+let path = Unrolled::new(&document)?;
+let performance = Performance::new(&document, &path)?;
+for note in performance.notes(piano) {
+    // Exact start and end on the unrolled timeline, exact sounding pitch (60 = C4), 16-bit velocity,
+    // and the way back to the score: the first notehead of its tie chain, the played bar, the pass.
+    let seconds = path.time_at(&document, note.played as usize, note.start - bar_start)?;
+}
+```
+
+The steps, voice by voice:
+
+1. **The items**: the voice's events bar by bar along the path; on a staff with bar repeats, from
+   the source bar with its pass; those the pass rules silence left out.
+2. **Tie chains** (N1, N2): a notehead is followed along its tie only if its target sounds right
+   after it on the path, so a tie at the end of a first ending stops at the barline when the
+   music goes back, and goes on the time it leads into the next bar. A chain is one note.
+3. **Articulations** (N3, N4): staccato 1/2, staccatissimo and spiccato 1/4, portato and marcato
+   3/4 on the **last** notehead of the chain; the accents on the **first** (see Loudness below); tenuto
+   with staccato plays as a portato.
+4. **Grace notes** (N5, N6): acciaccaturas **before the beat**, 1/32 each, taken from the previous
+   note of the voice (in the silence after a rest; before time 0 before the first note), so the
+   main note starts when it is written; appoggiaturas on the beat, half the main note (2/3 of a
+   dotted one); `After` graces at the end of the note they follow, before the next note's
+   acciaccaturas.
+5. **Arpeggios** (N7): 1/64 between notes, upwards or downwards, all ending together.
+6. **Offsets and bounds** (N8): onset and velocity of the first notehead, the length offsets of
+   all; then at least 1/1024 long.
+7. **Loudness** (F1.13c): the attack profile, below.
+
+**Tests:** `tests/perform_cases.rs`, fourteen cases (plain notes, a tie chain, a tie followed only
+on the pass that plays its target next, staccato on the last note of a chain, portato and accent,
+acciaccaturas after a note, after a rest and at the very start, a dotted appoggiatura, an `After`
+grace, an `After` grace followed by an acciaccatura, a downward arpeggio, offsets and bounds, a
+tacet, a bar repeat); `tests/perform_props.rs`, a property test on random scores with a repeat and
+random notes, rests, ties, articulations, grace notes, arpeggios and offsets (sorted notes, bounds,
+pitches as written, and without the extras one note per written note per play, where it is
+written). Ten injected bugs were caught, nine of them by the cases, each on its own rule.
+
+#### Loudness: dynamics, hairpins, accents
+
+Since F1.13c (ADR-0027 §4 and §14, precisions H1–H13 and the amendment H14–H17 approved by the
+owner on 2026-11-05) the internal module `loudness` decides how loud every note is. The rules are
+written on the familiar 0–127 scale (*pppp* 10, *ppp* 23, *pp* 36, *p* 49, *mp* 62, *mf* 75,
+*f* 88, *ff* 101, *fff* 114, *ffff* 127: one level every 13; more *p*s or *f*s play as the
+extremes) and computed there with exact fractions; only at the end is the value up-scaled to the
+16-bit scale (an integer by bit replication, a fraction between its two neighbours, rounded to the
+nearest).
+
+- **Along the path** (H1, H2): the dynamic in force is the last one *played* before the note,
+  read at the note's written point, as a player remembers it: after a repeat back to a bar with no
+  dynamic, the *f* of the end of the repeat stays. Before any dynamic, *mf*.
+- **The timeline of a voice**: built once by walking the path, it lists from which path point
+  (played bar, offset) the level is a constant or a hairpin's ramp, and where the dynamic accents
+  are. A note asks it in O(log n). Only the instrument's dynamics and the voice's own are read; at
+  one point the voice's win (G5, H9).
+- **Hairpins** (H5–H8): linear in the written position, from the level heard at their start to
+  their target: the first dynamic at or after the end within the bar holding the end, if it goes
+  the right way, else one level up or down (*al niente*: to nothing). A dynamic inside splits the
+  ramp; after the hairpin the target stays; a hairpin played twice starts each time from the level
+  in force then.
+- **Dynamic accents** act only on the notes starting exactly at their point (H3, H16): *rf*/*rfz*
+  one level up, back to the level in 0.4 s; *sf*/*sfz*/*fz* two levels, 0.6 s; *sffz* three,
+  0.8 s; *fp* is *f* held 0.3 s then *p* in 0.1 s; *sfp*/*sfpp* *ff* then *p*/*pp* in 0.3 s; *pf*
+  *p* held 0.3 s then *f* in 0.1 s; *n* is velocity 1. Grace notes take the level of their main
+  note without its accent (H10).
+- **Articulation accents** are fixed steps (H15, amending the percentages of §3): stress and soft
+  accent +7 back in 0.15 s, accent +15 in 0.2 s, marcato +22 in 0.25 s; unstress −7 on the whole
+  note. With a dynamic accent the attacks add up and the longer time wins (H17); the velocity
+  offset moves both the attack and the settling level.
+
+The **attack profile** (H14) is the owner's request: an accent is louder at the attack only, and
+the sound then goes back to the dynamic at a fixed speed, whatever the note's length (barely
+audible on a short note, essential on a long one). The times are in seconds, so a tempo edit still
+recomputes nothing. Every time and level here is provisional, to be tuned by ear at F1.18 and F3.
+
+```rust
+// The attack profile of a played note (ADR-0027 §14, H14): the sound starts at `velocity`, stays
+// there for `hold`, then goes linearly to `settle_to` in `settle_in` and keeps it.
+let note = performance.notes(violin)[0];
+let accented = note.velocity != note.settle_to; // false: no profile, hold and settle_in are zero
+let fades_in: Seconds = note.settle_in;        // seconds: a fixed speed, whatever the tempo
+```
+
+**Tests:** `tests/loudness_cases.rs`, sixteen cases (the table and the extremes, the level along
+the path after a repeat, *sf* and the like, *fp*/*pf*/*sfpp*, *niente*, a crescendo to its written
+target, targets that do not fit, the window of the target, a dynamic inside a hairpin, *al
+niente*, a hairpin played twice, voice against instrument, grace notes, articulation steps,
+rounding); `tests/perform_props.rs` now adds random dynamics, dynamic accents and hairpins, checks
+that every profile is well formed and, on the plain scores, compares every velocity with an oracle
+that walks the path backwards from the note. Nine injected bugs were caught (two only after a case
+written for them; one only by the oracle).
+
+#### The incremental update
+
+Since F1.13c part 2 (ADR-0027 §9 and §14, H11–H13) `Performance::update(doc, path, changes)` brings
+the played notes up to date after a transaction, given the path already updated with
+`Unrolled::update`. The result is **identical** to `Performance::new` on the new document; only the
+cost differs.
+
+```rust
+// After every transaction: first the path, then the played notes, with the same change set.
+let changes = editor.execute(&command)?;
+path.update(editor.document(), &changes)?;
+performance.update(editor.document(), &path, &changes)?; // == Performance::new(...), only cheaper
+```
+
+- **What recomputes what**: a change of the form or of the bars recomputes everything; a change of
+  the tempo nothing (musical time, profiles in seconds); a change of the dynamics of an instrument
+  (the new list `ChangeSet::dynamics_changed`, which also names a removed dynamic's instrument)
+  rebuilds its timelines and reads again only the velocities of the notes in the stretch where a
+  timeline really differs (`Timeline::changed` compares the old and the new one from both ends);
+  a changed cell recomputes a **window** of played bars around every play of the bar.
+- **The window** (module `perform::update`): the same code as the full computation
+  (`perform_range` on a range of played bars) runs on a computed range `[c, e]` and the notes of the
+  kept range `[a, b]` replace the old ones. It is as wide as the links between notes require: the
+  bar before (its last note gives time to the acciaccaturas of the changed bar), every tie chain
+  touching it whole, the bar after the end of every chain (its graces are bounded by the chain), the
+  notes before as context. Every note keeps how far along the path it **reaches**; one pass over the
+  old notes gathers, per played bar, how far they reach and where they start, so the window is
+  settled bar by bar; it only ever grows, so its loop ends.
+- **Splicing**: the notes of the instrument stay sorted in a total order (start, pitch, voice,
+  notehead, played bar); only the stretch between the earliest and the latest start touched is
+  rebuilt and put back with `Vec::splice`, without allocating a new list of the instrument.
+- The path gained `PlayedBar::written_start`, the written position of the start of its bar, which
+  the walk computed anyway and the loudness reads for every note.
+
+**Measures** (heavy score, instructions): the whole performance ≈ 1.67 billion (≈ 0.45–0.65 s here,
+once at opening); the update after a note ≈ 1.24 million (natively ≈ 0.6 ms on average here, worst
+≈ 0.96 ms); after a dynamic ≈ 2.11 million. Three fixes found with the profile: an integer
+up-scaling instead of rational arithmetic (−66% on the dynamics), the per-bar summary (−27% on a
+note), the splice in place (−55% on a note, and half the real time).
+
+**Tests:** `tests/update_cases.rs`, six cases with the real editor (a tie removed at the start of a
+chain, whose graces after it change bound; a tie added that lengthens a chain; acciaccaturas
+entered after a chain from two bars before; the graces of the first kept bar; dynamics and *sfz*;
+a tempo change that recomputes nothing), each compared with a full computation also after undo and
+redo; `tests/update_props.rs`, random scores and random sequences of eleven kinds of commands with
+undos and redos, the updated performance compared with a full one after every step. The random
+scores are now shared in `tests/common/mod.rs`. Thirteen mutations: ten real bugs caught (three only
+after cases written for them), three equivalent; one of them made the loop never end, which showed
+that settling a window could pull back a bound grown on the new notes: the bounds now only move
+outwards.
 
 ### orchestra-notation-layout
 

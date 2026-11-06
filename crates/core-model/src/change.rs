@@ -21,7 +21,7 @@
 use orchestra_core_time::{BarIndex, Position};
 
 use crate::edit::ObjectRef;
-use crate::id::{BarId, NoteId, VoiceId};
+use crate::id::{BarId, InstrumentId, NoteId, VoiceId};
 
 /// What one transaction (or one undo, or one redo) changed in the document (ADR-0026 §5).
 ///
@@ -48,6 +48,10 @@ pub struct ChangeSet {
     /// Whether the form (repeats, voltas, markers, jumps, the numbering style, bar repeats or pass
     /// rules) changed, so that the unrolled path of F1.12 must be recomputed.
     form: bool,
+    /// The instruments whose dynamics or hairpins were inserted, removed or replaced (ADR-0027 §14,
+    /// H11): playback recomputes the velocities of these instruments only. The object lists name
+    /// a removed dynamic by ID alone, and the document no longer holds it to say whose it was.
+    dynamics: Vec<InstrumentId>,
     /// Whether the tempo map must be derived again when the transaction ends: a tempo mark changed,
     /// or bars moved. Internal bookkeeping of the editor, not part of what consumers read.
     pub(crate) tempo_dirty: bool,
@@ -102,6 +106,12 @@ impl ChangeSet {
         self.form
     }
 
+    /// The instruments whose dynamics or hairpins changed, sorted (ADR-0027 §14, H11). O(1).
+    #[must_use]
+    pub fn dynamics_changed(&self) -> &[InstrumentId] {
+        &self.dynamics
+    }
+
     /// Whether nothing at all changed. O(1).
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -112,6 +122,7 @@ impl ChangeSet {
             && self.meter_from.is_none()
             && self.tempo_from.is_none()
             && !self.form
+            && self.dynamics.is_empty()
     }
 
     // --------------------------------------------------------------------------------------------
@@ -130,6 +141,14 @@ impl ChangeSet {
         let recent = self.cells.iter().rev().take(2).any(|&c| c == cell);
         if !recent {
             self.cells.push(cell);
+        }
+    }
+
+    /// Records that the dynamics or hairpins of `instrument` changed. O(1) amortised; a repeat of
+    /// the last entry is dropped at once, the rest when the lists are tidied.
+    pub(crate) fn dynamics(&mut self, instrument: InstrumentId) {
+        if self.dynamics.last() != Some(&instrument) {
+            self.dynamics.push(instrument);
         }
     }
 
@@ -194,6 +213,9 @@ impl ChangeSet {
             self.meter(bar);
         }
         self.form |= other.form;
+        for instrument in other.dynamics {
+            self.dynamics(instrument);
+        }
         self.tempo_dirty |= other.tempo_dirty;
         self.notes_gone.extend(other.notes_gone);
     }
@@ -233,6 +255,7 @@ impl ChangeSet {
         tidy(&mut self.inserted);
         tidy(&mut self.removed);
         tidy(&mut self.replaced);
+        tidy(&mut self.dynamics);
         tidy(&mut self.notes_gone);
     }
 }

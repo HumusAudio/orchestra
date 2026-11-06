@@ -154,6 +154,10 @@ pub struct PlayedBar {
     /// The play number of the repeated section holding the bar (1 for its first play), or `None`
     /// outside any repeated section: the pass numbers the pass rules name (ADR-0025 §7).
     pub section_play: Option<u8>,
+    /// Where its written bar starts in the score, in whole notes (the meter map's bar start): the
+    /// written position of every point of the bar is this plus its offset. Kept here because the
+    /// playback rules read it for every note (ADR-0027 §14 H2, H8) and the walk computes it anyway.
+    pub written_start: Position,
     /// Where it starts on the unrolled timeline, in whole notes from the start of the performance.
     pub start: Position,
     /// The shift between its time on the unrolled timeline and the time of its written start (see
@@ -513,6 +517,7 @@ impl Unrolled {
                 index,
                 pass: *count,
                 section_play: current.map(|(_, p)| p),
+                written_start,
                 start,
                 shift,
             });

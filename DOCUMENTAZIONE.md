@@ -1494,8 +1494,9 @@ Quattro moduli nuovi:
 - `change`: l'**insieme delle modifiche** (`ChangeSet`) che ogni transazione, undo e redo
   restituisce: le celle (voce, battuta) i cui eventi sono cambiati, gli oggetti inseriti, tolti e
   sostituiti (battute comprese), la prima battuta da cui la mappa delle misure può rispondere
-  diversamente, la prima posizione da cui la mappa dei tempi è diversa, e se la forma è cambiata.
-  Ogni modifica registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
+  diversamente, la prima posizione da cui la mappa dei tempi è diversa, se la forma è cambiata e (da
+  F1.13c, ADR-0027 §14 H11) gli strumenti le cui dinamiche o forcelle sono cambiate. Ogni modifica
+  registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
   si ordinano e si ripuliscono dai doppioni una volta sola alla fine.
 - `editor`: `Editor::transact` esegue una chiusura come **una transazione = un passo di undo**; se
   la chiusura restituisce un errore, ogni modifica che ha applicato viene annullata. La mappa dei
@@ -1971,8 +1972,8 @@ unrolled.update(editor.document(), &changes)?;
 Ogni `PlayedBar` conosce la sua battuta scritta, il suo **indice di passaggio** (quante volte quella
 battuta scritta è stata suonata prima, da 0: la chiave degli scostamenti per passaggio che arriveranno
 con F1.14, P6), l'esecuzione della sua sezione ripetuta (1, 2, … per le regole "tacet la prima
-volta"), il suo inizio sulla linea del tempo srotolata in semibrevi esatte, e uno **spostamento** in
-secondi. Dentro un cambio di tempo graduale l'istante di una stanghetta è irrazionale (ADR-0021),
+volta"), l'inizio scritto della sua battuta (da F1.13c), il suo inizio sulla linea del tempo
+srotolata in semibrevi esatte, e uno **spostamento** in secondi. Dentro un cambio di tempo graduale l'istante di una stanghetta è irrazionale (ADR-0021),
 quindi invece di un tempo assoluto ogni battuta suonata memorizza quanto il suo tempo
 nell'esecuzione dista dal tempo della mappa all'inizio scritto; lo spostamento cambia solo dove il
 percorso salta, quindi resta esatto a meno che un salto parta o arrivi dentro un cambio graduale.
@@ -2004,6 +2005,168 @@ aver aggiunto un caso con un segno di due battute scritto due volte. **Benchmark
 (`benches/unroll.rs`, la partitura di 400 battute dei benchmark della forma): ≈ 2,5 milioni di
 istruzioni per 900 battute suonate, ≈ 3,9 milioni con un D.S. in ogni sezione (1 450 battute
 suonate); la preparazione controlla entrambe le lunghezze.
+
+#### Le note suonate
+
+Da F1.13b (ADR-0027 §1–§8, con le precisazioni N1–N10 di §13 approvate dal proprietario il
+2026-11-05) il modulo `perform` trasforma le note scritte lungo il percorso nelle note che suonano: una
+`Performance` con, per ogni strumento, le sue `PlayedNote` ordinate per inizio e poi per altezza. Una
+nota suonata ha un inizio e una fine esatti sulla linea del tempo srotolata (solo tempo musicale: i
+secondi vengono dal percorso, così una modifica del tempo qui non ricalcola nulla), la sua altezza
+esatta (`Pitch::sounding`, 60 = Do4, quarti di tono compresi), un profilo d'attacco sulla scala a
+16 bit, e
+la strada per tornare allo spartito.
+
+```rust
+let path = Unrolled::new(&document)?;
+let performance = Performance::new(&document, &path)?;
+for note in performance.notes(piano) {
+    // Exact start and end on the unrolled timeline, exact sounding pitch (60 = C4), 16-bit velocity,
+    // and the way back to the score: the first notehead of its tie chain, the played bar, the pass.
+    let seconds = path.time_at(&document, note.played as usize, note.start - bar_start)?;
+}
+```
+
+I passi, voce per voce:
+
+1. **Gli elementi**: gli eventi della voce battuta per battuta lungo il percorso; su un rigo con
+   ripetizioni di battuta, dalla battuta d'origine con il suo passaggio; quelli che le regole di
+   passaggio fanno tacere, esclusi.
+2. **Catene di legature** (N1, N2): una testa di nota si segue lungo la sua legatura solo se la nota
+   d'arrivo suona subito dopo lungo il percorso, così una legatura alla fine di una prima volta si
+   ferma alla stanghetta quando la musica torna indietro, e prosegue la volta che porta alla battuta
+   dopo. Una catena è una nota.
+3. **Articolazioni** (N3, N4): staccato 1/2, staccatissimo e spiccato 1/4, portato e marcato 3/4
+   sull'**ultima** testa della catena; gli accenti sulla **prima** (vedi Il volume, sotto); tenuto con
+   staccato suona come portato.
+4. **Abbellimenti** (N5, N6): acciaccature **prima del tempo**, 1/32 ciascuna, prese dalla nota
+   precedente della voce (nel silenzio dopo una pausa; prima dello zero prima della prima nota),
+   così la nota principale parte quando è scritta; appoggiature sul tempo, metà della nota
+   principale (2/3 di una puntata); abbellimenti "dopo" in fondo alla nota che seguono, prima delle
+   acciaccature della nota seguente.
+5. **Arpeggi** (N7): 1/64 fra una nota e l'altra, verso l'alto o verso il basso, tutte finiscono
+   insieme.
+6. **Scostamenti e limiti** (N8): anticipo e velocity dalla prima testa, gli scostamenti di durata
+   di tutte; poi almeno 1/1024 di durata.
+7. **Il volume** (F1.13c): il profilo d'attacco, sotto.
+
+**Test:** `tests/perform_cases.rs`, quattordici casi (note semplici, una catena di legature, una
+legatura seguita solo nel passaggio che suona dopo la sua nota d'arrivo, staccato sull'ultima nota
+di una catena, portato e accento, acciaccature dopo una nota, dopo una pausa e all'inizio, un
+appoggiatura puntata, un abbellimento "dopo", un abbellimento "dopo" seguito da un'acciaccatura, un
+arpeggio verso il basso, scostamenti e limiti, un tacet, una ripetizione di battuta);
+`tests/perform_props.rs`, un test di proprietà su partiture casuali con un ritornello e note, pause,
+legature, articolazioni, abbellimenti, arpeggi e scostamenti casuali (note ordinate, limiti, altezze
+come scritte, e senza le aggiunte una nota per ogni nota scritta e per ogni esecuzione, dove è
+scritta). Dieci bug iniettati sono stati presi, nove dai casi, ciascuno sulla sua regola.
+
+#### Il volume: dinamiche, forcelle, accenti
+
+Da F1.13c (ADR-0027 §4 e §14, precisazioni H1–H13 ed emendamento H14–H17 approvati dal
+proprietario il 2026-11-05) il modulo interno `loudness` decide quanto forte suona ogni nota. Le
+regole sono scritte sulla solita scala 0–127 (*pppp* 10, *ppp* 23, *pp* 36, *p* 49, *mp* 62,
+*mf* 75, *f* 88, *ff* 101, *fff* 114, *ffff* 127: un livello ogni 13; più *p* o più *f* suonano
+come gli estremi) e calcolate lì con frazioni esatte; solo alla fine il valore passa alla scala a
+16 bit (un intero replicando i bit, una frazione fra i due interi vicini, arrotondata al più
+vicino).
+
+- **Lungo il percorso** (H1, H2): la dinamica in vigore è l'ultima *suonata* prima della nota,
+  letta nel punto scritto della nota, come la ricorda un musicista: dopo un ritornello che torna a
+  una battuta senza dinamica, resta il *f* della fine del ritornello. Prima di ogni dinamica, *mf*.
+- **La linea di una voce**: costruita una volta percorrendo il percorso, dice da quale punto
+  (battuta suonata, offset) il livello è costante o è la rampa di una forcella, e dove stanno gli
+  accenti dinamici. Una nota la interroga in O(log n). Si leggono solo le dinamiche dello strumento
+  e quelle della voce; nello stesso punto vince quella della voce (G5, H9).
+- **Forcelle** (H5–H8): lineari nella posizione scritta, dal livello che si sente al loro inizio
+  al loro arrivo: la prima dinamica alla fine o dopo, dentro la battuta che contiene la fine, se va
+  nel verso giusto, altrimenti un livello in su o in giù (*al niente*: fino al nulla). Una
+  dinamica dentro divide la rampa; dopo la forcella resta l'arrivo; una forcella suonata due volte
+  riparte ogni volta dal livello in vigore in quel momento.
+- **Accenti dinamici** solo sulle note che cominciano esattamente nel loro punto (H3, H16):
+  *rf*/*rfz* un livello sopra, di ritorno al livello in 0,4 s; *sf*/*sfz*/*fz* due livelli, 0,6 s;
+  *sffz* tre, 0,8 s; *fp* è *f* tenuto 0,3 s poi *p* in 0,1 s; *sfp*/*sfpp* *ff* poi *p*/*pp* in
+  0,3 s; *pf* *p* tenuto 0,3 s poi *f* in 0,1 s; *n* è velocity 1. Gli abbellimenti prendono il
+  livello della loro nota principale senza il suo accento (H10).
+- **Accenti di articolazione** a gradini fissi (H15, emenda le percentuali di §3): stress e
+  accento morbido +7 di ritorno in 0,15 s, accento +15 in 0,2 s, marcato +22 in 0,25 s; unstress −7
+  su tutta la nota. Con un accento dinamico gli attacchi si sommano e vince il tempo più lungo
+  (H17); lo scostamento di velocity sposta sia l'attacco sia il livello d'arrivo.
+
+Il **profilo d'attacco** (H14) è una richiesta del proprietario: un accento è più forte solo
+all'attacco, poi il suono torna alla dinamica a velocità fissa, qualunque sia la durata della nota
+(poco percepibile su una nota breve, essenziale su una lunga). I tempi sono in secondi, così una
+modifica del tempo continua a non ricalcolare nulla. Ogni tempo e livello qui è provvisorio, da
+tarare a orecchio in F1.18 e in F3.
+
+```rust
+// The attack profile of a played note (ADR-0027 §14, H14): the sound starts at `velocity`, stays
+// there for `hold`, then goes linearly to `settle_to` in `settle_in` and keeps it.
+let note = performance.notes(violin)[0];
+let accented = note.velocity != note.settle_to; // false: no profile, hold and settle_in are zero
+let fades_in: Seconds = note.settle_in;        // seconds: a fixed speed, whatever the tempo
+```
+
+**Test:** `tests/loudness_cases.rs`, sedici casi (la tabella e gli estremi, il livello lungo il
+percorso dopo un ritornello, *sf* e simili, *fp*/*pf*/*sfpp*, *niente*, un crescendo verso il suo
+arrivo scritto, arrivi che non vanno bene, la finestra dell'arrivo, una dinamica dentro una
+forcella, *al niente*, una forcella suonata due volte, voce contro strumento, abbellimenti, gradini
+delle articolazioni, arrotondamento); `tests/perform_props.rs` ora aggiunge dinamiche, accenti
+dinamici e forcelle casuali, controlla che ogni profilo sia ben formato e, sulle partiture
+semplici, confronta ogni velocity con un oracolo che risale il percorso dalla nota all'indietro.
+Nove bug iniettati sono stati presi (due solo dopo un caso scritto apposta; uno solo dall'oracolo).
+
+#### L'aggiornamento incrementale
+
+Da F1.13c parte 2 (ADR-0027 §9 e §14, H11–H13) `Performance::update(doc, path, changes)` aggiorna
+le note suonate dopo una transazione, dato il percorso già aggiornato con `Unrolled::update`. Il
+risultato è **identico** a `Performance::new` sul documento nuovo; cambia solo il costo.
+
+```rust
+// After every transaction: first the path, then the played notes, with the same change set.
+let changes = editor.execute(&command)?;
+path.update(editor.document(), &changes)?;
+performance.update(editor.document(), &path, &changes)?; // == Performance::new(...), only cheaper
+```
+
+- **Cosa ricalcola cosa**: un cambio della forma o delle battute ricalcola tutto; un cambio del
+  tempo nulla (tempo musicale, profili in secondi); un cambio delle dinamiche di uno strumento (il
+  nuovo elenco `ChangeSet::dynamics_changed`, che dice di chi era anche una dinamica tolta)
+  ricostruisce le sue linee e rilegge solo le velocity delle note del tratto in cui una linea è
+  davvero diversa (`Timeline::changed` confronta la vecchia e la nuova dai due capi); una cella
+  cambiata ricalcola una **finestra** di battute suonate attorno a ogni esecuzione della battuta.
+- **La finestra** (modulo `perform::update`): lo stesso codice del calcolo completo
+  (`perform_range` su un intervallo di battute suonate) gira su un intervallo calcolato `[c, e]` e le
+  note dell'intervallo tenuto `[a, b]` sostituiscono le vecchie. È larga quanto chiedono i legami
+  fra le note: la battuta prima (la sua ultima nota dà tempo alle acciaccature della battuta
+  cambiata), ogni catena di legature che la tocca per intero, la battuta dopo la fine di ogni
+  catena (i suoi abbellimenti sono limitati dalla catena), le note prima come contesto. Ogni nota
+  ricorda fin dove **arriva** lungo il percorso; un solo passaggio sulle note vecchie raccoglie, per
+  battuta suonata, fin dove arrivano e dove cominciano, così la finestra si assesta battuta per
+  battuta; cresce soltanto, quindi il suo ciclo finisce.
+- **Sostituzione sul posto**: le note dello strumento restano ordinate in un ordine totale (inizio,
+  altezza, voce, testa di nota, battuta suonata); si ricostruisce solo il tratto fra il primo e
+  l'ultimo inizio toccati e lo si rimette con `Vec::splice`, senza allocare una nuova lista dello
+  strumento.
+- Il percorso ha ora `PlayedBar::written_start`, la posizione scritta dell'inizio della sua
+  battuta, che il cammino calcolava comunque e che il volume legge per ogni nota.
+
+**Misure** (partitura pesante, istruzioni): l'esecuzione intera ≈ 1,67 miliardi (≈ 0,45–0,65 s qui,
+una volta all'apertura); l'aggiornamento dopo una nota ≈ 1,24 milioni (in tempo reale ≈ 0,6 ms in
+media qui, al peggio ≈ 0,96 ms); dopo una dinamica ≈ 2,11 milioni. Tre correzioni trovate con il
+profilo: il passaggio alla scala a 16 bit con interi invece dell'aritmetica razionale (−66% sulle
+dinamiche), il riassunto per battuta (−27% su una nota), la sostituzione sul posto (−55% su una nota,
+e metà del tempo reale).
+
+**Test:** `tests/update_cases.rs`, sei casi con l'editor vero (una legatura tolta all'inizio di una
+catena, i cui abbellimenti dopo cambiano limite; una legatura aggiunta che allunga una catena;
+acciaccature inserite dopo una catena di due battute prima; gli abbellimenti della prima battuta
+tenuta; dinamiche e *sfz*; un cambio di tempo che non ricalcola nulla), ciascuno confrontato con un
+calcolo completo anche dopo undo e redo; `tests/update_props.rs`, partiture casuali e sequenze
+casuali di undici tipi di comando con undo e redo, l'esecuzione aggiornata confrontata con una
+completa dopo ogni passo. Le partiture casuali sono ora condivise in `tests/common/mod.rs`. Tredici
+mutazioni: dieci bug veri presi (tre solo dopo casi scritti apposta), tre equivalenti; una
+faceva girare il ciclo all'infinito, e ha mostrato che assestare una finestra poteva riportare
+indietro un confine cresciuto sulle note nuove: ora i confini si muovono solo verso l'esterno.
 
 ### orchestra-notation-layout
 
