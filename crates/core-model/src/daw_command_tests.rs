@@ -29,7 +29,7 @@ use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Position, Rati
 use proptest::prelude::*;
 
 use crate::command::{Command, EventChange};
-use crate::daw_command::{MoveMode, MovePlayed};
+use crate::daw_command::{MoveMode, MovePlayed, ResizePlayed};
 use crate::document::{Document, DocumentBuilder, DocumentError, Placement};
 use crate::editor::{CommandError, Editor};
 use crate::editor_tests::{assert_consistent, rich};
@@ -56,7 +56,8 @@ const fn pitch(step: Step) -> Pitch {
 /// flute, four bars:
 ///
 /// - bar 0: an eighth C at 0, a chord D+F (quarter) at 1/2;
-/// - bar 1: a half E at 1/2, tied to a quarter E at the start of bar 2;
+/// - bar 1: a half E at 1/2, tied to a quarter E at the start of bar 2, which an `After` grace
+///   note follows (at 1/4 of bar 2); a slur from the chord D+F to the quarter E;
 /// - bar 3: a triplet of eighths G, A, B from 0, and a grace note before a quarter C at 1/2.
 struct Small {
     /// The document.
@@ -75,9 +76,17 @@ struct Small {
     triplet_note: NoteId,
     /// The grace note of bar 3.
     grace: NoteId,
+    /// The `After` grace note at the end of the tie chain E.
+    after: EventId,
+    /// The slur from the chord D+F to the quarter E.
+    slur: crate::id::SlurId,
 }
 
 /// Builds [`Small`].
+#[allow(
+    clippy::too_many_lines,
+    reason = "one builder call per object of the document described above, in score order"
+)]
 fn small() -> Small {
     let meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(120).unwrap()).unwrap();
@@ -122,6 +131,24 @@ fn small() -> Small {
         .unwrap();
     b.set_tie(e_half.notes[0], Tie::To(e_quarter.notes[0]))
         .unwrap();
+    let after = b
+        .add_grace_chord(
+            Placement::new(fl, bars[2], d(1, 4)),
+            Grace {
+                kind: GraceKind::Acciaccatura,
+                attach: GraceAttach::After,
+            },
+            eighth,
+            &[pitch(Step::F)],
+        )
+        .unwrap();
+    let slur = b
+        .add_slur(
+            chord.event,
+            e_quarter.event,
+            crate::slur::SlurPlacement::Auto,
+        )
+        .unwrap();
     let triplet = b
         .add_tuplet(fl, Tuplet::new(3, 2, eighth).unwrap(), None)
         .unwrap();
@@ -162,6 +189,8 @@ fn small() -> Small {
         e_quarter: (e_quarter.event, e_quarter.notes[0]),
         triplet_note: triplet_note.unwrap(),
         grace: grace.notes[0],
+        after: after.event,
+        slur,
     }
 }
 
@@ -524,6 +553,263 @@ fn the_inline_offsets_are_shared_with_event_changes() {
     assert_eq!((o.onset, o.velocity), (d(1, 64), 300));
 }
 
+/// A resize of every pass with the default rule, no shortening articulation (scale 1).
+fn resize(note: NoteId, length: Duration, grid: Duration) -> Command {
+    Command::ResizePlayed(ResizePlayed {
+        note,
+        pass: None,
+        length,
+        scale: Rational::ONE,
+        grid,
+        mode: MoveMode::ByThreshold,
+    })
+}
+
+/// The written tie chain forward from a notehead: (event, notehead) pairs.
+fn chain(doc: &Document, note: NoteId) -> Vec<(EventId, NoteId)> {
+    let mut out = Vec::new();
+    let mut current = note;
+    loop {
+        let (event, head) = doc.note(current).unwrap();
+        out.push((event.event().id(), current));
+        match head.tie() {
+            Tie::To(next) => current = next,
+            Tie::None | Tie::LetRing => return out,
+        }
+    }
+}
+
+/// The written length of a chain (from the start of its first piece to the end of its last) and
+/// the sum of its noteheads' inline length offsets (N8).
+fn chain_lengths(doc: &Document, note: NoteId) -> (Duration, Duration) {
+    let pieces = chain(doc, note);
+    let (first, _) = pieces[0];
+    let (last, _) = *pieces.last().unwrap();
+    let end = written(doc, last)
+        .checked_add(doc.metric_duration(last).unwrap())
+        .unwrap();
+    let total = end.checked_duration_since(written(doc, first)).unwrap();
+    let mut offsets_sum = Duration::ZERO;
+    for &(_, n) in &pieces {
+        offsets_sum = offsets_sum.checked_add(offsets(doc, n).length).unwrap();
+    }
+    (total, offsets_sum)
+}
+
+/// The written value of an event's chord.
+fn value_of(doc: &Document, event: EventId) -> NoteValue {
+    doc.event(event).unwrap().event().chord().unwrap().value()
+}
+
+/// U2: within the threshold a resize is a length offset; beyond it the written value changes on
+/// the grid (an eighth lengthened by a quarter becomes a dotted quarter) with no residual.
+#[test]
+fn a_resize_beyond_the_threshold_changes_the_written_value() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    execute_checked(&mut editor, &resize(s.c.1, d(1, 32), d(1, 16)));
+    assert!(same_score(editor.document(), &s.doc));
+    assert_eq!(offsets(editor.document(), s.c.1).length, d(1, 32));
+    execute_checked(&mut editor, &resize(s.c.1, d(1, 4), d(1, 16)));
+    let doc = editor.document();
+    assert_eq!(
+        value_of(doc, s.c.0),
+        NoteValue::new(BaseValue::Quarter, 1).unwrap()
+    );
+    assert!(offsets(doc, s.c.1).length.is_zero());
+}
+
+/// U1: with a staccato's scale of ½, a written change of Δ plays Δ/2 longer, and the residual makes
+/// up the rest exactly. +3/32 played wants +3/16 written: on a 1/8 grid 5/16 is halfway and goes to
+/// 3/8 (farther from the written end), a written change of 1/4 that plays 1/8; the residual is
+/// −1/32.
+#[test]
+fn the_scale_of_the_rules_makes_the_residual_exact() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    let order = Command::ResizePlayed(ResizePlayed {
+        note: s.c.1,
+        pass: None,
+        length: d(3, 32),
+        scale: Rational::new(1, 2).unwrap(),
+        grid: d(1, 8),
+        mode: MoveMode::ByThreshold,
+    });
+    execute_checked(&mut editor, &order);
+    let doc = editor.document();
+    assert_eq!(
+        value_of(doc, s.c.0),
+        NoteValue::new(BaseValue::Quarter, 1).unwrap()
+    );
+    assert_eq!(offsets(doc, s.c.1).length, d(-1, 32));
+}
+
+/// U3, U4, U9: a tie chain lengthened keeps its pieces' IDs (the quarter E of bar 2 becomes a
+/// dotted half), and shortened to one piece deletes the surplus piece; the slur that ended on it
+/// ends on the new last piece, and the `After` grace follows the new end.
+#[test]
+fn a_resized_chain_reuses_its_pieces() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    execute_checked(&mut editor, &resize(s.e_half.1, d(1, 2), d(1, 4)));
+    let doc = editor.document();
+    assert_eq!(chain(doc, s.e_half.1), vec![s.e_half, s.e_quarter]);
+    assert_eq!(
+        value_of(doc, s.e_quarter.0),
+        NoteValue::new(BaseValue::Half, 1).unwrap()
+    );
+    let one = Position::from_rational(Rational::from_integer(2).unwrap());
+    assert_eq!(written(doc, s.after), one.checked_add(d(3, 4)).unwrap());
+
+    let mut editor = Editor::new(s.doc.clone());
+    execute_checked(&mut editor, &resize(s.e_half.1, d(-1, 2), d(1, 4)));
+    let doc = editor.document();
+    assert_eq!(chain(doc, s.e_half.1), vec![s.e_half]);
+    assert!(doc.event(s.e_quarter.0).is_none());
+    assert_eq!(
+        value_of(doc, s.e_half.0),
+        NoteValue::plain(BaseValue::Quarter)
+    );
+    assert_eq!(doc.slur(s.slur).unwrap().1.end(), s.e_half.0);
+    let bar_1 = Position::from_rational(Rational::from_integer(1).unwrap());
+    assert_eq!(written(doc, s.after), bar_1.checked_add(d(3, 4)).unwrap());
+}
+
+/// U4 and V2: lengthening across barlines into the triplet of bar 3 is refused as an overlap;
+/// U6: a tuplet note is refused beyond the threshold, a grace note and a chord's notehead stay
+/// offsets.
+#[test]
+fn resizes_that_cannot_be_written() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    assert!(matches!(
+        editor.execute(&resize(s.e_half.1, d(5, 4), d(1, 4))),
+        Err(CommandError::Document(DocumentError::Invalid(
+            Violation::Overlap(_)
+        )))
+    ));
+    assert_eq!(
+        editor.execute(&resize(s.triplet_note, d(1, 4), d(1, 16))),
+        Err(CommandError::Document(DocumentError::MoveOfTupletNote))
+    );
+    assert!(editor.document().same_content(&s.doc));
+    execute_checked(&mut editor, &resize(s.grace, d(1, 4), d(1, 16)));
+    execute_checked(&mut editor, &resize(s.chord.1[0], d(1, 4), d(1, 16)));
+    assert!(same_score(editor.document(), &s.doc));
+    let zero = Command::ResizePlayed(ResizePlayed {
+        note: s.c.1,
+        pass: None,
+        length: d(1, 4),
+        scale: Rational::ZERO,
+        grid: d(1, 16),
+        mode: MoveMode::ByThreshold,
+    });
+    assert_eq!(
+        editor.execute(&zero),
+        Err(CommandError::Document(DocumentError::ScaleNotPositive))
+    );
+}
+
+/// U5: "move anyway" splits at the barline what the default rule refuses. The eighth C moved to
+/// 15/16 becomes a sixteenth tied to a sixteenth of bar 1; the first keeps its IDs.
+#[test]
+fn move_anyway_splits_at_the_barline() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    assert_eq!(
+        editor.execute(&drag(s.c.1, d(15, 16))),
+        Err(CommandError::Document(DocumentError::MoveCrossesBarline))
+    );
+    let anyway = Command::MovePlayed(MovePlayed {
+        note: s.c.1,
+        pass: None,
+        onset: d(15, 16),
+        grid: d(1, 16),
+        mode: MoveMode::SplitAtBarlines,
+    });
+    execute_checked(&mut editor, &anyway);
+    let doc = editor.document();
+    let pieces = chain(doc, s.c.1);
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(pieces[0], s.c);
+    assert_eq!(
+        written(doc, s.c.0),
+        Position::from_rational(Rational::new(15, 16).unwrap())
+    );
+    assert_eq!(
+        written(doc, pieces[1].0),
+        Position::from_rational(Rational::from_integer(1).unwrap())
+    );
+    assert_eq!(
+        value_of(doc, pieces[1].0),
+        NoteValue::plain(BaseValue::Sixteenth)
+    );
+}
+
+/// Three details of the rewrite: a "let ring" on the last piece stays on the new last piece; a
+/// note shortened past its start keeps one grid step (U2); within the threshold the first
+/// notehead takes only what the other noteheads' length offsets do not already give (N8).
+#[test]
+fn let_ring_shortest_length_and_shared_length_offsets() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    let ring = Command::ChangeEvent {
+        event: s.c.0,
+        change: EventChange::Tie {
+            note: s.c.1,
+            tie: Tie::LetRing,
+        },
+    };
+    execute_checked(&mut editor, &ring);
+    execute_checked(&mut editor, &resize(s.c.1, d(1, 4), d(1, 16)));
+    assert_eq!(editor.document().note(s.c.1).unwrap().1.tie(), Tie::LetRing);
+
+    let mut editor = Editor::new(s.doc.clone());
+    execute_checked(&mut editor, &resize(s.c.1, d(-1, 4), d(1, 16)));
+    assert_eq!(
+        value_of(editor.document(), s.c.0),
+        NoteValue::plain(BaseValue::Sixteenth)
+    );
+
+    let mut editor = Editor::new(s.doc.clone());
+    let tail = Command::ChangeEvent {
+        event: s.e_quarter.0,
+        change: EventChange::Offsets {
+            note: s.e_quarter.1,
+            offsets: PerformanceOffsets {
+                length: d(1, 64),
+                ..PerformanceOffsets::NONE
+            },
+        },
+    };
+    execute_checked(&mut editor, &tail);
+    execute_checked(&mut editor, &resize(s.e_half.1, d(1, 32), d(1, 16)));
+    assert_eq!(offsets(editor.document(), s.e_half.1).length, d(1, 64));
+    assert_eq!(chain_lengths(editor.document(), s.e_half.1).1, d(1, 32));
+}
+
+/// A resize of one pass is an entry of that pass: with an inline length offset of 1/64 already,
+/// a wanted 1/8 stores 7/64.
+#[test]
+fn a_pass_resize_is_an_entry_of_that_pass() {
+    let s = small();
+    let mut editor = Editor::new(s.doc.clone());
+    execute_checked(&mut editor, &resize(s.c.1, d(1, 64), d(1, 16)));
+    let order = Command::ResizePlayed(ResizePlayed {
+        note: s.c.1,
+        pass: Some(1),
+        length: d(1, 8),
+        scale: Rational::ONE,
+        grid: d(1, 16),
+        mode: MoveMode::ByThreshold,
+    });
+    execute_checked(&mut editor, &order);
+    let doc = editor.document();
+    assert!(same_score(doc, &s.doc));
+    let table = doc.track(s.track).unwrap().instrument().pass_offsets();
+    assert_eq!(table.get(s.c.1, 1).length, d(7, 64));
+}
+
 /// Every notehead of a document, with the pass entries and the inline onset it has.
 fn noteheads(doc: &Document) -> Vec<NoteId> {
     let mut out = Vec::new();
@@ -548,7 +834,7 @@ proptest! {
     #[test]
     fn random_moves_keep_the_document_valid_and_land_where_asked(
         moves in prop::collection::vec(
-            (any::<u16>(), -48_i64..=48, 0_u8..4, 0_u8..4, 0_u8..3),
+            (any::<u16>(), -48_i64..=48, 0_u8..4, 0_u8..5, 0_u8..3),
             1..24,
         ),
     ) {
@@ -559,7 +845,13 @@ proptest! {
             let doc = editor.document().clone();
             let heads = noteheads(&doc);
             let note = heads[usize::from(pick) % heads.len()];
-            let mode = if mode == 0 { MoveMode::PerformanceOnly } else { MoveMode::ByThreshold };
+            // Mode 3 resizes instead of moving; mode 4 moves "anyway" (U5).
+            let resizing = mode == 3;
+            let mode = match mode {
+                0 => MoveMode::PerformanceOnly,
+                4 => MoveMode::SplitAtBarlines,
+                _ => MoveMode::ByThreshold,
+            };
             let pass = (pass == 2).then_some(1);
             let onset = d(sixty_fourths, 64);
             let order = MovePlayed {
@@ -576,6 +868,42 @@ proptest! {
                 if editor.execute(&Command::DeleteEvent(event)).is_ok() {
                     editor.document().validate().unwrap();
                     assert_consistent(editor.document());
+                }
+                continue;
+            }
+            if resizing {
+                // U1–U3: the played length (written × scale + offsets) becomes exactly the old
+                // written length × scale plus the length offset asked for, with a staccato's
+                // scale half of the time.
+                let scale = if pick % 2 == 0 { Rational::ONE } else { Rational::new(1, 2).unwrap() };
+                let order = ResizePlayed {
+                    note,
+                    pass: None,
+                    length: onset,
+                    scale,
+                    grid: grids[usize::from(grid)],
+                    mode: MoveMode::ByThreshold,
+                };
+                let (total, _) = chain_lengths(&doc, note);
+                let start = written(&doc, event);
+                match editor.execute(&Command::ResizePlayed(order)) {
+                    Ok(_) => {
+                        let after = editor.document();
+                        after.validate().unwrap();
+                        assert_consistent(after);
+                        prop_assert_eq!(written(after, event), start);
+                        let (new_total, new_sum) = chain_lengths(after, note);
+                        let played = |t: Duration, o: Duration| {
+                            t.checked_mul(scale).unwrap().checked_add(o).unwrap()
+                        };
+                        // `length` is the whole offset wanted from what the rules give for the
+                        // written length before the resize (not a delta on the current offsets).
+                        prop_assert_eq!(
+                            played(new_total, new_sum),
+                            played(total, Duration::ZERO).checked_add(onset).unwrap()
+                        );
+                    }
+                    Err(_) => prop_assert!(editor.document().same_content(&doc)),
                 }
                 continue;
             }

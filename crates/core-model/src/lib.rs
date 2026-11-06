@@ -123,7 +123,7 @@ pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 pub use change::ChangeSet;
 pub use command::{Command, EventChange, NewBody, NewEvent};
 pub use content::Chunk;
-pub use daw_command::{MoveMode, MovePlayed};
+pub use daw_command::{MoveMode, MovePlayed, ResizePlayed};
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
     MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track, Voice,

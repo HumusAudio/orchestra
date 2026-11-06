@@ -427,8 +427,18 @@ played notes (T3, T4). Tests: twelve cases and a property test in `src/daw_comma
 cases in `tests/perform_cases.rs`, DAW moves in `tests/update_props.rs`; eleven injected bugs caught,
 one equivalent. Benchmarks: a DAW drag ≈ 23 000 instructions per update on the heavy score; the plain
 gesture +2.4%; the whole performance +1.0% and a note's update +1.9% (after a shortcut that skips zero
-additions: +7% without it). **Next:** F1.14c (durations beyond the threshold, "move anyway" with
-ties), then one PR for F1.14.
+additions: +7% without it). PR #22 merged on 2026-11-06 (owner's ok), its branch deleted.
+
+**F1.14c done** (2026-11-06, same branch): before coding the owner approved U1–U9 (ADR-0028 §11).
+`Command::ResizePlayed` (`length` offset wanted, the rules' `scale`, grid, mode): within the
+threshold a length offset, beyond it the written end on the grid and the residual `length − Δ ×
+scale`, so the played end lands exactly; `MoveMode::SplitAtBarlines` ("move anyway"); both
+rewrite the written tie chain (`rewrite_chain`: cut at barlines, longest values first, the pieces'
+IDs reused in order, surplus deleted, slurs and `After` graces following the end). New error
+`ScaleNotPositive`. Tests: seven more cases, resizes and splits in both property tests; nine
+injected bugs caught (three after cases written for them). A resize drag ≈ 74 000 instructions per
+update on the heavy score. **F1.14 complete.** **Next:** the PR of F1.14 (ADR-0028, F1.14b,
+F1.14c) with green CI on the three platforms; then F1.15 (concrete file format).
 
 | Step | What | Status |
 |---|---|---|

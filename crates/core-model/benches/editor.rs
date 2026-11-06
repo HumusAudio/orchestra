@@ -28,6 +28,9 @@
 //!   1/32 path inside its bar, asked from the note's current written start: half of the updates
 //!   stay offsets (within the 1/32 threshold of the written place), the others move the written
 //!   note on the 1/16 grid and keep the residual.
+//! - `daw_resize` (F1.14c, ADR-0028 §11): the end of the same note dragged over 1 000 lengths,
+//!   from an eighth to two bars and a half: past each barline the tie chain is rewritten, reusing
+//!   its pieces' IDs (U3).
 //!
 //! # The scores
 //! The normal and heavy scores of `tests/common/score.rs` (100 bars × 10 staves, 1 000 bars × 30
@@ -62,7 +65,7 @@ use gungraun::prelude::*;
 use orchestra_core_model::{
     Alteration, BaseValue, Command, Document, DynamicLevel, DynamicMark, DynamicPlacement, Editor,
     EventChange, EventId, MarkSpec, MeterMode, MoveMode, MovePlayed, NewBody, NewEvent, NoteId,
-    NoteValue, Pitch, Placement, ScorePoint, Step,
+    NoteValue, Pitch, Placement, ResizePlayed, ScorePoint, Step, Tie,
 };
 use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, Rational,
@@ -365,6 +368,70 @@ fn daw_drag(input: (Editor, EventId)) -> (Editor, EventId) {
     (editor, event)
 }
 
+// The written end of the tie chain starting at `note` (inside the measured region: what the DAW
+// side reads to turn a dragged end into a length offset).
+fn chain_end(editor: &Editor, note: NoteId) -> orchestra_core_time::Position {
+    let doc = editor.document();
+    let mut current = note;
+    loop {
+        let (found, head) = doc.note(current).unwrap();
+        match head.tie() {
+            Tie::To(next) => current = next,
+            Tie::None | Tie::LetRing => {
+                let event = found.event().id();
+                return doc
+                    .event_position(event)
+                    .unwrap()
+                    .checked_add(doc.metric_duration(event).unwrap())
+                    .unwrap();
+            }
+        }
+    }
+}
+
+#[library_benchmark]
+#[bench::normal(dragged(Size::Normal))]
+#[bench::heavy(dragged(Size::Heavy))]
+fn daw_resize(input: (Editor, EventId)) -> (Editor, EventId) {
+    let (mut editor, event) = input;
+    let doc = editor.document();
+    let note: NoteId = doc
+        .event(event)
+        .unwrap()
+        .event()
+        .chord()
+        .unwrap()
+        .notes()
+        .next()
+        .unwrap()
+        .id();
+    let start = doc.event_position(event).unwrap();
+    let grid = Duration::from_rational(Rational::new(1, 16).unwrap());
+    let _ = black_box(editor.begin_gesture());
+    for i in 0..1000 {
+        // A target end k/16 after the start, k = 2..41: from an eighth to past two barlines.
+        let target = start
+            .checked_add(Duration::from_rational(
+                Rational::new(i % 40 + 2, 16).unwrap(),
+            ))
+            .unwrap();
+        let length = target
+            .checked_duration_since(chain_end(&editor, note))
+            .unwrap();
+        let update = Command::ResizePlayed(ResizePlayed {
+            note,
+            pass: None,
+            length,
+            scale: Rational::ONE,
+            grid,
+            mode: MoveMode::ByThreshold,
+        });
+        let _ = black_box(editor.update_gesture(black_box(&update)));
+    }
+    let _ = black_box(editor.end_gesture());
+    (editor, event)
+}
+
 // The number of bars of the editor's document (inside the measured region: O(1)).
 fn bar_count_of(editor: &Editor) -> u32 {
     u32::try_from(editor.document().bars().len()).unwrap()
@@ -382,7 +449,8 @@ library_benchmark_group!(
         irregular_bar,
         rewrite_meter,
         gesture,
-        daw_drag
+        daw_drag,
+        daw_resize
     ]
 );
 

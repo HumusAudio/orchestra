@@ -1888,6 +1888,58 @@ document: after each, `validate`, the indices, the played start exactly where as
 unchanged when it must be; undoing everything gives the original). Seven injected bugs were caught
 (one only by the unit test of `tolerance`), one mutation was equivalent.
 
+#### Durations from the DAW and "move anyway"
+
+F1.14c (ADR-0028 §11, precisions U1–U9 approved by the owner on 2026-11-06) applies the same rule
+to the end of a note, and lets a move cross a barline when the user asks for it.
+
+```rust
+// The DAW view drags the end of a note: the length offset it wants from what the rules give,
+// and the factor the rules scale the written length by (a staccato: 1/2).
+editor.execute(&Command::ResizePlayed(ResizePlayed {
+    note,
+    pass: None,
+    length: target_length.checked_sub(rules_length)?,
+    scale: Rational::new(1, 2)?,
+    grid: sixteenth,
+    mode: MoveMode::ByThreshold,
+}))?;
+// "Move anyway": a move that would cross a barline is rewritten as tied notes.
+editor.execute(&Command::MovePlayed(MovePlayed { mode: MoveMode::SplitAtBarlines, ..order }))?;
+```
+
+- **The rule** (`ResizePlayed`): within the threshold the wanted length offset goes to the
+  chain's noteheads (the first takes what the others do not already give, N8). Beyond it the
+  written end goes to the nearest grid point (at least one grid step after the start) and the rest,
+  `length − Δ × scale`, stays as the offset: since the rules scale the written length (`scale`, U1),
+  the played end still lands exactly where the user dropped it.
+- **Rewriting the chain** (`rewrite_chain`, U3, U4, U9): from a start and a total length, cut at
+  every barline and written with the longest values first. The existing pieces' IDs are reused in
+  order, new IDs only for extra pieces, surplus pieces deleted (their pass entries with them). The
+  first piece keeps its markings and offsets, the others are plain. Slurs ending on the old last
+  piece end on the new one, `After` grace notes follow the new end. A length past a barline is
+  allowed; an occupied space is refused by the local check.
+- **"Move anyway"** (`MoveMode::SplitAtBarlines`, U5): a move beyond the threshold whose piece
+  would cross a barline rewrites the chain at the new start instead of being refused.
+- **Never written** (U6): grace notes, chords with several noteheads, `PerformanceOnly`, one pass
+  (an entry of that pass). Tuplet notes are refused beyond the threshold (T2 confirmed). A
+  notehead a tie leads into may be resized (U7): only the chain from it forward is rewritten.
+
+**Cost** (`benches/editor.rs`, `daw_resize`):
+
+```text
+operation (heavy score)                                   instructions
+end of a note dragged: 1 000 ResizePlayed in one gesture  ≈ 73 800 000  (≈ 74 000 per update)
+```
+
+**Tests** (`src/daw_command_tests.rs`): seven more cases (the written value on the grid, the
+staccato's scale with an exact residual, a chain lengthened and shortened with its pieces reused,
+the slur and the `After` grace following, the refusals, "move anyway", a pass resize, "let ring",
+the shortest length, the shared length offsets) and resizes and moves split at barlines in the
+property test, whose invariant is the played length (`written × scale + offsets`); resizes and
+splits also among the random commands of the playback's update test. Nine injected bugs were
+caught, three only after cases written for them.
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics

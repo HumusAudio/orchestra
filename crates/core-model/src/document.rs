@@ -246,9 +246,11 @@ pub enum DocumentError {
     /// A DAW move beyond the threshold of a notehead that a tie leads into (ADR-0028 §10, T1):
     /// moving it alone could leave the tie pointing backwards.
     MoveOfTiedNote,
-    /// A DAW move beyond the threshold of a tuplet note (ADR-0028 §10, T2): on the DAW grid it
-    /// would leave its group.
+    /// A DAW move or resize beyond the threshold of a tuplet note (ADR-0028 §10, T2; §11, U6): on
+    /// the DAW grid it would leave its group.
     MoveOfTupletNote,
+    /// A DAW resize whose scale of the playback rules is zero or negative (ADR-0028 §11, U1).
+    ScaleNotPositive,
     /// A position or a derived index disagreed with the content: a bug of the model, reported
     /// instead of panicking. Never expected.
     Inconsistent,
@@ -384,7 +386,10 @@ impl fmt::Display for DocumentError {
                 f.write_str("a notehead that a tie leads into cannot be moved alone")
             }
             Self::MoveOfTupletNote => {
-                f.write_str("a tuplet note is moved only by a performance offset")
+                f.write_str("a tuplet note is moved or resized only by a performance offset")
+            }
+            Self::ScaleNotPositive => {
+                f.write_str("the scale of the playback rules must be strictly positive")
             }
             Self::Inconsistent => f.write_str("the document is inconsistent (a bug of the model)"),
         }

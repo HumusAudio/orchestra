@@ -52,7 +52,7 @@ use orchestra_core_time::{
 };
 
 use crate::bar_repeat::BarRepeat;
-use crate::daw_command::{self, MovePlayed};
+use crate::daw_command::{self, MovePlayed, ResizePlayed};
 use crate::document::{Document, DocumentError, Placement};
 use crate::dynamic::Hairpin;
 use crate::edit::{Edit, Initial, MeterEdit, Object, ObjectRef};
@@ -224,6 +224,10 @@ pub enum Command {
     /// [`MoveMode::PerformanceOnly`](crate::MoveMode::PerformanceOnly); a move of one pass is
     /// always an offset of that pass. A drag sends it inside a gesture.
     MovePlayed(MovePlayed),
+    /// Changes the length of a played note from the DAW view (ADR-0028 §6 and §11,
+    /// `crate::daw_command`): within the threshold a length offset, beyond it the written tie chain
+    /// rewritten with its new length (tied across barlines) and the residual as the offset.
+    ResizePlayed(ResizePlayed),
     /// Sets the project's tolerance threshold (`track: None`) or a track's override, or removes the
     /// override with `tolerance: None` (ADR-0028 §1).
     SetTolerance {
@@ -361,6 +365,7 @@ pub(crate) fn run(tx: &mut Transaction<'_>, command: &Command) -> Result<(), Com
             mode,
         } => meter_command::set_irregular_bar(tx, *bar, *irregular, *mode),
         Command::MovePlayed(order) => daw_command::move_played(tx, order),
+        Command::ResizePlayed(order) => daw_command::resize_played(tx, order),
         Command::SetTolerance { track, tolerance } => {
             daw_command::set_tolerance(tx, *track, *tolerance)
         }
@@ -816,7 +821,7 @@ fn insert_chain(
 ///
 /// # Errors
 /// The lookup and duration errors of the document (an unknown event).
-fn graces_of(doc: &Document, id: EventId) -> Result<Vec<EventId>, DocumentError> {
+pub(crate) fn graces_of(doc: &Document, id: EventId) -> Result<Vec<EventId>, DocumentError> {
     let found = doc.event(id).ok_or(DocumentError::UnknownEvent(id))?;
     if found.event().grace().is_some() {
         return Ok(Vec::new());

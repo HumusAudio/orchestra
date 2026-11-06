@@ -2011,6 +2011,62 @@ esattamente dove chiesto, lo spartito invariato quando deve; annullando tutto si
 all'originale). Sette bug iniettati sono stati presi (uno solo dal test unitario di `tolerance`),
 una mutazione era equivalente.
 
+#### Durate dalla DAW e "sposta comunque"
+
+F1.14c (ADR-0028 §11, precisazioni U1–U9 approvate dal proprietario il 2026-11-06) applica la
+stessa regola alla fine di una nota, e permette a uno spostamento di superare la stanghetta quando
+l'utente lo chiede.
+
+```rust
+// The DAW view drags the end of a note: the length offset it wants from what the rules give,
+// and the factor the rules scale the written length by (a staccato: 1/2).
+editor.execute(&Command::ResizePlayed(ResizePlayed {
+    note,
+    pass: None,
+    length: target_length.checked_sub(rules_length)?,
+    scale: Rational::new(1, 2)?,
+    grid: sixteenth,
+    mode: MoveMode::ByThreshold,
+}))?;
+// "Move anyway": a move that would cross a barline is rewritten as tied notes.
+editor.execute(&Command::MovePlayed(MovePlayed { mode: MoveMode::SplitAtBarlines, ..order }))?;
+```
+
+- **La regola** (`ResizePlayed`): entro la soglia lo scostamento di durata voluto va alle teste
+  della catena (la prima prende quello che le altre non danno già, N8). Oltre, la fine scritta va
+  al punto di griglia più vicino (almeno un passo di griglia dopo l'inizio) e il resto,
+  `length − Δ × scale`, resta come scostamento: poiché le regole scalano la durata scritta
+  (`scale`, U1), la fine suonata cade comunque esattamente dove l'utente l'ha lasciata.
+- **La riscrittura della catena** (`rewrite_chain`, U3, U4, U9): da un inizio e una durata totale,
+  divisa a ogni stanghetta e scritta con i valori più lunghi prima. Gli ID dei pezzi esistenti si
+  riusano nell'ordine, ID nuovi solo per i pezzi in più, quelli in avanzo cancellati (con le loro
+  voci per passaggio). Il primo pezzo tiene segni e scostamenti, gli altri sono semplici. Le
+  legature di portamento che finivano sul vecchio ultimo pezzo finiscono sul nuovo, gli
+  abbellimenti `After` seguono la nuova fine. Una durata oltre la stanghetta è ammessa; uno spazio
+  occupato è rifiutato dalla verifica locale.
+- **"Sposta comunque"** (`MoveMode::SplitAtBarlines`, U5): uno spostamento oltre la soglia il cui
+  pezzo supererebbe la stanghetta riscrive la catena dal nuovo inizio invece di essere rifiutato.
+- **Mai scritte** (U6): abbellimenti, accordi con più teste, `PerformanceOnly`, un solo passaggio
+  (una voce di quel passaggio). Le note di gruppo irregolare sono rifiutate oltre la soglia (T2
+  confermato). Una testa in cui arriva una legatura si può ridimensionare (U7): si riscrive solo la
+  catena da lì in avanti.
+
+**Costo** (`benches/editor.rs`, `daw_resize`):
+
+```text
+operation (heavy score)                                   instructions
+end of a note dragged: 1 000 ResizePlayed in one gesture  ≈ 73 800 000  (≈ 74 000 per update)
+```
+
+**Test** (`src/daw_command_tests.rs`): sette casi in più (il valore scritto sulla griglia, il
+fattore dello staccato con un residuo esatto, una catena allungata e accorciata con i pezzi
+riusati, la legatura di portamento e l'abbellimento `After` che seguono, i rifiuti, "sposta
+comunque", un ridimensionamento di passaggio, il "let ring", la durata minima, gli scostamenti di
+durata condivisi) e ridimensionamenti e spostamenti divisi alla stanghetta nel test di proprietà,
+il cui invariante è la durata suonata (`scritta × scale + scostamenti`); ridimensionamenti e
+divisioni anche tra i comandi casuali del test dell'aggiornamento del playback. Nove bug iniettati
+sono stati presi, tre solo dopo casi scritti apposta.
+
 ### orchestra-playback
 
 Ricava ciò che si suona da ciò che è scritto: ritornelli e salti srotolati, legature di valore

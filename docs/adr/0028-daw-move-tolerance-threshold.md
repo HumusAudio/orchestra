@@ -1,6 +1,7 @@
 # ADR-0028 — Moving a note from the DAW side: tolerance threshold, performance-only edits, pass-specific offsets
 
 - **Precisions** T1–T7 approved by the owner on 2026-11-06, before the code of F1.14b (§10).
+- **Precisions** U1–U9 approved by the owner on 2026-11-06, before the code of F1.14c (§11).
 - **Status:** Accepted (owner's decision, 2026-11-06; SCALETTA F1.14, decision D09). The owner
   approved the recommendations Q1–Q10 and asked that, beside the default rule, the user can
   **consciously** choose to change only the performance, with offsets of any size that never touch
@@ -196,6 +197,24 @@ and a benchmark of one `MovePlayed` inside a gesture on the heavy score (the dra
 | T6 | A threshold in milliseconds compares exactly through the tempo map at the note's written start; inside a gradual tempo change, where the time is only approximated, it compares in `f64`. |
 | T7 | Setting a pass entry records its note's cell (voice, bar) as changed, so `Performance::update` recomputes it like any changed cell; no new kind of notification. |
 
+### 11. Precisions made before implementing F1.14c (owner, 2026-11-06)
+
+Durations from the DAW side and the "move anyway" share one mechanism: the written tie chain is
+**rewritten** from a start with a total length, cut at the barlines and written with the longest
+values first (ADR-0026 V3).
+
+| ID | Precision |
+|---|---|
+| U1 | The playback rules scale the written length (`written × factor + offset`: staccato ½). The command receives the factor from the caller (`scale`, 1 without shortening articulations, known from the played notes), so the residual is exact and the played end lands where the user dropped it. |
+| U2 | What the threshold measures is the **length offset** wanted from what the rules give, with the same threshold as the onset (ADR-0004). Beyond it the written end goes to the nearest grid point, counted from the start of the bar it falls in; the shortest written length is one grid step. |
+| U3 | The rewritten chain **reuses the IDs of the existing pieces in order** (the first keeps everything: markings, offsets, the tie leading in); new IDs only for extra pieces, the surplus pieces are deleted (their pass entries with them, T5). A drag back and forth creates no new ID at every movement, which is what makes splitting acceptable inside a gesture, unlike W1. The residual length offset goes on the first notehead; the others' length offsets are zero, so the sum of N8 is exact. |
+| U4 | A length past the barline is **allowed**: it becomes a tie chain. An occupied space stays refused (V2). |
+| U5 | "Move anyway" is a third mode, `MoveMode::SplitAtBarlines`: beyond the threshold a piece crossing a barline makes the chain be rewritten as ties instead of refused, with the reuse of U3; the other refusals stay. |
+| U6 | Offsets only, of any size: grace notes, a notehead of a chord with others (Q5), `PerformanceOnly`, one pass. Refused beyond the threshold: tuplet notes (T2 confirmed; a command on the whole tuplet may come later). |
+| U7 | A notehead a tie leads into (T1) may be **resized**: only the chain from it forward is rewritten, its written start does not change. Its move stays refused. |
+| U8 | The command is `ResizePlayed { note, pass, length, scale, grid, mode }`, symmetric to `MovePlayed`; `MoveMode` is the mode of both. |
+| U9 | Slurs ending on the last piece end on the new last piece; `After` grace notes follow the new end, `Before` ones stay with the first piece. |
+
 ## Alternatives rejected
 
 - **Threshold on the distance from the written position** instead of the stored offset: counts
@@ -213,4 +232,5 @@ and a benchmark of one `MovePlayed` inside a gesture on the heavy score (the dra
 - New stored data: the tolerance settings and the pass-offset table, both reserved by F1.15.
 - `Performance::update` learns one more kind of change (pass offsets).
 - The interface steps (F3) must expose the performance-only choice and the "move anyway" option.
-- F1.14c will need a composed command that rewrites lengths and moves across barlines into ties.
+- F1.14c added `ResizePlayed` and `MoveMode::SplitAtBarlines`, both rewriting the written tie chain
+  (§11); the interface (F3) passes the rules' `scale` from the played notes.

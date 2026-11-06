@@ -3,7 +3,8 @@
 //! Property test of the incremental update of the played notes (ADR-0027 §9, §11 and §14, H11 and
 //! H12; SCALETTA F1.13c part 2): on random scores with every extra and dynamics, a random sequence
 //! of commands of the editor (entering, deleting, moving and changing events, ties, articulations,
-//! offsets, dynamics, hairpins, inserted bars, DAW moves of every pass or of one pass, ADR-0028)
+//! offsets, dynamics, hairpins, inserted bars, DAW moves of every pass or of one pass, DAW resizes
+//! and moves split at barlines, ADR-0028)
 //! with undos and redos; after each one the path is
 //! updated, then the performance, and the result must be **identical** to a performance computed
 //! from scratch on the new document: the same notes in the same order, the same extras, the same
@@ -22,7 +23,7 @@ use orchestra_core_model::{
     Alteration, Articulation, ArticulationSet, BarId, BaseValue, Command, Document, DynamicLevel,
     DynamicMark, DynamicPlacement, Editor, EventChange, EventId, Grace, GraceAttach, GraceKind,
     HairpinShape, MarkSpec, MoveMode, MovePlayed, NewBody, NewEvent, NoteId, NoteValue, ObjectRef,
-    PerformanceOffsets, Pitch, Placement, ScorePoint, Step, Tie,
+    PerformanceOffsets, Pitch, Placement, ResizePlayed, ScorePoint, Step, Tie,
 };
 use orchestra_core_time::{BarIndex, Duration, Rational};
 use orchestra_playback::{Performance, Unrolled};
@@ -71,7 +72,7 @@ fn command(doc: &Document, kind: u8, x: u8, y: u8) -> Option<Command> {
     let pick = |k: u8| list.get(usize::from(k) % list.len().max(1)).copied();
     let eighth = d(i64::from(y % 8), 8);
     let beat = d(i64::from(y % 4), 4);
-    Some(match kind % 13 {
+    Some(match kind % 15 {
         0 => Command::DeleteEvent(pick(x)?.1),
         1 => Command::ChangeEvent {
             event: pick(x)?.1,
@@ -213,6 +214,23 @@ fn command(doc: &Document, kind: u8, x: u8, y: u8) -> Option<Command> {
             onset: d(i64::from(y % 32) - 16, 32),
             grid: d(1, 16),
             mode: MoveMode::ByThreshold,
+        }),
+        // A DAW resize (ADR-0028 §11): a length offset, or the tie chain rewritten.
+        12 => Command::ResizePlayed(ResizePlayed {
+            note: pick(x)?.2?,
+            pass: None,
+            length: d(i64::from(y % 32) - 16, 32),
+            scale: Rational::ONE,
+            grid: d(1, 16),
+            mode: MoveMode::ByThreshold,
+        }),
+        // "Move anyway" (U5): split at the barlines.
+        13 => Command::MovePlayed(MovePlayed {
+            note: pick(x)?.2?,
+            pass: None,
+            onset: d(i64::from(y % 32) - 16, 16),
+            grid: d(1, 16),
+            mode: MoveMode::SplitAtBarlines,
         }),
         _ => Command::InsertBars {
             at: BarIndex::new(u32::from(x) % 3),
