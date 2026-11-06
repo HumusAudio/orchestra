@@ -1,6 +1,6 @@
 # ADR-0030 — macOS CI no longer blocks merges; it still decides when work is done
 
-- **Status:** Proposed (asked by the owner on 2026-11-06, option 4 of four).
+- **Status:** Accepted (owner's decision, 2026-11-06; option 4 of four, asked by the owner).
 - **Date:** 2026-11-06
 - **Amends:** ADR-0013 §3 (the required status checks of `main`) and §4 ("merged through a pull
   request when CI is green on all three systems"). ADR-0006 §3 ("a red platform means the work is
