@@ -8,7 +8,7 @@
   property test of part 2b found the case; Y1–Y6 the same day before F1.11c part 1 was written,
   and Y7 and Y8 when its property test found their cases; Z1–Z5 the same day before F1.11c part
   2a was written; R1–R11 before part 2b was written, and the budget note of R11 when it was
-  measured.
+  measured; R12 on 2026-11-06, when the property test of the commands found its case.
 - **Date:** 2026-11-04
 - **Refines:** ADR-0003 §4–§6 (every modification is a reversible command, one history, caches
   invalidated by fine-grained notifications), ADR-0022 §1 and §8 (undo re-inserts objects with
@@ -283,7 +283,8 @@ voice) arrive with the first interface that needs them (F2), using the same mech
 Approved by the owner before the code of F1.11b part 2a (V, W), part 2b (X1–X10) and F1.11c
 part 1 (Y1–Y6) was written, as §7 allows for the meter change; X11 and Y7 when the property tests
 found their cases (Y8 corrects the bar insertion of part 2a); Z1–Z5 and R1–R11 before F1.11c parts
-2a and 2b. They make §1, §4, §6, §7 and §9 precise; none of them changes a decision
+2a and 2b; R12 later, when the property test found a free bar ending a region (it corrects the
+rewrite of part 2b). They make §1, §4, §6, §7 and §9 precise; none of them changes a decision
 above.
 
 | # | Precision |
@@ -338,6 +339,7 @@ above.
 | R9 | A **form marking** on an old barline that is no barline of the grid splits the new bar holding it into irregular bars (§7 rule 4, ADR-0025 §1): the first part begins the bar, the last (`AlignEnd`) completes it and is uncounted. At the end of the score a form marking at the very end ends the last bar there instead of leaving an empty tail. **Numbering restarts** go to the new bar where their old bar started. |
 | R10 | A rewrite whose region meets a **bar repeat** (its source or its repeated bars) is **refused** (`InsideBarRepeat`): repeated bars hold no notes to divide again. |
 | R11 | **Cost**: one `Replace` per event of the region, so time and history grow with the region's events (≈ 208 bytes of history per event: 2.9 MB for 60 bars of the heavy score, measured). **Budget note** (owner, 2026-11-05): a rewrite of 60 bars × 41 voices of the heavy score costs ≈ 118 million instructions (≈ 8 000 per event moved), which may exceed the 16 ms of §8 on the reference laptop; it is accepted for now, as a rare and explicit command, and is to be measured in real time with the interface (F2.23) and optimised then (for example with a bulk move of a run of events) if needed. On the normal score (10 bars) it costs ≈ 5 million. |
+| R12 | When the region ends at a **free bar** (R1), the meter in force **before** the command at the first bar after the free bars is set again there with an explicit meter change, unless that bar has a meter change of its own or the free bars reach the end of the score (owner's choice of 2026-11-06, option A of three; the others were to extend the rewrite past free bars, or to refuse). A free bar suspends the meter without ending it, so the change would otherwise reach the bars after it while their music stays where it was: overfull bars, music no longer where it sounded (against R2), and possibly a tie pointing backwards, the case the command property test found. Musically, the meter is printed again after a cadenza anyway. |
 
 ## Alternatives rejected
 

@@ -1792,6 +1792,16 @@ How it works, in order (`rewrite::rewrite`):
    (two phases, so that a mark never lands where another has not left yet).
 6. **The meter map** of the region in one bulk edit (`MeterEdit::Span`, Z1), then the bars the grid
    no longer needs removed.
+7. **The meter after a free bar** (R12, owner's choice of 2026-11-06): when the region ends at a
+   free bar, the old meter is set again, with an explicit meter change, at the first bar after the
+   free bars (unless that bar already has a meter change, or the free bars reach the end). A free
+   bar suspends the meter without ending it, so without this step the new meter would reach the
+   bars after the free bar while their music stayed as it was, as under `KeepBars`. The command
+   property test found it: those bars became overfull and a tie across one of their barlines
+   pointed backwards (`TieNotForward`), the only visible symptom, since overfull bars are a valid
+   state. `meter_after_free_bars` reads the bar and its meter **before** the rewrite (by bar ID,
+   because the rewrite adds or removes bars), and the last step compares it with the meter in force
+   afterwards.
 
 A bar repeat that meets the region refuses the rewrite (R10). Then the local check verifies every
 cell and mark touched.
@@ -1820,7 +1830,10 @@ kept, the bar repeat refusal), and `Rewrite` in the property test, half of whose
 without the bar repeat of the rich document so that rewrites are carried out (12 000 sequences
 passed). Seven injected bugs were caught, five of them only after a case was written for them (the
 property test's documents had no tied split note, no `After` grace, no numbering restart, no aligned
-whole-bar rest, no section ending before the next meter change).
+whole-bar rest, no section ending before the next meter change). For R12, two more cases: the
+sequence the property test found (with a check that every event after the region sounds where it
+did, which fails without the fix), and a free bar followed by a bar that already sets its own meter
+(nothing added); the property test's seed is kept in `proptest-regressions/command_tests.txt`.
 
 #### The DAW move and the tolerance threshold
 

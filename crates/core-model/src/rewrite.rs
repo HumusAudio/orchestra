@@ -30,6 +30,8 @@
 //!    yet would be refused as a duplicate.
 //! 7. The meter map of the region in one bulk edit (Z1), and the bars the grid no longer needs
 //!    removed at the end of the region (they are empty by then).
+//! 8. R12: if the region ended at a free bar, the old meter is set again at the first bar after
+//!    the free bars, so that the change does not reach past them.
 //!
 //! The local check of the editor then verifies every cell and every mark the command touched.
 //!
@@ -288,6 +290,8 @@ pub(crate) fn rewrite(
     change: MeterChange,
 ) -> Result<(), CommandError> {
     let mut region = plan(tx.document(), at, first, change)?;
+    // R12: the meter that must still be in force after the free bars that end the region.
+    let resume = meter_after_free_bars(tx.document(), &region)?;
     let old_count = region.end.saturating_sub(region.first);
     let new_count = u32::try_from(region.grid.len()).map_err(|_| DocumentError::TooManyBars)?;
 
@@ -326,7 +330,70 @@ pub(crate) fn rewrite(
             count: old_count.saturating_sub(new_count),
         })?;
     }
+
+    // 8. R12: if the region ended at a free bar, the meter after the free bars is put back as it
+    //    was, with an explicit meter change, so that nothing after the region moves.
+    if let Some((bar, old)) = resume {
+        let doc = tx.document();
+        let index = doc
+            .bars()
+            .index_of(bar)
+            .ok_or(DocumentError::UnknownBar(bar))?;
+        if meter_change_in_force(doc, index) != Some(old) {
+            tx.apply(Edit::Meter(crate::edit::MeterEdit::MeterChange {
+                bar,
+                change: Some(old),
+            }))?;
+        }
+    }
     Ok(())
+}
+
+/// R12 (owner's choice of 2026-11-06): where the meter must resume after the free bars that end
+/// a region, and which meter, read **before** the rewrite.
+///
+/// # Why
+/// A free bar suspends the meter without ending it (ADR-0018): after it, the meter in force goes
+/// on. A region that ends at a free bar (R1) is rewritten alone, but the meter-map edit of the
+/// change still reaches the bars after the free bar, up to the next meter change; without this
+/// step they would take the new meter while keeping their music, as under `KeepBars`: overfull
+/// bars, music no longer where it sounded (against R2, "nothing after the region moves"), and a
+/// tie across one of their barlines could point backwards (the command property test found it).
+///
+/// Returns the first bar that is not free after the free bars at the region's end, with the meter
+/// change in force there before the command; `None` if the region does not end at a free bar, if
+/// the free bars reach the end of the score, or if that bar has a meter change of its own (it
+/// then sets its meter itself). O(free bars + m) for the m meter changes.
+fn meter_after_free_bars(
+    doc: &Document,
+    region: &Region,
+) -> Result<Option<(BarId, MeterChange)>, DocumentError> {
+    let map = doc.meter_map();
+    let bars = u32::try_from(doc.bars().len()).map_err(|_| DocumentError::TooManyBars)?;
+    let mut r = region.end;
+    if r >= bars || !map.is_free(BarIndex::new(r))? {
+        return Ok(None);
+    }
+    while r < bars && map.is_free(BarIndex::new(r))? {
+        r = r.saturating_add(1);
+    }
+    if r >= bars || map.meter_changes().iter().any(|(b, _)| b.get() == r) {
+        return Ok(None);
+    }
+    let index = BarIndex::new(r);
+    let bar = doc.bars().id_at(index).ok_or(DocumentError::Inconsistent)?;
+    Ok(meter_change_in_force(doc, index).map(|old| (bar, old)))
+}
+
+/// The meter change in force at a bar: the last entry of the meter map at or before it (with its
+/// beat grouping). Always `Some` in a valid document, whose map has an entry at bar 0. O(m).
+fn meter_change_in_force(doc: &Document, index: BarIndex) -> Option<MeterChange> {
+    doc.meter_map()
+        .meter_changes()
+        .iter()
+        .rev()
+        .find(|(b, _)| *b <= index)
+        .map(|(_, change)| *change)
 }
 
 /// Steps 1–3: the region, the refusal of R10, the grid with its splits.

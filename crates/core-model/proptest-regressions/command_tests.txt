@@ -12,3 +12,4 @@ cc 8a29dd5f476b0f4d9b99b6459f2dfd79bad07503431774ea093649068fc8fb7d # shrinks to
 cc 489d78200a427481e324ce455ba32a36e1936f208adafa8c2ede466644703514 # shrinks to steps = [(18, 52, 46, 0)]
 cc 763d0e54d5c09bb779bce54c36dfc7fa9c5fb2ee4e663ffd497db49322f9fd2e # shrinks to steps = [(0, 11, 7, 2), (21, 24, 13, 0)]
 cc 647998b357cc9d5afdecf118a7a55a4dc7286b16f120a3b4a889273788e7d75b # shrinks to steps = [(8, 24, 12, 2), (15, 39, 13, 2), (8, 43, 19, 2), (15, 4, 20, 2), (7, 19, 0, 0)]
+cc 78d1704abea9bdb8af73dc77c6d0b7f44e61d85495be9d9f35eff9eb3ed2310e # shrinks to steps = [(1, 44, 3, 0), (22, 41, 0, 2), (21, 24, 24, 0)], without_bar_repeat = false
