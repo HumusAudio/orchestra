@@ -35,4 +35,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0025](0025-form.md) | The form: repeats, voltas, jumps, bar repeats and pass-specific playing | Accepted |
 | [0026](0026-commands-undo-notifications.md) | Commands, one undo history, fine-grained change notifications | Accepted |
 | [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted |
-| [0028](0028-daw-move-tolerance-threshold.md) | Moving a note from the DAW side: tolerance threshold, performance-only edits, pass offsets | Proposed |
+| [0028](0028-daw-move-tolerance-threshold.md) | Moving a note from the DAW side: tolerance threshold, performance-only edits, pass offsets | Accepted |

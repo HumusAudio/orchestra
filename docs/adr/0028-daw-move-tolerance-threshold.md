@@ -1,10 +1,11 @@
 # ADR-0028 — Moving a note from the DAW side: tolerance threshold, performance-only edits, pass-specific offsets
 
-- **Status:** Proposed (SCALETTA F1.14, decision D09). The owner approved the recommendations
-  Q1–Q10 on 2026-11-06 and asked that, beside the default rule, the user can **consciously** choose
-  to change only the performance, with offsets of any size that never touch the score, and that
-  the same pair (default rule, conscious performance-only edit) will hold for intonation and
-  velocity (§7).
+- **Status:** Accepted (owner's decision, 2026-11-06; SCALETTA F1.14, decision D09). The owner
+  approved the recommendations Q1–Q10 and asked that, beside the default rule, the user can
+  **consciously** choose to change only the performance, with offsets of any size that never touch
+  the score (§4), and that every DAW edit has such a pair of behaviours (§7). For velocity the
+  owner chose the **reverse**: by default a DAW edit stays in the performance, and the conscious
+  choice makes it reach the written dynamics.
 - **Date:** 2026-11-06
 - **Refines:** ADR-0004 (tolerance threshold; pass-specific offsets), ADR-0024 §10 (performance
   offsets; the pass-specific table), ADR-0025 §12 P6 (the table's key), ADR-0027 §8 (where the
@@ -153,9 +154,10 @@ choice**, never a silent mix:
   key (ADR-0004, enharmonic row); the performance-only choice will be a pitch offset (detune,
   microtonal deviation) that leaves the written pitch alone. It needs a new offset field and comes
   with intonation (D22, after F3.04, ADR-0027 §10).
-- **Velocity:** today a DAW velocity edit is a velocity offset (ADR-0024 §10), so it never
-  touches the dynamics. Whether a default rule should also reach the written dynamics (and with
-  which threshold) is **open**, to be decided with the DAW velocity editor (F3).
+- **Velocity (reversed, owner):** by default a DAW velocity edit is a velocity offset (ADR-0024
+  §10) and never touches the written dynamics, as today. The conscious choice will make it change
+  the score too (the written dynamics, with rules to be designed with the DAW velocity editor,
+  F3).
 
 ### 8. Tests and benchmarks
 
@@ -178,6 +180,7 @@ and a benchmark of one `MovePlayed` inside a gesture on the heavy score (the dra
 | Q8 | Pass-specific offsets | Always performance-only, added to the inline ones, deleted with the note, kept when a pass disappears |
 | Q9 | Grace notes | Offsets only |
 | Q10 | Split of the step | F1.14 (this ADR), F1.14b (onset moves, settings, pass table), F1.14c (durations) |
+| Q11 | Velocity from the DAW (§7) | Default: performance only; conscious choice: the written dynamics change too |
 
 ## Alternatives rejected
 
