@@ -23,3 +23,14 @@
 //! ## Unsafe code
 //! `unsafe` is allowed here only for FFI or memory-mapped file access, should we ever need it;
 //! every block carries a `// SAFETY:` comment. Pure-Rust parsing is strongly preferred.
+//!
+//! ## What exists so far
+//! - [`project`]: the project file, version 1 (ADR-0029; SCALETTA F1.15b): [`project::save`],
+//!   [`project::load`], [`project::to_bytes`], [`project::from_bytes`].
+
+mod platform;
+pub mod project;
+
+pub use project::{
+    FORMAT_VERSION, LoadError, MAX_FILE_BYTES, SaveError, from_bytes, load, save, to_bytes,
+};

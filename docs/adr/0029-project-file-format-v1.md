@@ -7,6 +7,8 @@
   settings are always written, only structural absences are omitted (S6).
 - **Precisions** L1–L8 approved by the owner on 2026-11-06, before the code of F1.15b part 1
   (section "Precisions L1–L8").
+- **Precisions** I1–I10 approved by the owner on 2026-11-06, before the code of F1.15b part 2
+  (section "Precisions I1–I10").
 - **Date:** 2026-11-06
 - **Completes:** ADR-0010 (its "Proposed part": the concrete format). ADR-0010's accepted policy
   (format version in a header, migrations `vN → vN+1`, golden files, refusal of newer files,
@@ -329,6 +331,53 @@ How S4's description and loader are shaped in `core-model`:
   description) after every step of the existing property tests, and the refusal of every invalid
   document they meet; one hand-written case per error; an oracle for the rational text;
   benchmarks of `to_parts` and `from_parts` on the heavy score.
+
+## Precisions I1–I10 (F1.15b part 2, owner's approval of 2026-11-06)
+
+The concrete schema of version 1, in `crates/io/src/project/`:
+
+- **I1** — The file is divided by owner: `orchestra_format`, `written_by`, `next_id` (`null` once
+  the counter is exhausted, the only `null` of the file), `document` (meter map, bars, tempo, key,
+  form, numbering), `tracks`, `settings`.
+- **I2** — Compact strings only for what occurs **per note** (positions, values, pitches,
+  ornaments); objects with full field names for everything else.
+- **I3** — An event is a chord (`value` and `notes`) or a rest (`rest`), exactly one of the two;
+  optional fields appear only when present; a notehead has `tie` (an ID or `"let_ring"`) and
+  `offsets` (zero components omitted).
+- **I4** — Pitches `"C4"`, `"F#5"`, `"Bb3"`, `"Cx4"`, `"Dbb2"`, `"G#x3"`, `"Abbb3"`, `"C-1"`,
+  `"E[-1/2]4"`; note values `"1"` … `"1024"`, `"breve"`, `"longa"`, `"maxima"` with dots in
+  `.`; `"rest": "bar"` for a whole-bar rest; only canonical spellings accepted.
+- **I5** — Ornaments `"trill"`, `"trill[1]"` (the auxiliary note's alteration in semitones),
+  `"turn"`, `"inverted_turn"`, `"mordent"`, `"upper_mordent"`, `"tremolo[3]"`; fermatas and
+  arpeggios by name.
+- **I6** — Bars are named by ID everywhere, also in the meter map (the model's meter map is
+  positional; the file converts), so inserting a bar changes one line. Meters `"4/4"`,
+  `"3+2+2/8"`; the initial meter is a field of its own (`initial`), since it has no bar when a
+  document has none.
+- **I7** — The API of `orchestra-io`: `save`, `load`, `to_bytes`, `from_bytes`.
+- **I8** — `LoadError`: `Io`, `TooLarge`, `NotAProject`, `NewerFormat`, `Syntax { line, column }`,
+  `Schema { line, column, message }`, `Document`; the line and column come from `serde_json`
+  instead of a JSON path (no extra dependency; with one record per line the line finds the place).
+- **I9** — The layout: structure indented, one record per line (a `serde_json` formatter), LF, no
+  BOM, a final newline; a BOM is ignored and CRLF accepted on reading.
+- **I10** — Tests and measurements: byte-exact round trips (the test document with every kind of
+  object, the normal and heavy scores, documents edited by random commands), truncations and
+  corruption never panicking, benchmarks of saving and loading, the binary size, the safe save on
+  the three platforms in CI.
+
+Three details settled while implementing, within these choices:
+
+- `to_bytes` returns `Result<Vec<u8>, SaveError>` instead of `Vec<u8>` (I7): a valid document
+  always encodes, but library code may not unwrap (CLAUDE.md §4), so `SaveError::Encode` reports
+  the impossible case of a broken model invariant.
+- The line and column of `LoadError::Schema` are optional (I8): the conversion's errors (an event
+  both chord and rest, two meter-map entries at one bar…) are found after parsing, where the JSON
+  reader's position is gone; their message names the object by its ID instead, which with one
+  record per line finds the place as well.
+- S12's `save(load(f)) == f` byte for byte holds for every file the program writes, and the reader
+  refuses most other spellings (non-canonical values, zero offsets written out, articulations and
+  passes out of order, duplicate meter-map entries); a hand-edited file that writes an omitted
+  default list explicitly (`"slurs": []`) still loads, and a re-save drops it.
 
 ## Alternatives rejected
 

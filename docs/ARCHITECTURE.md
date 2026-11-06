@@ -58,7 +58,7 @@ future `cargo xtask check` step may verify this table automatically):
 | notation-layout | core-time, core-model |
 | plugin-host | core-time |
 | audio-engine | core-time, playback, plugin-host |
-| io | core-time, core-model |
+| io | core-time, core-model (external: `serde`, `serde_json`, ADR-0029) |
 | i18n | — |
 | video | core-time |
 | ui | core-time, core-model, playback, notation-layout, i18n, video |

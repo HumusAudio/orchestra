@@ -14,6 +14,21 @@ publish.workspace = true
 [dependencies]
 orchestra-core-time.workspace = true
 orchestra-core-model.workspace = true
+# The project file (ADR-0029 S1): the schema's derives and the JSON encoding.
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# Property tests (ADR-0016): random documents saved and loaded back.
+proptest.workspace = true
+# Instruction-count benchmarks of saving and loading (ADR-0016, ADR-0017).
+gungraun.workspace = true
+
+# Instruction-count benchmarks of saving and loading a project on the normal and heavy scores
+# (SCALETTA F1.15b part 2, ADR-0029 S12).
+[[bench]]
+name = "project"
+harness = false
 
 [lints]
 workspace = true

@@ -2345,6 +2345,138 @@ under the strict rules of ADR-0007 and offers a null/offline backend for tests. 
 the views and turns input into commands (no GUI toolkit: widgets and drawing are ours, ADR-0012). `video` is intentionally empty until
 the last phase. `app` builds the `orchestra` executable and only wires the others together.
 
+#### The project file
+
+`crates/io/src/project/` implements version 1 of the project file (ADR-0029, with the owner's
+choices I1–I10 of 2026-11-06): one plain UTF-8 JSON file, `.orchestra`, written with `serde` and
+`serde_json`, which only this crate uses (the model has no serialisation dependency, S4). The
+public API is four functions:
+
+```rust
+pub fn save(doc: &Document, path: &Path) -> Result<(), SaveError>;   // safe save
+pub fn load(path: &Path) -> Result<Document, LoadError>;
+pub fn to_bytes(doc: &Document) -> Result<Vec<u8>, SaveError>;
+pub fn from_bytes(bytes: &[u8]) -> Result<Document, LoadError>;
+```
+
+`to_bytes` returns a `Result` although a valid document always encodes: library code may not
+unwrap, and `SaveError::Encode` reports, instead of a panic, the impossible case of a broken model
+invariant.
+
+**What the file looks like** (an excerpt of the test document `tests/common/everything.rs`): the
+structure is indented, and every **record** (an event, a mark, a slur, a tuplet…) sits on one line,
+so that editing a note changes one line of a diff. Bars, events and notes are named by their saved
+IDs, also in the meter map (I6: inserting a bar changes one line, not every later entry). What
+occurs per note is a compact string (I2): rationals `"3/16"`, pitches `"F#5"` and `"E[-1/2]4"`,
+note values `"4"`, `"8."`, `"breve"`, ornaments `"trill[1]"`, `"tremolo[3]"`; everything rare is an
+object with full names.
+
+```json
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 94,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      },
+      "changes": [
+        {"bar":9,"meter":"6/8","grouping":"3+3/8"}
+      ]
+    },
+    "bars": [
+      2,
+      3
+    ],
+    …
+  },
+  "tracks": [
+    {
+      "id": 14,
+      "instrument": 15,
+      "name": "Piano",
+      …
+      "voices": [
+        {
+          "id": 18,
+          "home_staff": 16,
+          "cells": [
+            {
+              "bar": 3,
+              "events": [
+                {"id":47,"at":"0","staff":16,"value":"4","articulations":["accent","staccato"],"arpeggio":"up","notes":[{"id":48,"pitch":"C4"},{"id":49,"pitch":"E4"}]},
+                {"id":53,"at":"1/4","staff":16,"value":"4","notes":[{"id":54,"pitch":"E4","tie":"let_ring"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}
+```
+
+**The modules.**
+- `codec.rs`: the text forms, each a newtype with a strict reader (one value, one spelling), and
+  the named enumerations (`named!`), each name spelled out so that renaming a Rust variant never
+  changes the file.
+- `schema.rs`: the serde structs of version 1, all with `deny_unknown_fields`; structural absences
+  (no dots, no tie, zero offsets, empty lists) are omitted, settings (the tolerance, the numbering
+  style, a tuplet's bracket and number, a hairpin's style) always written (S6). The counter's
+  `next_id` is a newtype, so that a missing field is an error and `null` means "exhausted".
+- `convert.rs`: between the schema and the model's `DocumentParts`. Loading checks what only the
+  text can get wrong (a zero ID, a bar ID that is not a bar, an event both chord and rest, two
+  meter-map entries at one bar, articulations or passes out of order, offsets written as zero);
+  everything musical is then checked by `Document::from_parts`. Its errors name the object by its
+  ID (`event 144: …`): with one record per line, that finds the place as surely as a line number.
+- `writer.rs`: the `serde_json` formatter of the layout. An object inside a list is a record,
+  written compact, unless the list is structural (`tracks`, `staves`, `voices`, `cells`); everything
+  else is indented by two spaces. The formatter copies each key as it is written, so that a list
+  knows its own name.
+- `header.rs`: reads `"orchestra_format": N` from the first bytes before any parsing (S5); a zip or
+  gzip signature is "made with a newer Orchestra" (a later version may compress), anything else
+  that does not start like a project is "not a project".
+- `mod.rs`: the API and the errors. `LoadError` has `Io`, `TooLarge` (over 1 GiB, checked on the
+  file's size before reading it), `NotAProject`, `NewerFormat`, `Syntax` and `Schema` with the line
+  and column from `serde_json` (I8; `Schema` has no line for the conversion's errors, which name
+  the object instead) and `Document` for the model's refusals.
+
+**Saving safely** (S13). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
+directory, syncs it, renames it over the target, then syncs the directory where the platform needs
+it; on error the temporary file is removed and the previous file is intact. The directory sync is
+the crate's first platform-specific code, in `src/platform/` behind the `FileSystem` trait (CLAUDE.md
+§2): on Unix the directory is opened and synced, elsewhere (Windows) there is nothing to do.
+
+**Tests.** `tests/project_cases.rs`: round trips of the test document, the normal and the heavy
+score (same bytes after a second save, same content, IDs and counter); the layout; a BOM and CRLF
+accepted; every kind of refusal with its place; saving over an existing file with a name with
+spaces and an accented letter, no temporary file left (it runs on Linux, Windows and macOS in CI).
+`tests/project_props.rs`: every truncation of the test file refused; random corrupted bytes never
+panic, and what still loads is valid and round-trips; random commands on the test document keep the
+round trip exact after every command. Unit tests of every text form and of the header. Seven
+injected bugs were caught, three only after the cases written for them (an unknown field in an
+event, cells written on one line, two meter changes at one bar).
+
+**Cost** (`benches/project.rs`, without the disk):
+
+```text
+operation                      normal score     heavy score
+to_bytes (save, without disk)    42 050 000   1 234 700 000 instructions
+from_bytes (load, without disk)  74 260 000   2 203 250 000 instructions
+```
+
+Natively on the development machine (best of five): the normal score's file has 0.84 MB and
+saves in 5.5 ms, loads in 11 ms; the heavy score's has 25.4 MB, 168 ms and 396 ms. On the reference
+laptop (2–3× slower) the 100 bars open in a few tens of milliseconds, far below the 1 s of
+ADR-0007; the heavy score in about a second, to be measured there (F2.23).
+
+The release binary grows by about 0.6 MB (stripped) with the project file: 1.18 MB for a probe that
+loads and saves a project against 0.55 MB for one that only uses the model.
+
 ### orchestra-test-support: counting allocations in tests
 
 A crate that exists **only for tests and benchmarks** (ADR-0016). Every other crate may use it,

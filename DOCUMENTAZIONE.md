@@ -2499,6 +2499,144 @@ disegna le viste e trasforma l'input in comandi (senza toolkit grafico: widget e
 proposito fino all'ultima fase. `app` produce l'eseguibile `orchestra` e si limita a collegare
 gli altri.
 
+#### Il file di progetto
+
+`crates/io/src/project/` realizza la versione 1 del file di progetto (ADR-0029, con le scelte
+I1–I10 del proprietario del 2026-11-06): un solo file JSON UTF-8, `.orchestra`, scritto con
+`serde` e `serde_json`, che usa solo questo crate (il modello non ha dipendenze di
+serializzazione, S4). L'API pubblica è fatta di quattro funzioni:
+
+```rust
+pub fn save(doc: &Document, path: &Path) -> Result<(), SaveError>;   // safe save
+pub fn load(path: &Path) -> Result<Document, LoadError>;
+pub fn to_bytes(doc: &Document) -> Result<Vec<u8>, SaveError>;
+pub fn from_bytes(bytes: &[u8]) -> Result<Document, LoadError>;
+```
+
+`to_bytes` restituisce un `Result` anche se un documento valido si codifica sempre: il codice di
+libreria non può usare `unwrap`, e `SaveError::Encode` segnala, invece di un panico, il caso
+impossibile di un invariante del modello rotto.
+
+**Com'è fatto il file** (un estratto del documento di prova `tests/common/everything.rs`): la
+struttura è indentata, e ogni **record** (un evento, una marcatura, una legatura, un gruppo
+irregolare…) sta su una riga, così modificare una nota cambia una riga di un diff. Battute, eventi
+e note sono citati con i loro ID salvati, anche nella mappa dei metri (I6: inserire una battuta
+cambia una riga, non tutte le voci successive). Ciò che compare per nota è una stringa compatta
+(I2): razionali `"3/16"`, altezze `"F#5"` e `"E[-1/2]4"`, figure `"4"`, `"8."`, `"breve"`,
+ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con i nomi interi.
+
+```json
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 94,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      },
+      "changes": [
+        {"bar":9,"meter":"6/8","grouping":"3+3/8"}
+      ]
+    },
+    "bars": [
+      2,
+      3
+    ],
+    …
+  },
+  "tracks": [
+    {
+      "id": 14,
+      "instrument": 15,
+      "name": "Piano",
+      …
+      "voices": [
+        {
+          "id": 18,
+          "home_staff": 16,
+          "cells": [
+            {
+              "bar": 3,
+              "events": [
+                {"id":47,"at":"0","staff":16,"value":"4","articulations":["accent","staccato"],"arpeggio":"up","notes":[{"id":48,"pitch":"C4"},{"id":49,"pitch":"E4"}]},
+                {"id":53,"at":"1/4","staff":16,"value":"4","notes":[{"id":54,"pitch":"E4","tie":"let_ring"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}
+```
+
+**I moduli.**
+- `codec.rs`: le forme testuali, ognuna un newtype con un lettore rigido (un valore, una grafia),
+  e le enumerazioni con nome (`named!`), ogni nome scritto per esteso così che rinominare una
+  variante Rust non cambi mai il file.
+- `schema.rs`: le struct serde della versione 1, tutte con `deny_unknown_fields`; le assenze
+  strutturali (nessun punto, nessuna legatura, scostamenti a zero, elenchi vuoti) si omettono, le
+  impostazioni (la tolleranza, lo stile di numerazione, parentesi e numero di un gruppo
+  irregolare, lo stile di una forcella) si scrivono sempre (S6). Il `next_id` del contatore è un
+  newtype, così un campo mancante è un errore e `null` vuol dire "esaurito".
+- `convert.rs`: fra lo schema e i `DocumentParts` del modello. Il caricamento controlla ciò che
+  solo il testo può sbagliare (un ID zero, un ID di battuta che non è una battuta, un evento
+  insieme accordo e pausa, due voci della mappa dei metri sulla stessa battuta, articolazioni o
+  passaggi fuori ordine, scostamenti scritti a zero); tutto ciò che è musicale lo verifica poi
+  `Document::from_parts`. I suoi errori nominano l'oggetto con il suo ID (`event 144: …`): con un
+  record per riga, questo trova il punto con la stessa sicurezza di un numero di riga.
+- `writer.rs`: il formattatore `serde_json` dell'impaginazione. Un oggetto dentro un elenco è un
+  record, scritto compatto, a meno che l'elenco sia strutturale (`tracks`, `staves`, `voices`,
+  `cells`); tutto il resto è indentato di due spazi. Il formattatore copia ogni chiave mentre la
+  scrive, così un elenco conosce il proprio nome.
+- `header.rs`: legge `"orchestra_format": N` dai primi byte prima di qualunque lettura (S5); una
+  firma zip o gzip è "fatto con un Orchestra più nuovo" (una versione futura potrà comprimere),
+  tutto il resto che non comincia come un progetto è "non è un progetto".
+- `mod.rs`: l'API e gli errori. `LoadError` ha `Io`, `TooLarge` (oltre 1 GiB, controllato sulla
+  dimensione del file prima di leggerlo), `NotAProject`, `NewerFormat`, `Syntax` e `Schema` con
+  riga e colonna date da `serde_json` (I8; `Schema` non ha riga per gli errori della conversione,
+  che nominano invece l'oggetto) e `Document` per i rifiuti del modello.
+
+**Salvare in modo sicuro** (S13). `save` scrive un file temporaneo `.<nome>.<id del processo>.tmp`
+nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi
+sincronizza la cartella dove la piattaforma lo richiede; in caso d'errore il file temporaneo viene
+tolto e il file precedente resta intatto. La sincronizzazione della cartella è il primo codice
+specifico di piattaforma del crate, in `src/platform/` dietro il trait `FileSystem` (CLAUDE.md
+§2): su Unix la cartella si apre e si sincronizza, altrove (Windows) non c'è nulla da fare.
+
+**Test.** `tests/project_cases.rs`: andata e ritorno del documento di prova, della partitura
+normale e di quella pesante (stessi byte dopo un secondo salvataggio, stesso contenuto, stessi ID e
+contatore); l'impaginazione; BOM e CRLF accettati; ogni tipo di rifiuto con il suo punto; il
+salvataggio sopra un file esistente con un nome con spazi e una lettera accentata, senza file
+temporanei lasciati (gira su Linux, Windows e macOS in CI). `tests/project_props.rs`: ogni
+troncamento del file di prova rifiutato; byte corrotti a caso non causano mai un panico, e ciò che
+si carica ancora è valido e fa l'andata e ritorno; comandi casuali sul documento di prova
+mantengono esatta l'andata e ritorno dopo ogni comando. Test unitari di ogni forma testuale e
+dell'intestazione. Sette bug iniettati sono stati presi, tre solo dopo i casi scritti apposta (un
+campo sconosciuto in un evento, celle scritte su una riga, due cambi di metro sulla stessa
+battuta).
+
+**Costo** (`benches/project.rs`, senza il disco):
+
+```text
+operation                      normal score     heavy score
+to_bytes (save, without disk)    42 050 000   1 234 700 000 instructions
+from_bytes (load, without disk)  74 260 000   2 203 250 000 instructions
+```
+
+In tempo reale sulla macchina di sviluppo (il migliore di cinque): il file della partitura normale
+pesa 0,84 MB, si salva in 5,5 ms e si carica in 11 ms; quello della partitura pesante 25,4 MB, 168
+ms e 396 ms. Sul portatile di riferimento (2–3 volte più lento) le 100 battute si aprono in qualche
+decina di millisecondi, molto sotto il secondo di ADR-0007; la partitura pesante in circa un
+secondo, da misurare lì (F2.23).
+
+Il binario release cresce di circa 0,6 MB (dopo `strip`) con il file di progetto: 1,18 MB per un
+programma di prova che carica e salva un progetto contro 0,55 MB per uno che usa solo il modello.
+
 ### orchestra-test-support: contare le allocazioni nei test
 
 Un crate che esiste **solo per test e benchmark** (ADR-0016). Tutti gli altri crate possono

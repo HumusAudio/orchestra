@@ -471,8 +471,24 @@ builder, rule 13 of `validate` (no meter-map entry past the last bar), new error
 step of every property test of edits and commands (and the refusal of every invalid document they
 meet), `src/parts_tests.rs` (nine cases), `tests/rational_text.rs` (cases, round trip, oracle);
 seventeen injected bugs caught. Benchmarks `benches/parts.rs`: `to_parts` ≈ 1.2 M / 35.7 M
-instructions (normal / heavy), `from_parts` ≈ 29 M / 882 M. **Next:** F1.15b part 2 (the `io`
-side: schema, save and load).
+instructions (normal / heavy), `from_parts` ≈ 29 M / 882 M. **F1.15b part 2 done**
+(2026-11-06, same branch): before coding, the owner approved I1–I10, now in ADR-0029 ("Precisions
+I1–I10", with three details settled while implementing: `to_bytes` returns a `Result`, the
+`Schema` error's line is optional for the conversion's errors, which name the object by ID, and
+an omitted default list written explicitly still loads). In `orchestra-io`, the module `project`
+(`codec`: the strict text forms and the named enumerations; `schema`: the serde structs of
+version 1 with `deny_unknown_fields`; `convert`: schema ⇄ `DocumentParts`; `writer`: the
+one-record-per-line formatter; `header`: the version before the rest, with the zip and gzip
+signatures), the API `save`/`load`/`to_bytes`/`from_bytes`, `LoadError`/`SaveError`, the safe save
+(temporary file in the same directory, sync, rename, directory sync in `src/platform/` behind the
+`FileSystem` trait, the crate's first platform code). `serde` 1.0.229 and `serde_json` 1.0.154 in
+the workspace (only `io` uses them). Tests: `tests/project_cases.rs` (round trips of a document with
+every kind of object, `tests/common/everything.rs`, and of the normal and heavy scores, byte for
+byte; layout; BOM and CRLF; every refusal; saving over a file), `tests/project_props.rs` (every
+truncation refused, corruption never panicking, random commands round-tripping); seven injected
+bugs caught, three after cases written for them. Benchmarks `benches/project.rs`: saving ≈ 42 M / 1.23 G instructions (normal / heavy), loading ≈ 74 M / 2.2 G; natively 5.5 / 168 ms to save and 11 / 396 ms to load, files of 0.84 / 25.4 MB (the heavy load to be measured on the reference laptop, F2.23).
+Binary: about +0.6 MB stripped (1.18 MB against 0.55 MB for a probe using only the model). F1.15b
+complete. **Next:** F1.15c (golden files of version 1, the migration machinery, the PR of F1.15).
 
 | Step | What | Status |
 |---|---|---|
