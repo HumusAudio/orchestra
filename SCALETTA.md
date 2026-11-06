@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.36, approvata dal proprietario il 2026-11-06.**
+> **Stato di questo documento: v0.37, approvata dal proprietario il 2026-11-06.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -449,7 +449,7 @@ Dettagli:
 | F1.14b | **Spostamento dell'attacco dalla DAW**: soglia nel documento, modo "solo esecuzione", tabella degli scostamenti per passaggio, aggiornamento delle note suonate | ✅ | 1–2 |
 | F1.14c | **Durate dalla DAW** oltre la soglia e "sposta comunque" (divisione in legature) | ✅ PR #23 | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) | ✅ ADR-0029 | 1 |
-| F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ⬜ | 2 |
+| F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | 🔄 parte 1 ✅ | 2 |
 | F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ⬜ | 1 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
@@ -568,7 +568,21 @@ Dettagli:
   verifica nel test di proprietà dei comandi, limiti, salvataggio sicuro (da provare anche su
   Windows in CI), test di andata e ritorno su documenti da sequenze casuali di comandi, test di
   robustezza (mai un panic), benchmark di salvataggio e caricamento, misura della dimensione del
-  binario.
+  binario. Diviso in due parti (proprietario, 2026-11-06).
+  **Parte 1 fatta il 2026-11-06:** prima del codice il proprietario ha approvato L1–L8, ora in
+  ADR-0029 ("Precisions L1–L8"): `from_raw` su ogni tipo di ID e costruttori pubblici dei valori
+  foglia; `DocumentParts` con `to_parts` e `from_parts`, che ripete la descrizione attraverso il
+  builder con gli ID salvati (stesse verifiche del builder), controlla ID unici ed emessi e
+  rifiuta gli elenchi fuori ordine; `MAX_TRACKS = 1024`; regola 13; `Display`/`FromStr` di
+  `Rational`. Andata e ritorno verificata dopo ogni passo dei test di proprietà; 17 bug iniettati
+  presi. Sulla partitura pesante `from_parts` ≈ 882 milioni di istruzioni, sulla normale ≈ 29
+  milioni. Il test di proprietà dei comandi ha trovato un bug già presente del cambio di metro in
+  `Rewrite` dopo una battuta libera (F1.11c): il proprietario ha scelto di ripristinare il metro
+  precedente dopo la battuta libera, su un branch di correzione separato.
+  **Parte 2:** il lato `io`: schema `io::project::v1` con il formattatore "un record per riga",
+  lettura della versione prima del resto (con le firme zip e gzip), caricamento rigido, limite di
+  1 GiB, salvataggio sicuro (provato anche su Windows in CI), test di andata e ritorno e di
+  robustezza, benchmark di salvataggio e caricamento, misura della dimensione del binario.
 - **F1.15c** Implementa ADR-0029 S11–S12: i file golden della versione 1 (uno per tipo di oggetto e
   uno con tutto), mai rigenerati; la catena delle migrazioni sull'albero, provata con una
   migrazione `v1 → v2` solo di test; poi la PR di tutto F1.15.
@@ -877,3 +891,4 @@ raccomandato.
 | 2026-11-06 | 0.34 | F1.14b fatto (precisioni T1–T7 in ADR-0028 §10); note per F1.14c (T2, "sposta comunque") | proprietario |
 | 2026-11-06 | 0.35 | F1.14c fatto (precisioni U1–U9 in ADR-0028 §11), F1.14 completo (PR #23) | proprietario |
 | 2026-11-06 | 0.36 | F1.15 fatto (ADR-0029 Accepted, precisazioni S5 e S6 del proprietario), D10 chiusa; nuovi F1.15b e F1.15c, PR unica per F1.15 | proprietario |
+| 2026-11-06 | 0.37 | F1.15b diviso in due parti, parte 1 fatta (precisioni L1–L8 in ADR-0029); bug del `Rewrite` dopo una battuta libera da correggere su un branch separato (opzione A) | proprietario |
