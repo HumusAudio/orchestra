@@ -176,7 +176,7 @@ Lingue: **en-US** (sorgente), **en-GB**, **it**, **fr**, **de**, **es**. en-US e
 
 ## 11. Git (GitHub)
 
-- Mai commit diretti su `main` (protetto): ogni lavoro su un branch (`feature/…`, `fix/…`) e poi pull request. La CI deve essere verde prima del merge.
+- Mai commit diretti su `main` (protetto): ogni lavoro su un branch (`feature/…`, `fix/…`) e poi pull request. La CI deve essere verde prima del merge su Linux e Windows (più guide e benchmark); macOS non blocca il merge se è solo in attesa di una macchina, ma un macOS rosso lo blocca sempre, e dopo il merge si segue il macOS di `main` fino al verde (ADR-0030).
 
 - Commit atomici e frequenti, messaggi descrittivi, trailer `User-visible` obbligatorio.
 
@@ -202,5 +202,5 @@ Lingue: **en-US** (sorgente), **en-GB**, **it**, **fr**, **de**, **es**. en-US e
 
 8. `ROADMAP.md` aggiornato.
 
-9. Branch pubblicato su GitHub e CI verde su Linux, Windows e macOS.
+9. Branch pubblicato su GitHub e CI verde su Linux, Windows e macOS (macOS anche dopo il merge, sul commit di `main`: ADR-0030).
 
