@@ -516,8 +516,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
    with RT signalling and bounded waits, editors in separate windows owned by the bridge.
 5. **Phase 5 — video:** video tracks with proxies on the shared timeline.
 
-**Fix of the meter rewrite after a free bar** (2026-11-06, branch `fix/rewrite-after-free-bar`,
-from `main`, while F1.15b was in progress on its own branch): the command property test of F1.15b
+**Fix of the meter rewrite after a free bar** (2026-11-06, PR #24, merged the same day, from
+`main`, while F1.15b was in progress on its own branch): the command property test of F1.15b
 found that a `ChangeMeter` in `Rewrite` mode whose region ends at a free bar let the new meter reach
 the bars after the free bar, which kept their old music (overfull bars, and a tie pointing
 backwards). The owner chose **R12** (ADR-0026 §11): the old meter is set again after the free bars.
@@ -527,22 +527,8 @@ cases in release.
 
 ## Open decisions and open items
 
-- **Pre-existing bug in the meter rewrite (F1.11c), found on 2026-11-06, NOT fixed, waiting for
-  the owner:** when the region of a `ChangeMeter` in `Rewrite` mode ends at a **free bar** (R1),
-  only the region is rewritten, but the new meter stays in force **after** the free bar too (a
-  free bar suspends the meter, it does not end it): every bar after the free bar, up to the next
-  real meter change, silently takes the new length while keeping its music, as in `KeepBars`. So
-  "nothing after moves" (R2) is broken, those bars become overfull, and when a tie crosses one of
-  their barlines it can point backwards (`Invalid(TieNotForward)`), which is what the command
-  property test hit: in `rich()`, a dotted whole in the triplet entered at bar 5 (a tie chain into
-  bar 6), bar 2 made a free bar of a quarter (`KeepBars`), then 5/8 in `Rewrite` at bar 1: bars
-  4–9 become 5/8 bars with their 4/4 music. It reproduces on `main`. Proptest seed: `cc
-  78d1704abea9bdb8af73dc77c6d0b7f44e61d85495be9d9f35eff9eb3ed2310e # shrinks to steps = [(1, 44,
-  3, 0), (22, 41, 0, 2), (21, 24, 24, 0)], without_bar_repeat = false` (add it to
-  `crates/core-model/proptest-regressions/command_tests.txt` to replay it; not committed, it would
-  turn CI red). Options for the owner: restore the old meter right after the free bar (recommended),
-  extend the rewrite past free bars, or refuse. The test draws random seeds, so CI may meet it by
-  chance meanwhile.
+- **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
+  the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users
   once the DAW view exists.
 - **From F1.14b, to keep in mind:** the interface (F3) must expose `MoveMode::PerformanceOnly` (a
