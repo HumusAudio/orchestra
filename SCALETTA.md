@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.37, approvata dal proprietario il 2026-11-06.**
+> **Stato di questo documento: v0.38, approvata dal proprietario il 2026-11-06.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -449,7 +449,7 @@ Dettagli:
 | F1.14b | **Spostamento dell'attacco dalla DAW**: soglia nel documento, modo "solo esecuzione", tabella degli scostamenti per passaggio, aggiornamento delle note suonate | ✅ | 1–2 |
 | F1.14c | **Durate dalla DAW** oltre la soglia e "sposta comunque" (divisione in legature) | ✅ PR #23 | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) | ✅ ADR-0029 | 1 |
-| F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | 🔄 parte 1 ✅ | 2 |
+| F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ✅ | 2 |
 | F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ⬜ | 1 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
@@ -583,6 +583,16 @@ Dettagli:
   lettura della versione prima del resto (con le firme zip e gzip), caricamento rigido, limite di
   1 GiB, salvataggio sicuro (provato anche su Windows in CI), test di andata e ritorno e di
   robustezza, benchmark di salvataggio e caricamento, misura della dimensione del binario.
+  **Parte 2 fatta il 2026-11-06:** prima del codice il proprietario ha approvato I1–I10, ora in
+  ADR-0029 ("Precisions I1–I10"): file diviso per proprietario, stringhe compatte solo per ciò che
+  compare per nota, battute per ID anche nella mappa dei metri, API `save`/`load`/`to_bytes`/
+  `from_bytes`, errori con riga e colonna, un record per riga. Modulo `project` di `orchestra-io`
+  (codici di testo rigidi, schema serde, conversione, formattatore, intestazione), salvataggio
+  sicuro con il primo modulo `platform/`; `serde` e `serde_json` nel workspace. Andata e ritorno
+  byte per byte su un documento con ogni tipo di oggetto e sulle partiture normale e pesante,
+  troncamenti e corruzioni senza panico, comandi casuali; 7 bug iniettati presi. Sulla macchina di
+  sviluppo: 100 battute salvate in 5,5 ms e caricate in 11 ms (0,84 MB); la partitura pesante in
+  168 e 396 ms (25,4 MB). Binario +0,6 MB. F1.15b completo.
 - **F1.15c** Implementa ADR-0029 S11–S12: i file golden della versione 1 (uno per tipo di oggetto e
   uno con tutto), mai rigenerati; la catena delle migrazioni sull'albero, provata con una
   migrazione `v1 → v2` solo di test; poi la PR di tutto F1.15.
@@ -674,6 +684,8 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
   Da F1.13c: misurare lì anche `Performance::update` dopo una nota e dopo una dinamica sulla
   partitura pesante (≈ 1,2 e ≈ 2,1 milioni di istruzioni; sulla macchina di sviluppo ≈ 0,6–1 ms),
   con il budget di 1 ms di ADR-0027 §9.
+  Da F1.15b: misurare lì l'apertura della partitura pesante (sulla macchina di sviluppo ≈ 0,4 s,
+  2,2 miliardi di istruzioni; atteso ≈ 1 s), oltre alle 100 battute del budget di ADR-0007.
 - **F2.22** Da ADR-0026 §11 (X4, X6, X7), comandi composti rimandati qui: svuotare le battute e
   mettere la ripetizione di battuta; ritrascrivere le note dopo un cambio di armatura; trasformare
   le note di un gruppo irregolare in valori normali.
@@ -892,3 +904,4 @@ raccomandato.
 | 2026-11-06 | 0.35 | F1.14c fatto (precisioni U1–U9 in ADR-0028 §11), F1.14 completo (PR #23) | proprietario |
 | 2026-11-06 | 0.36 | F1.15 fatto (ADR-0029 Accepted, precisazioni S5 e S6 del proprietario), D10 chiusa; nuovi F1.15b e F1.15c, PR unica per F1.15 | proprietario |
 | 2026-11-06 | 0.37 | F1.15b diviso in due parti, parte 1 fatta (precisioni L1–L8 in ADR-0029); bug del `Rewrite` dopo una battuta libera da correggere su un branch separato (opzione A) | proprietario |
+| 2026-11-06 | 0.38 | F1.15b fatto (parte 2: precisioni I1–I10 in ADR-0029); misura dell'apertura della partitura pesante in F2.23 | proprietario |
