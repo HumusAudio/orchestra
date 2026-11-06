@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "fileformat"
+description = "Spike F1.15: size and speed of candidate project file encodings on the real model"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The real model and time types, so the generated scores are exactly those of core-model's tests.
+orchestra-core-time = { path = "../../crates/core-time" }
+orchestra-core-model = { path = "../../crates/core-model" }
+# Candidates under evaluation (versions checked on crates.io on 2026-11-06).
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+ron = "=0.12.3"
+postcard = { version = "=1.1.3", default-features = false, features = ["use-std"] }
+flate2 = { version = "=1.1.11", default-features = false, features = ["rust_backend"] }

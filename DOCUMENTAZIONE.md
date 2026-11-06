@@ -2920,6 +2920,24 @@ Il workspace `spikes` toglie i simboli dai binari release, quindi il suo `[profi
 mantiene: Callgrind trova la funzione misurata per nome, e senza simboli ogni conteggio è 0. I numeri
 e la scelta di P3 sono in `spikes/model/ANALYSIS.md` e in ADR-0022.
 
+### Il prototipo del formato del file
+
+`spikes/fileformat` (passo F1.15) misura le codifiche candidate del file di progetto sulle vere
+partiture normale e pesante dei test di `core-model`: ne include il generatore
+(`crates/core-model/tests/common/score.rs`) con `#[path]`, legge il contenuto delle voci tramite
+l'API pubblica del modello in uno schema del file fatto di struct semplici con le derive di serde,
+e lo scrive in JSON (strutturato, compatto e indentato), RON e postcard, con e senza deflate. Per
+ognuna stampa la dimensione e il tempo reale di scrittura, di rilettura nello schema tipizzato e di
+rilettura passando da `serde_json::Value` (il percorso di un file che viene migrato):
+
+```sh
+cd spikes
+cargo run --release -p fileformat
+```
+
+I numeri e le scoperte (l'albero generico di RON non sa rileggere gli enum, postcard non si
+descrive da solo) sono in `spikes/fileformat/RESULTS.md` e in ADR-0029.
+
 ## Lezioni della Fase 0
 
 Cose non ovvie che fanno perdere tempo la prima volta che le si incontra:

@@ -437,8 +437,21 @@ rewrite the written tie chain (`rewrite_chain`: cut at barlines, longest values 
 IDs reused in order, surplus deleted, slurs and `After` graces following the end). New error
 `ScaleNotPositive`. Tests: seven more cases, resizes and splits in both property tests; nine
 injected bugs caught (three after cases written for them). A resize drag ≈ 74 000 instructions per
-update on the heavy score. **F1.14 complete.** **Next:** the PR of F1.14 (ADR-0028, F1.14b,
-F1.14c) with green CI on the three platforms; then F1.15 (concrete file format).
+update on the heavy score. **F1.14 complete**, merged with PR #23 (SCALETTA v0.35).
+
+**F1.15 in progress** (2026-11-06, `feature/f1-15-file-format`), split as approved in the briefing
+into the ADR (F1.15), the implementation (F1.15b) and the golden files with the migrations
+(F1.15c). A spike (`spikes/fileformat/`, `RESULTS.md`) encoded the real normal and heavy scores:
+every candidate reads 100 bars in ≤ 30 ms natively; JSON with compact values reads the heavy score
+in ≈ 100 ms, RON is 3–5× slower and its generic tree cannot read enums back, postcard is fastest
+but not self-describing. Draft **ADR-0029** (Proposed) with the choices S1–S14 for the owner:
+JSON with `serde`/`serde_json` only in `io`, one plain uncompressed file in version 1 (a zip as the
+alternative; media later, beside the file), deterministic one-record-per-line layout, a file schema
+separate from the model with `Document::from_parts`, the version as the first member, canonical
+rational strings, compact pitches and note values, no floats, strict loading (unknown fields
+refused), limits (1 024 tracks, 1 GiB), rule 13 against meter changes past the last bar, migrations
+on `serde_json::Value`, golden and round-trip tests, atomic saving, the extension `.orchestra`.
+**Next:** the owner's review of S1–S14.
 
 | Step | What | Status |
 |---|---|---|
@@ -522,7 +535,7 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 - **Possible model optimisations, not urgent (F1.06 numbers):** a whole-score iteration with
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
-- **Concrete project file format** (ADR-0010, Phase 1).
+- **Concrete project file format** (ADR-0010): draft ADR-0029, waiting for the owner (F1.15).
 - **From F1.10b, to keep in mind:** the number of a bar in the lettered styles walks the volta
   groups before it (≈ 275 instructions each), and finding the section of a jump or a pass rule
   walks the repeat barlines: fine for real scores, and a derived index of the sections (rebuilt

@@ -2755,6 +2755,24 @@ The `spikes` workspace strips release binaries, so its `[profile.bench]` keeps s
 finds the measured function by name, and without symbols every count is 0. The numbers and the
 choice of P3 are in `spikes/model/ANALYSIS.md` and ADR-0022.
 
+### The file format spike
+
+`spikes/fileformat` (step F1.15) measures candidate encodings of the project file on the real
+normal and heavy scores of `core-model`'s tests: it includes their generator
+(`crates/core-model/tests/common/score.rs`) with `#[path]`, reads the voice contents through the
+model's public API into a file schema of plain structs with serde derives, and writes them as JSON
+(structured, compact and pretty-printed), RON and postcard, with and without deflate. For each it
+prints the size, the native time to write, to read back into the typed schema and to read through
+`serde_json::Value` (the path of a file being migrated):
+
+```sh
+cd spikes
+cargo run --release -p fileformat
+```
+
+The numbers and the findings (RON's generic tree cannot read enums back, postcard is not
+self-describing) are in `spikes/fileformat/RESULTS.md` and ADR-0029.
+
 ## Lessons from Phase 0
 
 Things that are not obvious and cost time when you meet them for the first time:
