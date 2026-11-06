@@ -43,9 +43,13 @@
 //! 12. **The DAW move's data** (ADR-0028 §1, §5): every entry of an instrument's pass-offset
 //!     table names a notehead of that instrument (the editor removes the entries of deleted notes,
 //!     T5), and every tolerance override names an existing track with a positive threshold.
+//! 13. **The meter map ends with the bars** (ADR-0029 S10): no meter change, irregular bar, beat
+//!     grouping, uncounted bar or numbering restart at a bar index the document does not have
+//!     (the initial meter at index 0 excepted).
 //!
 //! `DocumentBuilder::build` calls it, so no invalid document can exist (owner's decision of
-//! 2026-11-02); the file loader of F1.15 builds through the builder and gets it for free.
+//! 2026-11-02); the loader of saved documents (`Document::from_parts`, ADR-0029 S4) replays the
+//! saved data through the builder and gets it for free.
 
 use std::error::Error;
 use std::fmt;
@@ -138,6 +142,9 @@ pub enum Violation {
     /// A tolerance override names this track, which the document does not have, or is not
     /// strictly positive.
     ToleranceOverride(TrackId),
+    /// The meter map has an entry (a meter change, an irregular bar, a beat grouping, an uncounted
+    /// bar or a numbering restart) at this bar index, which is not a bar of the document (rule 13).
+    MeterChangePastLastBar(u32),
 }
 
 impl fmt::Display for Violation {
@@ -299,6 +306,10 @@ impl fmt::Display for Violation {
                 "the tolerance override of track {} names no track or is not positive",
                 id.get()
             ),
+            Self::MeterChangePastLastBar(index) => write!(
+                f,
+                "the meter map has an entry at bar index {index}, past the last bar"
+            ),
         }
     }
 }
@@ -361,10 +372,42 @@ impl Document {
         }
         // Rule 12: the DAW move's data.
         self.check_daw_data(&owner)?;
+        // Rule 13: nothing in the meter map past the last bar.
+        self.check_meter_map_extent()?;
         // Rule 7: the walk that derives the tempo map checks the rules of the marks. The map
         // itself is not rebuilt (the builder derived it when each mark was added), so nothing is
         // allocated.
         self.walk_tempo_marks(|_, _| {})?;
+        Ok(())
+    }
+
+    /// Checks rule 13 (ADR-0029 S10, owner's approval of 2026-11-06): every entry of the meter map
+    /// is at the index of a bar of the document. The meter map itself covers infinitely many bars
+    /// (ADR-0018), so an entry past the last bar would be invisible, unreachable data that a file
+    /// could carry and a command could never touch. The initial meter (index 0) is exempt: the map
+    /// always has it, even for a document without bars.
+    ///
+    /// O(entries) on the meter map's sorted lists (only the last entry of each needs looking at,
+    /// but the lists are short and the full scan is clearer); no allocation.
+    fn check_meter_map_extent(&self) -> Result<(), DocumentError> {
+        let bars = u32::try_from(self.bars().len()).map_err(|_| DocumentError::TooManyBars)?;
+        let map = self.meter_map();
+        let indices = map
+            .meter_changes()
+            .iter()
+            .map(|(b, _)| *b)
+            .filter(|b| b.get() != 0)
+            .chain(map.irregular_bars().iter().map(|(b, _)| *b))
+            .chain(map.bar_groupings().iter().map(|(b, _)| *b))
+            .chain(map.uncounted_bars().iter().copied())
+            .chain(map.numbering_restarts().iter().map(|(b, _)| *b));
+        for index in indices {
+            if index.get() >= bars {
+                return Err(DocumentError::Invalid(Violation::MeterChangePastLastBar(
+                    index.get(),
+                )));
+            }
+        }
         Ok(())
     }
 

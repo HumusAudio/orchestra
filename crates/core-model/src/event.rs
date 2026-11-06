@@ -30,6 +30,7 @@ use std::num::NonZeroU8;
 
 use orchestra_core_time::{Duration, Rational, RationalError};
 
+use crate::document::DocumentError;
 use crate::id::{EventId, NoteId, StaffId, TupletId};
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::pitch::Pitch;
@@ -356,6 +357,14 @@ impl Tuplet {
         self
     }
 
+    /// The same tuplet nested in `parent`, a tuplet of the same voice (`None`: top level), for
+    /// describing a saved document; the builder sets it itself from its `parent` argument. O(1).
+    #[must_use]
+    pub const fn with_parent(mut self, parent: Option<TupletId>) -> Self {
+        self.parent = parent;
+        self
+    }
+
     /// How many notes of the unit are played. O(1).
     #[must_use]
     pub const fn actual(self) -> u8 {
@@ -456,15 +465,35 @@ pub struct Note {
 }
 
 impl Note {
-    /// A new untied notehead without performance offsets: only the document creates them, with
-    /// IDs from its counter. O(1).
-    pub(crate) const fn new(id: NoteId, pitch: Pitch) -> Self {
+    /// An untied notehead without performance offsets, with its ID; see
+    /// [`with_tie`](Self::with_tie) and [`with_offsets`](Self::with_offsets). O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: NoteId, pitch: Pitch) -> Self {
         Self {
             id,
             pitch,
             tie: Tie::None,
             offsets: PerformanceOffsets::NONE,
         }
+    }
+
+    /// The same notehead with this tie (ADR-0024 §4), for describing a saved document. O(1).
+    #[must_use]
+    pub const fn with_tie(mut self, tie: Tie) -> Self {
+        self.tie = tie;
+        self
+    }
+
+    /// The same notehead with these performance offsets (ADR-0024 §10), for describing a saved
+    /// document. O(1).
+    #[must_use]
+    pub const fn with_offsets(mut self, offsets: PerformanceOffsets) -> Self {
+        self.offsets = offsets;
+        self
     }
 
     /// The notehead's identity. O(1).
@@ -573,6 +602,63 @@ impl Chord {
         }
     }
 
+    /// A chord without markings from its noteheads, **in the order given**, for describing a saved
+    /// document (ADR-0029 S4, owner's choice L1 of 2026-11-06); see
+    /// [`with_articulations`](Self::with_articulations) and the other `with_*` methods for the
+    /// markings.
+    ///
+    /// The order is not sorted here: a saved chord lists its noteheads as the document keeps them
+    /// (lowest first), and [`Document::from_parts`](crate::Document::from_parts) refuses a chord
+    /// whose order is not the one the builder would give, instead of silently reordering it (a
+    /// re-save would then differ from the file). O(n) to move the noteheads.
+    ///
+    /// # Errors
+    /// [`DocumentError::EmptyChord`] for no notehead.
+    pub fn new(
+        value: NoteValue,
+        tuplet: Option<TupletId>,
+        grace: Option<Grace>,
+        notes: Vec<Note>,
+    ) -> Result<Self, DocumentError> {
+        let mut notes = notes.into_iter();
+        let lowest = notes.next().ok_or(DocumentError::EmptyChord)?;
+        Ok(Self::from_sorted(
+            value,
+            tuplet,
+            grace,
+            lowest,
+            notes.collect(),
+        ))
+    }
+
+    /// The same chord with these articulations, for describing a saved document. O(1).
+    #[must_use]
+    pub fn with_articulations(mut self, articulations: ArticulationSet) -> Self {
+        self.articulations = articulations;
+        self
+    }
+
+    /// The same chord with this ornament, for describing a saved document. O(1).
+    #[must_use]
+    pub fn with_ornament(mut self, ornament: Option<Ornament>) -> Self {
+        self.ornament = ornament;
+        self
+    }
+
+    /// The same chord with this fermata, for describing a saved document. O(1).
+    #[must_use]
+    pub fn with_fermata(mut self, fermata: Option<Fermata>) -> Self {
+        self.fermata = fermata;
+        self
+    }
+
+    /// The same chord with this arpeggio sign, for describing a saved document. O(1).
+    #[must_use]
+    pub fn with_arpeggio(mut self, arpeggio: Option<Arpeggio>) -> Self {
+        self.arpeggio = arpeggio;
+        self
+    }
+
     /// The written value. O(1).
     #[must_use]
     pub const fn value(&self) -> NoteValue {
@@ -676,13 +762,26 @@ pub struct Rest {
 }
 
 impl Rest {
-    /// A rest without fermata: only the document creates them, after checking the tuplet. O(1).
-    pub(crate) const fn new(value: RestValue, tuplet: Option<TupletId>) -> Self {
+    /// A rest without fermata; see [`with_fermata`](Self::with_fermata). O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(value: RestValue, tuplet: Option<TupletId>) -> Self {
         Self {
             value,
             tuplet,
             fermata: None,
         }
+    }
+
+    /// The same rest with this fermata (a general pause is a whole-bar rest with one), for
+    /// describing a saved document. O(1).
+    #[must_use]
+    pub const fn with_fermata(mut self, fermata: Option<Fermata>) -> Self {
+        self.fermata = fermata;
+        self
     }
 
     /// The written value. O(1).
@@ -731,8 +830,13 @@ pub struct Event {
 }
 
 impl Event {
-    /// An event: only the document creates them. O(1).
-    pub(crate) const fn new(id: EventId, staff: StaffId, body: EventBody) -> Self {
+    /// An event with its ID. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: EventId, staff: StaffId, body: EventBody) -> Self {
         Self { id, staff, body }
     }
 
@@ -831,8 +935,13 @@ pub struct PlacedEvent {
 }
 
 impl PlacedEvent {
-    /// An entry: only the document creates them, after checking the offset. O(1).
-    pub(crate) const fn new(offset: Duration, event: Event) -> Self {
+    /// An event at its offset from the barline. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(offset: Duration, event: Event) -> Self {
         Self { offset, event }
     }
 

@@ -65,7 +65,7 @@ pub use meter_map::{
     MeterMapError,
 };
 pub use position::{Duration, Position};
-pub use rational::{Rational, RationalError};
+pub use rational::{ParseRationalError, Rational, RationalError};
 pub use tempo::{Tempo, TempoError};
 pub use tempo_map::{
     GradualChange, IndexAt, TIME_GRID, TempoChange, TempoMap, TempoMapError, TimeAt,

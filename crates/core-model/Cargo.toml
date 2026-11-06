@@ -66,5 +66,11 @@ harness = false
 name = "editor"
 harness = false
 
+# Instruction-count benchmarks of the saved-document description on the normal and heavy scores:
+# a document's description and a document built back from it (SCALETTA F1.15b, ADR-0029 S4).
+[[bench]]
+name = "parts"
+harness = false
+
 [lints]
 workspace = true

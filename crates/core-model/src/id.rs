@@ -37,10 +37,22 @@ use std::num::NonZeroU64;
 ///
 /// IDs are handed out in increasing order, starting at 1. The counter is saved in the project file
 /// (F1.15), so a document reopened from disk keeps handing out IDs that were never used before.
+///
+/// # Replaying saved IDs
+/// Loading a saved document ([`Document::from_parts`](crate::Document::from_parts), ADR-0029 S4)
+/// goes through the very builder methods that create new documents, so that a file is checked
+/// exactly as the builder checks what it creates. Those methods take their IDs from this counter;
+/// while loading, the counter is put in **script** mode: it hands out the saved IDs it was given
+/// for the next call, in order, instead of new ones, and nothing else (an empty script hands out
+/// nothing, so a builder method that wanted more IDs than the file gave fails instead of silently
+/// inventing one). Outside loading the script is `None` and costs one branch per ID.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IdCounter {
     /// The next ID to hand out, or `None` when all `u64::MAX` values have been used.
     next: Option<NonZeroU64>,
+    /// While loading: the saved IDs still to hand out, **last one first** (a stack, so that taking
+    /// one is a `pop`). `None` outside loading.
+    script: Option<Vec<NonZeroU64>>,
 }
 
 impl IdCounter {
@@ -48,6 +60,7 @@ impl IdCounter {
     pub(crate) const fn new() -> Self {
         Self {
             next: Some(NonZeroU64::MIN),
+            script: None,
         }
     }
 
@@ -55,7 +68,43 @@ impl IdCounter {
     /// anywhere near the end of the range). O(1).
     #[cfg(test)]
     pub(crate) const fn starting_at(next: NonZeroU64) -> Self {
-        Self { next: Some(next) }
+        Self {
+            next: Some(next),
+            script: None,
+        }
+    }
+
+    /// A counter restored from a saved document: its next ID is `next` (`None`: exhausted), and it
+    /// starts in script mode with an empty script (see the type's documentation). O(1).
+    pub(crate) const fn restored(next: Option<NonZeroU64>) -> Self {
+        Self {
+            next,
+            script: Some(Vec::new()),
+        }
+    }
+
+    /// The raw next ID, as saved in a file (`None`: exhausted). O(1).
+    pub(crate) const fn next_value(&self) -> Option<NonZeroU64> {
+        self.next
+    }
+
+    /// Gives the saved IDs that the next builder call must hand out, in the order it takes them.
+    /// Only in script mode (a no-op otherwise, which only a bug could reach). O(n).
+    pub(crate) fn set_script(&mut self, ids: &[NonZeroU64]) {
+        if let Some(script) = &mut self.script {
+            script.clear();
+            script.extend(ids.iter().rev());
+        }
+    }
+
+    /// Whether every scripted ID has been handed out (always true outside script mode). O(1).
+    pub(crate) fn script_is_spent(&self) -> bool {
+        self.script.as_ref().is_none_or(Vec::is_empty)
+    }
+
+    /// Leaves script mode: from now on the counter hands out new IDs again. O(1).
+    pub(crate) fn end_script(&mut self) {
+        self.script = None;
     }
 
     /// Whether `n` more IDs can be handed out. O(1).
@@ -64,6 +113,10 @@ impl IdCounter {
     /// track takes 2 + 2 × staves), so that a failure leaves the document unchanged instead of
     /// half-built.
     pub(crate) fn has_room_for(&self, n: u64) -> bool {
+        // While loading, the room is exactly what the script still holds.
+        if let Some(script) = &self.script {
+            return usize::try_from(n).is_ok_and(|n| n <= script.len());
+        }
         match (self.next, n.checked_sub(1)) {
             // Asking for nothing always succeeds.
             (_, None) => true,
@@ -81,8 +134,12 @@ impl IdCounter {
     /// For edits that can only be judged once the new object is in place (a tempo mark, whose
     /// derived tempo map may turn out invalid): the object is tried with this ID, and the ID is
     /// taken only if it stays, so that a rejected edit never consumes one.
-    pub(crate) const fn peek(&self) -> Option<NonZeroU64> {
-        self.next
+    pub(crate) fn peek(&self) -> Option<NonZeroU64> {
+        match &self.script {
+            // While loading, the next ID is the next scripted one.
+            Some(script) => script.last().copied(),
+            None => self.next,
+        }
     }
 
     /// Whether the counter has already handed out the raw ID `raw`: it is below the next value
@@ -95,6 +152,10 @@ impl IdCounter {
 
     /// Hands out the next ID, or `None` if the counter is exhausted. O(1).
     pub(crate) fn next(&mut self) -> Option<NonZeroU64> {
+        // While loading, hand out the next scripted ID, and nothing once the script is spent.
+        if let Some(script) = &mut self.script {
+            return script.pop();
+        }
         let id = self.next?;
         // `checked_add` returns `None` past `u64::MAX`: the counter is then exhausted for good,
         // and `u64::MAX` itself has just been handed out exactly once.
@@ -107,8 +168,9 @@ impl IdCounter {
 // The typed IDs
 // ------------------------------------------------------------------------------------------------
 
-/// Defines one ID newtype: a `NonZeroU64` that only this crate can create (from the counter), with
-/// a public getter for the raw value (what the project file stores, F1.15).
+/// Defines one ID newtype: a `NonZeroU64` created by this crate from the counter, with a public
+/// getter for the raw value (what the project file stores) and `from_raw` for loading a saved
+/// document (ADR-0029 S4).
 ///
 /// A macro, because the types are identical apart from their name and documentation; writing
 /// them out by hand would be five copies of the same code to keep in step.
@@ -124,7 +186,8 @@ macro_rules! define_id {
         impl $name {
             /// Wraps a value handed out by the document's [`IdCounter`]. O(1).
             ///
-            /// Crate-private: an ID only exists because the document created the object it names.
+            /// Crate-private: a new ID only exists because the document created the object it
+            /// names (`from_raw` is for saved ones).
             pub(crate) const fn from_counter(raw: NonZeroU64) -> Self {
                 Self(raw)
             }
@@ -133,6 +196,24 @@ macro_rules! define_id {
             #[must_use]
             pub const fn get(self) -> u64 {
                 self.0.get()
+            }
+
+            /// The ID with this raw value, or `None` for 0 (never an ID). O(1).
+            ///
+            /// **For loading a saved document only** (ADR-0029 S4, owner's choice L1 of
+            /// 2026-11-06): it lets a description of a saved document name its objects by their
+            /// saved IDs. An ID made up here harms nothing: [`Document::from_parts`] refuses a
+            /// document whose IDs repeat or were not handed out by its counter, and an edit
+            /// refuses an object whose ID is already in use or not yet handed out
+            /// (`DocumentError::DuplicateObject`, `DocumentError::UnknownObject`).
+            ///
+            /// [`Document::from_parts`]: crate::Document::from_parts
+            #[must_use]
+            pub const fn from_raw(raw: u64) -> Option<Self> {
+                match NonZeroU64::new(raw) {
+                    Some(raw) => Some(Self(raw)),
+                    None => None,
+                }
             }
         }
     };

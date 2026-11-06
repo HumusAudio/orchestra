@@ -5,6 +5,8 @@
   confirming that compression can come later as an ordinary format version (S2), and added two
   precisions: the version-1 reader already recognises compressed containers (S5), and user
   settings are always written, only structural absences are omitted (S6).
+- **Precisions** L1–L8 approved by the owner on 2026-11-06, before the code of F1.15b part 1
+  (section "Precisions L1–L8").
 - **Date:** 2026-11-06
 - **Completes:** ADR-0010 (its "Proposed part": the concrete format). ADR-0010's accepted policy
   (format version in a header, migrations `vN → vN+1`, golden files, refusal of newer files,
@@ -287,6 +289,46 @@ crash recovery stay in F2.14 (D13).
   API, the textual `Rational`, rule 13 and the limits, save and load with atomic saving, round-trip
   and robustness tests, benchmarks; **F1.15c** — the golden files of version 1, the migration
   machinery (tested with a test-only `v1 → v2`), the documentation, the PR.
+
+## Precisions L1–L8 (F1.15b part 1, owner's approval of 2026-11-06)
+
+How S4's description and loader are shaped in `core-model`:
+
+- **L1** — Saved IDs are recreated with a public `from_raw(u64) -> Option<Self>` on every ID type
+  (`None` for 0), documented as for loading only. Rejected: a second set of "raw" mirror types
+  with `u64` IDs (about 25 types, a third representation of the same data beside the model and
+  the file schema, against ADR-0003's spirit). An ID made up with `from_raw` harms nothing: the
+  loader refuses repeated or unissued IDs (L4), an edit refuses an object whose ID is in use or
+  not yet handed out.
+- **L2** — `DocumentParts` is a plain public struct with public fields mirroring the document
+  (counter, meter map, bars, tempo and key marks, form lists, numbering, tracks, tolerance), with
+  plain containers (`TrackParts`, `StaffParts`, `VoiceParts`, `CellParts`) only where the model
+  keeps derived data, and the model's **own** value types for the leaves, given public
+  constructors that take their ID.
+- **L3** — Reading is `Document::to_parts(&self) -> DocumentParts`, a full copy symmetric to
+  `from_parts`; its cost is measured (`benches/parts.rs`).
+- **L4** — `from_parts` checks: IDs unique across every kind and below the saved next value of the
+  counter; cells on existing bars and voices; the document's own order of every list; the
+  derived data rebuilt; the full `validate`; revision 0; all or nothing. Implementation: the
+  description is **replayed through the `DocumentBuilder`** methods with the counter in a script
+  mode that hands out the saved IDs, so a file is checked exactly as the builder checks what it
+  creates; the order is checked by comparing the rebuilt document's description with the given
+  one.
+- **L5** — Errors reuse `DocumentError` (like the builder), with the new variants `ZeroId`,
+  `DuplicateId(u64)`, `IdNotIssued(u64)`, `TooManyTracks` and `NotCanonical` (a list out of
+  order); rule 13 reports `Violation::MeterChangePastLastBar(index)` through
+  `DocumentError::Invalid`, like every other rule of `validate`. The file reader's error (F1.15b
+  part 2) wraps them.
+- **L6** — `MAX_TRACKS = 1024` is enforced by the builder (so by every path that creates a
+  document), and rule 13 (S10) by `validate`; the command property tests, which run `validate`
+  after every command, confirm that no command creates a meter-map entry past the last bar.
+- **L7** — `Rational` gains `Display` (`3/16`, `-1/8`, `2`) and a strict `FromStr` accepting only
+  that canonical form, with its own `ParseRationalError` (`Empty`, `Malformed`, `NotCanonical`,
+  `DivisionByZero`, `Overflow`, in that order of precedence).
+- **L8** — Tests: the round trip `from_parts(to_parts(d))` (same content, IDs, counter and
+  description) after every step of the existing property tests, and the refusal of every invalid
+  document they meet; one hand-written case per error; an oracle for the rational text;
+  benchmarks of `to_parts` and `from_parts` on the heavy score.
 
 ## Alternatives rejected
 

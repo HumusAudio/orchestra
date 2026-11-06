@@ -167,8 +167,13 @@ pub struct RepeatStart {
 }
 
 impl RepeatStart {
-    /// A start repeat: only the document creates them, with an ID from its counter. O(1).
-    pub(crate) const fn new(id: RepeatId, bar: BarId) -> Self {
+    /// A start repeat with its ID. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: RepeatId, bar: BarId) -> Self {
         Self { id, bar }
     }
 
@@ -202,8 +207,13 @@ pub struct RepeatEnd {
 }
 
 impl RepeatEnd {
-    /// An end repeat: only the document creates them, with an ID from its counter. O(1).
-    pub(crate) const fn new(id: RepeatId, bar: BarId, times: u8) -> Self {
+    /// An end repeat with its ID. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: RepeatId, bar: BarId, times: u8) -> Self {
         Self { id, bar, times }
     }
 
@@ -254,8 +264,13 @@ pub struct Volta {
 }
 
 impl Volta {
-    /// A volta: only the document creates them, with an ID from its counter. O(1).
-    pub(crate) const fn new(
+    /// A volta with its ID. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(
         id: VoltaId,
         first: BarId,
         last: BarId,

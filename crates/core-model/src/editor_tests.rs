@@ -361,6 +361,32 @@ fn events(doc: &Document) -> Vec<EventId> {
 pub(crate) fn assert_consistent(doc: &Document) {
     assert!(doc.indices_are_consistent(), "a derived index drifted");
     assert_eq!(doc.tempo_map(), &doc.derive_tempo_map().unwrap());
+    assert_round_trip(doc);
+}
+
+/// The round trip of a saved document (ADR-0029 S4, owner's choice L8 of 2026-11-06): the
+/// description of a valid document builds back a document with the same content, the same IDs
+/// and the same counter, whose description is identical; the description of an **invalid** one
+/// (the raw edits of the snapshot test may make one: they keep only the structure) is refused, so
+/// a file can never bring in what `validate` forbids. Called by [`assert_consistent`], so that
+/// every property test of the commands and the edits checks it after every step.
+pub(crate) fn assert_round_trip(doc: &Document) {
+    let parts = doc.to_parts();
+    if let Err(invalid) = doc.validate() {
+        assert!(
+            Document::from_parts(&parts).is_err(),
+            "an invalid document ({invalid:?}) loaded"
+        );
+        return;
+    }
+    let back = match Document::from_parts(&parts) {
+        Ok(back) => back,
+        Err(e) => panic!("a valid document did not load back: {e:?}"),
+    };
+    assert!(back.same_content(doc), "the loaded document differs");
+    assert!(back.indices_are_consistent(), "the loaded indices differ");
+    assert_eq!(back.to_parts(), parts, "the loaded description differs");
+    assert_eq!(back.revision(), 0, "a loaded document starts at revision 0");
 }
 
 /// One random edit, chosen by `op` and parametrised by `a` and `b`, built against the document as

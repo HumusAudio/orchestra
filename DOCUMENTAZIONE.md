@@ -320,8 +320,8 @@ Essere `const` costa un po' di prolissità: dentro una `const fn` non si possono
 di `?`, e alcune conversioni `as`, ognuna con il suo motivo. Gli altri metodi sono `abs`,
 `signum`, `is_zero`, `is_positive`, `is_negative`, `is_integer`, `floor`/`ceil`/`trunc` (verso
 `i64`, non possono fallire) e `to_f64`, un'approssimazione solo per la visualizzazione che non
-deve mai rientrare nel modello. Di proposito non ci sono `Display` né lettura da testo: la forma
-testuale si sceglie insieme al formato del file (F1.15). `Debug` stampa `Rational(3/8)`.
+deve mai rientrare nel modello. `Debug` stampa `Rational(3/8)`; la forma testuale canonica del file di
+progetto è data da `Display` e `FromStr`, descritti più sotto.
 
 Poiché `core-time` vieta `+ - *` semplici sugli interi (`clippy::arithmetic_side_effects`), ogni
 operazione intera nel file è `checked_*` oppure `wrapping_*` con un commento che dimostra che non
@@ -366,6 +366,46 @@ contro Euclide, il controllo dell'intervallo).
 
 I benchmark (`benches/rational.rs`, passo F1.03b) e i loro primi numeri sono descritti più sotto,
 in "Benchmark e test di proprietà".
+
+#### La forma testuale canonica
+
+Il file di progetto scrive ogni razionale come testo (ADR-0029 S6), e quel testo si decide qui:
+`Display` scrive `3/16`, `-1/8`, e gli interi senza denominatore (`0`, `2`, `-5`). Poiché il tipo
+è sempre ridotto con il segno sul numeratore, **un valore ha un solo testo**, quindi un file
+salvato cambia solo dove un valore è cambiato davvero, e salvare due volte dà gli stessi byte.
+
+`FromStr` legge esattamente quella forma e rifiuta tutto il resto, con un errore tipizzato
+`ParseRationalError`:
+
+```rust
+let x: Rational = "-3/16".parse()?;
+assert_eq!(x.to_string(), "-3/16");
+assert_eq!("2/4".parse::<Rational>(), Err(ParseRationalError::NotCanonical)); // not reduced
+assert_eq!("3/1".parse::<Rational>(), Err(ParseRationalError::NotCanonical)); // write "3"
+assert_eq!(" 1/2".parse::<Rational>(), Err(ParseRationalError::Malformed));   // no spaces
+assert_eq!("3/0".parse::<Rational>(), Err(ParseRationalError::DivisionByZero));
+```
+
+Le varianti sono `Empty`, `Malformed` (non è `[-]cifre[/cifre]` con cifre ASCII: spazi, `+`,
+virgole decimali, cifre di altri alfabeti), `NotCanonical` (zeri iniziali, `-0`, `/1`, non
+ridotto), `DivisionByZero` e `Overflow` (una parte oltre `i64::MAX`, oppure il numeratore
+`i64::MIN`). Quando un testo ha più problemi vince il primo in quest'ordine: la forma di
+**entrambe** le parti si controlla prima della loro grandezza, la grandezza prima del denominatore
+zero, e questo prima della forma canonica. Il lettore guarda ogni parte in due passate: prima che
+sia fatta solo di cifre, poi il suo valore con aritmetica controllata, segnalando a chi chiama
+overflow e zeri iniziali invece di fermarsi subito. Quest'ordine l'ha trovato il test con
+l'oracolo: una prima versione dava `01/0/2` come "non canonico" perché giudicava lo zero iniziale
+del numeratore prima di vedere la seconda barra.
+
+Il testo è per i file e per gli sviluppatori, mai per l'utente: l'interfaccia mostra le durate a
+modo suo (figure, battute e movimenti), tramite Fluent.
+
+**Test** (`tests/rational_text.rs`): casi scritti a mano per ogni forma accettata e ogni variante
+d'errore (compresi `i64::MAX`, `-i64::MAX` e l'overflow di `i64::MIN`); 20 000 valori casuali
+scritti e riletti; e un oracolo che classifica 20 000 testi casuali costruiti con i pezzi della
+grammatica (segni, cifre con e senza zeri iniziali, barre, caratteri estranei), in `u128` e con il
+massimo comun divisore di Euclide, senza codice in comune con il lettore. Tre bug iniettati
+(accettare `-0`, accettare frazioni non ridotte, accettare `/1`) sono stati presi.
 
 #### Posizioni e durate
 
@@ -2066,6 +2106,110 @@ durata condivisi) e ridimensionamenti e spostamenti divisi alla stanghetta nel t
 il cui invariante è la durata suonata (`scritta × scale + scostamenti`); ridimensionamenti e
 divisioni anche tra i comandi casuali del test dell'aggiornamento del playback. Nove bug iniettati
 sono stati presi, tre solo dopo casi scritti apposta.
+
+#### Documenti salvati: la descrizione e il caricamento
+
+Il file di progetto (crate `orchestra-io`) ha un suo schema, così che un riordino del modello non
+cambi mai il file per sbaglio (ADR-0029 S4). `core-model` gli va incontro con `src/parts.rs`:
+**`DocumentParts`**, una descrizione semplice e pubblica di tutto ciò che un documento salva
+(ADR-0029 S7), nei tipi di valore del modello stesso con i loro ID, e le due strade fra essa e un
+`Document`. `core-model` non ha alcuna dipendenza di serializzazione.
+
+```rust
+let parts: DocumentParts = doc.to_parts();       // a copy of the saved data
+let back = Document::from_parts(&parts)?;         // checked as the builder checks
+assert!(back.same_content(&doc));                 // same music, same IDs, same counter
+```
+
+**Cosa contiene la descrizione.** Il prossimo valore del contatore degli ID (`next_id`, `None` una
+volta esaurito), la mappa dei metri, l'elenco delle battute, l'indicazione di tempo iniziale con
+il suo ID e le indicazioni di tempo, l'armatura iniziale e i cambi d'armatura, gli elenchi della
+forma e lo stile di numerazione, le impostazioni della tolleranza, e un `TrackParts` per traccia:
+ID, nome e trasposizione dello strumento, i suoi righi (`StaffParts`: chiave iniziale, cambi di
+chiave), le sue voci (`VoiceParts`: rigo di casa, gruppi irregolari ordinati per ID, le celle **non
+vuote** come `CellParts { bar, events }`), eccezioni d'armatura, legature di portamento,
+dinamiche, forcelle, ripetizioni di battuta, regole di passaggio e scostamenti per passaggio. Ogni
+elenco è nell'ordine in cui lo tiene il documento. I dati ricavati (mappa dei tempi, indici) e la
+revisione non ci sono; la cronologia di undo non c'è mai.
+
+**Costruire i valori foglia.** Chi legge un file deve creare note, accordi, marcature… con i loro
+ID salvati, cosa che finora poteva fare solo il crate. Scelta L1 del proprietario (2026-11-06):
+ogni tipo di ID ha `from_raw(u64) -> Option<Self>` (`None` per 0), e i tipi di valore hanno
+costruttori pubblici che prendono il loro ID (`Note::new(id, pitch).with_tie(..).with_offsets(..)`,
+`Chord::new(value, tuplet, grace, notes)` con `with_articulations`, `with_ornament`,
+`with_fermata`, `with_arpeggio`, `Rest::new(..).with_fermata(..)`, `Tuplet::with_parent`,
+`Event::new`, `PlacedEvent::new`, `Mark::new`, `Slur::new`, `Dynamic::new`, `Hairpin::new`,
+`RepeatStart::new`, `RepeatEnd::new`, `Volta::new`, `Marker::new`, `Jump::new`,
+`BarRepeat::new`, `PassRule::new`). **Descrivono** soltanto degli oggetti: un documento si crea
+ancora solo con il builder, con `from_parts` o con i comandi, che verificano tutti. `Chord::new`
+mantiene apposta l'ordine dato delle teste di nota: un accordo fuori ordine viene rifiutato dal
+caricamento, non riordinato in silenzio.
+
+**Come verifica `from_parts`: una ripetizione attraverso il builder.** Invece di un secondo
+insieme di regole per il caricamento, che potrebbe allontanarsi da quelle del builder, la
+descrizione viene ripetuta attraverso i metodi di `DocumentBuilder` nell'ordine salvato:
+`add_bar` per ogni battuta, una traccia di strumento senza voci e poi `add_voice` per ogni voce (le
+voci salvate non sono per forza una per rigo), `add_tuplet`, `add_chord` / `add_grace_chord` /
+`add_rest` e i `set_*` dei segni per ogni evento, poi legature di valore, scostamenti, legature di
+portamento, dinamiche, forcelle, scostamenti per passaggio, tolleranza, i segni della forma, e
+infine `build()` con il `validate` completo. Il builder prende i suoi ID dal contatore; per il
+caricamento il contatore passa in **modalità copione** (`IdCounter::restored`, `set_script`):
+prima di ogni chiamata il caricatore gli consegna esattamente gli ID salvati che quella chiamata
+prende, nell'ordine documentato del builder (un accordo: il suo evento, poi le sue teste di nota).
+Un metodo che vuole più ID trova il copione esaurito, uno che ne prende meno ne lascia; entrambi
+sono un bug del caricatore e danno `DocumentError::Inconsistent`. Fuori dal caricamento il copione
+è `None` e costa un ramo per ID.
+
+```rust
+// The loader's single entry to the builder: claim the saved IDs, script them, run the method,
+// check that it took them all.
+self.call(&ids, |b| match chord.grace() {
+    Some(grace) => b.add_grace_chord(at, grace, chord.value(), &pitches),
+    None => b.add_chord(at, chord.value(), &pitches),
+})?;
+```
+
+Ciò che il builder non può vedere, il caricatore lo controlla da sé (L4): ogni ID salvato è
+**unico fra tutti i tipi** (`DocumentError::DuplicateId`) e **sotto il prossimo valore salvato**
+del contatore (`IdNotIssued`), così nessun oggetto futuro può riceverlo di nuovo; e la descrizione
+del documento ricostruito deve essere uguale a quella data, così un elenco fuori ordine (eventi in
+un blocco, teste di un accordo, marcature per punto) viene rifiutato (`NotCanonical`) invece di
+essere riordinato in silenzio, cosa che farebbe differire un nuovo salvataggio dal file. `ZeroId`
+serve al lettore del file, che incontra numeri grezzi.
+
+**Due regole nuove** (L6). `MAX_TRACKS = 1024` (ADR-0029 S9): il builder rifiuta una traccia in
+più (`TooManyTracks`), così non può esistere un documento che un file non saprebbe contenere.
+**Regola 13** di `validate` (ADR-0029 S10): nessuna voce della mappa dei metri (cambio di metro,
+battuta irregolare, suddivisione dei movimenti, battuta non contata, ripartenza della numerazione)
+a un indice di battuta che il documento non ha, salvo il metro iniziale all'indice 0
+(`Violation::MeterChangePastLastBar`). I test di proprietà dei comandi, che eseguono il `validate`
+completo dopo ogni comando, mostrano che nessun comando crea una voce del genere.
+
+**Test.** `editor_tests::assert_consistent`, chiamata dopo ogni passo di ogni test di proprietà
+delle modifiche e dei comandi, ora controlla anche l'andata e ritorno: un documento valido torna
+con lo stesso contenuto, gli stessi indici, una descrizione identica e revisione 0; uno non
+valido (le modifiche grezze del test delle fotografie possono produrne) viene rifiutato.
+`src/parts_tests.rs` aggiunge un documento con ciò che i comandi casuali non creano mai (ogni
+ornamento, corone su un accordo e su una pausa di battuta intera, un arpeggio, articolazioni, una
+legatura "let ring", scostamenti, un gruppo irregolare annidato, una voce in più, un'eccezione
+d'armatura, una tolleranza per traccia, eccezioni e stile di numerazione) e un caso per ogni
+rifiuto: ID doppi dello stesso tipo e fra tipi diversi, un ID non emesso, un contatore esaurito
+(accettato), una battuta sconosciuta, eventi e teste di nota fuori ordine, una sovrapposizione, un
+cambio di metro oltre l'ultima battuta (e uno sull'ultima, accettato), la traccia numero 1 025.
+Quattordici bug iniettati nel caricatore e nella regola 13 sono stati presi, tre (un ornamento
+perso, una corona di pausa persa, nessun confronto finale) solo dopo i casi scritti apposta.
+
+**Costo** (`benches/parts.rs`):
+
+```text
+operation                         normal score     heavy score
+to_parts (a copy of the document)    1 230 000      35 670 000 instructions
+from_parts (replay, validate,       29 320 000     882 330 000 instructions
+            comparison)
+```
+
+La partitura normale (100 battute) si ricostruisce in pochi millisecondi, molto sotto il secondo
+di ADR-0007 per aprirla, che comprende anche la lettura del file (F1.15b parte 2).
 
 ### orchestra-playback
 

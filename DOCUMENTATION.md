@@ -302,8 +302,8 @@ so the file has two small macros (`const_try!`, `or_overflow!`) that do the job 
 `as` casts each with its reason. The other methods are `abs`, `signum`, `is_zero`,
 `is_positive`, `is_negative`, `is_integer`, `floor`/`ceil`/`trunc` (towards `i64`, they cannot
 fail) and `to_f64`, an approximation for display only that must never flow back into the model.
-There is deliberately no `Display` and no parsing: the text form is chosen with the file format
-(F1.15). `Debug` prints `Rational(3/8)`.
+`Debug` prints `Rational(3/8)`; the canonical text form of the project file is `Display` and
+`FromStr`, described below.
 
 Because `core-time` forbids plain `+ - *` on integers (`clippy::arithmetic_side_effects`), every
 integer operation in the file is either `checked_*` or `wrapping_*` with a comment that proves it
@@ -346,6 +346,45 @@ Euclid, the range check).
 
 The benchmarks (`benches/rational.rs`, step F1.03b) and their first numbers are described in
 "Benchmarks and property tests" below.
+
+#### The canonical text form
+
+The project file writes every rational as text (ADR-0029 S6), and that text is decided here:
+`Display` writes `3/16`, `-1/8`, and integers without a denominator (`0`, `2`, `-5`). Because the
+type is always reduced with the sign on the numerator, **one value has exactly one text**, so a
+saved file changes only where a value really changed, and saving twice gives the same bytes.
+
+`FromStr` reads exactly that form and refuses everything else, with a typed
+`ParseRationalError`:
+
+```rust
+let x: Rational = "-3/16".parse()?;
+assert_eq!(x.to_string(), "-3/16");
+assert_eq!("2/4".parse::<Rational>(), Err(ParseRationalError::NotCanonical)); // not reduced
+assert_eq!("3/1".parse::<Rational>(), Err(ParseRationalError::NotCanonical)); // write "3"
+assert_eq!(" 1/2".parse::<Rational>(), Err(ParseRationalError::Malformed));   // no spaces
+assert_eq!("3/0".parse::<Rational>(), Err(ParseRationalError::DivisionByZero));
+```
+
+The variants are `Empty`, `Malformed` (not `[-]digits[/digits]` with ASCII digits: spaces, `+`,
+decimal points, other scripts' digits), `NotCanonical` (leading zeros, `-0`, `/1`, not reduced),
+`DivisionByZero` and `Overflow` (a part beyond `i64::MAX`, or the numerator `i64::MIN`). When a
+text has several problems the first in that order wins: the shape of **both** parts is checked
+before their size, the size before the zero denominator, and that before the canonical form. The
+reader looks at each part in two passes: first that it is made of digits only, then its value with
+checked arithmetic, reporting overflow and leading zeros to the caller instead of failing at once.
+That order was found by the oracle test: a first version reported `01/0/2` as "not canonical"
+because it judged the numerator's leading zero before seeing the second slash.
+
+The text is for files and developers, never for the user: the interface shows durations its own
+way (note values, bars and beats), through Fluent.
+
+**Tests** (`tests/rational_text.rs`): hand-written cases for every accepted shape and every error
+variant (including `i64::MAX`, `-i64::MAX` and the overflow of `i64::MIN`); 20 000 random values
+written and read back; and an oracle that classifies 20 000 random texts built from the grammar's
+pieces (signs, digits with and without leading zeros, slashes, stray characters), in `u128` and
+with Euclid's gcd, sharing no code with the reader. Three injected bugs (accepting `-0`, accepting
+unreduced fractions, accepting `/1`) were caught.
 
 #### Positions and durations
 
@@ -1939,6 +1978,102 @@ the shortest length, the shared length offsets) and resizes and moves split at b
 property test, whose invariant is the played length (`written × scale + offsets`); resizes and
 splits also among the random commands of the playback's update test. Nine injected bugs were
 caught, three only after cases written for them.
+
+#### Saved documents: the description and the loader
+
+The project file (crate `orchestra-io`) has its own schema, so that a refactoring of the model
+never changes the file by accident (ADR-0029 S4). `core-model` meets it halfway with
+`src/parts.rs`: **`DocumentParts`**, a plain public description of everything a document saves
+(ADR-0029 S7), in the model's own value types with their IDs, and the two ways between it and a
+`Document`. `core-model` has no serialisation dependency at all.
+
+```rust
+let parts: DocumentParts = doc.to_parts();       // a copy of the saved data
+let back = Document::from_parts(&parts)?;         // checked as the builder checks
+assert!(back.same_content(&doc));                 // same music, same IDs, same counter
+```
+
+**What the description holds.** The ID counter's next value (`next_id`, `None` once exhausted),
+the meter map, the bar list, the initial tempo mark with its ID and the tempo marks, the initial
+key and the key changes, the form lists and the numbering style, the tolerance settings, and one
+`TrackParts` per track: the instrument's ID, name and transposition, its staves (`StaffParts`:
+initial clef, clef changes), its voices (`VoiceParts`: home staff, tuplets sorted by ID, the
+**non-empty** cells as `CellParts { bar, events }`), key overrides, slurs, dynamics, hairpins,
+bar repeats, pass rules and pass-specific offsets. Every list is in the order the document keeps
+it. Derived data (tempo map, indices) and the revision are not in it; the undo history never is.
+
+**Building the leaf values.** A file reader must create notes, chords, marks… with their saved
+IDs, which until now only the crate could do. Owner's choice L1 (2026-11-06): every ID type has
+`from_raw(u64) -> Option<Self>` (`None` for 0), and the value types have public constructors that
+take their ID (`Note::new(id, pitch).with_tie(..).with_offsets(..)`, `Chord::new(value, tuplet,
+grace, notes)` with `with_articulations`, `with_ornament`, `with_fermata`, `with_arpeggio`,
+`Rest::new(..).with_fermata(..)`, `Tuplet::with_parent`, `Event::new`, `PlacedEvent::new`,
+`Mark::new`, `Slur::new`, `Dynamic::new`, `Hairpin::new`, `RepeatStart::new`, `RepeatEnd::new`,
+`Volta::new`, `Marker::new`, `Jump::new`, `BarRepeat::new`, `PassRule::new`). They only
+**describe** objects: a document is still created only by the builder, by `from_parts` or by the
+commands, which all check. `Chord::new` keeps the given order of the noteheads on purpose: a chord
+out of order is refused by the loader, not silently sorted.
+
+**How `from_parts` checks: a replay through the builder.** Rather than a second set of rules for
+loading, which could drift from the builder's, the description is replayed through the
+`DocumentBuilder` methods in the saved order: `add_bar` per bar, an instrument track without
+voices then `add_voice` per voice (saved voices need not be one per staff), `add_tuplet`,
+`add_chord` / `add_grace_chord` / `add_rest` and the `set_*` of the markings per event, then ties,
+offsets, slurs, dynamics, hairpins, pass offsets, tolerance, the form markings, and finally
+`build()` with the full `validate`. The builder takes its IDs from the counter; for loading the
+counter is put in **script mode** (`IdCounter::restored`, `set_script`): before each call the
+loader hands it exactly the saved IDs that call takes, in the builder's documented order (a chord:
+its event, then its noteheads). A method that wants more IDs finds the script spent, one that
+takes fewer leaves some behind; both are a bug of the loader and give `DocumentError::Inconsistent`.
+Outside loading the script is `None` and costs one branch per ID.
+
+```rust
+// The loader's single entry to the builder: claim the saved IDs, script them, run the method,
+// check that it took them all.
+self.call(&ids, |b| match chord.grace() {
+    Some(grace) => b.add_grace_chord(at, grace, chord.value(), &pitches),
+    None => b.add_chord(at, chord.value(), &pitches),
+})?;
+```
+
+What the builder cannot see, the loader checks itself (L4): every saved ID is **unique across all
+kinds** (`DocumentError::DuplicateId`) and **below the saved next value** of the counter
+(`IdNotIssued`), so no later object can receive it again; and the rebuilt document's description
+must equal the given one, so a list out of order (events in a chunk, noteheads in a chord, marks
+by point) is refused (`NotCanonical`) instead of being silently reordered, which would make a
+re-save differ from the file. `ZeroId` is for the file reader, which meets raw numbers.
+
+**Two new rules** (L6). `MAX_TRACKS = 1024` (ADR-0029 S9): the builder refuses one more track
+(`TooManyTracks`), so no document can exist that a file could not hold. **Rule 13** of `validate`
+(ADR-0029 S10): no meter-map entry (meter change, irregular bar, beat grouping, uncounted bar,
+numbering restart) at a bar index the document does not have, the initial meter at index 0
+excepted (`Violation::MeterChangePastLastBar`). The command property tests, which run the full
+`validate` after every command, show that no command creates such an entry.
+
+**Tests.** `editor_tests::assert_consistent`, called after every step of every property test of
+the edits and commands, now also checks the round trip: a valid document comes back with the same
+content, the same indices, an identical description and revision 0; an invalid one (the raw edits
+of the snapshot test can make one) is refused. `src/parts_tests.rs` adds a document with what
+random commands never make (every ornament, fermatas on a chord and on a whole-bar rest, an
+arpeggio, articulations, a let-ring tie, offsets, a nested tuplet, an extra voice, a key override,
+a per-track tolerance, numbering exceptions and style) and one case per refusal: duplicate IDs of
+one kind and across kinds, an unissued ID, an exhausted counter (accepted), an unknown bar, events
+and noteheads out of order, an overlap, a meter change past the last bar (and one on the last bar,
+accepted), the 1 025th track. Fourteen injected bugs in the loader and in rule 13 were caught,
+three (a lost ornament, a lost rest fermata, no final comparison) only after the cases written for
+them.
+
+**Cost** (`benches/parts.rs`):
+
+```text
+operation                         normal score     heavy score
+to_parts (a copy of the document)    1 230 000      35 670 000 instructions
+from_parts (replay, validate,       29 320 000     882 330 000 instructions
+            comparison)
+```
+
+The normal score (100 bars) is rebuilt in a few milliseconds, far below the 1 s of ADR-0007 for
+opening it, which also includes parsing the file (F1.15b part 2).
 
 ### orchestra-playback
 

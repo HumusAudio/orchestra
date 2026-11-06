@@ -681,14 +681,213 @@ impl PartialOrd for Rational {
 impl fmt::Debug for Rational {
     /// Writes `Rational(3/8)`, or `Rational(2)` for integers.
     ///
-    /// Deliberately only `Debug`: the canonical text form for files and the interface is decided
-    /// in F1.15 (ADR-0015 §10), so there is no `Display` and no `FromStr` yet.
+    /// The canonical text form for files is [`Display`](fmt::Display) (ADR-0029 S6); `Debug`
+    /// keeps the type name so that a value is recognisable in test failures.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.den == 1 {
             write!(f, "Rational({})", self.num)
         } else {
             write!(f, "Rational({}/{})", self.num, self.den)
         }
+    }
+}
+
+impl fmt::Display for Rational {
+    /// Writes the **canonical text form** of ADR-0029 S6: `3/16`, `-1/8`, and integers without a
+    /// denominator (`0`, `2`, `-5`).
+    ///
+    /// # Why this form?
+    /// It is exact (no decimal rounding, ADR-0005), short, readable by a musician ("3/16" of a
+    /// whole note), and **unique**: the invariants of the type (reduced, positive denominator,
+    /// sign on the numerator) mean that one value has exactly one text, so a saved file changes
+    /// only where a value really changed. [`FromStr`](std::str::FromStr) accepts exactly these
+    /// texts and nothing else, so `x.to_string().parse() == Ok(x)` for every `x`.
+    ///
+    /// It is a text for files and developers, not for the user: the interface formats musical
+    /// durations its own way (note values, bars and beats), through Fluent (CLAUDE.md §7).
+    ///
+    /// # Complexity
+    /// O(digits), no allocation beyond what the formatter's sink does.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Invariant 1 makes `den == 1` exactly the integers.
+        if self.den == 1 {
+            write!(f, "{}", self.num)
+        } else {
+            write!(f, "{}/{}", self.num, self.den)
+        }
+    }
+}
+
+/// Why a text could not be read as a [`Rational`] by its [`FromStr`](std::str::FromStr).
+///
+/// The reader is **strict** (ADR-0029 S6): it accepts only the canonical form written by
+/// [`Display`](fmt::Display), so that a file has one spelling per value. The `Display` texts are
+/// English and meant for developers; the interface maps the variants to Fluent keys, as for
+/// [`RationalError`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParseRationalError {
+    /// The text is empty.
+    Empty,
+    /// The text is not of the shape `[-]digits[/digits]` with ASCII digits: a space, a `+` sign,
+    /// a decimal point, a missing part around the slash, or any other character.
+    Malformed,
+    /// The shape is right but the form is not the canonical one: a leading zero (`03/8`), a
+    /// negative zero (`-0`), a denominator of 1 written out (`3/1`), or a fraction not in lowest
+    /// terms (`2/4`, `0/5`). A sign on the denominator (`3/-8`) is [`Malformed`](Self::Malformed)
+    /// instead: it is outside the grammar.
+    NotCanonical,
+    /// The denominator is zero (`3/0`).
+    DivisionByZero,
+    /// A number does not fit the representation: a part beyond `i64::MAX`, or the numerator
+    /// `-9223372036854775808` (`i64::MIN`, excluded by invariant 3).
+    Overflow,
+}
+
+impl fmt::Display for ParseRationalError {
+    /// Writes a short English description of the error, for developers (see the type's docs).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Empty => "empty text where a rational number was expected",
+            Self::Malformed => "not a rational number of the form [-]digits[/digits]",
+            Self::NotCanonical => {
+                "rational number not in canonical form (leading zero, -0, /1 or not reduced)"
+            }
+            Self::DivisionByZero => "rational number with a zero denominator",
+            Self::Overflow => "rational number too large for 64 bits",
+        })
+    }
+}
+
+impl Error for ParseRationalError {}
+
+/// One part of a rational text (numerator or denominator), as read by [`parse_part`]: its value
+/// if it fits an `i64` (`None` on overflow), and whether it was written with a leading zero.
+///
+/// The caller decides which error wins, so that the precedence of [`Rational::from_str`] holds
+/// across both parts: shape first, then size, then a zero denominator, then the canonical form.
+struct Part {
+    /// The value, or `None` if it exceeds `i64::MAX`.
+    value: Option<i64>,
+    /// Whether the part has several digits and starts with `0` (`03`, `00`).
+    leading_zero: bool,
+}
+
+/// Reads one part of ASCII digits, without sign, for [`Rational::from_str`].
+///
+/// Returns `Malformed` for an empty part or any non-digit; otherwise the [`Part`], with the
+/// overflow and the leading zero **reported, not raised**, so that a malformed other part still
+/// wins (the oracle test found that `01/0/2` was reported as not canonical instead of malformed).
+///
+/// # Complexity
+/// O(digits), two passes; no allocation. Each step is a checked multiply-add, so nothing can wrap
+/// (the crate denies `arithmetic_side_effects`).
+fn parse_part(text: &str) -> Result<Part, ParseRationalError> {
+    let bytes = text.as_bytes();
+    // Shape first: an empty part ("/8", "3/", "-") or a non-digit anywhere. Only ASCII digits:
+    // `char::is_numeric` would also accept other scripts' digits, which no file should contain.
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return Err(ParseRationalError::Malformed);
+    }
+    let mut value: Option<i64> = Some(0);
+    for &byte in bytes {
+        let digit = i64::from(byte.wrapping_sub(b'0'));
+        value = value
+            .and_then(|v| v.checked_mul(10))
+            .and_then(|v| v.checked_add(digit));
+    }
+    Ok(Part {
+        value,
+        leading_zero: bytes.len() > 1 && bytes.first() == Some(&b'0'),
+    })
+}
+
+impl std::str::FromStr for Rational {
+    type Err = ParseRationalError;
+
+    /// Reads the canonical text form written by [`Display`](fmt::Display) (ADR-0029 S6), and only
+    /// that: `[-]digits` or `[-]digits/digits`, reduced, with a denominator of at least 2 when
+    /// written, no leading zeros, no `-0`, no spaces, no `+`.
+    ///
+    /// # Why so strict?
+    /// A project file must have one spelling per value (stable diffs, byte-identical re-saves,
+    /// ADR-0029 S3). Accepting `2/4` or ` 1/2` would let two files that mean the same thing
+    /// differ, and a re-save would silently rewrite them.
+    ///
+    /// # Errors
+    /// See [`ParseRationalError`].
+    ///
+    /// # Complexity
+    /// O(digits) plus one gcd (O(log n)) to check the reduction; no allocation.
+    ///
+    /// # Examples
+    /// ```
+    /// use orchestra_core_time::{ParseRationalError, Rational};
+    ///
+    /// let x: Rational = "-3/16".parse()?;
+    /// assert_eq!(x, Rational::new(-3, 16)?);
+    /// assert_eq!(x.to_string(), "-3/16");
+    /// assert_eq!("2/4".parse::<Rational>(), Err(ParseRationalError::NotCanonical));
+    /// assert_eq!("3/1".parse::<Rational>(), Err(ParseRationalError::NotCanonical));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.is_empty() {
+            return Err(ParseRationalError::Empty);
+        }
+        // The sign: at most one leading '-'; a '+' is not canonical but simply not part of the
+        // grammar, hence Malformed (the digit reader rejects it).
+        let (negative, rest) = match text.strip_prefix('-') {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        };
+        // Split at the slash, if any. A second slash ends up inside the denominator's digits and
+        // is rejected there as Malformed.
+        let (num_text, den_text) = match rest.split_once('/') {
+            Some((n, d)) => (n, Some(d)),
+            None => (rest, None),
+        };
+        // Shape of both parts before anything else.
+        let num_part = parse_part(num_text)?;
+        let den_part = den_text.map(parse_part).transpose()?;
+        // Then the sizes.
+        let magnitude = num_part.value.ok_or(ParseRationalError::Overflow)?;
+        let den = match &den_part {
+            None => 1,
+            Some(part) => part.value.ok_or(ParseRationalError::Overflow)?,
+        };
+        // Then the zero denominator.
+        if den == 0 {
+            return Err(ParseRationalError::DivisionByZero);
+        }
+        // Then the canonical form: no leading zeros, no "-0", no "/1" written out ("3/1": an
+        // integer is written without its denominator).
+        let den_leading_zero = den_part.as_ref().is_some_and(|p| p.leading_zero);
+        if num_part.leading_zero
+            || den_leading_zero
+            || (den_part.is_some() && den == 1)
+            || (negative && magnitude == 0)
+        {
+            return Err(ParseRationalError::NotCanonical);
+        }
+        // The magnitude is at most i64::MAX, so its negation always fits; i64::MIN itself cannot
+        // be reached (its magnitude overflows), which is invariant 3.
+        let num = if negative {
+            magnitude
+                .checked_neg()
+                .ok_or(ParseRationalError::Overflow)?
+        } else {
+            magnitude
+        };
+        // `new` reduces; if the reduced value differs from what was written, the text was not in
+        // lowest terms ("2/4", "0/5").
+        let value = Self::new(num, den).map_err(|e| match e {
+            RationalError::Overflow => ParseRationalError::Overflow,
+            RationalError::DivisionByZero => ParseRationalError::DivisionByZero,
+        })?;
+        if value.num != num || value.den != den {
+            return Err(ParseRationalError::NotCanonical);
+        }
+        Ok(value)
     }
 }
 

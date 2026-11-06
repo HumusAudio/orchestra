@@ -220,8 +220,13 @@ pub struct Mark<I, T> {
 }
 
 impl<I: Copy, T> Mark<I, T> {
-    /// A mark: only the document creates them, with an ID from its counter. O(1).
-    pub(crate) const fn new(id: I, bar: BarId, offset: Duration, value: T) -> Self {
+    /// A mark with its ID at (bar, offset). O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: I, bar: BarId, offset: Duration, value: T) -> Self {
         Self {
             id,
             bar,

@@ -457,7 +457,22 @@ since audio and video will live beside the file, never inside), and added two pr
 version-1 reader already recognises zip and gzip signatures and answers "made with a newer
 Orchestra" (S5); only structural absences are omitted, user settings such as the tolerance are
 always written, so a revised program default never changes a saved project (S6). SCALETTA v0.36
-adds F1.15b and F1.15c, one PR for the whole step. **Next:** F1.15b (save and load of version 1).
+adds F1.15b and F1.15c, one PR for the whole step. **F1.15b part 1 done** (2026-11-06, same
+branch; split proposed in the briefing and approved): before coding, the owner approved L1–L8, now
+in ADR-0029 ("Precisions L1–L8"). In `core-time`: `Display` and a strict `FromStr` for `Rational`
+(canonical text only, `ParseRationalError`; the oracle found an error-precedence bug, fixed). In
+`core-model`: `from_raw` on every ID type, public constructors of the leaf values with their IDs,
+the module `parts` (`DocumentParts` and its containers, `Document::to_parts`,
+`Document::from_parts`, which **replays the description through the builder** with the counter in
+a script mode handing out the saved IDs, checks IDs unique and issued, runs `validate` and
+compares the rebuilt description to refuse lists out of order), `MAX_TRACKS = 1024` in the
+builder, rule 13 of `validate` (no meter-map entry past the last bar), new errors `ZeroId`,
+`DuplicateId`, `IdNotIssued`, `TooManyTracks`, `NotCanonical`. Tests: the round trip after every
+step of every property test of edits and commands (and the refusal of every invalid document they
+meet), `src/parts_tests.rs` (nine cases), `tests/rational_text.rs` (cases, round trip, oracle);
+seventeen injected bugs caught. Benchmarks `benches/parts.rs`: `to_parts` ≈ 1.2 M / 35.7 M
+instructions (normal / heavy), `from_parts` ≈ 29 M / 882 M. **Next:** F1.15b part 2 (the `io`
+side: schema, save and load).
 
 | Step | What | Status |
 |---|---|---|
@@ -503,6 +518,22 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 
 ## Open decisions and open items
 
+- **Pre-existing bug in the meter rewrite (F1.11c), found on 2026-11-06, NOT fixed, waiting for
+  the owner:** when the region of a `ChangeMeter` in `Rewrite` mode ends at a **free bar** (R1),
+  only the region is rewritten, but the new meter stays in force **after** the free bar too (a
+  free bar suspends the meter, it does not end it): every bar after the free bar, up to the next
+  real meter change, silently takes the new length while keeping its music, as in `KeepBars`. So
+  "nothing after moves" (R2) is broken, those bars become overfull, and when a tie crosses one of
+  their barlines it can point backwards (`Invalid(TieNotForward)`), which is what the command
+  property test hit: in `rich()`, a dotted whole in the triplet entered at bar 5 (a tie chain into
+  bar 6), bar 2 made a free bar of a quarter (`KeepBars`), then 5/8 in `Rewrite` at bar 1: bars
+  4–9 become 5/8 bars with their 4/4 music. It reproduces on `main`. Proptest seed: `cc
+  78d1704abea9bdb8af73dc77c6d0b7f44e61d85495be9d9f35eff9eb3ed2310e # shrinks to steps = [(1, 44,
+  3, 0), (22, 41, 0, 2), (21, 24, 24, 0)], without_bar_repeat = false` (add it to
+  `crates/core-model/proptest-regressions/command_tests.txt` to replay it; not committed, it would
+  turn CI red). Options for the owner: restore the old meter right after the free bar (recommended),
+  extend the rewrite past free bars, or refuse. The test draws random seeds, so CI may meet it by
+  chance meanwhile.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users
   once the DAW view exists.
 - **From F1.14b, to keep in mind:** the interface (F3) must expose `MoveMode::PerformanceOnly` (a
