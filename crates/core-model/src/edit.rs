@@ -11,6 +11,7 @@
 //! Edit = Insert(Object) | Remove(ObjectRef) | Replace(Object)
 //!      | InsertBars { at, ids, meter } | RemoveBars { at, count }
 //!      | Meter(MeterEdit) | SetInitial(Initial)
+//!      | SetPassOffsets { instrument, note, pass, offsets } | SetTolerance { track, tolerance }
 //! ```
 //!
 //! Applying an edit returns the edit that undoes it: an `Insert` gives the `Remove` of the same
@@ -60,14 +61,16 @@ use crate::event::{MAX_TUPLET_DEPTH, Note, PlacedEvent, Tie, Tuplet};
 use crate::form::{BarNumbering, MAX_PLAYS, RepeatEnd, RepeatStart, Volta};
 use crate::id::{
     BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdSet, InstrumentId, JumpId,
-    KeyChangeId, MarkerId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId, TupletId, VoiceId,
-    VoltaId,
+    KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId, TrackId,
+    TupletId, VoiceId, VoltaId,
 };
 use crate::jump::{Jump, Marker};
+use crate::marking::PerformanceOffsets;
 use crate::marks::{Clef, KeyOverride, Mark, ScorePoint, point_key};
 use crate::pitch::Key;
 use crate::slur::{Slur, SlurRefs};
 use crate::tempo_mark::{TempoMark, TempoMarkChange};
+use crate::tolerance::Tolerance;
 
 // ------------------------------------------------------------------------------------------------
 // The vocabulary
@@ -373,6 +376,32 @@ pub enum Edit {
     Meter(MeterEdit),
     /// Sets one of the values the document has once.
     SetInitial(Initial),
+    /// Sets the offsets of `note` in one pass in the table of `instrument` (ADR-0028 §5);
+    /// [`PerformanceOffsets::NONE`] removes the entry. Its inverse sets the previous value.
+    ///
+    /// Only the instrument is checked (it is never removed). The note is not: following the rule
+    /// "an insertion checks only what no other edit can take away" (module docs), the undo of a
+    /// command that deleted a note puts the note back first and then its entries, while a
+    /// transaction may set an entry before inserting the note in raw edits. The commands keep
+    /// the entries attached to existing notes, and `Document::validate` checks it.
+    SetPassOffsets {
+        /// The instrument whose table holds the entry.
+        instrument: InstrumentId,
+        /// The notehead.
+        note: NoteId,
+        /// The pass index of its notes.
+        pass: u32,
+        /// The new offsets, or `NONE` to remove the entry.
+        offsets: PerformanceOffsets,
+    },
+    /// Sets the project's tolerance threshold (`track: None`) or a track's override, or removes the
+    /// override (`tolerance: None`) (ADR-0028 §1). Its inverse sets the previous value.
+    SetTolerance {
+        /// The track, or `None` for the project value.
+        track: Option<TrackId>,
+        /// The threshold, or `None` to remove a track's override.
+        tolerance: Option<Tolerance>,
+    },
 }
 
 impl Edit {
@@ -391,7 +420,12 @@ impl Edit {
             Self::Meter(MeterEdit::Span { span, .. }) => {
                 span_entries(span).saturating_mul(size_of::<(BarIndex, MeterChange)>())
             }
-            Self::Remove(_) | Self::RemoveBars { .. } | Self::Meter(_) | Self::SetInitial(_) => 0,
+            Self::Remove(_)
+            | Self::RemoveBars { .. }
+            | Self::Meter(_)
+            | Self::SetInitial(_)
+            | Self::SetPassOffsets { .. }
+            | Self::SetTolerance { .. } => 0,
         };
         size_of::<Self>().saturating_add(owned)
     }
@@ -424,7 +458,7 @@ fn insert_sorted<T, K: Ord>(list: &mut Vec<T>, item: T, key: impl Fn(&T) -> K) {
 /// The ties that start from the noteheads of an event, as (source, target) pairs: what the
 /// backward tie index (`Document::tie_index`) records for it. O(noteheads); allocates only for an
 /// event with ties (most events have none, and an empty `Vec` does not allocate).
-fn outgoing_ties(placed: &PlacedEvent) -> Vec<(crate::id::NoteId, crate::id::NoteId)> {
+fn outgoing_ties(placed: &PlacedEvent) -> Vec<(NoteId, NoteId)> {
     placed
         .event()
         .chord()
@@ -478,6 +512,33 @@ impl Document {
             }
             Edit::Meter(edit) => Ok(Edit::Meter(self.edit_meter(edit, changes)?)),
             Edit::SetInitial(initial) => Ok(Edit::SetInitial(self.set_initial(initial, changes)?)),
+            Edit::SetPassOffsets {
+                instrument,
+                note,
+                pass,
+                offsets,
+            } => {
+                let previous = self.set_pass_offsets(instrument, note, pass, offsets, changes)?;
+                Ok(Edit::SetPassOffsets {
+                    instrument,
+                    note,
+                    pass,
+                    offsets: previous,
+                })
+            }
+            Edit::SetTolerance { track, tolerance } => {
+                if let Some(id) = track
+                    && self.track(id).is_none()
+                {
+                    return Err(DocumentError::UnknownTrack(id));
+                }
+                let previous = self.tolerance.set(track, tolerance)?;
+                changes.tolerance();
+                Ok(Edit::SetTolerance {
+                    track,
+                    tolerance: previous,
+                })
+            }
         }
     }
 
@@ -1753,6 +1814,36 @@ impl Document {
         };
         changes.meter(index);
         Ok(inverse)
+    }
+
+    /// Sets one entry of an instrument's pass-offset table and returns the previous offsets (see
+    /// [`Edit::SetPassOffsets`]). The cell (voice, bar) of the note, if the note exists, is
+    /// recorded as changed, so that playback recomputes its played notes with the cells it
+    /// already follows (T7); a note that is gone was recorded by its own removal. On error nothing
+    /// changed. O(tracks) + O(1) average for the note + O(log n + n) in the table.
+    fn set_pass_offsets(
+        &mut self,
+        instrument: InstrumentId,
+        note: NoteId,
+        pass: u32,
+        offsets: PerformanceOffsets,
+        changes: &mut ChangeSet,
+    ) -> Result<PerformanceOffsets, DocumentError> {
+        let t = self.track_of_instrument(instrument)?;
+        let cell = self
+            .notes
+            .get(&note)
+            .and_then(|event| self.events.get(event))
+            .map(|location| (location.voice, location.bar));
+        let previous = self
+            .track_at_mut(t)?
+            .instrument
+            .pass_offsets
+            .set(note, pass, offsets);
+        if let Some((voice, bar)) = cell {
+            changes.cell(voice, bar);
+        }
+        Ok(previous)
     }
 
     /// Sets a value the document has once and returns the previous one. On error nothing changed.

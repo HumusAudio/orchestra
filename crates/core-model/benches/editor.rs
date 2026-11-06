@@ -23,6 +23,11 @@
 //! - `gesture`: a drag of one note over 1 000 positions, from `begin_gesture` to `end_gesture`
 //!   (each update is a command with its local check and its change set; the compaction keeps one
 //!   old value).
+//! - `daw_drag` (F1.14b, ADR-0028): a drag of the same note from the DAW view over 1 000
+//!   positions, each a [`MovePlayed`](orchestra_core_model::MovePlayed) toward a target on a
+//!   1/32 path inside its bar, asked from the note's current written start: half of the updates
+//!   stay offsets (within the 1/32 threshold of the written place), the others move the written
+//!   note on the 1/16 grid and keep the residual.
 //!
 //! # The scores
 //! The normal and heavy scores of `tests/common/score.rs` (100 bars × 10 staves, 1 000 bars × 30
@@ -56,8 +61,8 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::{
     Alteration, BaseValue, Command, Document, DynamicLevel, DynamicMark, DynamicPlacement, Editor,
-    EventChange, EventId, MarkSpec, MeterMode, NewBody, NewEvent, NoteValue, Pitch, Placement,
-    ScorePoint, Step,
+    EventChange, EventId, MarkSpec, MeterMode, MoveMode, MovePlayed, NewBody, NewEvent, NoteId,
+    NoteValue, Pitch, Placement, ScorePoint, Step,
 };
 use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, Rational,
@@ -319,6 +324,47 @@ fn gesture(input: (Editor, EventId)) -> (Editor, EventId) {
     (editor, event)
 }
 
+#[library_benchmark]
+#[bench::normal(dragged(Size::Normal))]
+#[bench::heavy(dragged(Size::Heavy))]
+fn daw_drag(input: (Editor, EventId)) -> (Editor, EventId) {
+    let (mut editor, event) = input;
+    let doc = editor.document();
+    let note: NoteId = doc
+        .event(event)
+        .unwrap()
+        .event()
+        .chord()
+        .unwrap()
+        .notes()
+        .next()
+        .unwrap()
+        .id();
+    let bar_start = doc.bar_start(doc.bars().ids()[10]).unwrap();
+    let grid = Duration::from_rational(Rational::new(1, 16).unwrap());
+    let _ = black_box(editor.begin_gesture());
+    for i in 0..1000 {
+        // A target k/32 into bar 10, k = 0..15: the quarter note always fits in the bar.
+        let target = bar_start
+            .checked_add(Duration::from_rational(Rational::new(i % 16, 32).unwrap()))
+            .unwrap();
+        // As the DAW view does: the onset from the note's current written start.
+        let onset = target
+            .checked_duration_since(editor.document().event_position(event).unwrap())
+            .unwrap();
+        let update = Command::MovePlayed(MovePlayed {
+            note,
+            pass: None,
+            onset,
+            grid,
+            mode: MoveMode::ByThreshold,
+        });
+        let _ = black_box(editor.update_gesture(black_box(&update)));
+    }
+    let _ = black_box(editor.end_gesture());
+    (editor, event)
+}
+
 // The number of bars of the editor's document (inside the measured region: O(1)).
 fn bar_count_of(editor: &Editor) -> u32 {
     u32::try_from(editor.document().bars().len()).unwrap()
@@ -335,7 +381,8 @@ library_benchmark_group!(
         change_meter,
         irregular_bar,
         rewrite_meter,
-        gesture
+        gesture,
+        daw_drag
     ]
 );
 

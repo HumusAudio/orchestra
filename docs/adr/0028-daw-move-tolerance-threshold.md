@@ -1,5 +1,6 @@
 # ADR-0028 — Moving a note from the DAW side: tolerance threshold, performance-only edits, pass-specific offsets
 
+- **Precisions** T1–T7 approved by the owner on 2026-11-06, before the code of F1.14b (§10).
 - **Status:** Accepted (owner's decision, 2026-11-06; SCALETTA F1.14, decision D09). The owner
   approved the recommendations Q1–Q10 and asked that, beside the default rule, the user can
   **consciously** choose to change only the performance, with offsets of any size that never touch
@@ -128,8 +129,9 @@ PassOffsets: per track, sorted map (NoteId, pass: u32) → PerformanceOffsets
 - Written by `MovePlayed` with `pass: Some(p)`: **always performance-only** (a written change would
   change every pass), whatever the mode. The key is the **first notehead of the tie chain**, as
   for the inline offsets (ADR-0024 §10); the played note's offsets are inline + pass entry,
-  **added** before the bounds of ADR-0027 §8. With bar repeats (ADR-0027 §7) the key is the source
-  note with the pass of the played bar.
+  **added** before the bounds of ADR-0027 §8. The pass is the pass index of the note's **notes**
+  as the path gives it (`StaffContent::pass`): with bar repeats (ADR-0027 §7) it counts the copies
+  of the source bar too, so the original and each % copy have distinct keys (§10, T4).
 - A primitive edit sets or clears one entry and returns its exact inverse; an entry equal to zero
   is removed, so the table holds only real deviations.
 - **Deleting a note deletes its entries** (and the undo puts them back). When the form changes and
@@ -181,6 +183,18 @@ and a benchmark of one `MovePlayed` inside a gesture on the heavy score (the dra
 | Q9 | Grace notes | Offsets only |
 | Q10 | Split of the step | F1.14 (this ADR), F1.14b (onset moves, settings, pass table), F1.14c (durations) |
 | Q11 | Velocity from the DAW (§7) | Default: performance only; conscious choice: the written dynamics change too |
+
+### 10. Precisions made before implementing F1.14b (owner, 2026-11-06)
+
+| ID | Precision |
+|---|---|
+| T1 | Beyond the threshold, a notehead that a tie leads into (the path broke the written chain, e.g. a tie into a volta) is **refused** with a typed error: moving it alone could leave the tie pointing backwards. Within the threshold it is an ordinary offset. |
+| T2 | Beyond the threshold, a **tuplet note** is refused: on the DAW grid it would leave its group. To be revisited with the rewriting of F1.14c. |
+| T3 | Pass entries along a tie chain follow N8: onset and velocity from the first notehead's entry in its pass, the lengths of every notehead's entry in its own pass, added. |
+| T4 | The pass of the key is the one the path gives the notes (`StaffContent::pass`), which already tells a % copy from its source: §5 is worded accordingly, the decision does not change. |
+| T5 | The entries of the notes a command takes out of the document are removed by the **editor**, at the end of each command (before its local check), for every command at once; the undo puts them back. |
+| T6 | A threshold in milliseconds compares exactly through the tempo map at the note's written start; inside a gradual tempo change, where the time is only approximated, it compares in `f64`. |
+| T7 | Setting a pass entry records its note's cell (voice, bar) as changed, so `Performance::update` recomputes it like any changed cell; no new kind of notification. |
 
 ## Alternatives rejected
 

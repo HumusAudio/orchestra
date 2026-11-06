@@ -3,7 +3,8 @@
 //! Property test of the incremental update of the played notes (ADR-0027 §9, §11 and §14, H11 and
 //! H12; SCALETTA F1.13c part 2): on random scores with every extra and dynamics, a random sequence
 //! of commands of the editor (entering, deleting, moving and changing events, ties, articulations,
-//! offsets, dynamics, hairpins, inserted bars) with undos and redos; after each one the path is
+//! offsets, dynamics, hairpins, inserted bars, DAW moves of every pass or of one pass, ADR-0028)
+//! with undos and redos; after each one the path is
 //! updated, then the performance, and the result must be **identical** to a performance computed
 //! from scratch on the new document: the same notes in the same order, the same extras, the same
 //! timelines.
@@ -20,8 +21,8 @@ use common::{Extras, random};
 use orchestra_core_model::{
     Alteration, Articulation, ArticulationSet, BarId, BaseValue, Command, Document, DynamicLevel,
     DynamicMark, DynamicPlacement, Editor, EventChange, EventId, Grace, GraceAttach, GraceKind,
-    HairpinShape, MarkSpec, NewBody, NewEvent, NoteId, NoteValue, ObjectRef, PerformanceOffsets,
-    Pitch, Placement, ScorePoint, Step, Tie,
+    HairpinShape, MarkSpec, MoveMode, MovePlayed, NewBody, NewEvent, NoteId, NoteValue, ObjectRef,
+    PerformanceOffsets, Pitch, Placement, ScorePoint, Step, Tie,
 };
 use orchestra_core_time::{BarIndex, Duration, Rational};
 use orchestra_playback::{Performance, Unrolled};
@@ -70,7 +71,7 @@ fn command(doc: &Document, kind: u8, x: u8, y: u8) -> Option<Command> {
     let pick = |k: u8| list.get(usize::from(k) % list.len().max(1)).copied();
     let eighth = d(i64::from(y % 8), 8);
     let beat = d(i64::from(y % 4), 4);
-    Some(match kind % 11 {
+    Some(match kind % 13 {
         0 => Command::DeleteEvent(pick(x)?.1),
         1 => Command::ChangeEvent {
             event: pick(x)?.1,
@@ -196,6 +197,23 @@ fn command(doc: &Document, kind: u8, x: u8, y: u8) -> Option<Command> {
             event: pick(x)?.1,
             change: EventChange::AddNote(Pitch::new(Step::G, Alteration::NATURAL, 5)),
         },
+        // A DAW move of one pass (ADR-0028 §5): a pass-offset entry, recomputed through the cell
+        // of its note (T7).
+        10 => Command::MovePlayed(MovePlayed {
+            note: pick(x)?.2?,
+            pass: Some(u32::from(y % 3)),
+            onset: d(i64::from(y % 16) - 8, 64),
+            grid: d(1, 16),
+            mode: MoveMode::ByThreshold,
+        }),
+        // A DAW move of every pass: an offset or a written move, by the threshold.
+        11 => Command::MovePlayed(MovePlayed {
+            note: pick(x)?.2?,
+            pass: None,
+            onset: d(i64::from(y % 32) - 16, 32),
+            grid: d(1, 16),
+            mode: MoveMode::ByThreshold,
+        }),
         _ => Command::InsertBars {
             at: BarIndex::new(u32::from(x) % 3),
             count: 1,

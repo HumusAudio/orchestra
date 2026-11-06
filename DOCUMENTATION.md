@@ -1822,11 +1822,79 @@ passed). Seven injected bugs were caught, five of them only after a case was wri
 property test's documents had no tied split note, no `After` grace, no numbering restart, no aligned
 whole-bar rest, no section ending before the next meter change).
 
+#### The DAW move and the tolerance threshold
+
+F1.14b (ADR-0028, with the precisions T1–T7 approved by the owner on 2026-11-06) turns ADR-0004's
+rule into code. A note dragged in the DAW view either stays a **performance offset** (the score
+does not change) or **moves in the score**, depending on the **tolerance threshold** of its track.
+
+```rust
+// The DAW view computes the onset the user wants, from the note's current written start.
+editor.execute(&Command::MovePlayed(MovePlayed {
+    note,                         // the played note's first notehead (PlayedNote::note)
+    pass: None,                   // Some(p): only pass p, always an offset of that pass
+    onset: target.checked_duration_since(written_start)?,
+    grid: sixteenth,              // the DAW's active grid, from the start of each bar
+    mode: MoveMode::ByThreshold,  // or MoveMode::PerformanceOnly: never touch the score
+}))?;
+// Played start = written start + inline onset (+ the pass entry): always exactly the target.
+```
+
+- **The threshold** (module `tolerance`): `Tolerance::Musical(Duration)`, by default a 1/32 note,
+  or `Tolerance::Millis(u32)`, converted at the note's written start through the one tempo map
+  (exact in constant segments, in `f64` inside a gradual change, T6). `ToleranceSettings` is part
+  of the document: one project value and per-track overrides sorted by track ID, changed by the
+  undoable `Command::SetTolerance` (the project value cannot be removed; `ChangeSet::tolerance_changed`).
+- **The rule** (module `daw_command`): within the threshold (inclusive) the onset becomes the
+  notehead's onset offset. Beyond it the note goes to the grid point nearest to `written + onset`,
+  counted from the start of the bar it falls in, with the barline as a grid point too; a tie goes to
+  the point farther from the written place, so rounding never undoes a move. The rest becomes the
+  new offset, so the played start is always exactly the target. A grid that brings the note back
+  stores only the offset.
+- **Never the score**: `MoveMode::PerformanceOnly` (the user's conscious choice: offsets of any
+  size), a move of one pass, a notehead of a chord with other noteheads.
+- **Refused** beyond the threshold, with a typed error and nothing changed: a grace note, a
+  notehead a tie leads into (T1), a tuplet note (T2), a piece crossing a barline or past the last
+  bar, an occupied destination (the local check's `Overlap`). The interface will offer the
+  performance-only mode instead.
+- **Tie chains** move as a whole, every event by the same amount with its grace notes.
+- **Pass-specific offsets** (module `pass_offsets`): one table per instrument, sorted by (note,
+  pass), never holding a zero entry, written by `Edit::SetPassOffsets`. A per-pass move stores the
+  difference from the inline offset. When a command takes noteheads out of the document, the editor
+  clears their entries in the same command (T5), between the command and its local check, so no
+  command can forget it; the undo puts them back. A gesture keeps one old value per entry. Setting
+  an entry records the note's cell, so playback recomputes it through the cells it already follows
+  (T7). `validate` gained rule 12: entries name a notehead of their instrument, overrides an existing
+  track.
+
+**Cost** (`benches/editor.rs`, `daw_drag`):
+
+```text
+operation (heavy score)                               instructions
+drag from the DAW: 1 000 MovePlayed in one gesture    ≈ 23 300 000  (≈ 23 000 per update)
+drag of the same note with ChangeEvent::Move          ≈ 13 700 000
+```
+
+The extra 10 000 instructions per update are the threshold, the quantisation and the second
+replacement (the residual offset). Every command now also asks whether any instrument has pass
+offsets before clearing them: +2.4% on the plain gesture, under the 5% gate.
+
+**Tests** (`src/daw_command_tests.rs`): twelve hand-written cases (within and beyond the threshold
+and its edge, the residual, the grid bringing the note back, chords and the performance-only mode,
+every refusal, a tie chain moved as a whole, milliseconds, the tolerance command, a pass move and
+the removal of its entry with the note, a drag across the threshold in one gesture, the shared
+inline offsets) and a property test (256 sequences of random moves and deletions on the rich
+document: after each, `validate`, the indices, the played start exactly where asked, the score
+unchanged when it must be; undoing everything gives the original). Seven injected bugs were caught
+(one only by the unit test of `tolerance`), one mutation was equivalent.
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics
-turned into velocity and curves, the tolerance threshold that decides whether a DAW move is
-microtiming or a new written position. Its output is a cache, never a second editable copy.
+turned into velocity and curves, the inline and pass-specific offsets added. Its output is a cache,
+never a second editable copy. The tolerance threshold that decides whether a DAW move is
+microtiming or a new written position is a command of the model (`core-model`, F1.14b), since it
+changes the document.
 
 #### Unrolling the form
 
@@ -2034,6 +2102,30 @@ scores are now shared in `tests/common/mod.rs`. Thirteen mutations: ten real bug
 after cases written for them), three equivalent; one of them made the loop never end, which showed
 that settling a window could pull back a bound grown on the new notes: the bounds now only move
 outwards.
+
+#### Pass-specific offsets in the played notes
+
+Since F1.14b (ADR-0028 §5, T3, T4) a played note adds the entries of its instrument's pass-offset
+table to the inline offsets, before the bounds of ADR-0027 §8:
+
+```rust
+// Inline offsets + the entry of the pass being played (onset and velocity of the first notehead,
+// the lengths of every notehead of the chain in its own pass).
+let offsets = with_pass(first_note.offsets(), passes.get(first_note.id(), first.pass))?;
+```
+
+- The pass is the one the path gives the notes (`StaffContent::pass`): on a staff with bar repeats
+  it counts the copies too, so the original and each % copy have their own entries (T4).
+- Along a tie chain the onset and the velocity come from the first notehead's entry, the lengths
+  from every notehead's entry in its own pass (T3, like N8); grace notes add their own entry.
+- Without an entry the inline offsets are used as they are: adding zero rationals for every note
+  cost +7% on the whole heavy performance; with the shortcut the cost is +1.0% (full) and +1.9%
+  (one note's update).
+- The incremental update needs nothing new: a changed entry marks its note's cell (T7).
+
+**Tests:** three cases in `tests/perform_cases.rs` (an entry of the second pass of a repeat, a
+bar repeat told from its source, a tie chain) and DAW moves of every pass and of one pass among the
+random commands of `tests/update_props.rs`. Four injected bugs were caught.
 
 ### orchestra-notation-layout
 

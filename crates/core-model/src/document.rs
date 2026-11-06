@@ -72,9 +72,11 @@ use crate::id::{
 use crate::jump::{Jump, JumpSpec, JumpTarget, Marker, MarkerKind};
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint, point_key};
+use crate::pass_offsets::PassOffsets;
 use crate::pitch::{Interval, Key, Pitch, PitchError};
 use crate::slur::{Slur, SlurPlacement, SlurRefs};
 use crate::tempo_mark::{TempoMark, TempoMarkChange};
+use crate::tolerance::{Tolerance, ToleranceSettings};
 use crate::validate::Violation;
 
 /// The most staves one instrument can have (owner's decision, 2026-11-02). Organ music uses
@@ -226,6 +228,27 @@ pub enum DocumentError {
     InsideBarRepeat(BarRepeatId),
     /// A command would delete every bar: at least one bar remains (ADR-0026 §6).
     NoBarsLeft,
+    /// No track has this ID.
+    UnknownTrack(TrackId),
+    /// A tolerance threshold of zero or less (ADR-0028 §1): it must be strictly positive.
+    ToleranceNotPositive,
+    /// An attempt to remove the project's tolerance threshold: only a track's override can be
+    /// removed (ADR-0028 §1).
+    ProjectToleranceRequired,
+    /// A DAW move with a grid step of zero or less (ADR-0028 §3, Q4): there is no "no grid".
+    GridNotPositive,
+    /// A DAW move beyond the threshold would make a piece of the note cross a barline (ADR-0028
+    /// §3, Q6): a DAW move never makes a bar overfull.
+    MoveCrossesBarline,
+    /// A DAW move beyond the threshold of a grace note (ADR-0028 §3, Q9): grace notes are moved
+    /// only by offsets, their place belongs to their main event.
+    MoveOfGraceNote,
+    /// A DAW move beyond the threshold of a notehead that a tie leads into (ADR-0028 §10, T1):
+    /// moving it alone could leave the tie pointing backwards.
+    MoveOfTiedNote,
+    /// A DAW move beyond the threshold of a tuplet note (ADR-0028 §10, T2): on the DAW grid it
+    /// would leave its group.
+    MoveOfTupletNote,
     /// A position or a derived index disagreed with the content: a bug of the model, reported
     /// instead of panicking. Never expected.
     Inconsistent,
@@ -343,6 +366,26 @@ impl fmt::Display for DocumentError {
                 id.get()
             ),
             Self::NoBarsLeft => f.write_str("at least one bar must remain"),
+            Self::UnknownTrack(id) => write!(f, "no track has the ID {}", id.get()),
+            Self::ToleranceNotPositive => {
+                f.write_str("a tolerance threshold must be strictly positive")
+            }
+            Self::ProjectToleranceRequired => {
+                f.write_str("the project's tolerance threshold cannot be removed")
+            }
+            Self::GridNotPositive => f.write_str("the grid step of a move must be positive"),
+            Self::MoveCrossesBarline => {
+                f.write_str("the moved note would cross a barline (a DAW move never splits it)")
+            }
+            Self::MoveOfGraceNote => {
+                f.write_str("a grace note is moved only by a performance offset")
+            }
+            Self::MoveOfTiedNote => {
+                f.write_str("a notehead that a tie leads into cannot be moved alone")
+            }
+            Self::MoveOfTupletNote => {
+                f.write_str("a tuplet note is moved only by a performance offset")
+            }
             Self::Inconsistent => f.write_str("the document is inconsistent (a bug of the model)"),
         }
     }
@@ -523,6 +566,9 @@ pub struct Instrument {
     pub(crate) bar_repeats: Vec<BarRepeat>,
     /// The instrument's pass rules (ADR-0025 §7), sorted by start point.
     pub(crate) pass_rules: Vec<PassRule>,
+    /// The pass-specific performance offsets of the instrument's notes (ADR-0028 §5): usually
+    /// empty. See `crate::pass_offsets`.
+    pub(crate) pass_offsets: PassOffsets,
 }
 
 impl Instrument {
@@ -590,6 +636,11 @@ impl Instrument {
     /// The instrument's pass rules, in score order of their starts. O(1).
     pub fn pass_rules(&self) -> &[PassRule] {
         &self.pass_rules
+    }
+
+    /// The pass-specific performance offsets of the instrument's notes (ADR-0028 §5). O(1).
+    pub const fn pass_offsets(&self) -> &PassOffsets {
+        &self.pass_offsets
     }
 
     /// The slur with this ID, if it belongs to this instrument. O(log s): a binary search in the
@@ -877,6 +928,9 @@ pub struct Document {
     /// is open (a tie whose target was just removed); noteheads tied into by nothing have no
     /// entry. Rebuilt at load, never saved.
     pub(crate) tie_index: IdMap<NoteId, IdRefs<NoteId>>,
+    /// The tolerance thresholds of the DAW move (ADR-0028 §1): the project value and the
+    /// per-track overrides. Saved in the file (F1.15).
+    pub(crate) tolerance: ToleranceSettings,
     /// How many transactions, undos and redos have changed the document since it was built
     /// (ADR-0026 §5): a background reader holding a snapshot compares it to know whether it is
     /// stale, and the interface to know whether there are unsaved changes. Not saved.
@@ -915,6 +969,7 @@ impl Document {
             notes,
             slur_index,
             tie_index,
+            tolerance,
         } = self;
         let Self {
             ids: _,
@@ -932,6 +987,7 @@ impl Document {
             notes: other_notes,
             slur_index: other_slur_index,
             tie_index: other_tie_index,
+            tolerance: other_tolerance,
         } = other;
         meter_map == other_meter_map
             && tempo_map == other_tempo_map
@@ -946,6 +1002,7 @@ impl Document {
             && notes == other_notes
             && slur_index == other_slur_index
             && tie_index == other_tie_index
+            && tolerance == other_tolerance
     }
 
     /// Whether every derived index agrees with the content it is derived from (ADR-0022 §1,
@@ -1046,6 +1103,16 @@ impl Document {
     /// The bar list. O(1).
     pub const fn bars(&self) -> &BarList {
         &self.bars
+    }
+
+    /// The tolerance thresholds of the DAW move (ADR-0028 §1). O(1).
+    pub const fn tolerance(&self) -> &ToleranceSettings {
+        &self.tolerance
+    }
+
+    /// The track that plays an instrument. O(tracks).
+    pub fn track_of(&self, instrument: InstrumentId) -> Option<&Track> {
+        self.tracks.iter().find(|t| t.instrument.id == instrument)
     }
 
     /// The tracks, in score order. O(1).
@@ -1471,6 +1538,7 @@ impl DocumentBuilder {
                 notes: IdMap::default(),
                 slur_index: IdMap::default(),
                 tie_index: IdMap::default(),
+                tolerance: ToleranceSettings::new()?,
                 revision: 0,
             },
         })
@@ -1576,6 +1644,7 @@ impl DocumentBuilder {
                 hairpins: Vec::new(),
                 bar_repeats: Vec::new(),
                 pass_rules: Vec::new(),
+                pass_offsets: PassOffsets::default(),
             },
         });
         Ok(track_id)
@@ -1818,6 +1887,53 @@ impl DocumentBuilder {
         offsets: PerformanceOffsets,
     ) -> Result<(), DocumentError> {
         self.note_mut(note)?.set_offsets(offsets);
+        Ok(())
+    }
+
+    /// Sets the project's tolerance threshold (`track: None`) or a track's override (ADR-0028
+    /// §1); `tolerance: None` removes a track's override. O(tracks + overrides).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownTrack`], [`DocumentError::ToleranceNotPositive`],
+    /// [`DocumentError::ProjectToleranceRequired`]. The builder is unchanged on error.
+    pub fn set_tolerance(
+        &mut self,
+        track: Option<TrackId>,
+        tolerance: Option<Tolerance>,
+    ) -> Result<(), DocumentError> {
+        if let Some(id) = track
+            && self.doc.track(id).is_none()
+        {
+            return Err(DocumentError::UnknownTrack(id));
+        }
+        self.doc.tolerance.set(track, tolerance)?;
+        Ok(())
+    }
+
+    /// Sets the offsets of a notehead in one pass (ADR-0028 §5); [`PerformanceOffsets::NONE`]
+    /// removes the entry. O(1) average + O(voices) + O(log n + n) in the instrument's table.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownNote`]. The builder is unchanged on error.
+    pub fn set_pass_offsets(
+        &mut self,
+        note: NoteId,
+        pass: u32,
+        offsets: PerformanceOffsets,
+    ) -> Result<(), DocumentError> {
+        let voice = self
+            .doc
+            .note(note)
+            .map(|(event, _)| event.voice())
+            .ok_or(DocumentError::UnknownNote(note))?;
+        let instrument = self
+            .doc
+            .tracks
+            .iter_mut()
+            .map(|t| &mut t.instrument)
+            .find(|i| i.voices.iter().any(|v| v.id == voice))
+            .ok_or(DocumentError::UnknownVoice(voice))?;
+        instrument.pass_offsets.set(note, pass, offsets);
         Ok(())
     }
 

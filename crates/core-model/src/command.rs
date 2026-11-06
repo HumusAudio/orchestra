@@ -52,6 +52,7 @@ use orchestra_core_time::{
 };
 
 use crate::bar_repeat::BarRepeat;
+use crate::daw_command::{self, MovePlayed};
 use crate::document::{Document, DocumentError, Placement};
 use crate::dynamic::Hairpin;
 use crate::edit::{Edit, Initial, MeterEdit, Object, ObjectRef};
@@ -59,7 +60,7 @@ use crate::editor::{CommandError, Transaction};
 use crate::event::{
     BaseValue, Chord, Event, EventBody, Note, NoteValue, PlacedEvent, Rest, RestValue, Tie, Tuplet,
 };
-use crate::id::{BarId, EventId, IdMap, IdSet, NoteId, StaffId, TupletId, VoiceId};
+use crate::id::{BarId, EventId, IdMap, IdSet, NoteId, StaffId, TrackId, TupletId, VoiceId};
 use crate::mark_command::{self, MarkSpec, NewVolta};
 use crate::marking::{
     Arpeggio, ArticulationSet, Fermata, Grace, GraceAttach, Ornament, PerformanceOffsets,
@@ -68,6 +69,7 @@ use crate::marks::{Mark, ScorePoint, point_key};
 use crate::meter_command::{self, MeterMode};
 use crate::pitch::Pitch;
 use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
+use crate::tolerance::Tolerance;
 use crate::validate::Violation;
 
 /// The most events one part of a tie chain may be written with (V3). A part of a bar is written
@@ -216,6 +218,20 @@ pub enum Command {
         /// What happens to the music.
         mode: MeterMode,
     },
+    /// Moves a played note from the DAW view (ADR-0028 §2–§5, `crate::daw_command`): within the
+    /// tolerance threshold of its track an onset offset, beyond it a written move to the grid
+    /// with the residual as the offset, unless the user chose
+    /// [`MoveMode::PerformanceOnly`](crate::MoveMode::PerformanceOnly); a move of one pass is
+    /// always an offset of that pass. A drag sends it inside a gesture.
+    MovePlayed(MovePlayed),
+    /// Sets the project's tolerance threshold (`track: None`) or a track's override, or removes the
+    /// override with `tolerance: None` (ADR-0028 §1).
+    SetTolerance {
+        /// The track, or `None` for the project value.
+        track: Option<TrackId>,
+        /// The threshold, or `None` to remove the track's override.
+        tolerance: Option<Tolerance>,
+    },
 }
 
 /// A new event: where it goes and what it is (the input of [`Command::EnterEvent`]).
@@ -344,6 +360,10 @@ pub(crate) fn run(tx: &mut Transaction<'_>, command: &Command) -> Result<(), Com
             irregular,
             mode,
         } => meter_command::set_irregular_bar(tx, *bar, *irregular, *mode),
+        Command::MovePlayed(order) => daw_command::move_played(tx, order),
+        Command::SetTolerance { track, tolerance } => {
+            daw_command::set_tolerance(tx, *track, *tolerance)
+        }
     }
 }
 
@@ -472,7 +492,10 @@ fn with_pitch(note: &Note, pitch: Pitch) -> Note {
 
 /// The event as an [`Object`] at its current place, ready to be changed and sent back with
 /// [`Edit::Replace`]. O(1) average (the event index) + O(voices).
-fn current(doc: &Document, id: EventId) -> Result<(VoiceId, BarId, PlacedEvent), DocumentError> {
+pub(crate) fn current(
+    doc: &Document,
+    id: EventId,
+) -> Result<(VoiceId, BarId, PlacedEvent), DocumentError> {
     let found = doc.event(id).ok_or(DocumentError::UnknownEvent(id))?;
     Ok((
         found.voice(),
@@ -512,7 +535,7 @@ pub(crate) fn replace_event_at(
 /// Sends an event back with a new content or place ([`Edit::Replace`], `place: None`: in place
 /// when its sort key is unchanged, otherwise after the events with the same key at its new
 /// place).
-fn replace_event(
+pub(crate) fn replace_event(
     tx: &mut Transaction<'_>,
     voice: VoiceId,
     bar: BarId,
@@ -948,7 +971,7 @@ pub(crate) fn delete_events(tx: &mut Transaction<'_>, ids: &[EventId]) -> Result
     clippy::too_many_lines,
     reason = "one short arm per kind of change: splitting the match would only scatter it"
 )]
-fn change_event(
+pub(crate) fn change_event(
     tx: &mut Transaction<'_>,
     id: EventId,
     change: EventChange,
@@ -1137,7 +1160,10 @@ fn note_of(doc: &Document, id: EventId, note: NoteId) -> bool {
 }
 
 /// The chord of an event being changed, or [`DocumentError::NotAChord`] for a rest. O(1).
-fn chord_mut(placed: &mut PlacedEvent, id: EventId) -> Result<&mut Chord, DocumentError> {
+pub(crate) fn chord_mut(
+    placed: &mut PlacedEvent,
+    id: EventId,
+) -> Result<&mut Chord, DocumentError> {
     match placed.event_mut().body_mut() {
         EventBody::Chord(chord) => Ok(chord),
         EventBody::Rest(_) => Err(DocumentError::NotAChord(id)),

@@ -405,11 +405,30 @@ heavy score: the whole performance ≈ 1.67 billion instructions (≈ 0.5 s nati
 the notes, `Vec::splice` instead of a new list). **To measure on the reference laptop** with the
 interface (F2.23), as for the meter rewrite. The editor's `add_dynamic` benchmark grew by 8–9% (≈ 440
 instructions per dynamic, the new list of the change set): accepted by the owner with
-`Bench-regression: accepted`. SCALETTA v0.32 closes F1.13c and F1.13. **PR #22 open** (F1.13: ADR-0027,
-parts b and c): Linux, Windows, benchmarks and guides green; the macOS job was cancelled three times
-in a row (2026-11-05) after 15 minutes **without ever getting a runner** (no step ran: GitHub's queue,
-as with PR #18). **Next:** re-run the macOS job (`gh run rerun <id> --failed`); when it is green,
-merge PR #22 and delete the branch (owner's ok, 2026-11-05); then F1.14 (tolerance threshold).
+`Bench-regression: accepted`. SCALETTA v0.32 closes F1.13c and F1.13. **PR #22** (F1.13: ADR-0027,
+parts b and c): after four cancelled macOS jobs that never got a runner, the re-run of 2026-11-06 got
+one and every check is green (head `6dd728e`, state CLEAN). **Not merged yet:** the merge command was
+refused by the session's permission classifier; the owner merges it, or allows the merge.
+
+**F1.14 done** (2026-11-06, branch `feature/f1-14-soglia-tolleranza`, from PR #22's head): **ADR-0028
+Accepted**, the DAW move and the tolerance threshold (decision D09 closed: 1/32 in musical time, with a
+milliseconds variant). The owner approved Q1–Q10 and added the conscious **performance-only** choice
+(offsets of any size, never the score), and the same pair for every DAW edit; for velocity the
+reverse (by default only the performance, by choice the written dynamics too, F3). SCALETTA v0.33:
+F1.14 split into F1.14 (the ADR), F1.14b and F1.14c, one PR for the whole step. **F1.14b done**
+(2026-11-06, same branch): before coding the owner approved T1–T7 (ADR-0028 §10). In `core-model`:
+the modules `tolerance` (`Tolerance`, `ToleranceSettings` in the document, `Command::SetTolerance`),
+`pass_offsets` (`PassOffsets` per instrument, `Edit::SetPassOffsets`) and `daw_command`
+(`Command::MovePlayed` with `MoveMode::ByThreshold`/`PerformanceOnly`: within the threshold an
+offset, beyond it a move to the grid with the residual, refusals typed; tie chains moved whole); the
+editor clears the pass entries of deleted notes after every command (T5) and compacts them in
+gestures; `validate` rule 12; `ChangeSet::tolerance_changed`. In `playback`: pass entries added to the
+played notes (T3, T4). Tests: twelve cases and a property test in `src/daw_command_tests.rs`, three
+cases in `tests/perform_cases.rs`, DAW moves in `tests/update_props.rs`; eleven injected bugs caught,
+one equivalent. Benchmarks: a DAW drag ≈ 23 000 instructions per update on the heavy score; the plain
+gesture +2.4%; the whole performance +1.0% and a note's update +1.9% (after a shortcut that skips zero
+additions: +7% without it). **Next:** F1.14c (durations beyond the threshold, "move anyway" with
+ties), then one PR for F1.14.
 
 | Step | What | Status |
 |---|---|---|
@@ -455,7 +474,15 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
 
 ## Open decisions and open items
 
-- **Tolerance threshold default** (ADR-0004): proposed 1/32 note; to validate with users.
+- **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users
+  once the DAW view exists.
+- **From F1.14b, to keep in mind:** the interface (F3) must expose `MoveMode::PerformanceOnly` (a
+  command, a modifier while dragging) and offer it when a written move is refused; the DAW side
+  computes the onset from the note's **current** written start, without what arpeggios and
+  acciaccaturas add. Pass-offset tables are sorted vectors: fine while per-pass edits are rare, to
+  measure if a recording ever fills them; the file format (F1.15) must save the tolerance settings
+  and the tables. Velocity from the DAW: default performance only, the choice that reaches the
+  written dynamics comes with the velocity editor (F3), intonation offsets with D22 (after F3.04).
 - **REMIND THE OWNER (asked on 2026-11-05):** every time and level of ADR-0027 §14 (accent
   attacks, the hold and the settling times of accents, *sf*-like marks, *fp* and *pf*) is a
   provisional value to be **tuned by ear** with the owner. Bring it up as soon as the owner can

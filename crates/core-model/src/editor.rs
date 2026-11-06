@@ -32,6 +32,13 @@
 //! (`crate::command::check`: the cells and the marks it touched); a refusal is reverted the same
 //! way.
 //!
+//! Between the two, the editor removes the **pass-specific offsets of the notes the command
+//! deleted** (ADR-0028 §10, T5): every command that takes noteheads out of the document (deleting
+//! an event, a chord's notehead, bars, a tuplet, the rewrite of a meter change) records them in
+//! its change set, and the editor emits the edits that clear their entries, as part of the same
+//! command. Doing it here once, rather than in each of those commands, means no command can forget
+//! it; the undo puts the entries back with the notes.
+//!
 //! # Gestures (ADR-0026 §4, U4)
 //! A drag is one open transaction: [`Editor::begin_gesture`], any number of
 //! [`Editor::update_gesture`] calls (each applies a command live and returns its own change set,
@@ -41,7 +48,9 @@
 //!
 //! - **Compaction:** inside a gesture, the inverse of a `Replace` of an object already replaced in
 //!   the same gesture is dropped: the first one already restores the state before the drag. A
-//!   1 000-update drag of one note stores one old value, not 1 000.
+//!   1 000-update drag of one note stores one old value, not 1 000. The same holds for an entry
+//!   of a pass-offset table (`Edit::SetPassOffsets`, ADR-0028 §5): a per-pass drag stores the
+//!   entry's value from before the drag once.
 //! - **The tempo map is live:** a transaction normally derives it once, at its end; a gesture
 //!   derives it after every update that touches it (the views draw the moving music with it), and
 //!   the end reports the first difference from the map before the gesture.
@@ -60,6 +69,8 @@ use crate::change::ChangeSet;
 use crate::command::{self, Command};
 use crate::document::{Document, DocumentError};
 use crate::edit::{Edit, ObjectRef};
+use crate::id::NoteId;
+use crate::marking::PerformanceOffsets;
 
 /// The default memory limit of the history: 128 MB (ADR-0026 §3, U3). Entering a note costs tens
 /// of bytes of history; deleting the whole heavy reference score (255 776 notes) about 66 MB.
@@ -182,9 +193,32 @@ struct Open {
     changes: ChangeSet,
     /// The tempo map when the transaction started.
     tempo_before: TempoMap,
-    /// `Some` while the transaction is a gesture: the objects whose `Replace` inverse is already
-    /// recorded, for the compaction (see the module documentation).
-    gesture: Option<HashSet<ObjectRef>>,
+    /// `Some` while the transaction is a gesture: the objects whose `Replace` inverse (or pass
+    /// entries whose `SetPassOffsets` inverse) is already recorded, for the compaction (see the
+    /// module documentation).
+    gesture: Option<HashSet<Compacted>>,
+}
+
+/// What the compaction of a gesture keeps one inverse of (see the module documentation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Compacted {
+    /// An object replaced with [`Edit::Replace`].
+    Object(ObjectRef),
+    /// An entry (note, pass) of a pass-offset table, set with [`Edit::SetPassOffsets`].
+    Pass(NoteId, u32),
+}
+
+impl Compacted {
+    /// The key of an inverse that the compaction may drop, or `None` for an inverse that is always
+    /// kept (insertions, removals, bars, meter and initial values: rare inside a drag, and their
+    /// order matters for the structure). O(1).
+    const fn of(inverse: &Edit) -> Option<Self> {
+        match inverse {
+            Edit::Replace(object) => Some(Self::Object(object.reference())),
+            Edit::SetPassOffsets { note, pass, .. } => Some(Self::Pass(*note, *pass)),
+            _ => None,
+        }
+    }
 }
 
 /// The one project document with its undo history (ADR-0003 §4, ADR-0026).
@@ -423,8 +457,8 @@ impl Editor {
         let tail = open.inverses.split_off(mark);
         if let Some(replaced) = open.gesture.as_mut() {
             for inverse in tail {
-                if let Edit::Replace(object) = &inverse
-                    && !replaced.insert(object.reference())
+                if let Some(key) = Compacted::of(&inverse)
+                    && !replaced.insert(key)
                 {
                     continue;
                 }
@@ -528,6 +562,9 @@ impl Editor {
         let outer = std::mem::take(&mut open.changes);
         let mut result = command::run(&mut Transaction { editor: self }, command);
         if result.is_ok() {
+            result = self.clear_pass_offsets_of_gone_notes();
+        }
+        if result.is_ok() {
             if let Some(open) = self.open.as_mut() {
                 open.changes.tidy_cells();
             }
@@ -549,6 +586,49 @@ impl Editor {
                 Err(cause)
             }
         }
+    }
+
+    /// Removes the pass-specific offsets of the noteheads that the running command took out of the
+    /// document (T5, see the module documentation): for every notehead listed as gone in the
+    /// command's own change set and really absent now (a notehead moved by a remove-and-insert is
+    /// listed too, but is back), one [`Edit::SetPassOffsets`] to `NONE` per entry, in the table of
+    /// whichever instrument holds it (the note is gone, so the tables are searched).
+    ///
+    /// # Complexity
+    /// O(1) when no instrument has pass offsets, which is the common case. Otherwise O(g ×
+    /// instruments × log n) for g gone noteheads, plus the edits. Allocates only the list of edits
+    /// to apply, and only when there is something to clear.
+    fn clear_pass_offsets_of_gone_notes(&mut self) -> Result<(), CommandError> {
+        if self
+            .document
+            .instruments()
+            .all(|i| i.pass_offsets.is_empty())
+        {
+            return Ok(());
+        }
+        let Some(open) = self.open.as_ref() else {
+            return Ok(());
+        };
+        let mut edits = Vec::new();
+        for &note in &open.changes.notes_gone {
+            if self.document.notes.contains_key(&note) {
+                continue;
+            }
+            for instrument in self.document.instruments() {
+                for entry in instrument.pass_offsets.of_note(note) {
+                    edits.push(Edit::SetPassOffsets {
+                        instrument: instrument.id,
+                        note,
+                        pass: entry.pass,
+                        offsets: PerformanceOffsets::NONE,
+                    });
+                }
+            }
+        }
+        for edit in edits {
+            self.apply(edit)?;
+        }
+        Ok(())
     }
 
     /// Applies one edit inside the open transaction. On error the document is as before this

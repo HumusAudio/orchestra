@@ -1940,12 +1940,84 @@ apposta (i documenti del test di proprietà non avevano una nota spezzata già l
 "dopo", una ripartenza della numerazione, una pausa di battuta intera allineata, una sezione che
 finisce prima del cambio di metro successivo).
 
+#### Lo spostamento dalla DAW e la soglia di tolleranza
+
+F1.14b (ADR-0028, con le precisazioni T1–T7 approvate dal proprietario il 2026-11-06) traduce in
+codice la regola di ADR-0004. Una nota trascinata nella vista DAW resta uno **scostamento di
+esecuzione** (lo spartito non cambia) oppure **si sposta nello spartito**, secondo la **soglia di
+tolleranza** della sua traccia.
+
+```rust
+// The DAW view computes the onset the user wants, from the note's current written start.
+editor.execute(&Command::MovePlayed(MovePlayed {
+    note,                         // the played note's first notehead (PlayedNote::note)
+    pass: None,                   // Some(p): only pass p, always an offset of that pass
+    onset: target.checked_duration_since(written_start)?,
+    grid: sixteenth,              // the DAW's active grid, from the start of each bar
+    mode: MoveMode::ByThreshold,  // or MoveMode::PerformanceOnly: never touch the score
+}))?;
+// Played start = written start + inline onset (+ the pass entry): always exactly the target.
+```
+
+- **La soglia** (modulo `tolerance`): `Tolerance::Musical(Duration)`, di default una
+  trentaduesima, oppure `Tolerance::Millis(u32)`, convertita all'inizio scritto della nota con
+  l'unica mappa dei tempi (esatta nei tratti a tempo costante, in `f64` dentro un cambio graduale,
+  T6). `ToleranceSettings` fa parte del documento: un valore di progetto e le sostituzioni per
+  traccia ordinate per ID, cambiati con il comando annullabile `Command::SetTolerance` (il valore di
+  progetto non si può togliere; `ChangeSet::tolerance_changed`).
+- **La regola** (modulo `daw_command`): entro la soglia (inclusa) l'attacco diventa lo scostamento
+  d'attacco della testa. Oltre, la nota va al punto della griglia più vicino a `scritto + attacco`,
+  contato dall'inizio della battuta in cui cade, stanghetta compresa; a metà strada vince il punto
+  più lontano dalla posizione scritta, così l'arrotondamento non annulla mai uno spostamento. Il
+  resto diventa il nuovo scostamento, quindi l'inizio suonato è sempre esattamente quello voluto.
+  Se la griglia riporta la nota al suo posto si salva solo lo scostamento.
+- **Mai lo spartito**: `MoveMode::PerformanceOnly` (la scelta consapevole dell'utente: scostamenti
+  di qualunque ampiezza), lo spostamento di un solo passaggio, una testa di un accordo con altre
+  teste.
+- **Rifiutati** oltre la soglia, con un errore tipizzato e nulla cambiato: un abbellimento, una
+  testa in cui arriva una legatura (T1), una nota di un gruppo irregolare (T2), un pezzo che
+  supererebbe la stanghetta o l'ultima battuta, una destinazione occupata (`Overlap` della verifica
+  locale). L'interfaccia offrirà al loro posto il modo "solo esecuzione".
+- **Le catene di legature** si spostano intere, ogni evento della stessa quantità con i suoi
+  abbellimenti.
+- **Scostamenti per passaggio** (modulo `pass_offsets`): una tabella per strumento, ordinata per
+  (nota, passaggio), senza mai voci a zero, scritta da `Edit::SetPassOffsets`. Uno spostamento di un
+  passaggio salva la differenza dallo scostamento in linea. Quando un comando toglie teste dal
+  documento, l'editor cancella le loro voci nello stesso comando (T5), tra il comando e la sua
+  verifica locale, così nessun comando può dimenticarlo; l'undo le rimette. Un gesto tiene un solo
+  valore vecchio per voce. Scrivere una voce segna la cella della nota, così il playback la ricalcola
+  con le celle che segue già (T7). `validate` ha la regola 12: le voci nominano una testa del loro
+  strumento, le sostituzioni una traccia esistente.
+
+**Costo** (`benches/editor.rs`, `daw_drag`):
+
+```text
+operation (heavy score)                               instructions
+drag from the DAW: 1 000 MovePlayed in one gesture    ≈ 23 300 000  (≈ 23 000 per update)
+drag of the same note with ChangeEvent::Move          ≈ 13 700 000
+```
+
+Le 10 000 istruzioni in più per aggiornamento sono la soglia, la quantizzazione e la seconda
+sostituzione (lo scostamento residuo). Ogni comando ora chiede anche se qualche strumento ha
+scostamenti per passaggio prima di cancellarli: +2,4% sul gesto normale, sotto la soglia del 5%.
+
+**Test** (`src/daw_command_tests.rs`): dodici casi scritti a mano (entro e oltre la soglia e il suo
+bordo, il residuo, la griglia che riporta la nota indietro, accordi e modo "solo esecuzione", ogni
+rifiuto, una catena spostata intera, i millisecondi, il comando della soglia, uno spostamento di
+passaggio e la cancellazione della sua voce con la nota, un trascinamento oltre la soglia in un
+solo gesto, gli scostamenti in linea condivisi) e un test di proprietà (256 sequenze di spostamenti
+e cancellazioni casuali sul documento ricco: dopo ognuno `validate`, gli indici, l'inizio suonato
+esattamente dove chiesto, lo spartito invariato quando deve; annullando tutto si torna
+all'originale). Sette bug iniettati sono stati presi (uno solo dal test unitario di `tolerance`),
+una mutazione era equivalente.
+
 ### orchestra-playback
 
 Ricava ciò che si suona da ciò che è scritto: ritornelli e salti srotolati, legature di valore
-unite, dinamiche trasformate in velocity e curve, la soglia di tolleranza che decide se uno
-spostamento nella DAW è microtiming o una nuova posizione scritta. Il suo risultato è una cache,
-mai una seconda copia modificabile.
+unite, dinamiche trasformate in velocity e curve, gli scostamenti in linea e per passaggio
+aggiunti. Il suo risultato è una cache, mai una seconda copia modificabile. La soglia di
+tolleranza che decide se uno spostamento nella DAW è microtiming o una nuova posizione scritta è un
+comando del modello (`core-model`, F1.14b), perché cambia il documento.
 
 #### Lo srotolamento della forma
 
@@ -2167,6 +2239,32 @@ completa dopo ogni passo. Le partiture casuali sono ora condivise in `tests/comm
 mutazioni: dieci bug veri presi (tre solo dopo casi scritti apposta), tre equivalenti; una
 faceva girare il ciclo all'infinito, e ha mostrato che assestare una finestra poteva riportare
 indietro un confine cresciuto sulle note nuove: ora i confini si muovono solo verso l'esterno.
+
+#### Gli scostamenti per passaggio nelle note suonate
+
+Da F1.14b (ADR-0028 §5, T3, T4) una nota suonata aggiunge agli scostamenti in linea le voci della
+tabella per passaggio del suo strumento, prima dei limiti di ADR-0027 §8:
+
+```rust
+// Inline offsets + the entry of the pass being played (onset and velocity of the first notehead,
+// the lengths of every notehead of the chain in its own pass).
+let offsets = with_pass(first_note.offsets(), passes.get(first_note.id(), first.pass))?;
+```
+
+- Il passaggio è quello che il percorso dà alle note (`StaffContent::pass`): su un rigo con segni
+  % conta anche le copie, quindi l'originale e ogni copia % hanno voci distinte (T4).
+- Lungo una catena di legature attacco e velocity vengono dalla voce della prima testa, le durate
+  dalle voci di ogni testa nel suo passaggio (T3, come N8); gli abbellimenti aggiungono la propria.
+- Senza voci si usano gli scostamenti in linea così come sono: sommare razionali nulli per ogni
+  nota costava +7% sull'esecuzione completa della partitura pesante; con la scorciatoia il costo è
+  +1,0% (completa) e +1,9% (aggiornamento di una nota).
+- L'aggiornamento incrementale non ha bisogno di nulla di nuovo: una voce cambiata segna la cella
+  della sua nota (T7).
+
+**Test:** tre casi in `tests/perform_cases.rs` (una voce del secondo passaggio di un ritornello,
+un segno % distinto dalla sua battuta d'origine, una catena di legature) e spostamenti DAW di tutti
+i passaggi e di uno solo tra i comandi casuali di `tests/update_props.rs`. Quattro bug iniettati
+sono stati presi.
 
 ### orchestra-notation-layout
 
