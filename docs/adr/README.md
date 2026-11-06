@@ -37,3 +37,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted |
 | [0028](0028-daw-move-tolerance-threshold.md) | Moving a note from the DAW side: tolerance threshold, performance-only edits, pass offsets | Accepted |
 | [0029](0029-project-file-format-v1.md) | Project file format v1: plain JSON, a schema of its own, strict loading | Accepted |
+| [0030](0030-macos-ci-not-blocking-merges.md) | macOS CI no longer blocks merges; it still decides when work is done | Accepted |

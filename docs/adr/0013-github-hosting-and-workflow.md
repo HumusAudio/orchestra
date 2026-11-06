@@ -1,6 +1,7 @@
 # ADR-0013 — Code hosting on GitHub, protected `main`, pull-request workflow
 
-- **Status:** Accepted
+- **Status:** Accepted; §3 (required checks) and §4 (merge condition) amended by **ADR-0030**
+  (2026-11-06): macOS no longer blocks merges, but still decides when work is done.
 - **Date:** 2026-10-28
 
 ## Context

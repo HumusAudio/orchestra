@@ -552,6 +552,13 @@ Implemented in `rewrite.rs` (`meter_after_free_bars`, step 8), two cases in
 `meter_command_tests.rs`, the seed in the proptest regressions; the property test passed 4 000
 cases in release.
 
+**CI rule changed (2026-11-06, ADR-0030 Accepted, branch `chore/ci-macos-non-bloccante`):**
+GitHub's macOS runners were often unavailable (11 of the last 30 macOS jobs never got a runner),
+which stopped every finished pull request. macOS no longer blocks merges when it is only waiting
+for a runner (a macOS job that ran and failed still blocks); after a merge, the macOS job of
+`main` is followed until green, and a step is complete only then. The owner removes
+`check (macos-latest)` from the required checks of the `main` ruleset.
+
 ## Open decisions and open items
 
 - **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
