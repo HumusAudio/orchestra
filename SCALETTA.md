@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.33, approvata dal proprietario il 2026-11-06.**
+> **Stato di questo documento: v0.34, approvata dal proprietario il 2026-11-06.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -446,7 +446,7 @@ Dettagli:
 | F1.13b | **Note suonate**: legature di valore fuse, articolazioni, abbellimenti, arpeggi, scostamenti e limiti, regole di passaggio e segni % | ✅ | 1–2 |
 | F1.13c | **Dinamiche e forcelle** → velocity, aggiornamento incrementale per cella, benchmark (una nota ≤ 1 ms sulla partitura pesante) | ✅ | 2 |
 | F1.14 | **ADR della soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ✅ ADR-0028 | 1 |
-| F1.14b | **Spostamento dell'attacco dalla DAW**: soglia nel documento, modo "solo esecuzione", tabella degli scostamenti per passaggio, aggiornamento delle note suonate | 🔄 | 1–2 |
+| F1.14b | **Spostamento dell'attacco dalla DAW**: soglia nel documento, modo "solo esecuzione", tabella degli scostamenti per passaggio, aggiornamento delle note suonate | ✅ | 1–2 |
 | F1.14c | **Durate dalla DAW** oltre la soglia e "sposta comunque" (divisione in legature) | ⬜ | 1–2 |
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
@@ -517,7 +517,18 @@ Dettagli:
 - **F1.14** **Fatto il 2026-11-06 (ADR-0028 Accepted):** il proprietario ha approvato Q1–Q11 (soglia
   1/32 in tempo musicale con variante in ms; modo "solo esecuzione" come scelta consapevole; per la
   velocity il contrario: di default solo esecuzione, a scelta anche lo spartito). Diviso in F1.14b e
-  F1.14c, con una PR unica alla fine. Testo originale: ❓ **Decisione:** valore di default della soglia (proposta di ADR-0004: 1/32) e se
+  F1.14c, con una PR unica alla fine.
+- **F1.14b** **Fatto il 2026-11-06:** prima del codice il proprietario ha approvato T1–T7, ora
+  ADR-0028 §10 (rifiutati oltre la soglia le teste in cui arriva una legatura e le note di gruppo
+  irregolare; voci per passaggio lungo le catene come N8; la chiave distingue già le copie %; le
+  voci delle note cancellate tolte dall'editor dopo ogni comando; millisecondi esatti tranne nei
+  cambi graduali; una voce cambiata segna la cella della nota). Moduli `tolerance`, `pass_offsets`,
+  `daw_command` di `core-model`; voci per passaggio nelle note suonate. Sulla partitura pesante un
+  aggiornamento del trascinamento DAW ≈ 23 000 istruzioni; esecuzione completa +1,0%, aggiornamento
+  di una nota +1,9%.
+- **F1.14c** Qui si riprendono il rifiuto T2 (note di gruppo irregolare oltre la soglia) e il
+  "sposta comunque" (divisione in legature oltre la stanghetta), oltre alle durate oltre la soglia.
+- **F1.14** (testo originale): ❓ **Decisione:** valore di default della soglia (proposta di ADR-0004: 1/32) e se
   offrire da subito anche la variante in millisecondi. Da F1.12 (ADR-0025 §12 P6): qui entra nel
   modello la tabella degli scostamenti per singolo passaggio (ADR-0024 §10), con chiave (nota,
   indice di passaggio), con le sue modifiche elementari e il comando che la scrive; cancellare una
@@ -833,3 +844,4 @@ raccomandato.
 | 2026-11-05 | 0.31 | F1.13c diviso in due parti, parte 1 fatta (precisioni H1–H13 ed emendamento H14–H17 in ADR-0027 §14: profilo d'attacco); note per F1.18 (codifica del profilo, taratura a orecchio) e F2.12 | proprietario |
 | 2026-11-05 | 0.32 | F1.13c fatto (parte 2: aggiornamento incrementale, benchmark), F1.13 completo; misura in tempo reale dell'aggiornamento delle note suonate in F2.23 | proprietario |
 | 2026-11-06 | 0.33 | F1.14 fatto (ADR-0028 Accepted), D09 chiusa; nuovi F1.14b e F1.14c, PR unica per F1.14 | proprietario |
+| 2026-11-06 | 0.34 | F1.14b fatto (precisioni T1–T7 in ADR-0028 §10); note per F1.14c (T2, "sposta comunque") | proprietario |
