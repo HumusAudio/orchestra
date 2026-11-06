@@ -2443,7 +2443,33 @@ object with full names.
 - `mod.rs`: the API and the errors. `LoadError` has `Io`, `TooLarge` (over 1 GiB, checked on the
   file's size before reading it), `NotAProject`, `NewerFormat`, `Syntax` and `Schema` with the line
   and column from `serde_json` (I8; `Schema` has no line for the conversion's errors, which name
-  the object instead) and `Document` for the model's refusals.
+  the object instead), `Migration` for an older file that cannot be migrated, and `Document` for
+  the model's refusals.
+
+**Golden files and migrations** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/`
+holds fifteen files of version 1, written **once** and never regenerated: one small file per kind
+of saved object (`minimal`, `meter`, `instruments`, `events`, `tuplets`, `graces`, `markings`,
+`ties_and_offsets`, `slurs`, `dynamics`, `tempo_and_keys`, `form`, `bar_repeats_and_pass_rules`,
+`settings_and_counter`, the last with an exhausted counter, `"next_id": null`) and `everything`.
+`tests/common/golden_docs.rs` builds the document of each by code; `tests/golden.rs` loads every
+file and compares it with its document, IDs and counter included, and, while version 1 is the
+current one, checks that saving the document gives the file's very bytes. It also checks that
+every file of every `vN/` directory loads, that every truncation of every golden file is refused,
+and that random JSON values put anywhere in the `everything` file never panic. The files are
+written by an ignored test that never overwrites an existing file:
+
+```sh
+cargo test -p orchestra-io --test golden -- --ignored   # writes only the missing files
+```
+
+A file of an older version takes a slower path when it is loaded: the generic JSON tree, the
+chain of migrations of `src/project/migrate.rs` (`MIGRATIONS[k]` migrates version `k + 1` to
+`k + 2`, each a pure function on the tree; the machinery sets `orchestra_format` after each step),
+then the current schema. The chain is empty while version 1 is the only one; the machinery is
+tested with a test-only chain of two steps (a renamed field, an added one), and a failing or
+missing step is `LoadError::Migration { from, message }`. The first format change adds its
+function to the chain and a `tests/golden/v2/` directory; the files of `v1/` stay as they are and
+must keep loading into the same documents.
 
 **Saving safely** (S13). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
 directory, syncs it, renames it over the target, then syncs the directory where the platform needs

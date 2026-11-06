@@ -1,0 +1,98 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 45,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 10,
+      "instrument": 11,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 12,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 13,
+          "home_staff": 12
+        }
+      ],
+      "dynamics": [
+        {"id":14,"bar":2,"at":"0","staff":12,"mark":"pppppp"},
+        {"id":41,"bar":2,"at":"0","staff":12,"voice":13,"mark":"pp"},
+        {"id":15,"bar":2,"at":"1/4","staff":12,"mark":"ppppp"},
+        {"id":16,"bar":2,"at":"1/2","staff":12,"mark":"pppp"},
+        {"id":17,"bar":2,"at":"3/4","staff":12,"mark":"ppp"},
+        {"id":18,"bar":3,"at":"0","staff":12,"mark":"pp"},
+        {"id":19,"bar":3,"at":"1/4","staff":12,"mark":"p"},
+        {"id":20,"bar":3,"at":"1/2","staff":12,"mark":"mp"},
+        {"id":21,"bar":3,"at":"3/4","staff":12,"mark":"mf"},
+        {"id":22,"bar":4,"at":"0","staff":12,"mark":"f"},
+        {"id":23,"bar":4,"at":"1/4","staff":12,"mark":"ff"},
+        {"id":24,"bar":4,"at":"1/2","staff":12,"mark":"fff"},
+        {"id":25,"bar":4,"at":"3/4","staff":12,"mark":"ffff"},
+        {"id":26,"bar":5,"at":"0","staff":12,"mark":"fffff"},
+        {"id":27,"bar":5,"at":"1/4","staff":12,"mark":"ffffff"},
+        {"id":28,"bar":5,"at":"1/2","staff":12,"mark":"sf"},
+        {"id":29,"bar":5,"at":"3/4","staff":12,"mark":"sfz"},
+        {"id":30,"bar":6,"at":"0","staff":12,"mark":"sffz"},
+        {"id":31,"bar":6,"at":"1/4","staff":12,"mark":"fz"},
+        {"id":32,"bar":6,"at":"1/2","staff":12,"mark":"rf"},
+        {"id":33,"bar":6,"at":"3/4","staff":12,"mark":"rfz"},
+        {"id":34,"bar":7,"at":"0","staff":12,"mark":"fp"},
+        {"id":35,"bar":7,"at":"1/4","staff":12,"mark":"sfp"},
+        {"id":36,"bar":7,"at":"1/2","staff":12,"mark":"sfpp"},
+        {"id":37,"bar":7,"at":"3/4","staff":12,"mark":"pf"},
+        {"id":38,"bar":8,"at":"0","staff":12,"mark":"niente"},
+        {"id":39,"bar":8,"at":"1/4","staff":12,"text":"dolce","level":"mp"},
+        {"id":40,"bar":8,"at":"1/2","staff":12,"text":"più forte"}
+      ],
+      "hairpins": [
+        {"id":42,"bar":2,"at":"0","end_bar":3,"end_at":"0","staff":12,"kind":"crescendo","style":"wedge"},
+        {"id":44,"bar":2,"at":"0","end_bar":5,"end_at":"0","staff":12,"voice":13,"kind":"crescendo","style":"wedge","niente":true},
+        {"id":43,"bar":3,"at":"0","end_bar":4,"end_at":"1/2","staff":12,"kind":"diminuendo","style":"text","niente":true}
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

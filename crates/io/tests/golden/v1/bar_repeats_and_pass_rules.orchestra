@@ -1,0 +1,142 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 47,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "repeat_starts": [
+      {"id":43,"bar":8}
+    ],
+    "repeat_ends": [
+      {"id":44,"bar":9,"times":4}
+    ],
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 18,
+      "instrument": 19,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 20,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 21,
+          "home_staff": 20,
+          "cells": [
+            {
+              "bar": 2,
+              "events": [
+                {"id":22,"at":"0","staff":20,"value":"4","notes":[{"id":23,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 4,
+              "events": [
+                {"id":24,"at":"0","staff":20,"value":"4","notes":[{"id":25,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 5,
+              "events": [
+                {"id":26,"at":"0","staff":20,"value":"4","notes":[{"id":27,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 8,
+              "events": [
+                {"id":28,"at":"0","staff":20,"value":"4","notes":[{"id":29,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 9,
+              "events": [
+                {"id":30,"at":"0","staff":20,"value":"4","notes":[{"id":31,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 10,
+              "events": [
+                {"id":32,"at":"0","staff":20,"value":"4","notes":[{"id":33,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 11,
+              "events": [
+                {"id":34,"at":"0","staff":20,"value":"4","notes":[{"id":35,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 12,
+              "events": [
+                {"id":36,"at":"0","staff":20,"value":"4","notes":[{"id":37,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 13,
+              "events": [
+                {"id":38,"at":"0","staff":20,"value":"4","notes":[{"id":39,"pitch":"E5"}]}
+              ]
+            }
+          ]
+        }
+      ],
+      "bar_repeats": [
+        {"id":40,"staff":20,"first":3,"count":1,"span":"1"},
+        {"id":41,"staff":20,"first":6,"count":2,"span":"2"},
+        {"id":42,"staff":20,"first":14,"count":4,"span":"4"}
+      ],
+      "pass_rules": [
+        {"id":45,"bar":8,"at":"0","end_bar":9,"end_at":"0","plays":[2,4]},
+        {"id":46,"bar":9,"at":"0","end_bar":9,"end_at":"1/2","voice":21,"plays":[1,2,3],"text":"tacet last time"}
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

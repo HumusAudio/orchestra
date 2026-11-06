@@ -1,0 +1,293 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 94,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      },
+      "changes": [
+        {"bar":9,"meter":"6/8","grouping":"3+3/8"}
+      ],
+      "irregular": [
+        {"bar":2,"length":"1/4","kind":"align_end"},
+        {"bar":13,"length":"3/8","kind":"align_start"}
+      ],
+      "groupings": [
+        {"bar":10,"grouping":"2+2+2/8"}
+      ],
+      "uncounted": [
+        2
+      ],
+      "restarts": [
+        {"bar":7,"number":20}
+      ]
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ],
+    "tempo": {
+      "id": 1,
+      "text": "Andante",
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "72",
+          "shown": true
+        }
+      }
+    },
+    "tempo_marks": [
+      {"id":78,"bar":6,"at":"0","change":{"immediate":{"unit":"1/4","bpm":"80","shown":false}}},
+      {"id":79,"bar":7,"at":"0","text":"rit.","change":{"gradual":{"from":{"unit":"1/4","bpm":"76","shown":true},"to":{"unit":"1/4","bpm":"60"},"end_bar":8,"end_at":"0"}}},
+      {"id":80,"bar":10,"at":"0","text":"con moto"}
+    ],
+    "key": {
+      "fifths": -3,
+      "mode": "minor"
+    },
+    "key_changes": [
+      {"id":77,"bar":9,"at":"0","key":{"fifths":-1,"mode":"dorian"}}
+    ],
+    "repeat_starts": [
+      {"id":86,"bar":3}
+    ],
+    "repeat_ends": [
+      {"id":87,"bar":4,"times":2}
+    ],
+    "voltas": [
+      {"id":88,"first":4,"last":4,"passes":[1],"closed":true},
+      {"id":89,"first":5,"last":5,"passes":[2],"closed":false,"text":"2."}
+    ],
+    "markers": [
+      {"id":91,"bar":6,"kind":"segno"},
+      {"id":92,"bar":8,"kind":"fine"}
+    ],
+    "jumps": [
+      {"id":93,"bar":13,"to":{"marker":91},"until":92,"repeats":"skip","fires":"after_repeats","text":"D.S. al Fine"}
+    ],
+    "numbering": "same_as_first_lettered"
+  },
+  "tracks": [
+    {
+      "id": 14,
+      "instrument": 15,
+      "name": "Piano",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 16,
+          "clef": "G2"
+        },
+        {
+          "id": 17,
+          "clef": "F4",
+          "clef_changes": [
+            {"id":67,"bar":7,"at":"0","clef":"C4"}
+          ]
+        }
+      ],
+      "voices": [
+        {
+          "id": 18,
+          "home_staff": 16,
+          "tuplets": [
+            {"id":60,"actual":3,"normal":2,"unit":"4","bracket":"auto","number":"actual"},
+            {"id":61,"actual":2,"normal":3,"unit":"8","parent":60,"bracket":"auto","number":"actual"}
+          ],
+          "cells": [
+            {
+              "bar": 3,
+              "events": [
+                {"id":47,"at":"0","staff":16,"value":"4","articulations":["accent","staccato"],"arpeggio":"up","notes":[{"id":48,"pitch":"C4"},{"id":49,"pitch":"E4"},{"id":50,"pitch":"G4"}]},
+                {"id":51,"at":"1/4","staff":16,"value":"8","grace":{"kind":"acciaccatura","attach":"before"},"notes":[{"id":52,"pitch":"D4"}]},
+                {"id":53,"at":"1/4","staff":16,"value":"4","notes":[{"id":54,"pitch":"E4"}]}
+              ]
+            },
+            {
+              "bar": 4,
+              "events": [
+                {"id":56,"at":"0","staff":16,"value":"2","notes":[{"id":57,"pitch":"G4","tie":"let_ring"}]},
+                {"id":58,"at":"1/2","staff":16,"value":"8","grace":{"kind":"appoggiatura","attach":"after"},"notes":[{"id":59,"pitch":"A4"}]}
+              ]
+            },
+            {
+              "bar": 6,
+              "events": [
+                {"id":62,"at":"0","staff":16,"value":"4","tuplet":60,"notes":[{"id":63,"pitch":"A4"}]},
+                {"id":64,"at":"1/6","staff":16,"value":"8","tuplet":61,"notes":[{"id":65,"pitch":"B4"}]}
+              ]
+            }
+          ]
+        },
+        {
+          "id": 19,
+          "home_staff": 17,
+          "cells": [
+            {
+              "bar": 3,
+              "events": [
+                {"id":66,"at":"0","staff":17,"rest":"bar"}
+              ]
+            },
+            {
+              "bar": 7,
+              "events": [
+                {"id":68,"at":"0","staff":17,"value":"2","notes":[{"id":69,"pitch":"C3"}]}
+              ]
+            }
+          ]
+        },
+        {
+          "id": 28,
+          "home_staff": 17,
+          "cells": [
+            {
+              "bar": 3,
+              "events": [
+                {"id":70,"at":"0","staff":17,"value":"2","notes":[{"id":71,"pitch":"E3"}]}
+              ]
+            }
+          ]
+        }
+      ],
+      "slurs": [
+        {"id":55,"start":47,"end":53,"placement":"above"}
+      ],
+      "dynamics": [
+        {"id":81,"bar":3,"at":"0","staff":17,"mark":"mf"},
+        {"id":82,"bar":3,"at":"1/4","staff":16,"voice":18,"mark":"sfz"}
+      ],
+      "hairpins": [
+        {"id":84,"bar":3,"at":"1/2","end_bar":4,"end_at":"0","staff":17,"kind":"crescendo","style":"wedge"}
+      ],
+      "pass_rules": [
+        {"id":90,"bar":3,"at":"0","end_bar":4,"end_at":"0","voice":18,"plays":[2],"text":"2nd time only"}
+      ],
+      "pass_offsets": [
+        {"note":48,"pass":1,"offsets":{"velocity":300}}
+      ]
+    },
+    {
+      "id": 20,
+      "instrument": 21,
+      "name": "Flauto",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 22,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 23,
+          "home_staff": 22,
+          "cells": [
+            {
+              "bar": 2,
+              "events": [
+                {"id":29,"at":"0","staff":22,"value":"4","notes":[{"id":30,"pitch":"D5"}]}
+              ]
+            },
+            {
+              "bar": 3,
+              "events": [
+                {"id":31,"at":"0","staff":22,"value":"4","ornament":"trill[1]","notes":[{"id":32,"pitch":"E[-1/2]5"}]},
+                {"id":33,"at":"1/4","staff":22,"value":"4","ornament":"turn","notes":[{"id":34,"pitch":"F5"}]},
+                {"id":35,"at":"1/2","staff":22,"value":"4","ornament":"inverted_turn","notes":[{"id":36,"pitch":"G5"}]},
+                {"id":37,"at":"3/4","staff":22,"value":"4","ornament":"mordent","notes":[{"id":38,"pitch":"A5","tie":40}]}
+              ]
+            },
+            {
+              "bar": 4,
+              "events": [
+                {"id":39,"at":"0","staff":22,"value":"4","ornament":"upper_mordent","notes":[{"id":40,"pitch":"A5"}]},
+                {"id":41,"at":"1/2","staff":22,"rest":"2","fermata":"normal"}
+              ]
+            },
+            {
+              "bar": 5,
+              "events": [
+                {"id":42,"at":"0","staff":22,"value":"1","ornament":"tremolo[3]","fermata":"long","notes":[{"id":43,"pitch":"B5","offsets":{"onset":"-1/64","length":"1/32","velocity":-400}}]}
+              ]
+            },
+            {
+              "bar": 11,
+              "events": [
+                {"id":44,"at":"0","staff":22,"value":"4","notes":[{"id":45,"pitch":"C6"}]}
+              ]
+            }
+          ]
+        }
+      ],
+      "dynamics": [
+        {"id":83,"bar":3,"at":"0","staff":22,"text":"dolce","level":"mp"}
+      ],
+      "hairpins": [
+        {"id":85,"bar":5,"at":"0","end_bar":6,"end_at":"0","staff":22,"voice":23,"kind":"diminuendo","style":"text","niente":true}
+      ],
+      "bar_repeats": [
+        {"id":46,"staff":22,"first":12,"count":1,"span":"1"}
+      ]
+    },
+    {
+      "id": 24,
+      "instrument": 25,
+      "name": "Horn in F",
+      "transposition": {
+        "steps": -4,
+        "semitones": "-7"
+      },
+      "staves": [
+        {
+          "id": 26,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 27,
+          "home_staff": 26,
+          "cells": [
+            {
+              "bar": 6,
+              "events": [
+                {"id":72,"at":"0","staff":26,"value":"4","notes":[{"id":73,"pitch":"C5"}]}
+              ]
+            }
+          ]
+        }
+      ],
+      "key_overrides": [
+        {"id":74,"bar":2,"at":"0","key":"no_signature"},
+        {"id":75,"bar":11,"at":"0","key":{"key":{"fifths":2,"mode":"major"}}},
+        {"id":76,"bar":13,"at":"0","key":"follow_score"}
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32",
+    "track_tolerances": [
+      {"track":20,"tolerance":"25ms"}
+    ]
+  }
+}

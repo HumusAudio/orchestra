@@ -4,6 +4,11 @@
 # make the parity hash differ between machines.
 * text=auto eol=lf
 
+# Project files (ADR-0029 S3) are LF by definition, and the golden files of crates/io/tests/golden
+# are compared byte for byte: already covered by the rule above, stated here so that nobody
+# relaxes it for them by accident.
+*.orchestra text eol=lf
+
 # Shell scripts must be LF or bash refuses them ("\r: command not found").
 *.sh   text eol=lf
 .githooks/* text eol=lf

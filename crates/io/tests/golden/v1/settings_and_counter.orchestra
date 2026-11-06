@@ -1,0 +1,59 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": null,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 3,
+      "instrument": 4,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 5,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 6,
+          "home_staff": 5
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "40ms",
+    "track_tolerances": [
+      {"track":3,"tolerance":"1/48"}
+    ]
+  }
+}

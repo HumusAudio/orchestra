@@ -1,0 +1,92 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 33,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "repeat_starts": [
+      {"id":21,"bar":4}
+    ],
+    "repeat_ends": [
+      {"id":20,"bar":3,"times":2},
+      {"id":22,"bar":6,"times":3},
+      {"id":23,"bar":7,"times":3}
+    ],
+    "voltas": [
+      {"id":24,"first":6,"last":6,"passes":[1],"closed":true},
+      {"id":25,"first":7,"last":7,"passes":[2],"closed":true},
+      {"id":26,"first":8,"last":8,"passes":[3],"closed":false,"text":"Last time"}
+    ],
+    "markers": [
+      {"id":27,"bar":9,"kind":"segno","text":"𝄋"},
+      {"id":28,"bar":10,"kind":"to_coda"},
+      {"id":29,"bar":11,"kind":"fine"},
+      {"id":31,"bar":14,"kind":"coda"}
+    ],
+    "jumps": [
+      {"id":30,"bar":12,"to":{"marker":27},"until":29,"repeats":"play","fires":"after_repeats"},
+      {"id":32,"bar":13,"to":"start","until":28,"then":31,"repeats":"skip","fires":"after_repeats","text":"D.C. al Coda"}
+    ],
+    "numbering": "same_as_first"
+  },
+  "tracks": [
+    {
+      "id": 16,
+      "instrument": 17,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 18,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 19,
+          "home_staff": 18
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

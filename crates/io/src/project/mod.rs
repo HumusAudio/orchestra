@@ -19,8 +19,10 @@
 //!    values are refused with their line and column (S8).
 //! 4. The schema into `DocumentParts` (`convert`), then `Document::from_parts`.
 //!
-//! Nothing is ever partially loaded: every step either succeeds or the whole load fails.
-//! Migrations from older versions come with F1.15c (S11); version 1 is the first.
+//! Nothing is ever partially loaded: every step either succeeds or the whole load fails. A file
+//! of an older version takes a slower path at step 3: the generic JSON tree, the chain of
+//! migrations (`migrate`), then the current schema (S11). Version 1 is the first, so the chain is
+//! empty for now.
 //!
 //! # Saving (`save`)
 //! The bytes are written to a temporary file in the target's directory, synced, then renamed over
@@ -29,6 +31,7 @@
 mod codec;
 mod convert;
 mod header;
+mod migrate;
 mod schema;
 mod writer;
 
@@ -93,6 +96,13 @@ pub enum LoadError {
         /// What is wrong.
         message: String,
     },
+    /// A file of an older version could not be migrated to the current one (ADR-0029 S11).
+    Migration {
+        /// The version of the step that failed.
+        from: u64,
+        /// What went wrong.
+        message: String,
+    },
     /// The document described is not valid (the builder's and `validate`'s errors).
     Document(DocumentError),
 }
@@ -128,6 +138,9 @@ impl fmt::Display for LoadError {
                 message,
             } => write!(f, "{message} (line {line}, column {column})"),
             Self::Schema { message, .. } => f.write_str(message),
+            Self::Migration { from, message } => {
+                write!(f, "cannot migrate from format {from}: {message}")
+            }
             Self::Document(e) => write!(f, "invalid document: {e}"),
         }
     }
@@ -202,22 +215,45 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Document, LoadError> {
         });
     }
     let body = bytes.strip_prefix(header::BOM).unwrap_or(bytes);
-    let file: schema::FileV1 = serde_json::from_slice(body).map_err(|e| {
-        use serde_json::error::Category;
-        match e.classify() {
-            Category::Data => LoadError::Schema {
-                line: Some(e.line()),
-                column: Some(e.column()),
-                message: e.to_string(),
-            },
-            Category::Syntax | Category::Eof | Category::Io => LoadError::Syntax {
-                line: e.line(),
-                column: e.column(),
-            },
-        }
-    })?;
+    let file: schema::FileV1 = if found == u64::from(FORMAT_VERSION) {
+        // The fast path: the current version, straight into the typed schema.
+        serde_json::from_slice(body).map_err(json_error)?
+    } else {
+        // An older version: the generic tree, its migrations, then the typed schema (S11). The
+        // reader's line and column are those of the old file, so the schema errors after the
+        // migration have none.
+        let tree: serde_json::Value = serde_json::from_slice(body).map_err(json_error)?;
+        let tree =
+            migrate::migrate_with(tree, found, u64::from(FORMAT_VERSION), &migrate::MIGRATIONS)?;
+        serde_json::from_value(tree).map_err(|e| LoadError::Schema {
+            line: None,
+            column: None,
+            message: e.to_string(),
+        })?
+    };
     let parts = convert::to_parts(file)?;
     Document::from_parts(&parts).map_err(LoadError::Document)
+}
+
+/// The error of the JSON reader: a syntax error, or a schema error with its line and column.
+/// O(1).
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "used as `map_err`'s function, which hands the error over by value"
+)]
+fn json_error(e: serde_json::Error) -> LoadError {
+    use serde_json::error::Category;
+    match e.classify() {
+        Category::Data => LoadError::Schema {
+            line: Some(e.line()),
+            column: Some(e.column()),
+            message: e.to_string(),
+        },
+        Category::Syntax | Category::Eof | Category::Io => LoadError::Syntax {
+            line: e.line(),
+            column: e.column(),
+        },
+    }
 }
 
 /// Loads the project file at `path` (see [`from_bytes`]). The size is checked before the file is

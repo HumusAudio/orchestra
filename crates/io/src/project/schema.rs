@@ -776,3 +776,35 @@ pub(crate) struct TrackToleranceV1 {
     /// Its threshold.
     pub(crate) tolerance: ToleranceText,
 }
+
+#[cfg(test)]
+mod tests {
+    //! The text forms of the schema's few tagged enumerations, which the golden files do not all
+    //! use (a jump taken on a given pass, a jump to the start).
+    use super::*;
+
+    /// `"fires"` and `"to"` of a jump, both ways.
+    #[test]
+    fn jump_enumerations() {
+        let cases = [
+            (JumpFiresV1::AfterRepeats, "\"after_repeats\""),
+            (JumpFiresV1::OnPass(2), "{\"on_pass\":2}"),
+        ];
+        for (value, text) in cases {
+            assert_eq!(serde_json::to_string(&value).ok().as_deref(), Some(text));
+            let back: Result<JumpFiresV1, _> = serde_json::from_str(text);
+            assert!(back.is_ok(), "{text}");
+        }
+        assert_eq!(
+            serde_json::to_string(&JumpTargetV1::Start).ok().as_deref(),
+            Some("\"start\"")
+        );
+        assert_eq!(
+            serde_json::to_string(&JumpTargetV1::Marker(7))
+                .ok()
+                .as_deref(),
+            Some("{\"marker\":7}")
+        );
+        assert!(serde_json::from_str::<JumpFiresV1>("{\"on_pass\":2,\"x\":1}").is_err());
+    }
+}

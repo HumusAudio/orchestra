@@ -1,0 +1,94 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 47,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 6,
+      "instrument": 7,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 8,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 9,
+          "home_staff": 8,
+          "cells": [
+            {
+              "bar": 2,
+              "events": [
+                {"id":10,"at":"0","staff":8,"value":"4","articulations":["accent"],"ornament":"trill","fermata":"short","notes":[{"id":11,"pitch":"C5"},{"id":12,"pitch":"E5"}]},
+                {"id":13,"at":"1/4","staff":8,"value":"4","articulations":["marcato"],"ornament":"trill[-1]","fermata":"normal","notes":[{"id":14,"pitch":"C5"},{"id":15,"pitch":"E5"}]},
+                {"id":16,"at":"1/2","staff":8,"value":"4","articulations":["staccato"],"ornament":"trill[1/2]","fermata":"long","notes":[{"id":17,"pitch":"C5"},{"id":18,"pitch":"E5"}]},
+                {"id":19,"at":"3/4","staff":8,"value":"4","articulations":["staccatissimo"],"ornament":"turn","notes":[{"id":20,"pitch":"C5"},{"id":21,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 3,
+              "events": [
+                {"id":22,"at":"0","staff":8,"value":"4","articulations":["spiccato"],"ornament":"inverted_turn","arpeggio":"plain","notes":[{"id":23,"pitch":"C5"},{"id":24,"pitch":"E5"}]},
+                {"id":25,"at":"1/4","staff":8,"value":"4","articulations":["tenuto"],"ornament":"mordent","arpeggio":"up","notes":[{"id":26,"pitch":"C5"},{"id":27,"pitch":"E5"}]},
+                {"id":28,"at":"1/2","staff":8,"value":"4","articulations":["portato"],"ornament":"upper_mordent","arpeggio":"down","notes":[{"id":29,"pitch":"C5"},{"id":30,"pitch":"E5"}]},
+                {"id":31,"at":"3/4","staff":8,"value":"4","articulations":["stress"],"ornament":"tremolo[1]","arpeggio":"non_arpeggio","notes":[{"id":32,"pitch":"C5"},{"id":33,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 4,
+              "events": [
+                {"id":34,"at":"0","staff":8,"value":"4","articulations":["unstress"],"ornament":"tremolo[4]","notes":[{"id":35,"pitch":"C5"},{"id":36,"pitch":"E5"}]},
+                {"id":37,"at":"1/4","staff":8,"value":"4","articulations":["soft_accent"],"notes":[{"id":38,"pitch":"C5"},{"id":39,"pitch":"E5"}]},
+                {"id":40,"at":"1/2","staff":8,"value":"4","articulations":["marcato","staccato","tenuto"],"notes":[{"id":41,"pitch":"C5"},{"id":42,"pitch":"E5"}]},
+                {"id":43,"at":"3/4","staff":8,"value":"4","notes":[{"id":44,"pitch":"C5"},{"id":45,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 5,
+              "events": [
+                {"id":46,"at":"0","staff":8,"rest":"bar","fermata":"very_long"}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

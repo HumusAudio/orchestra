@@ -1,0 +1,86 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 33,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 4,
+      "instrument": 5,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 6,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 7,
+          "home_staff": 6,
+          "tuplets": [
+            {"id":8,"actual":3,"normal":2,"unit":"8","bracket":"auto","number":"actual"},
+            {"id":15,"actual":5,"normal":4,"unit":"16","bracket":"shown","number":"ratio"},
+            {"id":25,"actual":3,"normal":2,"unit":"4","bracket":"auto","number":"actual"},
+            {"id":26,"actual":2,"normal":3,"unit":"8","parent":25,"bracket":"hidden","number":"hidden"}
+          ],
+          "cells": [
+            {
+              "bar": 2,
+              "events": [
+                {"id":9,"at":"0","staff":6,"value":"8","tuplet":8,"notes":[{"id":10,"pitch":"C5"}]},
+                {"id":11,"at":"1/12","staff":6,"value":"8","tuplet":8,"notes":[{"id":12,"pitch":"D5"}]},
+                {"id":13,"at":"1/6","staff":6,"value":"8","tuplet":8,"notes":[{"id":14,"pitch":"E5"}]},
+                {"id":16,"at":"1/4","staff":6,"value":"16","tuplet":15,"notes":[{"id":17,"pitch":"F5"}]},
+                {"id":18,"at":"3/10","staff":6,"value":"16","tuplet":15,"notes":[{"id":19,"pitch":"F5"}]},
+                {"id":20,"at":"7/20","staff":6,"value":"16","tuplet":15,"notes":[{"id":21,"pitch":"F5"}]},
+                {"id":22,"at":"2/5","staff":6,"value":"16","tuplet":15,"notes":[{"id":23,"pitch":"F5"}]},
+                {"id":24,"at":"9/20","staff":6,"rest":"16","tuplet":15}
+              ]
+            },
+            {
+              "bar": 3,
+              "events": [
+                {"id":27,"at":"0","staff":6,"value":"4","tuplet":25,"notes":[{"id":28,"pitch":"G4"}]},
+                {"id":29,"at":"1/6","staff":6,"value":"8","tuplet":26,"notes":[{"id":30,"pitch":"A4"}]},
+                {"id":31,"at":"7/24","staff":6,"value":"8","tuplet":26,"notes":[{"id":32,"pitch":"B4"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

@@ -2599,7 +2599,35 @@ ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con
 - `mod.rs`: l'API e gli errori. `LoadError` ha `Io`, `TooLarge` (oltre 1 GiB, controllato sulla
   dimensione del file prima di leggerlo), `NotAProject`, `NewerFormat`, `Syntax` e `Schema` con
   riga e colonna date da `serde_json` (I8; `Schema` non ha riga per gli errori della conversione,
-  che nominano invece l'oggetto) e `Document` per i rifiuti del modello.
+  che nominano invece l'oggetto), `Migration` per un file più vecchio che non si riesce a
+  migrare, e `Document` per i rifiuti del modello.
+
+**File golden e migrazioni** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/` contiene
+quindici file della versione 1, scritti **una volta sola** e mai rigenerati: un file piccolo per
+ogni tipo di oggetto salvato (`minimal`, `meter`, `instruments`, `events`, `tuplets`, `graces`,
+`markings`, `ties_and_offsets`, `slurs`, `dynamics`, `tempo_and_keys`, `form`,
+`bar_repeats_and_pass_rules`, `settings_and_counter`, quest'ultimo con il contatore esaurito,
+`"next_id": null`) e `everything`. `tests/common/golden_docs.rs` costruisce da codice il documento
+di ciascuno; `tests/golden.rs` carica ogni file e lo confronta con il suo documento, ID e
+contatore compresi, e, finché la versione 1 è quella corrente, controlla che salvare il documento
+dia esattamente i byte del file. Controlla anche che ogni file di ogni cartella `vN/` si carichi,
+che ogni troncamento di ogni file golden venga rifiutato, e che valori JSON casuali messi in un
+punto qualunque del file `everything` non causino mai un panico. I file li scrive un test ignorato
+che non sovrascrive mai un file esistente:
+
+```sh
+cargo test -p orchestra-io --test golden -- --ignored   # writes only the missing files
+```
+
+Un file di una versione più vecchia segue una strada più lenta quando viene caricato: l'albero JSON
+generico, la catena delle migrazioni di `src/project/migrate.rs` (`MIGRATIONS[k]` migra dalla
+versione `k + 1` alla `k + 2`, ognuna una funzione pura sull'albero; il meccanismo imposta
+`orchestra_format` dopo ogni passo), poi lo schema corrente. La catena è vuota finché la versione 1
+è l'unica; il meccanismo è provato con una catena di due passi solo per i test (un campo
+rinominato, uno aggiunto), e un passo che fallisce o che manca dà `LoadError::Migration { from,
+message }`. Il primo cambio di formato aggiungerà la sua funzione alla catena e una cartella
+`tests/golden/v2/`; i file di `v1/` restano come sono e devono continuare a caricarsi negli stessi
+documenti.
 
 **Salvare in modo sicuro** (S13). `save` scrive un file temporaneo `.<nome>.<id del processo>.tmp`
 nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi

@@ -488,7 +488,18 @@ byte; layout; BOM and CRLF; every refusal; saving over a file), `tests/project_p
 truncation refused, corruption never panicking, random commands round-tripping); seven injected
 bugs caught, three after cases written for them. Benchmarks `benches/project.rs`: saving ≈ 42 M / 1.23 G instructions (normal / heavy), loading ≈ 74 M / 2.2 G; natively 5.5 / 168 ms to save and 11 / 396 ms to load, files of 0.84 / 25.4 MB (the heavy load to be measured on the reference laptop, F2.23).
 Binary: about +0.6 MB stripped (1.18 MB against 0.55 MB for a probe using only the model). F1.15b
-complete. **Next:** F1.15c (golden files of version 1, the migration machinery, the PR of F1.15).
+complete (SCALETTA v0.38, which also adds to F2.23 the measurement of the heavy score's opening on
+the reference laptop). **F1.15c done** (2026-11-06, same branch): fifteen golden files of version 1
+in `crates/io/tests/golden/v1/` (one per kind of saved object, a document with an exhausted
+counter, and `everything`), built by `tests/common/golden_docs.rs`, written once by an ignored test
+that never overwrites; `tests/golden.rs` compares each with its document (IDs included) and its
+bytes, loads every file of every version, refuses every truncation, and feeds random JSON values
+into the `everything` file. The migration machinery `src/project/migrate.rs` (the chain on the
+generic JSON tree, empty for now, tested with a test-only two-step chain; new
+`LoadError::Migration`), wired into `from_bytes` for older versions. `.gitattributes` states LF for
+`*.orchestra`. **To do by the owner:** review the golden files by eye (ADR-0029 S12 asks for
+"hand-reviewed" files). **Next:** the PR of F1.15 (ADR-0029, F1.15b, F1.15c) with CI green on the
+three platforms; then F1.16 (the reference score generator).
 
 | Step | What | Status |
 |---|---|---|
