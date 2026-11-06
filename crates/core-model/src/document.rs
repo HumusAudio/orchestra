@@ -83,6 +83,12 @@ use crate::validate::Violation;
 /// three, some piano and harp writing four; 16 leaves ample room for unusual layouts.
 pub const MAX_STAVES_PER_INSTRUMENT: usize = 16;
 
+/// The most tracks one document can have (ADR-0029 S9, owner's approval of 2026-11-06): a
+/// technical limit against corrupt or hostile files, not a musical one (the heavy test score has
+/// 28 tracks, a large orchestral score about 40). The builder enforces it, so that no document
+/// can be created that a file could not hold.
+pub const MAX_TRACKS: usize = 1024;
+
 /// The most voices one instrument can have (owner's decision, 2026-11-02). Notation programs
 /// commonly offer four voices per staff; 256 per instrument is far beyond any real score.
 pub const MAX_VOICES_PER_INSTRUMENT: usize = 256;
@@ -109,6 +115,20 @@ pub enum DocumentError {
     /// The document already has the most bars a [`BarIndex`] can address (2³² − 1, the last index
     /// being 2³² − 2 so that the count itself fits in a `u32`).
     TooManyBars,
+    /// The document already has [`MAX_TRACKS`] tracks.
+    TooManyTracks,
+    /// A saved ID is 0, which is never an ID (loading a saved document, ADR-0029 S4).
+    ZeroId,
+    /// This raw ID names two objects of a saved document: IDs are unique across every kind of
+    /// object (ADR-0022 §1).
+    DuplicateId(u64),
+    /// This raw ID of a saved document was never handed out by its counter: it is not below the
+    /// counter's next value, so a later object would receive it again (ADR-0022 §1).
+    IdNotIssued(u64),
+    /// A saved document lists its objects in an order the document would not keep (a chunk's
+    /// events, a chord's noteheads, a list of marks): loading never reorders silently, so that a
+    /// re-save gives back the same file (ADR-0029 S3, S8).
+    NotCanonical,
     /// No staff of the document has this ID.
     UnknownStaff(StaffId),
     /// No bar of the document has this ID.
@@ -275,6 +295,16 @@ impl fmt::Display for DocumentError {
                 "an instrument can have at most {MAX_VOICES_PER_INSTRUMENT} voices"
             ),
             Self::TooManyBars => f.write_str("the document has the most bars it can address"),
+            Self::TooManyTracks => f.write_str("the document has the most tracks it can hold"),
+            Self::ZeroId => f.write_str("a saved ID is 0, which is never an ID"),
+            Self::DuplicateId(raw) => write!(f, "the saved ID {raw} names two objects"),
+            Self::IdNotIssued(raw) => write!(
+                f,
+                "the saved ID {raw} was never handed out by the document's counter"
+            ),
+            Self::NotCanonical => f.write_str(
+                "the saved document lists its objects in an order the document would not keep",
+            ),
             Self::UnknownStaff(id) => write!(f, "no staff has the ID {}", id.get()),
             Self::UnknownBar(id) => write!(f, "no bar has the ID {}", id.get()),
             Self::UnknownVoice(id) => write!(f, "no voice has the ID {}", id.get()),
@@ -1499,8 +1529,9 @@ struct Resolved {
 /// [`build`](Self::build) through [`Document::validate`].
 #[derive(Debug, Clone)]
 pub struct DocumentBuilder {
-    /// The document under construction.
-    doc: Document,
+    /// The document under construction (crate-visible for the loader of `crate::parts`, which
+    /// restores the saved ID counter in it).
+    pub(crate) doc: Document,
 }
 
 impl DocumentBuilder {
@@ -1591,6 +1622,29 @@ impl DocumentBuilder {
         transposition: Interval,
         clefs: &[Clef],
     ) -> Result<TrackId, DocumentError> {
+        self.insert_instrument_track(name.into(), transposition, clefs, true)
+    }
+
+    /// The body of [`add_instrument_track`](Self::add_instrument_track). With `with_voices` false
+    /// the instrument gets **no** voice and takes 2 + staves IDs: loading a saved document
+    /// ([`Document::from_parts`]) adds its voices one by one with [`add_voice`](Self::add_voice),
+    /// in their saved order and with their saved home staves, which need not be one per staff.
+    ///
+    /// # Errors
+    /// As [`add_instrument_track`](Self::add_instrument_track), plus
+    /// [`DocumentError::TooManyTracks`] beyond [`MAX_TRACKS`].
+    pub(crate) fn insert_instrument_track(
+        &mut self,
+        name: String,
+        transposition: Interval,
+        clefs: &[Clef],
+        with_voices: bool,
+    ) -> Result<TrackId, DocumentError> {
+        // A technical limit against corrupt files (ADR-0029 S9), checked here so that no path,
+        // builder or file, creates a document that could not be opened again.
+        if self.doc.tracks.len() >= MAX_TRACKS {
+            return Err(DocumentError::TooManyTracks);
+        }
         let staves = clefs.len();
         if staves == 0 {
             return Err(DocumentError::NoStaves);
@@ -1598,11 +1652,12 @@ impl DocumentBuilder {
         if staves > MAX_STAVES_PER_INSTRUMENT {
             return Err(DocumentError::TooManyStaves);
         }
-        // One track ID, one instrument ID, one per staff, one per voice. `staves` ≤ 16, so the
-        // conversion and the arithmetic cannot fail; `checked_*` keeps that visible anyway.
+        // One track ID, one instrument ID, one per staff, one per voice (if any). `staves` ≤ 16,
+        // so the conversion and the arithmetic cannot fail; `checked_*` keeps that visible anyway.
+        let per_staff = if with_voices { 2 } else { 1 };
         let needed = u64::try_from(staves)
             .ok()
-            .and_then(|s| s.checked_mul(2))
+            .and_then(|s| s.checked_mul(per_staff))
             .and_then(|s| s.checked_add(2))
             .ok_or(DocumentError::TooManyStaves)?;
         if !self.doc.ids.has_room_for(needed) {
@@ -1626,7 +1681,7 @@ impl DocumentBuilder {
             });
         }
         let mut voices = Vec::with_capacity(staves);
-        for staff in &staff_list {
+        for staff in staff_list.iter().filter(|_| with_voices) {
             let id = VoiceId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
             voices.push(Voice {
                 id,
@@ -1639,7 +1694,7 @@ impl DocumentBuilder {
             id: track_id,
             instrument: Instrument {
                 id: instrument_id,
-                name: name.into(),
+                name,
                 transposition,
                 staves: staff_list,
                 voices,

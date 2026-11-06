@@ -437,8 +437,69 @@ rewrite the written tie chain (`rewrite_chain`: cut at barlines, longest values 
 IDs reused in order, surplus deleted, slurs and `After` graces following the end). New error
 `ScaleNotPositive`. Tests: seven more cases, resizes and splits in both property tests; nine
 injected bugs caught (three after cases written for them). A resize drag ≈ 74 000 instructions per
-update on the heavy score. **F1.14 complete.** **Next:** the PR of F1.14 (ADR-0028, F1.14b,
-F1.14c) with green CI on the three platforms; then F1.15 (concrete file format).
+update on the heavy score. **F1.14 complete**, merged with PR #23 (SCALETTA v0.35).
+
+**F1.15 in progress** (2026-11-06, `feature/f1-15-file-format`), split as approved in the briefing
+into the ADR (F1.15), the implementation (F1.15b) and the golden files with the migrations
+(F1.15c). A spike (`spikes/fileformat/`, `RESULTS.md`) encoded the real normal and heavy scores:
+every candidate reads 100 bars in ≤ 30 ms natively; JSON with compact values reads the heavy score
+in ≈ 100 ms, RON is 3–5× slower and its generic tree cannot read enums back, postcard is fastest
+but not self-describing. Draft **ADR-0029** with the choices S1–S14 for the owner:
+JSON with `serde`/`serde_json` only in `io`, one plain uncompressed file in version 1 (a zip as the
+alternative; media later, beside the file), deterministic one-record-per-line layout, a file schema
+separate from the model with `Document::from_parts`, the version as the first member, canonical
+rational strings, compact pitches and note values, no floats, strict loading (unknown fields
+refused), limits (1 024 tracks, 1 GiB), rule 13 against meter changes past the last bar, migrations
+on `serde_json::Value`, golden and round-trip tests, atomic saving, the extension `.orchestra`.
+**ADR-0029 Accepted** the same day (D10 closed): the owner approved S1–S14 as recommended
+(one plain JSON file in version 1, compression possible later as a new version; a 1 GiB limit,
+since audio and video will live beside the file, never inside), and added two precisions: the
+version-1 reader already recognises zip and gzip signatures and answers "made with a newer
+Orchestra" (S5); only structural absences are omitted, user settings such as the tolerance are
+always written, so a revised program default never changes a saved project (S6). SCALETTA v0.36
+adds F1.15b and F1.15c, one PR for the whole step. **F1.15b part 1 done** (2026-11-06, same
+branch; split proposed in the briefing and approved): before coding, the owner approved L1–L8, now
+in ADR-0029 ("Precisions L1–L8"). In `core-time`: `Display` and a strict `FromStr` for `Rational`
+(canonical text only, `ParseRationalError`; the oracle found an error-precedence bug, fixed). In
+`core-model`: `from_raw` on every ID type, public constructors of the leaf values with their IDs,
+the module `parts` (`DocumentParts` and its containers, `Document::to_parts`,
+`Document::from_parts`, which **replays the description through the builder** with the counter in
+a script mode handing out the saved IDs, checks IDs unique and issued, runs `validate` and
+compares the rebuilt description to refuse lists out of order), `MAX_TRACKS = 1024` in the
+builder, rule 13 of `validate` (no meter-map entry past the last bar), new errors `ZeroId`,
+`DuplicateId`, `IdNotIssued`, `TooManyTracks`, `NotCanonical`. Tests: the round trip after every
+step of every property test of edits and commands (and the refusal of every invalid document they
+meet), `src/parts_tests.rs` (nine cases), `tests/rational_text.rs` (cases, round trip, oracle);
+seventeen injected bugs caught. Benchmarks `benches/parts.rs`: `to_parts` ≈ 1.2 M / 35.7 M
+instructions (normal / heavy), `from_parts` ≈ 29 M / 882 M. **F1.15b part 2 done**
+(2026-11-06, same branch): before coding, the owner approved I1–I10, now in ADR-0029 ("Precisions
+I1–I10", with three details settled while implementing: `to_bytes` returns a `Result`, the
+`Schema` error's line is optional for the conversion's errors, which name the object by ID, and
+an omitted default list written explicitly still loads). In `orchestra-io`, the module `project`
+(`codec`: the strict text forms and the named enumerations; `schema`: the serde structs of
+version 1 with `deny_unknown_fields`; `convert`: schema ⇄ `DocumentParts`; `writer`: the
+one-record-per-line formatter; `header`: the version before the rest, with the zip and gzip
+signatures), the API `save`/`load`/`to_bytes`/`from_bytes`, `LoadError`/`SaveError`, the safe save
+(temporary file in the same directory, sync, rename, directory sync in `src/platform/` behind the
+`FileSystem` trait, the crate's first platform code). `serde` 1.0.229 and `serde_json` 1.0.154 in
+the workspace (only `io` uses them). Tests: `tests/project_cases.rs` (round trips of a document with
+every kind of object, `tests/common/everything.rs`, and of the normal and heavy scores, byte for
+byte; layout; BOM and CRLF; every refusal; saving over a file), `tests/project_props.rs` (every
+truncation refused, corruption never panicking, random commands round-tripping); seven injected
+bugs caught, three after cases written for them. Benchmarks `benches/project.rs`: saving ≈ 42 M / 1.23 G instructions (normal / heavy), loading ≈ 74 M / 2.2 G; natively 5.5 / 168 ms to save and 11 / 396 ms to load, files of 0.84 / 25.4 MB (the heavy load to be measured on the reference laptop, F2.23).
+Binary: about +0.6 MB stripped (1.18 MB against 0.55 MB for a probe using only the model). F1.15b
+complete (SCALETTA v0.38, which also adds to F2.23 the measurement of the heavy score's opening on
+the reference laptop). **F1.15c done** (2026-11-06, same branch): fifteen golden files of version 1
+in `crates/io/tests/golden/v1/` (one per kind of saved object, a document with an exhausted
+counter, and `everything`), built by `tests/common/golden_docs.rs`, written once by an ignored test
+that never overwrites; `tests/golden.rs` compares each with its document (IDs included) and its
+bytes, loads every file of every version, refuses every truncation, and feeds random JSON values
+into the `everything` file. The migration machinery `src/project/migrate.rs` (the chain on the
+generic JSON tree, empty for now, tested with a test-only two-step chain; new
+`LoadError::Migration`), wired into `from_bytes` for older versions. `.gitattributes` states LF for
+`*.orchestra`. **To do by the owner:** review the golden files by eye (ADR-0029 S12 asks for
+"hand-reviewed" files). **Next:** the PR of F1.15 (ADR-0029, F1.15b, F1.15c) with CI green on the
+three platforms; then F1.16 (the reference score generator).
 
 | Step | What | Status |
 |---|---|---|
@@ -482,8 +543,8 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
    with RT signalling and bounded waits, editors in separate windows owned by the bridge.
 5. **Phase 5 — video:** video tracks with proxies on the shared timeline.
 
-**Fix of the meter rewrite after a free bar** (2026-11-06, branch `fix/rewrite-after-free-bar`,
-from `main`, while F1.15b was in progress on its own branch): the command property test of F1.15b
+**Fix of the meter rewrite after a free bar** (2026-11-06, PR #24, merged the same day, from
+`main`, while F1.15b was in progress on its own branch): the command property test of F1.15b
 found that a `ChangeMeter` in `Rewrite` mode whose region ends at a free bar let the new meter reach
 the bars after the free bar, which kept their old music (overfull bars, and a tie pointing
 backwards). The owner chose **R12** (ADR-0026 §11): the old meter is set again after the free bars.
@@ -500,6 +561,8 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 
 ## Open decisions and open items
 
+- **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
+  the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users
   once the DAW view exists.
 - **From F1.14b, to keep in mind:** the interface (F3) must expose `MoveMode::PerformanceOnly` (a
@@ -538,7 +601,8 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 - **Possible model optimisations, not urgent (F1.06 numbers):** a whole-score iteration with
   absolute positions costs ≈ 17 ms on the heavy score (one rational addition per event); a snapshot
   ≈ 1.4 ms (one reference count per non-empty voice-bar). See ADR-0022, Consequences.
-- **Concrete project file format** (ADR-0010, Phase 1).
+- **Concrete project file format**: ADR-0029 Accepted; implementation in F1.15b, golden files and
+  migrations in F1.15c.
 - **From F1.10b, to keep in mind:** the number of a bar in the lettered styles walks the volta
   groups before it (≈ 275 instructions each), and finding the section of a jump or a pass rule
   walks the repeat barlines: fine for real scores, and a derived index of the sections (rebuilt

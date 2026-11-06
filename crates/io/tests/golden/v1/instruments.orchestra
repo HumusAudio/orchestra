@@ -1,0 +1,156 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 33,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 6,
+      "instrument": 7,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 8,
+          "clef": "G2",
+          "clef_changes": [
+            {"id":29,"bar":3,"at":"0","clef":"G2+1"}
+          ]
+        }
+      ],
+      "voices": [
+        {
+          "id": 9,
+          "home_staff": 8
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "instrument": 11,
+      "name": "Clarinet in B♭",
+      "transposition": {
+        "steps": -1,
+        "semitones": "-2"
+      },
+      "staves": [
+        {
+          "id": 12,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 13,
+          "home_staff": 12
+        }
+      ],
+      "key_overrides": [
+        {"id":30,"bar":2,"at":"0","key":{"key":{"fifths":2,"mode":"major"}}},
+        {"id":31,"bar":4,"at":"0","key":"no_signature"},
+        {"id":32,"bar":5,"at":"0","key":"follow_score"}
+      ]
+    },
+    {
+      "id": 14,
+      "instrument": 15,
+      "name": "Organ",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 16,
+          "clef": "G2",
+          "clef_changes": [
+            {"id":27,"bar":4,"at":"0","clef":"C3"}
+          ]
+        },
+        {
+          "id": 17,
+          "clef": "F4",
+          "clef_changes": [
+            {"id":28,"bar":5,"at":"1/2","clef":"C4"}
+          ]
+        },
+        {
+          "id": 18,
+          "clef": "F4-1"
+        }
+      ],
+      "voices": [
+        {
+          "id": 19,
+          "home_staff": 16
+        },
+        {
+          "id": 20,
+          "home_staff": 17
+        },
+        {
+          "id": 21,
+          "home_staff": 18
+        },
+        {
+          "id": 26,
+          "home_staff": 17
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "instrument": 23,
+      "name": "Percussion",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 24,
+          "clef": "P3"
+        }
+      ],
+      "voices": [
+        {
+          "id": 25,
+          "home_staff": 24
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

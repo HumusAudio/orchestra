@@ -1,0 +1,88 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 19,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "repeat_starts": [
+      {"id":17,"bar":2}
+    ],
+    "repeat_ends": [
+      {"id":18,"bar":4,"times":3}
+    ],
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 5,
+      "instrument": 6,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 7,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 8,
+          "home_staff": 7,
+          "cells": [
+            {
+              "bar": 2,
+              "events": [
+                {"id":9,"at":"1/2","staff":7,"value":"2","notes":[{"id":10,"pitch":"C5","tie":13},{"id":11,"pitch":"E5","tie":14}]}
+              ]
+            },
+            {
+              "bar": 3,
+              "events": [
+                {"id":12,"at":"0","staff":7,"value":"2","notes":[{"id":13,"pitch":"C5","offsets":{"onset":"-1/128"}},{"id":14,"pitch":"E5"}]}
+              ]
+            },
+            {
+              "bar": 4,
+              "events": [
+                {"id":15,"at":"0","staff":7,"value":"2","notes":[{"id":16,"pitch":"G4","tie":"let_ring","offsets":{"onset":"1/96","length":"-1/16","velocity":2500}}]}
+              ]
+            }
+          ]
+        }
+      ],
+      "pass_offsets": [
+        {"note":16,"pass":1,"offsets":{"length":"1/32","velocity":-1000}},
+        {"note":16,"pass":2,"offsets":{"length":"1/32","velocity":1500}}
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

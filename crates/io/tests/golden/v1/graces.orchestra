@@ -1,0 +1,69 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 19,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 3,
+      "instrument": 4,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 5,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 6,
+          "home_staff": 5,
+          "cells": [
+            {
+              "bar": 2,
+              "events": [
+                {"id":7,"at":"0","staff":5,"value":"16","grace":{"kind":"acciaccatura","attach":"before"},"notes":[{"id":8,"pitch":"A4"}]},
+                {"id":9,"at":"0","staff":5,"value":"16","grace":{"kind":"acciaccatura","attach":"before"},"notes":[{"id":10,"pitch":"B4"}]},
+                {"id":11,"at":"0","staff":5,"value":"2","notes":[{"id":12,"pitch":"C5"}]},
+                {"id":13,"at":"1/2","staff":5,"value":"8","grace":{"kind":"appoggiatura","attach":"after"},"notes":[{"id":14,"pitch":"D5"}]},
+                {"id":15,"at":"1/2","staff":5,"value":"8","grace":{"kind":"appoggiatura","attach":"before"},"notes":[{"id":16,"pitch":"F5"}]},
+                {"id":17,"at":"1/2","staff":5,"value":"2","notes":[{"id":18,"pitch":"E5"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

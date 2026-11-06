@@ -1,0 +1,81 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 13,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "3+2+2/8"
+      },
+      "changes": [
+        {"bar":4,"meter":"9/8","grouping":"3+2+2+2/8"},
+        {"bar":7,"meter":"4/4"}
+      ],
+      "irregular": [
+        {"bar":2,"length":"1/8","kind":"align_end"},
+        {"bar":6,"length":"5/4","kind":"free"},
+        {"bar":8,"length":"1/2","kind":"align_start"}
+      ],
+      "groupings": [
+        {"bar":5,"grouping":"3+3+3/8"}
+      ],
+      "uncounted": [
+        2,
+        6
+      ],
+      "restarts": [
+        {"bar":7,"number":100}
+      ]
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 9,
+      "instrument": 10,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 11,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 12,
+          "home_staff": 11
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

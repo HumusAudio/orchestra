@@ -17,7 +17,7 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0007](0007-performance-policy.md) | Performance policy: reference hardware, budgets, real-time rules | Accepted |
 | [0008](0008-internationalisation.md) | Internationalisation: six languages, Fluent, glossary, parity | Accepted |
 | [0009](0009-documentation-system.md) | Documentation system: four documents, parity, trailers, Typst | Accepted |
-| [0010](0010-project-file-format.md) | Project file format: versioned with migrations | Accepted (policy) / Proposed (format) |
+| [0010](0010-project-file-format.md) | Project file format: versioned with migrations | Accepted (policy; format in ADR-0029) |
 | [0011](0011-plugin-hosting.md) | Plugin hosting: own host layer, one process per plugin | Accepted |
 | [0012](0012-gui-toolkit.md) | GUI: no toolkit, own interface on low-level building blocks | Accepted |
 | [0013](0013-github-hosting-and-workflow.md) | GitHub hosting, protected `main`, PR workflow | Accepted |
@@ -36,4 +36,5 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0026](0026-commands-undo-notifications.md) | Commands, one undo history, fine-grained change notifications | Accepted |
 | [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted |
 | [0028](0028-daw-move-tolerance-threshold.md) | Moving a note from the DAW side: tolerance threshold, performance-only edits, pass offsets | Accepted |
+| [0029](0029-project-file-format-v1.md) | Project file format v1: plain JSON, a schema of its own, strict loading | Accepted |
 | [0030](0030-macos-ci-not-blocking-merges.md) | macOS CI no longer blocks merges; it still decides when work is done | Accepted |

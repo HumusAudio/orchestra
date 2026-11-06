@@ -317,8 +317,12 @@ dependencies = [
 name = "orchestra-io"
 version = "0.0.0"
 dependencies = [
+ "gungraun",
  "orchestra-core-model",
  "orchestra-core-time",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

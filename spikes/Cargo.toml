@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Evaluation spikes (time-boxed prototypes, NOT product code): Phase 0, Step 13 (GUI and plugin
-# hosting) and SCALETTA F1.06 (`model`, the storage of the document model).
+# hosting), SCALETTA F1.06 (`model`, the storage of the document model) and F1.15 (`fileformat`,
+# the encodings of the project file).
 #
 # A separate workspace on purpose: nothing here is ever built by the main workspace, by CI's
 # `cargo xtask check`, or into a release. The goal is to measure and decide (ADR-0011, ADR-0012),
@@ -10,7 +11,7 @@
 
 [workspace]
 resolver = "3"
-members = ["scene", "gui-own", "gui-iced", "gui-egui", "gui-slint", "plugin-host", "model"]
+members = ["scene", "gui-own", "gui-iced", "gui-egui", "gui-slint", "plugin-host", "model", "fileformat"]
 
 [workspace.package]
 version = "0.0.0"

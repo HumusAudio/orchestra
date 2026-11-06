@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.35, approvata dal proprietario il 2026-11-06.**
+> **Stato di questo documento: v0.39, approvata dal proprietario il 2026-11-06.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -448,7 +448,9 @@ Dettagli:
 | F1.14 | **ADR della soglia di tolleranza**: il comando "sposta nota dal lato DAW" (ADR-0004) | ✅ ADR-0028 | 1 |
 | F1.14b | **Spostamento dell'attacco dalla DAW**: soglia nel documento, modo "solo esecuzione", tabella degli scostamenti per passaggio, aggiornamento delle note suonate | ✅ | 1–2 |
 | F1.14c | **Durate dalla DAW** oltre la soglia e "sposta comunque" (divisione in legature) | ✅ PR #23 | 1–2 |
-| F1.15 | **ADR: formato concreto del file** (completa ADR-0010) + versione 1 + primo file golden | ⬜ | 3 |
+| F1.15 | **ADR: formato concreto del file** (completa ADR-0010) | ✅ ADR-0029 | 1 |
+| F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ✅ | 2 |
+| F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ✅ PR #25 | 1 |
 | F1.16 | **Generatore della partitura di riferimento** e benchmark di fase (apertura ≤ 1 s, modifica, srotolamento) | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
@@ -547,6 +549,59 @@ Dettagli:
   numero di tracce all'apertura di un file (righi e voci ce l'hanno già), e se rifiutare i cambi di
   metro e di tempo oltre l'ultima battuta (oggi nessuno lo controlla; vale anche per i comandi di
   F1.11).
+  **Fatto il 2026-11-06 (ADR-0029 Accepted, D10 chiusa):** una prova in `spikes/fileformat/`
+  sulle vere partiture normale e pesante (JSON compatto: 100 battute lette in ≈ 3 ms, la pesante in
+  ≈ 100 ms; RON 3–5 volte più lento e senza migrazioni possibili sul suo albero; binario non
+  confrontabile). Il proprietario ha approvato S1–S14: JSON con `serde`/`serde_json` solo in `io`;
+  nella versione 1 un solo file JSON non compresso (la compressione potrà arrivare come versione
+  nuova; audio e video accanto al file, mai dentro); un record per riga, scrittura deterministica;
+  schema del file separato dal modello, caricamento con `Document::from_parts` che conserva gli ID e
+  verifica tutto; versione come primo campo; frazioni canoniche, niente decimali; caricamento
+  rigido (campi sconosciuti rifiutati); al massimo 1 024 tracce e 1 GiB; regola 13 contro i cambi di
+  metro oltre l'ultima battuta; migrazioni sull'albero di `serde_json`; estensione `.orchestra`.
+  Due precisazioni del proprietario: il lettore della versione 1 riconosce già zip e gzip come
+  "fatto con un Orchestra più nuovo" (S5); si omettono solo le assenze strutturali, le impostazioni
+  dell'utente si scrivono sempre (S6). Diviso in F1.15b e F1.15c, con una PR unica alla fine.
+- **F1.15b** Implementa ADR-0029 S1–S10 e S12–S13 tranne i file golden: schema `io::project::v1`
+  con il formattatore "un record per riga", API di lettura e `Document::from_parts` in
+  `core-model`, `Display`/`FromStr` di `Rational` in `core-time`, regola 13 di `validate` e la
+  verifica nel test di proprietà dei comandi, limiti, salvataggio sicuro (da provare anche su
+  Windows in CI), test di andata e ritorno su documenti da sequenze casuali di comandi, test di
+  robustezza (mai un panic), benchmark di salvataggio e caricamento, misura della dimensione del
+  binario. Diviso in due parti (proprietario, 2026-11-06).
+  **Parte 1 fatta il 2026-11-06:** prima del codice il proprietario ha approvato L1–L8, ora in
+  ADR-0029 ("Precisions L1–L8"): `from_raw` su ogni tipo di ID e costruttori pubblici dei valori
+  foglia; `DocumentParts` con `to_parts` e `from_parts`, che ripete la descrizione attraverso il
+  builder con gli ID salvati (stesse verifiche del builder), controlla ID unici ed emessi e
+  rifiuta gli elenchi fuori ordine; `MAX_TRACKS = 1024`; regola 13; `Display`/`FromStr` di
+  `Rational`. Andata e ritorno verificata dopo ogni passo dei test di proprietà; 17 bug iniettati
+  presi. Sulla partitura pesante `from_parts` ≈ 882 milioni di istruzioni, sulla normale ≈ 29
+  milioni. Il test di proprietà dei comandi ha trovato un bug già presente del cambio di metro in
+  `Rewrite` dopo una battuta libera (F1.11c): il proprietario ha scelto di ripristinare il metro
+  precedente dopo la battuta libera, su un branch di correzione separato.
+  **Parte 2:** il lato `io`: schema `io::project::v1` con il formattatore "un record per riga",
+  lettura della versione prima del resto (con le firme zip e gzip), caricamento rigido, limite di
+  1 GiB, salvataggio sicuro (provato anche su Windows in CI), test di andata e ritorno e di
+  robustezza, benchmark di salvataggio e caricamento, misura della dimensione del binario.
+  **Parte 2 fatta il 2026-11-06:** prima del codice il proprietario ha approvato I1–I10, ora in
+  ADR-0029 ("Precisions I1–I10"): file diviso per proprietario, stringhe compatte solo per ciò che
+  compare per nota, battute per ID anche nella mappa dei metri, API `save`/`load`/`to_bytes`/
+  `from_bytes`, errori con riga e colonna, un record per riga. Modulo `project` di `orchestra-io`
+  (codici di testo rigidi, schema serde, conversione, formattatore, intestazione), salvataggio
+  sicuro con il primo modulo `platform/`; `serde` e `serde_json` nel workspace. Andata e ritorno
+  byte per byte su un documento con ogni tipo di oggetto e sulle partiture normale e pesante,
+  troncamenti e corruzioni senza panico, comandi casuali; 7 bug iniettati presi. Sulla macchina di
+  sviluppo: 100 battute salvate in 5,5 ms e caricate in 11 ms (0,84 MB); la partitura pesante in
+  168 e 396 ms (25,4 MB). Binario +0,6 MB. F1.15b completo.
+- **F1.15c** Implementa ADR-0029 S11–S12: i file golden della versione 1 (uno per tipo di oggetto e
+  uno con tutto), mai rigenerati; la catena delle migrazioni sull'albero, provata con una
+  migrazione `v1 → v2` solo di test; poi la PR di tutto F1.15.
+  **Fatto il 2026-11-06 (PR #25):** 15 file golden in `crates/io/tests/golden/v1/` (uno per tipo di
+  oggetto salvato, un contatore esaurito, uno con tutto), costruiti anche da codice e confrontati
+  con il documento e byte per byte; scritti una volta da un test ignorato che non sovrascrive mai;
+  ogni troncamento rifiutato, JSON casuale senza panico. Catena delle migrazioni sull'albero JSON
+  (vuota, provata con una catena di prova), `LoadError::Migration`. **Da fare dal proprietario:**
+  rivedere a occhio i file golden (ADR-0029 S12). F1.15 completo.
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
   layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
   deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
@@ -635,6 +690,8 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
   Da F1.13c: misurare lì anche `Performance::update` dopo una nota e dopo una dinamica sulla
   partitura pesante (≈ 1,2 e ≈ 2,1 milioni di istruzioni; sulla macchina di sviluppo ≈ 0,6–1 ms),
   con il budget di 1 ms di ADR-0027 §9.
+  Da F1.15b: misurare lì l'apertura della partitura pesante (sulla macchina di sviluppo ≈ 0,4 s,
+  2,2 miliardi di istruzioni; atteso ≈ 1 s), oltre alle 100 battute del budget di ADR-0007.
 - **F2.22** Da ADR-0026 §11 (X4, X6, X7), comandi composti rimandati qui: svuotare le battute e
   mettere la ripetizione di battuta; ritrascrivere le note dopo un cambio di armatura; trasformare
   le note di un gruppo irregolare in valori normali.
@@ -789,7 +846,7 @@ modifica.
 | D07 | Microtoni nel tipo di altezza fin da subito | F1.07 | **chiusa** 2026-11-01: ADR-0023 (alterazione razionale in semitoni; l'intonazione è rimandata) |
 | D08 | Limite della cronologia di undo; fusione dei comandi continui | F1.11 | **chiusa** 2026-11-04: ADR-0026 (memoria, 128 MB; gesti espliciti) |
 | D09 | Soglia di tolleranza di default; variante in ms | F1.14 | **chiusa** 2026-11-06: ADR-0028 (1/32, variante in ms) |
-| D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | aperta |
+| D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | **chiusa** 2026-11-06: ADR-0029 (JSON semplice, `serde` solo in `io`, `.orchestra`) |
 | D11 | Esportazione MIDI anticipata (F1.18) | fine F1-B | **chiusa** 2026-10-30: sì |
 | D12 | Widget retained o immediato; layout; appunti | F2.08 | aperta |
 | D13 | Salvataggio automatico già in F2A | F2.14 | aperta |
@@ -851,3 +908,7 @@ raccomandato.
 | 2026-11-06 | 0.33 | F1.14 fatto (ADR-0028 Accepted), D09 chiusa; nuovi F1.14b e F1.14c, PR unica per F1.14 | proprietario |
 | 2026-11-06 | 0.34 | F1.14b fatto (precisioni T1–T7 in ADR-0028 §10); note per F1.14c (T2, "sposta comunque") | proprietario |
 | 2026-11-06 | 0.35 | F1.14c fatto (precisioni U1–U9 in ADR-0028 §11), F1.14 completo (PR #23) | proprietario |
+| 2026-11-06 | 0.36 | F1.15 fatto (ADR-0029 Accepted, precisazioni S5 e S6 del proprietario), D10 chiusa; nuovi F1.15b e F1.15c, PR unica per F1.15 | proprietario |
+| 2026-11-06 | 0.37 | F1.15b diviso in due parti, parte 1 fatta (precisioni L1–L8 in ADR-0029); bug del `Rewrite` dopo una battuta libera da correggere su un branch separato (opzione A) | proprietario |
+| 2026-11-06 | 0.38 | F1.15b fatto (parte 2: precisioni I1–I10 in ADR-0029); misura dell'apertura della partitura pesante in F2.23 | proprietario |
+| 2026-11-06 | 0.39 | F1.15c fatto, F1.15 completo (PR #25); revisione dei file golden da parte del proprietario | proprietario |

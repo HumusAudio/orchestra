@@ -111,6 +111,9 @@ pub mod marks;
 pub mod meter_command;
 #[cfg(test)]
 mod meter_command_tests;
+pub mod parts;
+#[cfg(test)]
+mod parts_tests;
 pub mod pass_offsets;
 pub mod pitch;
 mod rewrite;
@@ -126,7 +129,8 @@ pub use content::Chunk;
 pub use daw_command::{MoveMode, MovePlayed, ResizePlayed};
 pub use document::{
     BarList, ChordIds, Document, DocumentBuilder, DocumentError, EventRef, Instrument,
-    MAX_STAVES_PER_INSTRUMENT, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track, Voice,
+    MAX_STAVES_PER_INSTRUMENT, MAX_TRACKS, MAX_VOICES_PER_INSTRUMENT, Placement, Staff, Track,
+    Voice,
 };
 pub use dynamic::{
     Dynamic, DynamicLevel, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinKind,
@@ -153,6 +157,7 @@ pub use marking::{
 };
 pub use marks::{Clef, ClefSign, KeyOverride, KeySignature, Mark, MarkList, ScorePoint};
 pub use meter_command::MeterMode;
+pub use parts::{CellParts, DocumentParts, StaffParts, TrackParts, VoiceParts};
 pub use pass_offsets::{PassOffset, PassOffsets};
 pub use pitch::{
     Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,

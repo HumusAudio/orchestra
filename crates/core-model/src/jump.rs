@@ -67,13 +67,13 @@ pub struct Marker {
 }
 
 impl Marker {
-    /// A marker: only the document creates them, with an ID from its counter. O(1).
-    pub(crate) const fn new(
-        id: MarkerId,
-        bar: BarId,
-        kind: MarkerKind,
-        text: Option<Box<str>>,
-    ) -> Self {
+    /// A marker with its ID. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: MarkerId, bar: BarId, kind: MarkerKind, text: Option<Box<str>>) -> Self {
         Self {
             id,
             bar,
@@ -216,13 +216,13 @@ pub struct Jump {
 }
 
 impl Jump {
-    /// A jump: only the document creates them, with an ID from its counter. O(1).
-    pub(crate) const fn new(
-        id: JumpId,
-        bar: BarId,
-        spec: JumpSpec,
-        text: Option<Box<str>>,
-    ) -> Self {
+    /// A jump with its ID. O(1).
+    ///
+    /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
+    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
+    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
+    /// checks what it creates, so no invalid document can come from it.
+    pub const fn new(id: JumpId, bar: BarId, spec: JumpSpec, text: Option<Box<str>>) -> Self {
         Self {
             id,
             bar,

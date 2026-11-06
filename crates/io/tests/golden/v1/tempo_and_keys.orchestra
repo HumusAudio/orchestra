@@ -1,0 +1,77 @@
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 24,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      }
+    },
+    "bars": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "tempo": {
+      "id": 1,
+      "change": {
+        "immediate": {
+          "unit": "1/4",
+          "bpm": "100",
+          "shown": true
+        }
+      }
+    },
+    "tempo_marks": [
+      {"id":12,"bar":3,"at":"0","text":"Più mosso","change":{"immediate":{"unit":"3/8","bpm":"201/2","shown":false}}},
+      {"id":13,"bar":4,"at":"0","text":"accel.","change":{"gradual":{"to":{"unit":"1/4","bpm":"144"},"end_bar":5,"end_at":"1/2"}}},
+      {"id":14,"bar":6,"at":"0","text":"Meno mosso, poco a poco rit.","change":{"gradual":{"from":{"unit":"1/4","bpm":"90","shown":true},"to":{"unit":"1/4","bpm":"60"},"end_bar":7,"end_at":"0"}}},
+      {"id":15,"bar":7,"at":"1/4","text":"cantabile"}
+    ],
+    "key": {
+      "fifths": 0,
+      "mode": "major"
+    },
+    "key_changes": [
+      {"id":16,"bar":3,"at":"0","key":{"fifths":-7,"mode":"major"}},
+      {"id":17,"bar":3,"at":"1/2","key":{"fifths":-5,"mode":"dorian"}},
+      {"id":18,"bar":4,"at":"0","key":{"fifths":-3,"mode":"phrygian"}},
+      {"id":19,"bar":4,"at":"1/2","key":{"fifths":-1,"mode":"lydian"}},
+      {"id":20,"bar":5,"at":"0","key":{"fifths":1,"mode":"mixolydian"}},
+      {"id":21,"bar":5,"at":"1/2","key":{"fifths":3,"mode":"minor"}},
+      {"id":22,"bar":6,"at":"0","key":{"fifths":5,"mode":"locrian"}},
+      {"id":23,"bar":6,"at":"1/2","key":{"fifths":7,"mode":"none"}}
+    ],
+    "numbering": "continue"
+  },
+  "tracks": [
+    {
+      "id": 8,
+      "instrument": 9,
+      "name": "Flute",
+      "transposition": {
+        "steps": 0,
+        "semitones": "0"
+      },
+      "staves": [
+        {
+          "id": 10,
+          "clef": "G2"
+        }
+      ],
+      "voices": [
+        {
+          "id": 11,
+          "home_staff": 10
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}

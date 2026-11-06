@@ -302,8 +302,8 @@ so the file has two small macros (`const_try!`, `or_overflow!`) that do the job 
 `as` casts each with its reason. The other methods are `abs`, `signum`, `is_zero`,
 `is_positive`, `is_negative`, `is_integer`, `floor`/`ceil`/`trunc` (towards `i64`, they cannot
 fail) and `to_f64`, an approximation for display only that must never flow back into the model.
-There is deliberately no `Display` and no parsing: the text form is chosen with the file format
-(F1.15). `Debug` prints `Rational(3/8)`.
+`Debug` prints `Rational(3/8)`; the canonical text form of the project file is `Display` and
+`FromStr`, described below.
 
 Because `core-time` forbids plain `+ - *` on integers (`clippy::arithmetic_side_effects`), every
 integer operation in the file is either `checked_*` or `wrapping_*` with a comment that proves it
@@ -346,6 +346,45 @@ Euclid, the range check).
 
 The benchmarks (`benches/rational.rs`, step F1.03b) and their first numbers are described in
 "Benchmarks and property tests" below.
+
+#### The canonical text form
+
+The project file writes every rational as text (ADR-0029 S6), and that text is decided here:
+`Display` writes `3/16`, `-1/8`, and integers without a denominator (`0`, `2`, `-5`). Because the
+type is always reduced with the sign on the numerator, **one value has exactly one text**, so a
+saved file changes only where a value really changed, and saving twice gives the same bytes.
+
+`FromStr` reads exactly that form and refuses everything else, with a typed
+`ParseRationalError`:
+
+```rust
+let x: Rational = "-3/16".parse()?;
+assert_eq!(x.to_string(), "-3/16");
+assert_eq!("2/4".parse::<Rational>(), Err(ParseRationalError::NotCanonical)); // not reduced
+assert_eq!("3/1".parse::<Rational>(), Err(ParseRationalError::NotCanonical)); // write "3"
+assert_eq!(" 1/2".parse::<Rational>(), Err(ParseRationalError::Malformed));   // no spaces
+assert_eq!("3/0".parse::<Rational>(), Err(ParseRationalError::DivisionByZero));
+```
+
+The variants are `Empty`, `Malformed` (not `[-]digits[/digits]` with ASCII digits: spaces, `+`,
+decimal points, other scripts' digits), `NotCanonical` (leading zeros, `-0`, `/1`, not reduced),
+`DivisionByZero` and `Overflow` (a part beyond `i64::MAX`, or the numerator `i64::MIN`). When a
+text has several problems the first in that order wins: the shape of **both** parts is checked
+before their size, the size before the zero denominator, and that before the canonical form. The
+reader looks at each part in two passes: first that it is made of digits only, then its value with
+checked arithmetic, reporting overflow and leading zeros to the caller instead of failing at once.
+That order was found by the oracle test: a first version reported `01/0/2` as "not canonical"
+because it judged the numerator's leading zero before seeing the second slash.
+
+The text is for files and developers, never for the user: the interface shows durations its own
+way (note values, bars and beats), through Fluent.
+
+**Tests** (`tests/rational_text.rs`): hand-written cases for every accepted shape and every error
+variant (including `i64::MAX`, `-i64::MAX` and the overflow of `i64::MIN`); 20 000 random values
+written and read back; and an oracle that classifies 20 000 random texts built from the grammar's
+pieces (signs, digits with and without leading zeros, slashes, stray characters), in `u128` and
+with Euclid's gcd, sharing no code with the reader. Three injected bugs (accepting `-0`, accepting
+unreduced fractions, accepting `/1`) were caught.
 
 #### Positions and durations
 
@@ -1953,6 +1992,102 @@ property test, whose invariant is the played length (`written × scale + offsets
 splits also among the random commands of the playback's update test. Nine injected bugs were
 caught, three only after cases written for them.
 
+#### Saved documents: the description and the loader
+
+The project file (crate `orchestra-io`) has its own schema, so that a refactoring of the model
+never changes the file by accident (ADR-0029 S4). `core-model` meets it halfway with
+`src/parts.rs`: **`DocumentParts`**, a plain public description of everything a document saves
+(ADR-0029 S7), in the model's own value types with their IDs, and the two ways between it and a
+`Document`. `core-model` has no serialisation dependency at all.
+
+```rust
+let parts: DocumentParts = doc.to_parts();       // a copy of the saved data
+let back = Document::from_parts(&parts)?;         // checked as the builder checks
+assert!(back.same_content(&doc));                 // same music, same IDs, same counter
+```
+
+**What the description holds.** The ID counter's next value (`next_id`, `None` once exhausted),
+the meter map, the bar list, the initial tempo mark with its ID and the tempo marks, the initial
+key and the key changes, the form lists and the numbering style, the tolerance settings, and one
+`TrackParts` per track: the instrument's ID, name and transposition, its staves (`StaffParts`:
+initial clef, clef changes), its voices (`VoiceParts`: home staff, tuplets sorted by ID, the
+**non-empty** cells as `CellParts { bar, events }`), key overrides, slurs, dynamics, hairpins,
+bar repeats, pass rules and pass-specific offsets. Every list is in the order the document keeps
+it. Derived data (tempo map, indices) and the revision are not in it; the undo history never is.
+
+**Building the leaf values.** A file reader must create notes, chords, marks… with their saved
+IDs, which until now only the crate could do. Owner's choice L1 (2026-11-06): every ID type has
+`from_raw(u64) -> Option<Self>` (`None` for 0), and the value types have public constructors that
+take their ID (`Note::new(id, pitch).with_tie(..).with_offsets(..)`, `Chord::new(value, tuplet,
+grace, notes)` with `with_articulations`, `with_ornament`, `with_fermata`, `with_arpeggio`,
+`Rest::new(..).with_fermata(..)`, `Tuplet::with_parent`, `Event::new`, `PlacedEvent::new`,
+`Mark::new`, `Slur::new`, `Dynamic::new`, `Hairpin::new`, `RepeatStart::new`, `RepeatEnd::new`,
+`Volta::new`, `Marker::new`, `Jump::new`, `BarRepeat::new`, `PassRule::new`). They only
+**describe** objects: a document is still created only by the builder, by `from_parts` or by the
+commands, which all check. `Chord::new` keeps the given order of the noteheads on purpose: a chord
+out of order is refused by the loader, not silently sorted.
+
+**How `from_parts` checks: a replay through the builder.** Rather than a second set of rules for
+loading, which could drift from the builder's, the description is replayed through the
+`DocumentBuilder` methods in the saved order: `add_bar` per bar, an instrument track without
+voices then `add_voice` per voice (saved voices need not be one per staff), `add_tuplet`,
+`add_chord` / `add_grace_chord` / `add_rest` and the `set_*` of the markings per event, then ties,
+offsets, slurs, dynamics, hairpins, pass offsets, tolerance, the form markings, and finally
+`build()` with the full `validate`. The builder takes its IDs from the counter; for loading the
+counter is put in **script mode** (`IdCounter::restored`, `set_script`): before each call the
+loader hands it exactly the saved IDs that call takes, in the builder's documented order (a chord:
+its event, then its noteheads). A method that wants more IDs finds the script spent, one that
+takes fewer leaves some behind; both are a bug of the loader and give `DocumentError::Inconsistent`.
+Outside loading the script is `None` and costs one branch per ID.
+
+```rust
+// The loader's single entry to the builder: claim the saved IDs, script them, run the method,
+// check that it took them all.
+self.call(&ids, |b| match chord.grace() {
+    Some(grace) => b.add_grace_chord(at, grace, chord.value(), &pitches),
+    None => b.add_chord(at, chord.value(), &pitches),
+})?;
+```
+
+What the builder cannot see, the loader checks itself (L4): every saved ID is **unique across all
+kinds** (`DocumentError::DuplicateId`) and **below the saved next value** of the counter
+(`IdNotIssued`), so no later object can receive it again; and the rebuilt document's description
+must equal the given one, so a list out of order (events in a chunk, noteheads in a chord, marks
+by point) is refused (`NotCanonical`) instead of being silently reordered, which would make a
+re-save differ from the file. `ZeroId` is for the file reader, which meets raw numbers.
+
+**Two new rules** (L6). `MAX_TRACKS = 1024` (ADR-0029 S9): the builder refuses one more track
+(`TooManyTracks`), so no document can exist that a file could not hold. **Rule 13** of `validate`
+(ADR-0029 S10): no meter-map entry (meter change, irregular bar, beat grouping, uncounted bar,
+numbering restart) at a bar index the document does not have, the initial meter at index 0
+excepted (`Violation::MeterChangePastLastBar`). The command property tests, which run the full
+`validate` after every command, show that no command creates such an entry.
+
+**Tests.** `editor_tests::assert_consistent`, called after every step of every property test of
+the edits and commands, now also checks the round trip: a valid document comes back with the same
+content, the same indices, an identical description and revision 0; an invalid one (the raw edits
+of the snapshot test can make one) is refused. `src/parts_tests.rs` adds a document with what
+random commands never make (every ornament, fermatas on a chord and on a whole-bar rest, an
+arpeggio, articulations, a let-ring tie, offsets, a nested tuplet, an extra voice, a key override,
+a per-track tolerance, numbering exceptions and style) and one case per refusal: duplicate IDs of
+one kind and across kinds, an unissued ID, an exhausted counter (accepted), an unknown bar, events
+and noteheads out of order, an overlap, a meter change past the last bar (and one on the last bar,
+accepted), the 1 025th track. Fourteen injected bugs in the loader and in rule 13 were caught,
+three (a lost ornament, a lost rest fermata, no final comparison) only after the cases written for
+them.
+
+**Cost** (`benches/parts.rs`):
+
+```text
+operation                         normal score     heavy score
+to_parts (a copy of the document)    1 230 000      35 670 000 instructions
+from_parts (replay, validate,       29 320 000     882 330 000 instructions
+            comparison)
+```
+
+The normal score (100 bars) is rebuilt in a few milliseconds, far below the 1 s of ADR-0007 for
+opening it, which also includes parsing the file (F1.15b part 2).
+
 ### orchestra-playback
 
 Derives what is played from what is written: unrolled repeats and jumps, merged ties, dynamics
@@ -2209,6 +2344,164 @@ under the strict rules of ADR-0007 and offers a null/offline backend for tests. 
 `io` handles the versioned project file with migrations (ADR-0010), MIDI and MusicXML. `ui` draws
 the views and turns input into commands (no GUI toolkit: widgets and drawing are ours, ADR-0012). `video` is intentionally empty until
 the last phase. `app` builds the `orchestra` executable and only wires the others together.
+
+#### The project file
+
+`crates/io/src/project/` implements version 1 of the project file (ADR-0029, with the owner's
+choices I1–I10 of 2026-11-06): one plain UTF-8 JSON file, `.orchestra`, written with `serde` and
+`serde_json`, which only this crate uses (the model has no serialisation dependency, S4). The
+public API is four functions:
+
+```rust
+pub fn save(doc: &Document, path: &Path) -> Result<(), SaveError>;   // safe save
+pub fn load(path: &Path) -> Result<Document, LoadError>;
+pub fn to_bytes(doc: &Document) -> Result<Vec<u8>, SaveError>;
+pub fn from_bytes(bytes: &[u8]) -> Result<Document, LoadError>;
+```
+
+`to_bytes` returns a `Result` although a valid document always encodes: library code may not
+unwrap, and `SaveError::Encode` reports, instead of a panic, the impossible case of a broken model
+invariant.
+
+**What the file looks like** (an excerpt of the test document `tests/common/everything.rs`): the
+structure is indented, and every **record** (an event, a mark, a slur, a tuplet…) sits on one line,
+so that editing a note changes one line of a diff. Bars, events and notes are named by their saved
+IDs, also in the meter map (I6: inserting a bar changes one line, not every later entry). What
+occurs per note is a compact string (I2): rationals `"3/16"`, pitches `"F#5"` and `"E[-1/2]4"`,
+note values `"4"`, `"8."`, `"breve"`, ornaments `"trill[1]"`, `"tremolo[3]"`; everything rare is an
+object with full names.
+
+```json
+{
+  "orchestra_format": 1,
+  "written_by": "Orchestra 0.0.0",
+  "next_id": 94,
+  "document": {
+    "meter": {
+      "initial": {
+        "meter": "4/4"
+      },
+      "changes": [
+        {"bar":9,"meter":"6/8","grouping":"3+3/8"}
+      ]
+    },
+    "bars": [
+      2,
+      3
+    ],
+    …
+  },
+  "tracks": [
+    {
+      "id": 14,
+      "instrument": 15,
+      "name": "Piano",
+      …
+      "voices": [
+        {
+          "id": 18,
+          "home_staff": 16,
+          "cells": [
+            {
+              "bar": 3,
+              "events": [
+                {"id":47,"at":"0","staff":16,"value":"4","articulations":["accent","staccato"],"arpeggio":"up","notes":[{"id":48,"pitch":"C4"},{"id":49,"pitch":"E4"}]},
+                {"id":53,"at":"1/4","staff":16,"value":"4","notes":[{"id":54,"pitch":"E4","tie":"let_ring"}]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "settings": {
+    "tolerance": "1/32"
+  }
+}
+```
+
+**The modules.**
+- `codec.rs`: the text forms, each a newtype with a strict reader (one value, one spelling), and
+  the named enumerations (`named!`), each name spelled out so that renaming a Rust variant never
+  changes the file.
+- `schema.rs`: the serde structs of version 1, all with `deny_unknown_fields`; structural absences
+  (no dots, no tie, zero offsets, empty lists) are omitted, settings (the tolerance, the numbering
+  style, a tuplet's bracket and number, a hairpin's style) always written (S6). The counter's
+  `next_id` is a newtype, so that a missing field is an error and `null` means "exhausted".
+- `convert.rs`: between the schema and the model's `DocumentParts`. Loading checks what only the
+  text can get wrong (a zero ID, a bar ID that is not a bar, an event both chord and rest, two
+  meter-map entries at one bar, articulations or passes out of order, offsets written as zero);
+  everything musical is then checked by `Document::from_parts`. Its errors name the object by its
+  ID (`event 144: …`): with one record per line, that finds the place as surely as a line number.
+- `writer.rs`: the `serde_json` formatter of the layout. An object inside a list is a record,
+  written compact, unless the list is structural (`tracks`, `staves`, `voices`, `cells`); everything
+  else is indented by two spaces. The formatter copies each key as it is written, so that a list
+  knows its own name.
+- `header.rs`: reads `"orchestra_format": N` from the first bytes before any parsing (S5); a zip or
+  gzip signature is "made with a newer Orchestra" (a later version may compress), anything else
+  that does not start like a project is "not a project".
+- `mod.rs`: the API and the errors. `LoadError` has `Io`, `TooLarge` (over 1 GiB, checked on the
+  file's size before reading it), `NotAProject`, `NewerFormat`, `Syntax` and `Schema` with the line
+  and column from `serde_json` (I8; `Schema` has no line for the conversion's errors, which name
+  the object instead), `Migration` for an older file that cannot be migrated, and `Document` for
+  the model's refusals.
+
+**Golden files and migrations** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/`
+holds fifteen files of version 1, written **once** and never regenerated: one small file per kind
+of saved object (`minimal`, `meter`, `instruments`, `events`, `tuplets`, `graces`, `markings`,
+`ties_and_offsets`, `slurs`, `dynamics`, `tempo_and_keys`, `form`, `bar_repeats_and_pass_rules`,
+`settings_and_counter`, the last with an exhausted counter, `"next_id": null`) and `everything`.
+`tests/common/golden_docs.rs` builds the document of each by code; `tests/golden.rs` loads every
+file and compares it with its document, IDs and counter included, and, while version 1 is the
+current one, checks that saving the document gives the file's very bytes. It also checks that
+every file of every `vN/` directory loads, that every truncation of every golden file is refused,
+and that random JSON values put anywhere in the `everything` file never panic. The files are
+written by an ignored test that never overwrites an existing file:
+
+```sh
+cargo test -p orchestra-io --test golden -- --ignored   # writes only the missing files
+```
+
+A file of an older version takes a slower path when it is loaded: the generic JSON tree, the
+chain of migrations of `src/project/migrate.rs` (`MIGRATIONS[k]` migrates version `k + 1` to
+`k + 2`, each a pure function on the tree; the machinery sets `orchestra_format` after each step),
+then the current schema. The chain is empty while version 1 is the only one; the machinery is
+tested with a test-only chain of two steps (a renamed field, an added one), and a failing or
+missing step is `LoadError::Migration { from, message }`. The first format change adds its
+function to the chain and a `tests/golden/v2/` directory; the files of `v1/` stay as they are and
+must keep loading into the same documents.
+
+**Saving safely** (S13). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
+directory, syncs it, renames it over the target, then syncs the directory where the platform needs
+it; on error the temporary file is removed and the previous file is intact. The directory sync is
+the crate's first platform-specific code, in `src/platform/` behind the `FileSystem` trait (CLAUDE.md
+§2): on Unix the directory is opened and synced, elsewhere (Windows) there is nothing to do.
+
+**Tests.** `tests/project_cases.rs`: round trips of the test document, the normal and the heavy
+score (same bytes after a second save, same content, IDs and counter); the layout; a BOM and CRLF
+accepted; every kind of refusal with its place; saving over an existing file with a name with
+spaces and an accented letter, no temporary file left (it runs on Linux, Windows and macOS in CI).
+`tests/project_props.rs`: every truncation of the test file refused; random corrupted bytes never
+panic, and what still loads is valid and round-trips; random commands on the test document keep the
+round trip exact after every command. Unit tests of every text form and of the header. Seven
+injected bugs were caught, three only after the cases written for them (an unknown field in an
+event, cells written on one line, two meter changes at one bar).
+
+**Cost** (`benches/project.rs`, without the disk):
+
+```text
+operation                      normal score     heavy score
+to_bytes (save, without disk)    42 050 000   1 234 700 000 instructions
+from_bytes (load, without disk)  74 260 000   2 203 250 000 instructions
+```
+
+Natively on the development machine (best of five): the normal score's file has 0.84 MB and
+saves in 5.5 ms, loads in 11 ms; the heavy score's has 25.4 MB, 168 ms and 396 ms. On the reference
+laptop (2–3× slower) the 100 bars open in a few tens of milliseconds, far below the 1 s of
+ADR-0007; the heavy score in about a second, to be measured there (F2.23).
+
+The release binary grows by about 0.6 MB (stripped) with the project file: 1.18 MB for a probe that
+loads and saves a project against 0.55 MB for one that only uses the model.
 
 ### orchestra-test-support: counting allocations in tests
 
@@ -2767,6 +3060,24 @@ cargo run --release -p model --bin report
 The `spikes` workspace strips release binaries, so its `[profile.bench]` keeps symbols: Callgrind
 finds the measured function by name, and without symbols every count is 0. The numbers and the
 choice of P3 are in `spikes/model/ANALYSIS.md` and ADR-0022.
+
+### The file format spike
+
+`spikes/fileformat` (step F1.15) measures candidate encodings of the project file on the real
+normal and heavy scores of `core-model`'s tests: it includes their generator
+(`crates/core-model/tests/common/score.rs`) with `#[path]`, reads the voice contents through the
+model's public API into a file schema of plain structs with serde derives, and writes them as JSON
+(structured, compact and pretty-printed), RON and postcard, with and without deflate. For each it
+prints the size, the native time to write, to read back into the typed schema and to read through
+`serde_json::Value` (the path of a file being migrated):
+
+```sh
+cd spikes
+cargo run --release -p fileformat
+```
+
+The numbers and the findings (RON's generic tree cannot read enums back, postcard is not
+self-describing) are in `spikes/fileformat/RESULTS.md` and ADR-0029.
 
 ## Lessons from Phase 0
 
