@@ -531,7 +531,8 @@ performance and the save/load round trip. `tests/full_fingerprint.rs` pins the o
 test checks that every rhythm cell fills its bar. **Density:** 3 939 noteheads in the normal size
 and 77 225 in the heavy one, about half of plain. My specification had wrongly estimated it as
 similar to plain; the owner kept the realistic density (option A, 2026-11-07), and plain still
-covers the dense case. **Next:** F1.16c (phase benchmarks in `crates/test-scores/benches/phase.rs`),
+covers the dense case. Merged with PR #29 (2026-11-07), CI green on the three platforms; SCALETTA
+v0.43. **Next:** F1.16c (phase benchmarks in `crates/test-scores/benches/phase.rs`),
 then F1.18 (MIDI export) and F1.17 (phase close, with the test command of milestone M1).
 
 | Step | What | Status |
