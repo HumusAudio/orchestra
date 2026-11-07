@@ -497,8 +497,8 @@ bytes, loads every file of every version, refuses every truncation, and feeds ra
 into the `everything` file. The migration machinery `src/project/migrate.rs` (the chain on the
 generic JSON tree, empty for now, tested with a test-only two-step chain; new
 `LoadError::Migration`), wired into `from_bytes` for older versions. `.gitattributes` states LF for
-`*.orchestra`. **To do by the owner:** review the golden files by eye (ADR-0029 S12 asks for
-"hand-reviewed" files). F1.15 was merged with PR #25 (2026-11-06), together with ADR-0030
+`*.orchestra`. The owner reviewed the golden files by eye on 2026-11-07, as ADR-0029 S12 asks
+("hand-reviewed" files): done. F1.15 was merged with PR #25 (2026-11-06), together with ADR-0030
 (PR #26: macOS no longer blocks merges).
 
 **Step F1.16** (`feature/f1-16-test-scores`, 2026-11-07). The owner first chose to put the
