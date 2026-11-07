@@ -14,7 +14,7 @@
 //! score (1 000 bars × 30 staves) shows how the cost grows.
 //!
 //! # The scores
-//! The normal and heavy scores of `tests/common/score.rs`. Each benchmark runs once on the whole
+//! The normal and heavy plain scores of `orchestra-test-scores` (ADR-0031). Each benchmark runs once on the whole
 //! score (an operation of millions of instructions needs no batch, ADR-0017 §4); the input is
 //! prepared outside the measured region and returned, so that dropping it is not measured.
 
@@ -40,19 +40,17 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::{Document, DocumentParts};
 
-#[path = "../tests/common/score.rs"]
-mod score;
-
-use score::Size;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 // The document of this size.
 fn document(size: Size) -> Document {
-    score::score(size, false)
+    plain(size, false)
 }
 
 // The description of the document of this size.
 fn description(size: Size) -> DocumentParts {
-    score::score(size, false).to_parts()
+    plain(size, false).to_parts()
 }
 
 #[library_benchmark]

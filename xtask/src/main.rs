@@ -299,11 +299,12 @@ fn screenshots() -> TaskResult {
     ))
 }
 
-/// Workspace crates that may appear only in `[dev-dependencies]` (ADR-0016 §6).
+/// Workspace crates that may appear only in `[dev-dependencies]` (ADR-0016 §6, ADR-0031 §2).
 ///
-/// They contain test machinery (for example a counting global allocator) that must never end up
-/// in the shipped program.
-const TEST_ONLY_CRATES: [&str; 1] = ["orchestra-test-support"];
+/// They contain test machinery that must never end up in the shipped program: the counting global
+/// allocator of `orchestra-test-support` and the score generators of `orchestra-test-scores`
+/// (which also panic on purpose, ADR-0031 §5).
+const TEST_ONLY_CRATES: [&str; 2] = ["orchestra-test-support", "orchestra-test-scores"];
 
 /// Part of `cargo xtask check`: fails if a crate listed in [`TEST_ONLY_CRATES`] is a normal or
 /// build dependency of any workspace crate, on any target platform.
@@ -358,7 +359,7 @@ fn check_test_only_crates() -> TaskResult {
             .collect();
         if !dependents.is_empty() {
             return Err(TaskError(format!(
-                "{krate} is test-only (ADR-0016 §6) but is a normal or build dependency of:\n  {}\n\
+                "{krate} is test-only (ADR-0016 §6, ADR-0031 §2) but is a normal or build dependency of:\n  {}\n\
                  move it to [dev-dependencies]",
                 dependents.join("\n  ")
             )));

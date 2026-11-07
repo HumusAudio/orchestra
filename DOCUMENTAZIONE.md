@@ -225,7 +225,7 @@ editor e i file `.env`.
 
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
 cosa *non* deve fare, dipendenze ammesse), tranne `orchestra-i18n`, che funziona già. La Fase 1 li
-riempie dal basso: per ora esistono `orchestra-test-support` e, in `orchestra-core-time`, il
+riempie dal basso: per ora esistono `orchestra-test-support`, `orchestra-test-scores` e, in `orchestra-core-time`, il
 tipo razionale, i tipi posizione e durata, la mappa delle misure e le unità del tempo reale. Le
 regole sulle
 dipendenze sono riassunte in `docs/ARCHITECTURE.md`; qui c'è a cosa serve ciascun crate.
@@ -1348,8 +1348,9 @@ una partitura con la forma di quella pesante di `spikes/model/` (1 000 battute, 
 221 169 teste di nota; niente gruppi irregolari) e misura ciò che il documento trattiene con il nuovo
 `net_bytes` di `orchestra-test-support`: **257 byte per nota** (56,9 MB), compresi eventi, indici
 ricavati e scostamenti in linea. Il test fallisce oltre **285** (la misura più circa il 10%), così che
-una struttura che cresce sia una decisione voluta. Da F1.11b parte 2b la partitura viene da
-`tests/common/score.rs`, condiviso con i benchmark dell'editor.
+una struttura che cresce sia una decisione voluta. Da F1.11b parte 2b la partitura viene dal
+generatore condiviso con i benchmark dell'editor; da F1.16 quel generatore è il preset "plain" di
+`orchestra-test-scores` (ADR-0031), con lo stesso risultato.
 
 **Benchmark** (`benches/dynamic.rs`; istruzioni): aggiungere un'indicazione di tempo vicino all'inizio
 di 1 000 battute con 250 indicazioni, metà graduali, che ricava di nuovo tutta la mappa, ≈ 985 000
@@ -1781,8 +1782,9 @@ dentro una transazione più grande.
 
 #### Benchmark dell'editor e memoria della cronologia
 
-Le partiture normale e pesante (100 battute × 10 righi, 1 000 battute × 30 righi) sono generate da
-`tests/common/score.rs`, condiviso con `#[path]` da `tests/memory.rs` (che misura gli stessi 257
+Le partiture normale e pesante (100 battute × 10 righi, 1 000 battute × 30 righi) sono generate dal
+preset "plain" di `orchestra-test-scores` (ADR-0031; fino a F1.16 `tests/common/score.rs`, incluso
+con `#[path]`), usato da `tests/memory.rs` (che misura gli stessi 257
 byte per nota di prima), `tests/history_memory.rs` e `benches/editor.rs`; uno **strumento di
 lavoro** vuoto e facoltativo in fondo riceve le note che i benchmark inseriscono. `benches/editor.rs`
 conta le istruzioni sulle due partiture (partitura pesante; lotti da 64 divisi per 64): inserire una
@@ -2743,6 +2745,51 @@ assert!(per_note <= CEILING_BYTES_PER_NOTE);
 definizione; le uniche operazioni unsafe sono le chiamate inoltrate all'allocatore di sistema,
 ognuna con il suo commento `// SAFETY:`.
 
+### orchestra-test-scores: le partiture di riferimento
+
+Il secondo crate che esiste **solo per i test e i benchmark** (ADR-0031, SCALETTA F1.16). Genera da
+codice, sempre identiche, le partiture che i test e i benchmark misurano: la partitura **normale**
+(100 battute × 10 righi, la dimensione indicata dai budget di ADR-0007) e quella **pesante** (1 000
+battute × 30 righi, che mostra se un costo cresce in modo lineare). La Fase 2 (impaginazione) e la
+Fase 3 (audio) misureranno la stessa musica.
+
+Perché un crate a sé e non un modulo di `orchestra-test-support`? Perché un generatore costruisce un
+`Document`, quindi ha bisogno di `core-model`, mentre `test-support` deve restare in fondo al grafo,
+senza dipendere da nulla, così che anche `core-time` possa usare il suo allocatore contatore
+(ADR-0016 §6). Il nuovo crate sta invece **sopra** il modello. Vale la stessa regola di
+`test-support`: solo in `[dev-dependencies]`, imposto da `cargo xtask check`. Lo possono usare i test
+di integrazione e i benchmark, non i test unitari interni di `core-time`/`core-model`, che sono
+compilati come una seconda copia del loro crate e vedrebbero tipi diversi.
+
+```rust
+// In Cargo.toml: orchestra-test-scores.workspace = true, under [dev-dependencies] only.
+use orchestra_test_scores::{Size, plain};
+
+// 100 bars × 10 staves, without the empty editing instrument at the end.
+let document = plain(Size::Normal, false);
+assert_eq!(document.bars().len(), 100);
+```
+
+**Il preset "plain"** (`src/plain.rs`) è il generatore che fino a F1.16 era
+`crates/core-model/tests/common/score.rs`, incluso con `#[path]` in sette file di test e benchmark di
+`core-model`, `io` e `playback`: note, pause e accordi da 1 a 4 note, 4/4 con un passaggio in 6/8, un
+solo tempo, do maggiore, nient'altro. È stato spostato **senza cambiare ciò che produce**: i benchmark
+esistenti conservano i loro numeri e il controllo delle regressioni di ADR-0017 continua a confrontare
+cose uguali. Lo garantisce `tests/plain_fingerprint.rs`: salva i quattro documenti "plain" (due
+taglie, con e senza lo strumento di lavoro) con `orchestra_io::to_bytes` e controlla la lunghezza e un
+hash FNV-1a a 64 bit dei byte. I valori sono stati calcolati sia con il nuovo crate sia con il vecchio
+file su `main`, e coincidono. Un cambiamento del preset deve quindi essere voluto (ADR-0031 §7): fa
+fallire questo test finché le costanti non vengono aggiornate, in un commit a sé.
+
+Le scelte casuali vengono da uno xorshift di tre righe scritto nel crate, non da `rand`: l'unico
+requisito è che lo stesso seme dia la stessa partitura per sempre, su ogni piattaforma e versione di
+Rust. I generatori vanno in panic (con `unwrap`) se un builder rifiuta il loro input: passano solo
+input valido, quindi un rifiuto è un bug del generatore, e il crate non arriva mai nel programma
+(ADR-0031 §5). Niente `unsafe` (`#![forbid(unsafe_code)]`).
+
+Il preset **"full"**, con tutto ciò che il modello sa contenere (forma, gruppi irregolari, legature,
+segni, dinamiche, cambi di tempo), arriva con SCALETTA F1.16b, insieme ai benchmark di fase.
+
 ### orchestra-i18n: l'interfaccia in sei lingue
 
 È il primo crate con del codice vero. Possiede ogni testo visibile all'utente, in cataloghi Fluent
@@ -2838,9 +2885,9 @@ cargo xtask bench --compare main  # same, plus the regression gate against main 
 doctest (che nextest non esegue), `cargo deny check` e infine il **controllo dei crate solo per
 test**. Si ferma al primo errore.
 
-L'ultimo passaggio garantisce che `orchestra-test-support` non sia mai una dipendenza normale o di
-build di nessun crate. Esegue `cargo tree --invert orchestra-test-support --edges normal,build
---target all`: l'output elenca il crate e tutto ciò che ne dipende attraverso dipendenze normali o
+L'ultimo passaggio garantisce che i due crate solo per test, `orchestra-test-support` e
+`orchestra-test-scores` (ADR-0031), non siano mai una dipendenza normale o di build di nessun crate.
+Per ciascuno esegue `cargo tree --invert <crate> --edges normal,build --target all`: l'output elenca il crate e tutto ciò che ne dipende attraverso dipendenze normali o
 di build (quelle di test sono escluse), su ogni piattaforma. In un workspace corretto l'output è
 esattamente una riga, il crate stesso; ogni riga in più è un colpevole, e l'errore lo nomina.
 
@@ -3247,8 +3294,9 @@ e la scelta di P3 sono in `spikes/model/ANALYSIS.md` e in ADR-0022.
 ### Il prototipo del formato del file
 
 `spikes/fileformat` (passo F1.15) misura le codifiche candidate del file di progetto sulle vere
-partiture normale e pesante dei test di `core-model`: ne include il generatore
-(`crates/core-model/tests/common/score.rs`) con `#[path]`, legge il contenuto delle voci tramite
+partiture normale e pesante dei test di `core-model`: ne usava il generatore
+(`crates/core-model/tests/common/score.rs`, incluso con `#[path]`; da F1.16 dipende dal preset
+"plain" di `orchestra-test-scores`, con lo stesso risultato), legge il contenuto delle voci tramite
 l'API pubblica del modello in uno schema del file fatto di struct semplici con le derive di serde,
 e lo scrive in JSON (strutturato, compatto e indentato), RON e postcard, con e senza deflate. Per
 ognuna stampa la dimensione e il tempo reale di scrittura, di rilettura nello schema tipizzato e di

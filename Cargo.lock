@@ -291,6 +291,7 @@ version = "0.0.0"
 dependencies = [
  "gungraun",
  "orchestra-core-time",
+ "orchestra-test-scores",
  "orchestra-test-support",
  "proptest",
 ]
@@ -320,6 +321,7 @@ dependencies = [
  "gungraun",
  "orchestra-core-model",
  "orchestra-core-time",
+ "orchestra-test-scores",
  "proptest",
  "serde",
  "serde_json",
@@ -340,6 +342,7 @@ dependencies = [
  "gungraun",
  "orchestra-core-model",
  "orchestra-core-time",
+ "orchestra-test-scores",
  "proptest",
 ]
 
@@ -348,6 +351,15 @@ name = "orchestra-plugin-host"
 version = "0.0.0"
 dependencies = [
  "orchestra-core-time",
+]
+
+[[package]]
+name = "orchestra-test-scores"
+version = "0.0.0"
+dependencies = [
+ "orchestra-core-model",
+ "orchestra-core-time",
+ "orchestra-io",
 ]
 
 [[package]]

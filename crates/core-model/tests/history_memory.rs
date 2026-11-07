@@ -34,8 +34,8 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{BarIndex, Duration, Rational};
 
-#[path = "common/score.rs"]
-mod score;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 orchestra_test_support::install_counting_allocator!();
 
@@ -89,7 +89,7 @@ fn measure(doc: Document, action: impl FnOnce(&mut Editor)) -> (usize, i128) {
 /// The heap of one step of the typical actions, against the estimate.
 #[test]
 fn the_history_estimate_follows_the_heap() {
-    let normal = || score::score(score::Size::Normal, true);
+    let normal = || plain(Size::Normal, true);
     let mut rows: Vec<(&str, usize, i128)> = Vec::new();
 
     // The overhead: a step of one small edit (a bar left uncounted).
@@ -159,7 +159,7 @@ fn the_history_estimate_follows_the_heap() {
     });
     rows.push(("1 000-update gesture", estimate, freed));
 
-    let (estimate, freed) = measure(score::score(score::Size::Heavy, true), |e| {
+    let (estimate, freed) = measure(plain(Size::Heavy, true), |e| {
         let bar = e.document().bars().ids()[500];
         e.execute(&Command::ChangeMeter {
             bar,
@@ -176,7 +176,7 @@ fn the_history_estimate_follows_the_heap() {
         freed,
     ));
 
-    let (estimate, freed) = measure(score::score(score::Size::Heavy, true), |e| {
+    let (estimate, freed) = measure(plain(Size::Heavy, true), |e| {
         e.execute(&Command::DeleteBars {
             at: BarIndex::new(100),
             count: 100,
