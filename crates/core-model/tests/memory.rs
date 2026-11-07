@@ -8,8 +8,8 @@
 //! 6/8 from bar 60 to 69 of every hundred; two pianos (two staves, two voices per staff) and 26
 //! one-staff instruments, every fourth with a second voice: 30 staves, 41 voices. Every voice fills
 //! every bar with a rhythmic unit chosen per voice every 8 bars, 15% rests, chords of 1–4 notes.
-//! It is generated with the real builder by `tests/common/score.rs` (shared with the editor's
-//! benchmarks); the reusable generator of the reference score comes with SCALETTA F1.16. Unlike the spike, there are no triplets and quintuplets (they would
+//! It is the plain preset of `orchestra-test-scores` (ADR-0031), generated with the real builder and
+//! shared with the editor's benchmarks. Unlike the spike, there are no triplets and quintuplets (they would
 //! need tuplets, which only add a small table per voice), so the note count is close to, but not
 //! exactly, the spike's 255 776.
 //!
@@ -31,8 +31,8 @@
 use orchestra_core_model::{Document, EventBody};
 use orchestra_core_time::BarIndex;
 
-#[path = "common/score.rs"]
-mod score;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 orchestra_test_support::install_counting_allocator!();
 
@@ -61,8 +61,7 @@ fn noteheads(document: &Document) -> usize {
 #[test]
 fn memory_per_note_on_the_heavy_score() {
     let (document, stats) =
-        orchestra_test_support::count_allocations(|| score::score(score::Size::Heavy, false))
-            .unwrap();
+        orchestra_test_support::count_allocations(|| plain(Size::Heavy, false)).unwrap();
     let notes = noteheads(&document);
     let per_note = stats.net_bytes() / i128::try_from(notes).unwrap();
     // Printed so that `cargo test -- --nocapture` shows the numbers the ceiling is based on.

@@ -11,6 +11,7 @@ publish.workspace = true
 # The real model and time types, so the generated scores are exactly those of core-model's tests.
 orchestra-core-time = { path = "../../crates/core-time" }
 orchestra-core-model = { path = "../../crates/core-model" }
+orchestra-test-scores = { path = "../../crates/test-scores" }
 # Candidates under evaluation (versions checked on crates.io on 2026-11-06).
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"

@@ -13,7 +13,7 @@
 //! Without the disk: what the disk adds depends on the machine, not on our code.
 //!
 //! # The scores
-//! The normal and heavy scores of `core-model`'s tests (`tests/common/score.rs`). Each benchmark
+//! The normal and heavy plain scores of `orchestra-test-scores` (ADR-0031). Each benchmark
 //! runs once on the whole score (millions of instructions need no batch, ADR-0017 §4); the input
 //! is prepared outside the measured region and returned, so that dropping it is not measured.
 
@@ -39,19 +39,17 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::Document;
 
-#[path = "../../core-model/tests/common/score.rs"]
-mod score;
-
-use score::Size;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 // The document of this size.
 fn document(size: Size) -> Document {
-    score::score(size, false)
+    plain(size, false)
 }
 
 // The file bytes of the document of this size.
 fn bytes(size: Size) -> Vec<u8> {
-    orchestra_io::to_bytes(&score::score(size, false)).unwrap()
+    orchestra_io::to_bytes(&plain(size, false)).unwrap()
 }
 
 #[library_benchmark]

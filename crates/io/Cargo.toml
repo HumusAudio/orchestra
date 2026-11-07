@@ -19,6 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The reference scores of the tests and benchmarks (ADR-0031), test-only.
+orchestra-test-scores.workspace = true
 # Property tests (ADR-0016): random documents saved and loaded back.
 proptest.workspace = true
 # The golden-file test builds random JSON values to put inside a valid file.

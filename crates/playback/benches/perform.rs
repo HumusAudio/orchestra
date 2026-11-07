@@ -12,8 +12,8 @@
 //!   piano's timelines and reads the velocities of its notes again (H11).
 //!
 //! # The score
-//! The heavy score of `orchestra-core-model`'s `tests/common/score.rs` (1 000 bars, 30 staves, 41
-//! voices; included with `#[path]` until the reference generator of SCALETTA F1.16), with a level
+//! The heavy plain score of `orchestra-test-scores` (ADR-0031; 1 000 bars, 30 staves, 41
+//! voices), with a level
 //! every 8 bars and a crescendo every 16 bars for every instrument, added with the editor in the
 //! setup.
 //!
@@ -51,12 +51,12 @@ use orchestra_core_model::{
 use orchestra_core_time::{BarIndex, Duration};
 use orchestra_playback::{Performance, Unrolled};
 
-#[path = "../../core-model/tests/common/score.rs"]
-mod score;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 // The heavy score with dynamics and hairpins, in an editor.
 fn editor() -> Editor {
-    let mut editor = Editor::new(score::score(score::Size::Heavy, false));
+    let mut editor = Editor::new(plain(Size::Heavy, false));
     let doc = editor.document();
     let bars: Vec<_> = doc.bars().ids().to_vec();
     let mut commands = Vec::new();

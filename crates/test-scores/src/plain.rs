@@ -1,37 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The generator of the normal and heavy scores, shared by the memory tests and the editor's
-//! benchmarks (included with `#[path]`, so it is compiled into each of them; it is not a test
-//! crate of its own because it lives in a subdirectory of `tests/`).
+//! The **plain** preset (ADR-0031 §6): the generator of the normal and heavy scores that the
+//! memory tests and the benchmarks of `core-model`, `io` and `playback` have measured since
+//! SCALETTA F1.09c and F1.11b.
+//!
+//! # History and stability
+//! Until SCALETTA F1.16 this file was `crates/core-model/tests/common/score.rs`, included with
+//! `#[path]` into seven test and benchmark files. It was moved here **unchanged in behaviour**:
+//! the same calls to the builder in the same order, the same seed, so the same documents (IDs
+//! included). That is the whole point of keeping it as a preset of its own: the benchmarks that
+//! use it keep their instruction counts and the regression gate (ADR-0017) keeps comparing like
+//! with like. Changing what it generates is a deliberate act (ADR-0031 §7).
 //!
 //! # The scores
 //! The shapes of `spikes/model/` (ADR-0022):
 //! - **normal**: 100 bars, one piano (two staves, two voices per staff) and 8 one-staff
-//!   instruments, every fourth with a second voice: 10 staves;
+//!   instruments, every fourth with a second voice: 10 staves, 14 voices;
 //! - **heavy**: 1 000 bars, two pianos and 26 one-staff instruments: 30 staves, 41 voices.
 //!
-//! Both have 4/4 with a passage of 6/8 from bar 60 to 69 of every hundred. Every voice fills
-//! every bar with a rhythmic unit chosen per voice every 8 bars, 15% rests, chords of 1–4 notes.
-//! There are no tuplets (they would only add a small table per voice), so the note counts are
-//! close to, but not exactly, the spike's (8 690 and 255 776). The reusable generator of the
-//! reference score, with everything a score holds, comes with SCALETTA F1.16.
+//! Both have 4/4 with a passage of 6/8 from bar 60 to 69 of every hundred, one tempo (quarter =
+//! 100) and C major. Every voice fills every bar with a rhythmic unit chosen per voice every 8
+//! bars, 15% rests, chords of 1–4 notes. There are no tuplets (they would only add a small table
+//! per voice), so the note counts are close to, but not exactly, the spike's (8 690 and 255 776).
+//! Nothing else of the model is used (no form, no markings): that is what the **full** preset
+//! (SCALETTA F1.16b) is for.
 //!
 //! Optionally an **editing instrument** is added last: one staff, one voice, no events, where
 //! the benchmarks of the editor enter their notes into free space.
-
-// Helper functions are outside the scope of clippy.toml's `allow-unwrap-in-tests`, so the
-// exemption is stated here, for this generator only.
-#![allow(
-    clippy::unwrap_used,
-    reason = "test and benchmark setup: a failed unwrap stops it loudly"
-)]
-// The generator indexes its own small tables with indices it computed itself.
-#![allow(
-    clippy::indexing_slicing,
-    reason = "test generator over its own tables"
-)]
-// Each includer uses its own part of the generator.
-#![allow(dead_code, reason = "shared by several test and benchmark crates")]
+//!
+//! # Complexity
+//! Linear in the number of events: each one is added once through the builder, whose additions
+//! are amortised O(1) at the end of a voice's chunk (ADR-0022). The heavy score takes a few
+//! hundred milliseconds in a debug build.
 
 use orchestra_core_model::{
     Alteration, BarId, BaseValue, Clef, Document, DocumentBuilder, Interval, Key, Metronome, Mode,
@@ -39,11 +39,28 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
+use crate::Size;
+
 /// A small deterministic generator (64-bit xorshift): no dependency, the same sequence everywhere.
+///
+/// # Why our own and not a crate?
+/// The only requirement is reproducibility: the same seed must give the same score on every
+/// platform, every Rust version and every version of any dependency, forever (the benchmarks and
+/// the memory ceilings are calibrated on it, ADR-0031 §7). A crate such as `rand` documents that
+/// its value streams may change between releases; three shifts and three xors cannot change.
+/// Statistical quality is irrelevant here: we only need "varied enough" music.
+///
+/// The state must never be zero (xorshift would stay at zero forever); the only seed used is the
+/// non-zero constant in [`score`].
 struct Rng(u64);
 
 impl Rng {
     /// The next value in `0..n`.
+    ///
+    /// One xorshift step (Marsaglia's 13/7/17 triple for 64 bits), then a modulo. The modulo has
+    /// a bias towards small values when `n` does not divide 2^64, of the order of `n / 2^64`:
+    /// invisible for the `n ≤ 100` used here, and in any case part of the pinned output now.
+    /// `n` must not be zero (the modulo would panic); every caller passes a constant.
     fn below(&mut self, n: u64) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -199,18 +216,18 @@ fn fill(b: &mut DocumentBuilder, bars: &[BarId], voice: VoiceId, secondary: bool
 }
 
 /// The size of a generated score.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum Size {
-    /// 100 bars, 10 staves.
-    Normal,
-    /// 1 000 bars, 30 staves.
-    Heavy,
-}
-
-/// The score of this size, built with the real builder, with the editing instrument last if
-/// `editing` (see the module documentation). The same seed for both sizes, so the heavy score is
-/// exactly the one `tests/memory.rs` measured when its ceiling was set.
-pub(crate) fn score(size: Size, editing: bool) -> Document {
+/// The plain score of this size, built with the real builder, with the editing instrument last if
+/// `editing` (see the module documentation).
+///
+/// The same seed for both sizes, so the heavy score is exactly the one `core-model`'s
+/// `tests/memory.rs` measured when its ceiling was set. Re-exported at the crate root as
+/// [`plain`](crate::plain).
+///
+/// # Panics
+/// Only if the generator itself is wrong: every input it gives the builder is valid by
+/// construction (ADR-0031 §5). A panic here is a bug in this file, never in the caller.
+#[must_use]
+pub fn score(size: Size, editing: bool) -> Document {
     let (bars, pianos, others) = match size {
         Size::Normal => (100, 1, 8),
         Size::Heavy => (1000, 2, 26),

@@ -33,7 +33,7 @@
 //!   its pieces' IDs (U3).
 //!
 //! # The scores
-//! The normal and heavy scores of `tests/common/score.rs` (100 bars × 10 staves, 1 000 bars × 30
+//! The normal and heavy plain scores of `orchestra-test-scores` (ADR-0031; 100 bars × 10 staves, 1 000 bars × 30
 //! staves), with an empty editing instrument at the end where notes are entered into free space.
 //!
 //! # Batches and setup
@@ -71,10 +71,8 @@ use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, Rational,
 };
 
-#[path = "../tests/common/score.rs"]
-mod score;
-
-use score::Size;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 const BATCH: usize = 64;
 
@@ -88,7 +86,7 @@ fn bar_count(size: Size) -> u32 {
 
 // An editor on the score of this size, with the editing instrument.
 fn editor(size: Size) -> Editor {
-    Editor::new(score::score(size, true))
+    Editor::new(plain(size, true))
 }
 
 // The editing voice (the last instrument's only voice).

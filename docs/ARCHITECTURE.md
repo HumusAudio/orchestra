@@ -28,6 +28,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 | `crates/video` | `orchestra-video` | Video tracks (last phase; empty for now) |
 | `crates/app` | `orchestra-app` (binary `orchestra`) | Wiring only |
 | `crates/test-support` | `orchestra-test-support` | Test-only helpers: per-thread allocation-counting global allocator (ADR-0016); `[dev-dependencies]` only |
+| `crates/test-scores` | `orchestra-test-scores` | Test-only deterministic generators of the reference scores (ADR-0031); `[dev-dependencies]` only |
 | `xtask` | `xtask` | Automation: `cargo xtask check/guides/screenshots/bench/setup` |
 | `spikes/` (separate workspace) | — | Time-boxed evaluation prototypes; never part of release builds |
 
@@ -64,6 +65,7 @@ future `cargo xtask check` step may verify this table automatically):
 | ui | core-time, core-model, playback, notation-layout, i18n, video |
 | app | everything |
 | test-support | — (and it may be used by any crate, but **only** in `[dev-dependencies]`: ADR-0016 §6, checked by `cargo xtask check`) |
+| test-scores | core-time, core-model (and it may be used by any crate, but **only** in `[dev-dependencies]` and not by the unit tests of the two crates it depends on: ADR-0031 §2–§3, checked by `cargo xtask check`) |
 
 Notable consequences:
 

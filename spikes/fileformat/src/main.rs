@@ -2,8 +2,9 @@
 
 //! Spike F1.15: how big and how fast are the candidate encodings of a project file?
 //!
-//! The scores are the real normal and heavy scores of `core-model`'s tests (the generator is
-//! included from `crates/core-model/tests/common/score.rs`), read through the model's public API
+//! The scores are the real normal and heavy scores of `core-model`'s tests (the generator, once
+//! included from `crates/core-model/tests/common/score.rs`, is now the plain preset of
+//! `orchestra-test-scores`, ADR-0031, with the same output), read through the model's public API
 //! into a **file schema** of our own (plain structs with serde derives, separate from the model's
 //! memory layout: this is also the shape proposed by the ADR). Only the voice contents are
 //! encoded: they are well over 99% of a score's data (a few hundred marks against 8 690 or 255 000
@@ -23,8 +24,8 @@ use std::time::Instant;
 use orchestra_core_model::{BarId, Document, EventBody, RestValue};
 use serde::{Deserialize, Serialize};
 
-#[path = "../../../crates/core-model/tests/common/score.rs"]
-mod score;
+// The plain preset of the reference scores (ADR-0031), under the name the code below uses.
+use orchestra_test_scores as score;
 
 /// A rational as the text `n/d`, or `n` for an integer: exact and readable.
 fn rational(r: orchestra_core_time::Rational) -> String {
@@ -328,8 +329,8 @@ fn main() {
         ("normal", score::Size::Normal),
         ("heavy", score::Size::Heavy),
     ] {
-        let build = best(|| score::score(size, false));
-        let doc = score::score(size, false);
+        let build = best(|| score::plain(size, false));
+        let doc = score::plain(size, false);
         let (v, c) = schemas(&doc);
         let events: usize = v.cells.iter().map(|c| c.events.len()).sum();
         let notes: usize = v

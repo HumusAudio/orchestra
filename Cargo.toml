@@ -30,6 +30,7 @@ members = [
     "crates/video",
     "crates/app",
     "crates/test-support",
+    "crates/test-scores",
     "xtask",
 ]
 # Evaluation prototypes have their own workspace (spikes/Cargo.toml) and must never be picked up
@@ -64,6 +65,8 @@ orchestra-ui = { path = "crates/ui" }
 orchestra-video = { path = "crates/video" }
 # Test-only: allowed exclusively in `[dev-dependencies]` (ADR-0016 §6, checked by `cargo xtask check`).
 orchestra-test-support = { path = "crates/test-support" }
+# Test-only too: the generators of the reference scores (ADR-0031 §2, same `cargo xtask check`).
+orchestra-test-scores = { path = "crates/test-scores" }
 
 # External crates. Every entry was checked on crates.io (version, license, maintenance) and is
 # justified in an ADR; versions are pinned to the minor release we verified.

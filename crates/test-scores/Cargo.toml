@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-test-scores"
+description = "Test-only deterministic generators of the reference scores (ADR-0031)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Test-only, like `orchestra-test-support` (ADR-0031 §2): other crates may use it ONLY in
+# `[dev-dependencies]`, and `cargo xtask check` fails otherwise. Unlike `test-support` it sits
+# ABOVE the model, because a generator builds a `Document`; that is why it is a crate of its own
+# (ADR-0016 §6 keeps `test-support` at the bottom of the graph). No external dependency: the
+# random numbers come from a small xorshift in the crate, identical on every platform.
+[dependencies]
+orchestra-core-time.workspace = true
+orchestra-core-model.workspace = true
+
+# Only for the fingerprint test of the plain preset (tests/plain_fingerprint.rs): the saved bytes
+# are the most complete and stable description of a document. `io` depends on this crate only as a
+# dev-dependency too, so there is no cycle in the real dependency graph.
+[dev-dependencies]
+orchestra-io.workspace = true
+
+[lints]
+workspace = true

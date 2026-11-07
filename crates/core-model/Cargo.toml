@@ -17,6 +17,8 @@ orchestra-core-time.workspace = true
 # Test-only tools (ADR-0016): property tests and the allocation counter. Never shipped.
 [dev-dependencies]
 orchestra-test-support.workspace = true
+# The reference scores of the tests and benchmarks (ADR-0031), test-only.
+orchestra-test-scores.workspace = true
 proptest.workspace = true
 gungraun.workspace = true
 

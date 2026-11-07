@@ -20,8 +20,8 @@
 
 #[path = "common/everything.rs"]
 mod everything;
-#[path = "../../core-model/tests/common/score.rs"]
-mod score;
+// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
+use orchestra_test_scores::{Size, plain};
 
 use orchestra_core_model::Document;
 use orchestra_io::{FORMAT_VERSION, LoadError, from_bytes, load, save, to_bytes};
@@ -66,8 +66,8 @@ fn everything_round_trips() {
 
 #[test]
 fn the_scores_round_trip() {
-    round_trip(&score::score(score::Size::Normal, true));
-    round_trip(&score::score(score::Size::Heavy, false));
+    round_trip(&plain(Size::Normal, true));
+    round_trip(&plain(Size::Heavy, false));
 }
 
 /// The layout of S3 and I9: the version first, LF only, a final newline, one record per line.

@@ -38,7 +38,7 @@ Esiste UN SOLO documento di progetto (la "fonte di verità"). Notazione e DAW so
 
 ## 2. Struttura del workspace
 
-Cargo workspace; un crate per responsabilità, dipendenze solo "verso il basso". `core-time` · `core-model` · `playback` (da intento scritto a esecuzione) · `notation-layout` · `audio-engine` · `plugin-host` · `io` (MIDI, MusicXML, file di progetto versionato) · `i18n` · `ui` · `app` · `test-support` (solo test, solo in `[dev-dependencies]`) · `xtask` (automazione). `video` arriva per ultimo. L'elenco aggiornato è in `docs/ARCHITECTURE.md`. Codice specifico di piattaforma SOLO in moduli `platform/` dietro trait.
+Cargo workspace; un crate per responsabilità, dipendenze solo "verso il basso". `core-time` · `core-model` · `playback` (da intento scritto a esecuzione) · `notation-layout` · `audio-engine` · `plugin-host` · `io` (MIDI, MusicXML, file di progetto versionato) · `i18n` · `ui` · `app` · `test-support` e `test-scores` (solo test, solo in `[dev-dependencies]`; ADR-0016, ADR-0031) · `xtask` (automazione). `video` arriva per ultimo. L'elenco aggiornato è in `docs/ARCHITECTURE.md`. Codice specifico di piattaforma SOLO in moduli `platform/` dietro trait.
 
 ## 3. Comandi (tutto passa da `cargo xtask`)
 

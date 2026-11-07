@@ -498,8 +498,25 @@ into the `everything` file. The migration machinery `src/project/migrate.rs` (th
 generic JSON tree, empty for now, tested with a test-only two-step chain; new
 `LoadError::Migration`), wired into `from_bytes` for older versions. `.gitattributes` states LF for
 `*.orchestra`. **To do by the owner:** review the golden files by eye (ADR-0029 S12 asks for
-"hand-reviewed" files). **Next:** the PR of F1.15 (ADR-0029, F1.15b, F1.15c) with CI green on the
-three platforms; then F1.16 (the reference score generator).
+"hand-reviewed" files). F1.15 was merged with PR #25 (2026-11-06), together with ADR-0030
+(PR #26: macOS no longer blocks merges).
+
+**Step F1.16** (`feature/f1-16-test-scores`, 2026-11-07). The owner first chose to put the
+generator in `test-support`; the analysis found that ADR-0016 §6 forbids that crate to depend on any
+workspace crate, so the owner chose option B: **ADR-0031 (Accepted, 2026-11-07)**, a second
+test-only crate **`orchestra-test-scores`** (`crates/test-scores`, depending on `core-time` and
+`core-model` only, `[dev-dependencies]` only, enforced by the same `cargo xtask check` step; panics
+allowed because its input is valid by construction; no `unsafe`). The step was split (SCALETTA
+v0.40): **F1.16** moves `crates/core-model/tests/common/score.rs` into the crate as the **plain**
+preset, unchanged in output, and migrates its seven includers (`core-model`: `tests/memory.rs`,
+`tests/history_memory.rs`, `benches/editor.rs`, `benches/parts.rs`; `io`: `tests/project_cases.rs`,
+`benches/project.rs`; `playback`: `benches/perform.rs`) plus `spikes/fileformat`.
+`tests/plain_fingerprint.rs` pins the four plain documents (length + FNV-1a of the saved bytes),
+values computed both with the new crate and with the old file on `main` (identical). **Next:**
+F1.16b, the **full** preset (everything the model holds; `crates/io/tests/common/everything.rs`,
+the document with every kind of object used by the golden files, is a useful starting point) and
+the phase benchmarks (open, edit, unroll; instruction counts, the seconds stay in F2.23); then
+F1.18 (MIDI export) and F1.17 (phase close, with the test command of milestone M1).
 
 | Step | What | Status |
 |---|---|---|

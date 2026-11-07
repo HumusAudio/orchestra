@@ -17,6 +17,8 @@ orchestra-core-model.workspace = true
 
 # Test and benchmark tools only (ADR-0016); never part of the program.
 [dev-dependencies]
+# The reference scores of the tests and benchmarks (ADR-0031), test-only.
+orchestra-test-scores.workspace = true
 proptest.workspace = true
 gungraun.workspace = true
 
