@@ -26,6 +26,13 @@ orchestra-core-model.workspace = true
 orchestra-io.workspace = true
 # The tests of the full preset unroll it and compute its performance (tests/full.rs).
 orchestra-playback.workspace = true
+# The phase benchmarks (benches/phase.rs, SCALETTA F1.16c): instruction counts, ADR-0016.
+gungraun.workspace = true
+
+# Gungraun replaces the default libtest benchmark harness with its own `main!` (ADR-0016 §1).
+[[bench]]
+name = "phase"
+harness = false
 
 [lints]
 workspace = true
