@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.42, approvata dal proprietario il 2026-11-07.**
+> **Stato di questo documento: v0.43, approvata dal proprietario il 2026-11-07.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -452,7 +452,7 @@ Dettagli:
 | F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ✅ | 2 |
 | F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ✅ PR #25 | 1 |
 | F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | ✅ PR #27 | 1 |
-| F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | 🔄 | 1–2 |
+| F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | ✅ PR #29 | 1–2 |
 | F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
@@ -627,6 +627,15 @@ Dettagli:
   Il preset "full" non è un file golden (può cambiare di proposito, ADR-0031 §7). I benchmark di
   fase stanno in `crates/test-scores/benches/phase.rs`; se il job dei benchmark si allunga troppo,
   la taglia pesante resta solo per l'apertura.
+  **F1.16b fatto il 2026-11-07 (PR #29):** preset "full" in `crates/test-scores/src/full/` (piano del
+  movimento, organico, note, segni); copertura di ogni tipo di oggetto di `everything.rs` (meno le tre
+  eccezioni approvate: numerazione con lettere, ripresa della numerazione, ultima battuta corta), di
+  ogni articolazione e ogni ornamento; srotolamento esatto (133 battute suonate per movimento, 1 330
+  nella pesante); andata e ritorno; impronte fissate. **Densità realistica** (scelta A del
+  proprietario): 3 939 teste di nota nella normale, 77 225 nella pesante, circa metà del "plain", che
+  resta il caso denso. Il D.S. al Coda usa `RepeatsAfterJump::Play` perché con `Skip` i movimenti
+  successivi perderebbero i ritornelli: osservazione annotata in ROADMAP per i documenti con più
+  movimenti.
 
 **"Primo ascolto" anticipato (approvato il 2026-10-30, D11):**
 **F1.18:** esportazione **MIDI file** (crate `io`) degli eventi
@@ -935,3 +944,4 @@ raccomandato.
 | 2026-11-07 | 0.40 | F1.16 diviso in F1.16 (crate `test-scores`, ADR-0031 opzione B, preset "plain") e F1.16b (preset "full", benchmark di fase); comando di prova di M1 in F1.17 | proprietario |
 | 2026-11-07 | 0.41 | F1.16 fatto (PR #27, ADR-0031): crate `test-scores` con il preset "plain"; nota per F1.16b (`everything.rs` come punto di partenza); revisione dei file golden fatta dal proprietario, nessun problema | proprietario |
 | 2026-11-07 | 0.42 | F1.16b diviso in F1.16b (preset "full" plausibile, organico vero) e F1.16c (benchmark di fase in `test-scores`) | proprietario |
+| 2026-11-07 | 0.43 | F1.16b fatto (PR #29): preset "full" plausibile, densità realistica (scelta A), `Play` sul D.S.; osservazione sui ritornelli dopo un salto in ROADMAP | proprietario |
