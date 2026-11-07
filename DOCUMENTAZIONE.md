@@ -2787,8 +2787,69 @@ Rust. I generatori vanno in panic (con `unwrap`) se un builder rifiuta il loro i
 input valido, quindi un rifiuto è un bug del generatore, e il crate non arriva mai nel programma
 (ADR-0031 §5). Niente `unsafe` (`#![forbid(unsafe_code)]`).
 
-Il preset **"full"**, con tutto ciò che il modello sa contenere (forma, gruppi irregolari, legature,
-segni, dinamiche, cambi di tempo), arriva con SCALETTA F1.16b, insieme ai benchmark di fase.
+#### Il preset "full"
+
+Il preset **"full"** (`src/full/`, SCALETTA F1.16b) è la partitura di riferimento vera: un brano
+**plausibile** che usa tutto ciò che il modello sa contenere (scelta del proprietario, 2026-11-07),
+non un catalogo fitto. `full(Size::Normal)` è un movimento di 100 battute per 10 righi (pianoforte,
+flauto, oboe, clarinetto in Si♭, corno in Fa, violini I e II, viola, violoncello);
+`full(Size::Heavy)` ripete il movimento dieci volte (1 000 battute), ogni volta in un'altra
+tonalità, per un'orchestra di 30 righi. Sta in quattro file:
+
+- `plan.rs`, **il piano di un movimento**: una levare e una sezione A ritornellata con due volte
+  (4/4, Mi♭ maggiore), una sezione B in 6/8 contato 3+3 con una battuta di emiolia (do minore), una
+  sezione C che parte dal segno (Sol maggiore), una sezione D in 3/4 con una battuta libera di
+  cadenza e un D.S. al Coda (Si♭ maggiore), e una coda. Poi le indicazioni di tempo (immediate,
+  nascoste, solo testo, due "rit." con e senza tempo di partenza) e l'armonia (I IV V I vi IV V I
+  per ogni frase di 8 battute). Le sezioni sono una semplice funzione della battuta locale:
+
+```rust
+// One movement of the plan, local bars 0–99 (src/full/plan.rs).
+pub(super) const fn of(local: u32) -> Self {
+    match local {
+        0..=17 => Self::A,
+        18..=41 => Self::B,
+        42..=59 => Self::C,
+        60..=79 => Self::D,
+        _ => Self::Coda,
+    }
+}
+```
+
+- `ensemble.rs`, **gli strumenti**: nomi, chiavi (di contralto per la viola, di tenore per il
+  violoncello nella sezione D), trasposizioni (Si♭, Fa, ottave), i corni scritti senza armatura, e
+  per ogni voce un ruolo e un registro scritto.
+- `music.rs`, **le note**: celle ritmiche per ruolo e forma della battuta (in sedicesimi), altezze
+  scelte nella tonalità scritta dall'armonia della battuta, legature di valore, terzine e duine,
+  abbellimenti, ornamenti, articolazioni, arpeggi, corone, microtiming, legature di portamento e la
+  cadenza del flauto con un gruppo irregolare annidato e un quarto di tono. I segni che devono
+  comparire almeno una volta (ogni articolazione, ogni ornamento) vanno **a rotazione** invece di
+  essere lasciati al caso.
+- `marks.rs`, **i segni di ogni strumento**: dinamiche a ogni inizio di sezione ("dolce" per il
+  flauto, fp per le parti tenute in D), forcelle per frase (una scritta come testo, una a niente,
+  una di una sola voce), cambi di chiave, segni di ripetizione di battuta nella sezione B, il "solo
+  la 2ª volta" del corno.
+
+Una scelta non è ovvia. Il D.S. al Coda usa `RepeatsAfterJump::Play`. Con il valore predefinito
+`Skip`, lo srotolamento salta ogni ritornello successivo **fino alla fine del documento** (ADR-0025
+§8). In un brano solo qui non cambia nulla, perché la sezione C non ha ritornelli. Nella partitura
+pesante toglierebbe i ritornelli dei movimenti 2–10. Con `Play` ogni movimento si srotola nelle
+stesse **133 battute**.
+
+`tests/full.rs` verifica tre cose. Primo, che la partitura normale contenga ogni tipo di oggetto del
+documento "everything" dei file golden: un frammento della forma `Debug` di `to_parts()` per tipo,
+più le articolazioni tramite l'API, perché in `Debug` sono una maschera di bit. Restano fuori le tre
+eccezioni del proprietario: la numerazione con le lettere, una ripresa della numerazione e un'ultima
+battuta corta. Secondo, che le due taglie si srotolino in 133 e 1 330 battute e che se ne possano
+calcolare le note suonate. Terzo, che salvare e ricaricare restituisca lo stesso documento, ID
+compresi. Un test interno di `music.rs` controlla che ogni cella ritmica riempia esattamente la sua
+battuta, perché `validate` non segnalerebbe una battuta troppo piena. Oggi la partitura normale ha
+3 396 eventi e 3 939 teste di nota, quella pesante 75 811 e 77 225.
+
+`tests/full_fingerprint.rs` fissa il risultato delle due taglie come per il preset "plain"
+(lunghezza e FNV-1a dei byte salvati), con la stessa funzione, ora in `tests/common/mod.rs`. Il
+proprietario ha scelto questa densità il 2026-11-07: circa la metà di quella del preset "plain",
+perché è quella di una partitura vera; il preset "plain" continua a misurare il caso denso.
 
 ### orchestra-i18n: l'interfaccia in sei lingue
 

@@ -12,7 +12,9 @@
 //! ## Presets
 //! - [`plain`]: notes, rests and chords only, exactly as generated since SCALETTA F1.09c. The
 //!   existing benchmarks use it, so its output never changes by accident (ADR-0031 §6–§7).
-//! - **full** (SCALETTA F1.16b, not yet written): everything the model can hold.
+//! - [`full`]: the reference score proper (SCALETTA F1.16b): a plausible piece in five sections
+//!   with repeats, voltas, a D.S. al Coda and a free cadenza, for a real ensemble, using
+//!   everything the model can hold.
 //!
 //! ## How to use it
 //! ```
@@ -49,8 +51,11 @@
     reason = "test-only generators of valid input: a failure is a bug in the generator (ADR-0031 §5)"
 )]
 
+mod full;
 mod plain;
 
+/// The full preset (see the [module documentation](self) and [`full::score`]).
+pub use full::score as full;
 /// The plain preset (see the [module documentation](self) and [`plain::score`]).
 pub use plain::score as plain;
 

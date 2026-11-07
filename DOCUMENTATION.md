@@ -2623,8 +2623,66 @@ version. The generators panic (with `unwrap`) if a builder refuses their input: 
 valid input, so a refusal is a bug in the generator, and the crate never reaches the program
 (ADR-0031 §5). There is no `unsafe` (`#![forbid(unsafe_code)]`).
 
-The **full** preset, with everything the model can hold (form, tuplets, ties, markings, dynamics,
-tempo changes), comes with SCALETTA F1.16b, together with the phase benchmarks.
+#### The full preset
+
+The **full** preset (`src/full/`, SCALETTA F1.16b) is the reference score proper: a **plausible**
+piece that uses everything the model can hold (owner's choice, 2026-11-07), not a dense catalogue.
+`full(Size::Normal)` is one movement of 100 bars for 10 staves (piano, flute, oboe, clarinet in B♭,
+horn in F, violins I and II, viola, violoncello); `full(Size::Heavy)` repeats the movement ten
+times (1 000 bars), each time in another key, for an orchestra of 30 staves. It lives in four
+files:
+
+- `plan.rs`, **the plan of a movement**: a pickup and a repeated section A with two voltas (4/4,
+  E♭ major), a section B in 6/8 counted 3+3 with a hemiola bar (C minor), a section C that starts
+  at the segno (G major), a section D in 3/4 with a free cadenza bar and a D.S. al Coda (B♭ major),
+  and a coda. Also the tempo marks (immediate, hidden, text only, two "rit." with and without a
+  starting tempo) and the harmony (I IV V I vi IV V I per 8-bar phrase). The sections are a
+  plain function of the local bar:
+
+```rust
+// One movement of the plan, local bars 0–99 (src/full/plan.rs).
+pub(super) const fn of(local: u32) -> Self {
+    match local {
+        0..=17 => Self::A,
+        18..=41 => Self::B,
+        42..=59 => Self::C,
+        60..=79 => Self::D,
+        _ => Self::Coda,
+    }
+}
+```
+
+- `ensemble.rs`, **the instruments**: names, clefs (alto for the viola, tenor for the cello in
+  section D), transpositions (B♭, F, octaves), the horns written without key signature, and one
+  role and one written register per voice.
+- `music.rs`, **the notes**: rhythm cells per role and bar shape (in sixteenths), pitches chosen
+  in the written key from the bar's harmony, ties, triplets and duplets, grace notes, ornaments,
+  articulations, arpeggios, fermatas, microtiming, slurs, and the flute's cadenza with a nested
+  tuplet and a quarter-tone. Markings that must appear at least once (every articulation, every
+  ornament) **rotate** instead of being left to chance.
+- `marks.rs`, **the markings of each instrument**: dynamics at every section start ("dolce" for the
+  flute, fp for the held parts in D), hairpins per phrase (one written as text, one to niente,
+  one of a single voice), clef changes, bar repeats in section B, the "2nd time only" of the horn.
+
+One choice is not obvious. The D.S. al Coda uses `RepeatsAfterJump::Play`. With the default `Skip`,
+the unrolling skips every later repeat **to the end of the document** (ADR-0025 §8). In one piece
+that changes nothing here, because section C has no repeat. In the heavy score it would remove the
+repeats of movements 2–10. With `Play` every movement unrolls the same **133 bars**.
+
+`tests/full.rs` checks three things. First, that the normal score contains every kind of object of
+the "everything" document of the golden files: one fragment of the `Debug` form of `to_parts()`
+per kind, plus the articulations through the API, because they are a bit mask in `Debug`. The
+owner's three exceptions are left out: the lettered numbering, a numbering restart and a short
+last bar. Second, that both sizes unroll to 133 and 1 330 bars and that their performance can be
+computed. Third, that saving and loading gives back the same document, IDs included. A unit test
+of `music.rs` checks that every rhythm cell fills its bar exactly, because `validate` would not
+flag an overfull bar. Today the normal score has 3 396 events and 3 939 noteheads, the heavy one
+75 811 and 77 225.
+
+`tests/full_fingerprint.rs` pins the output of both sizes like the plain preset's (length and
+FNV-1a of the saved bytes), with the same helper, now in `tests/common/mod.rs`. The owner chose
+this density on 2026-11-07, about half the plain preset's, because it is what a real score has;
+the plain preset still measures the dense case.
 
 ### orchestra-i18n: the interface in six languages
 
