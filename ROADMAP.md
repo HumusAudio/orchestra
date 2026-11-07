@@ -514,11 +514,25 @@ preset, unchanged in output, and migrates its seven includers (`core-model`: `te
 `tests/plain_fingerprint.rs` pins the four plain documents (length + FNV-1a of the saved bytes),
 values computed both with the new crate and with the old file on `main` (identical). Merged with
 PR #27 (2026-11-07), CI green on the three platforms, benchmarks without regressions; SCALETTA
-v0.41. **Next:**
-F1.16b, the **full** preset (everything the model holds; `crates/io/tests/common/everything.rs`,
-the document with every kind of object used by the golden files, is a useful starting point) and
-the phase benchmarks (open, edit, unroll; instruction counts, the seconds stay in F2.23); then
-F1.18 (MIDI export) and F1.17 (phase close, with the test command of milestone M1).
+v0.41.
+
+**Step F1.16b** (`feature/f1-16b-full-score`, 2026-11-07). SCALETTA v0.42 split the old F1.16b
+into F1.16b (the full preset) and F1.16c (the phase benchmarks). The owner approved a written
+specification first: a **plausible** score rather than a dense catalogue (option A), a real
+ensemble, and three exceptions (no lettered numbering, no numbering restart, no short last bar).
+The **full** preset is in `crates/test-scores/src/full/` (`plan.rs`, `ensemble.rs`, `music.rs`,
+`marks.rs`). Each movement has 100 bars: a pickup and A repeated with two voltas, B in 6/8 with a
+hemiola, C from the segno, D in 3/4 with a free cadenza and a D.S. al Coda, then a coda. The normal
+size is one movement for 10 staves; the heavy size is ten movements in rotating keys for 30
+staves. The D.S. uses `RepeatsAfterJump::Play`, so the later movements keep their repeats (see
+the open item below). `tests/full.rs` checks coverage (every object kind of
+`everything.rs`, every articulation and ornament), the unrolled length (133 / 1 330 bars), the
+performance and the save/load round trip. `tests/full_fingerprint.rs` pins the output, and a unit
+test checks that every rhythm cell fills its bar. **Density:** 3 939 noteheads in the normal size
+and 77 225 in the heavy one, about half of plain. My specification had wrongly estimated it as
+similar to plain; the owner kept the realistic density (option A, 2026-11-07), and plain still
+covers the dense case. **Next:** F1.16c (phase benchmarks in `crates/test-scores/benches/phase.rs`),
+then F1.18 (MIDI export) and F1.17 (phase close, with the test command of milestone M1).
 
 | Step | What | Status |
 |---|---|---|
@@ -580,6 +594,16 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 
 ## Open decisions and open items
 
+- **Repeats after a jump, in documents with several movements (seen in F1.16b, owner asked to
+  record it on 2026-11-07):** after a jump with `RepeatsAfterJump::Skip` (the default), the
+  unrolling skips **every** later repeat to the end of the document, even after the coda
+  (`crates/playback/src/unroll.rs`: `skip_repeats` is never reset; ADR-0025 §8 "every section is
+  played once"). That is right for one piece. With several movements in one document (a suite or
+  a concert in the DAW view) it may not be: a possible rule is that repeats play again once the
+  jump's path ends, for example at the coda. **To remember:** the model already lets the user ask
+  for the repeats to be **played again after a jump** (`RepeatsAfterJump::Play`, ADR-0025 F4); the
+  full preset uses it. Revisit with a new ADR when multi-movement documents arrive (no change
+  now).
 - **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
   the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users

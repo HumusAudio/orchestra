@@ -360,6 +360,7 @@ dependencies = [
  "orchestra-core-model",
  "orchestra-core-time",
  "orchestra-io",
+ "orchestra-playback",
 ]
 
 [[package]]

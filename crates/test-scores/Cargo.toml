@@ -24,6 +24,8 @@ orchestra-core-model.workspace = true
 # dev-dependency too, so there is no cycle in the real dependency graph.
 [dev-dependencies]
 orchestra-io.workspace = true
+# The tests of the full preset unroll it and compute its performance (tests/full.rs).
+orchestra-playback.workspace = true
 
 [lints]
 workspace = true
