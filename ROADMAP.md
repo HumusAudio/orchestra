@@ -512,7 +512,9 @@ preset, unchanged in output, and migrates its seven includers (`core-model`: `te
 `tests/history_memory.rs`, `benches/editor.rs`, `benches/parts.rs`; `io`: `tests/project_cases.rs`,
 `benches/project.rs`; `playback`: `benches/perform.rs`) plus `spikes/fileformat`.
 `tests/plain_fingerprint.rs` pins the four plain documents (length + FNV-1a of the saved bytes),
-values computed both with the new crate and with the old file on `main` (identical). **Next:**
+values computed both with the new crate and with the old file on `main` (identical). Merged with
+PR #27 (2026-11-07), CI green on the three platforms, benchmarks without regressions; SCALETTA
+v0.41. **Next:**
 F1.16b, the **full** preset (everything the model holds; `crates/io/tests/common/everything.rs`,
 the document with every kind of object used by the golden files, is a useful starting point) and
 the phase benchmarks (open, edit, unroll; instruction counts, the seconds stay in F2.23); then

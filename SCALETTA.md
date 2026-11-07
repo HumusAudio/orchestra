@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.40, approvata dal proprietario il 2026-11-07.**
+> **Stato di questo documento: v0.41, approvata dal proprietario il 2026-11-07.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -451,7 +451,7 @@ Dettagli:
 | F1.15 | **ADR: formato concreto del file** (completa ADR-0010) | ✅ ADR-0029 | 1 |
 | F1.15b | **Salvataggio e caricamento della versione 1**: schema del file in `io`, `Document::from_parts`, forma testuale di `Rational`, regola 13 e limiti, salvataggio sicuro, test di andata e ritorno e di robustezza, benchmark | ✅ | 2 |
 | F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ✅ PR #25 | 1 |
-| F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | 🔄 | 1 |
+| F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | ✅ PR #27 | 1 |
 | F1.16b | **Preset "full"**: la partitura di riferimento con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), normale e pesante; benchmark di fase (apertura, modifica, srotolamento) | ⬜ | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
@@ -614,6 +614,11 @@ Dettagli:
   esistenti restano confrontabili) in F1.16 e "full" in F1.16b. I benchmark di fase contano
   istruzioni; la misura in secondi dell'apertura resta in F2.23. Il "comando di prova" della tappa
   M1 si fa in F1.17.
+  **F1.16 fatto il 2026-11-07 (PR #27):** il preset "plain" produce documenti identici a quelli
+  di prima (impronte dei byte salvati uguali a quelle di `main`, fissate in
+  `crates/test-scores/tests/plain_fingerprint.rs`; benchmark senza regressioni). **Per F1.16b:**
+  un buon punto di partenza per il preset "full" è `crates/io/tests/common/everything.rs`, il
+  documento con ogni tipo di oggetto usato dai file golden.
 
 **"Primo ascolto" anticipato (approvato il 2026-10-30, D11):**
 **F1.18:** esportazione **MIDI file** (crate `io`) degli eventi
@@ -920,3 +925,4 @@ raccomandato.
 | 2026-11-06 | 0.38 | F1.15b fatto (parte 2: precisioni I1–I10 in ADR-0029); misura dell'apertura della partitura pesante in F2.23 | proprietario |
 | 2026-11-06 | 0.39 | F1.15c fatto, F1.15 completo (PR #25); revisione dei file golden da parte del proprietario | proprietario |
 | 2026-11-07 | 0.40 | F1.16 diviso in F1.16 (crate `test-scores`, ADR-0031 opzione B, preset "plain") e F1.16b (preset "full", benchmark di fase); comando di prova di M1 in F1.17 | proprietario |
+| 2026-11-07 | 0.41 | F1.16 fatto (PR #27, ADR-0031): crate `test-scores` con il preset "plain"; nota per F1.16b (`everything.rs` come punto di partenza) | proprietario |
