@@ -601,8 +601,8 @@ Dettagli:
   oggetto salvato, un contatore esaurito, uno con tutto), costruiti anche da codice e confrontati
   con il documento e byte per byte; scritti una volta da un test ignorato che non sovrascrive mai;
   ogni troncamento rifiutato, JSON casuale senza panico. Catena delle migrazioni sull'albero JSON
-  (vuota, provata con una catena di prova), `LoadError::Migration`. **Da fare dal proprietario:**
-  rivedere a occhio i file golden (ADR-0029 S12). F1.15 completo.
+  (vuota, provata con una catena di prova), `LoadError::Migration`. **Fatto dal proprietario il
+  2026-11-07:** revisione a occhio dei file golden (ADR-0029 S12), nessun problema. F1.15 completo.
 - **F1.16** La partitura di riferimento (100 battute × 10 righi) sarà riusata in F2 per il
   layout e in F3 per l'audio: si genera da codice, non si scrive a mano. Si parte dal generatore
   deterministico di `spikes/model/src/lib.rs` (partitura normale: 8 690 note; pesante: 255 776).
@@ -925,4 +925,4 @@ raccomandato.
 | 2026-11-06 | 0.38 | F1.15b fatto (parte 2: precisioni I1–I10 in ADR-0029); misura dell'apertura della partitura pesante in F2.23 | proprietario |
 | 2026-11-06 | 0.39 | F1.15c fatto, F1.15 completo (PR #25); revisione dei file golden da parte del proprietario | proprietario |
 | 2026-11-07 | 0.40 | F1.16 diviso in F1.16 (crate `test-scores`, ADR-0031 opzione B, preset "plain") e F1.16b (preset "full", benchmark di fase); comando di prova di M1 in F1.17 | proprietario |
-| 2026-11-07 | 0.41 | F1.16 fatto (PR #27, ADR-0031): crate `test-scores` con il preset "plain"; nota per F1.16b (`everything.rs` come punto di partenza) | proprietario |
+| 2026-11-07 | 0.41 | F1.16 fatto (PR #27, ADR-0031): crate `test-scores` con il preset "plain"; nota per F1.16b (`everything.rs` come punto di partenza); revisione dei file golden fatta dal proprietario, nessun problema | proprietario |
