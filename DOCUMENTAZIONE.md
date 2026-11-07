@@ -2851,6 +2851,64 @@ battuta, perché `validate` non segnalerebbe una battuta troppo piena. Oggi la p
 proprietario ha scelto questa densità il 2026-11-07: circa la metà di quella del preset "plain",
 perché è quella di una partitura vera; il preset "plain" continua a misurare il caso denso.
 
+#### I benchmark di fase
+
+`benches/phase.rs` (SCALETTA F1.16c) misura **percorsi completi che l'utente aspetta**, dall'inizio
+alla fine, sul preset "full", in istruzioni. Stanno qui e non nei crate che possiedono il codice
+perché ne attraversano tre (`io`, `core-model`, `playback`): questo crate solo per i test può
+dipendere da tutti come dev-dependency senza aggiungere archi al grafo vero.
+
+- `open`, normale e pesante: dai byte del file a una partitura pronta per suonare, cioè
+  `from_bytes`, poi `Unrolled::new`, poi `Performance::new`. Il disco resta fuori. Budget: ≤ 1 s
+  per 100 battute.
+- `edit`, quattro varianti:
+  - `pitch_normal` e `pitch_heavy`: una nota del ritornello della sezione A (suonata due volte)
+    sale di un grado, la modifica dalla notazione;
+  - `daw_normal` e `daw_heavy`: una nota dello stesso tipo viene trascinata di un sessantaquattresimo
+    dalla DAW, entro la soglia di tolleranza, quindi resta uno scostamento d'esecuzione.
+
+  Ogni variante misura il comando attraverso l'editor (passo di annullamento e insieme delle
+  modifiche compresi), l'aggiornamento dello srotolamento e quello delle note suonate:
+
+```rust
+// One edit end to end: the command, the path's update, the played notes' update.
+let changes = editor.execute(black_box(&command)).unwrap();
+path.update(editor.document(), &changes).unwrap();
+performance.update(editor.document(), &path, &changes).unwrap();
+```
+
+  Budget: da input a fotogramma ≤ 50 ms, di cui al modello deve spettare una piccola parte.
+- `unroll` e `save`, solo normale: lo srotolamento da solo e i byte del file.
+
+La preparazione di una modifica verifica tre cose, così che non si misuri mai per errore un rifiuto
+o un altro percorso: la nota sta in una battuta suonata due volte, il comando va a buon fine e lo
+spostamento dalla DAW lascia invariata la posizione scritta.
+
+**Dalle istruzioni al tempo** (regola del proprietario, 2026-11-07): **un'istruzione per
+nanosecondo** sul portatile di riferimento. È volutamente pessimista, perché un processore di quella
+classe ne esegue 2–4 per nanosecondo: un conteggio molto sotto un budget con questa regola è sotto
+il budget con sicurezza. I tempi veri si misurano in F2.23.
+
+I primi numeri (2026-11-07, stabili entro lo 0,005% da un'esecuzione all'altra):
+
+| Benchmark | Istruzioni | Con la regola | Budget |
+|---|---|---|---|
+| `open` normale | 86,6 M | ~87 ms | ≤ 1 s |
+| `open` pesante | 2,03 G | ~2,0 s | (10× le battute, 3× i righi) |
+| `edit` altezza, normale / pesante | 0,39 M / 0,49 M | ~0,4 / 0,5 ms | ≤ 50 ms |
+| `edit` DAW, normale / pesante | 0,38 M / 0,49 M | ~0,4 / 0,5 ms | ≤ 50 ms |
+| `unroll` normale | 0,38 M | ~0,4 ms | — |
+| `save` normale | 24,0 M | ~24 ms | — |
+
+L'apertura di 100 battute sta circa undici volte sotto il budget, e una modifica occupa circa l'1%
+dei 50 ms. La nota modificata è la prima nota singola del violino I nel ritornello, così che le
+varianti normale e pesante modifichino lo stesso tipo di nota. Una prima versione prendeva la prima
+nota di uno strumento qualsiasi, che era il pianoforte nella partitura normale e l'ottavino in
+quella pesante, e dava conteggi non confrontabili. Quella prima versione mostra anche che una nota
+del pianoforte costa di più: circa 1,6 M istruzioni, perché la finestra di aggiornamento del
+pianoforte contiene più note. L'esecuzione di questi benchmark aggiunge circa due minuti e mezzo al
+job di CI.
+
 ### orchestra-i18n: l'interfaccia in sei lingue
 
 È il primo crate con del codice vero. Possiede ogni testo visibile all'utente, in cataloghi Fluent

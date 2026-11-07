@@ -2684,6 +2684,62 @@ FNV-1a of the saved bytes), with the same helper, now in `tests/common/mod.rs`. 
 this density on 2026-11-07, about half the plain preset's, because it is what a real score has;
 the plain preset still measures the dense case.
 
+#### The phase benchmarks
+
+`benches/phase.rs` (SCALETTA F1.16c) measures **whole paths the user waits for**, end to end, on
+the full preset, in instructions. They sit here and not in the crates that own the code because
+they cross three of them (`io`, `core-model`, `playback`): this test-only crate may depend on all of
+them as dev-dependencies without adding any edge to the real graph.
+
+- `open`, normal and heavy: from the file's bytes to a score ready to play, that is `from_bytes`,
+  then `Unrolled::new`, then `Performance::new`. The disk is left out. Budget: ≤ 1 s for 100 bars.
+- `edit`, four variants:
+  - `pitch_normal` and `pitch_heavy`: a note of the repeat of section A (played twice) goes up a
+    step, the edit from the notation;
+  - `daw_normal` and `daw_heavy`: the same kind of note is dragged by a 64th from the DAW, within
+    the tolerance threshold, so it stays a performance offset.
+
+  Each variant measures the command through the editor (undo step and change set included), the
+  path's update and the played notes' update:
+
+```rust
+// One edit end to end: the command, the path's update, the played notes' update.
+let changes = editor.execute(black_box(&command)).unwrap();
+path.update(editor.document(), &changes).unwrap();
+performance.update(editor.document(), &path, &changes).unwrap();
+```
+
+  Budget: from input to frame ≤ 50 ms, of which the model should take a small part.
+- `unroll` and `save`, normal only: the path alone and the file's bytes.
+
+The setup of an edit checks three things, so that a refusal or another path is never measured by
+mistake: the note is in a bar played twice, the command succeeds, and the DAW move leaves the
+written position unchanged.
+
+**From instructions to time** (owner's rule, 2026-11-07): **one instruction per nanosecond** on
+the reference laptop. It is pessimistic on purpose, because a core of that class retires 2–4 per
+nanosecond, so a count far below a budget by this rule is safely below it. The real times are
+measured in F2.23.
+
+The first numbers (2026-11-07, stable within 0.005% from one run to the next):
+
+| Benchmark | Instructions | By the rule | Budget |
+|---|---|---|---|
+| `open` normal | 86.6 M | ~87 ms | ≤ 1 s |
+| `open` heavy | 2.03 G | ~2.0 s | (10× the bars, 3× the staves) |
+| `edit` pitch, normal / heavy | 0.39 M / 0.49 M | ~0.4 / 0.5 ms | ≤ 50 ms |
+| `edit` DAW, normal / heavy | 0.38 M / 0.49 M | ~0.4 / 0.5 ms | ≤ 50 ms |
+| `unroll` normal | 0.38 M | ~0.4 ms | — |
+| `save` normal | 24.0 M | ~24 ms | — |
+
+Opening 100 bars is about eleven times under its budget, and an edit takes about 1% of the 50 ms.
+The edited note is the first single note of violin I in the repeat, so that the normal and heavy
+variants edit the same kind of note. A first version took the first note of any instrument, which
+was the piano in the normal score and the piccolo in the heavy one, and gave counts that could not
+be compared. That first version also shows that a piano note costs more: about 1.6 M instructions,
+because the piano's update window holds more notes. Running these benchmarks adds about two and a
+half minutes to the CI job.
+
 ### orchestra-i18n: the interface in six languages
 
 This is the first crate with real code. It owns every user-visible string, in Fluent catalogs for

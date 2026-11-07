@@ -532,8 +532,24 @@ test checks that every rhythm cell fills its bar. **Density:** 3 939 noteheads i
 and 77 225 in the heavy one, about half of plain. My specification had wrongly estimated it as
 similar to plain; the owner kept the realistic density (option A, 2026-11-07), and plain still
 covers the dense case. Merged with PR #29 (2026-11-07), CI green on the three platforms; SCALETTA
-v0.43. **Next:** F1.16c (phase benchmarks in `crates/test-scores/benches/phase.rs`),
-then F1.18 (MIDI export) and F1.17 (phase close, with the test command of milestone M1).
+v0.43.
+
+**Step F1.16c** (`feature/f1-16c-phase-benchmarks`, 2026-11-07). The owner chose (a) and (b), the
+size table, and a rule to turn instructions into time. The phase benchmarks are in
+`crates/test-scores/benches/phase.rs`, on the full preset, counted in instructions:
+- `open`, normal and heavy: bytes → document → unrolled path → played notes;
+- `edit`: (a) a note goes up a step from the notation, (b) the same note is dragged from the DAW
+  within the threshold. Each is measured as command + path update + played-notes update, on a
+  violin I note in the repeat of A, normal and heavy;
+- `unroll` and `save`, normal only.
+
+The rule for time is **1 instruction per nanosecond** on the reference laptop, deliberately
+pessimistic. With it: open 100 bars 86.6 M ≈ 87 ms (budget 1 s); heavy 2.03 G ≈ 2 s; an edit
+0.39–0.49 M ≈ 0.5 ms (budget 50 ms); unroll 0.38 M; save 24 M. A piano note costs about 1.6 M,
+because its update window is larger. The CI job grows by about 2.5 minutes. Benchmarks run
+outside `cargo xtask bench` need `GUNGRAUN_ENVS=TMPDIR`, or Valgrind fails to start in the
+sandbox; `xtask` already does this. **Next:** F1.18 (MIDI export), then F1.17 (phase close, with
+the test command of milestone M1).
 
 | Step | What | Status |
 |---|---|---|

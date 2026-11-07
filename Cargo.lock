@@ -357,6 +357,7 @@ dependencies = [
 name = "orchestra-test-scores"
 version = "0.0.0"
 dependencies = [
+ "gungraun",
  "orchestra-core-model",
  "orchestra-core-time",
  "orchestra-io",
