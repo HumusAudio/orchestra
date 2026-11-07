@@ -497,8 +497,8 @@ bytes, loads every file of every version, refuses every truncation, and feeds ra
 into the `everything` file. The migration machinery `src/project/migrate.rs` (the chain on the
 generic JSON tree, empty for now, tested with a test-only two-step chain; new
 `LoadError::Migration`), wired into `from_bytes` for older versions. `.gitattributes` states LF for
-`*.orchestra`. **To do by the owner:** review the golden files by eye (ADR-0029 S12 asks for
-"hand-reviewed" files). F1.15 was merged with PR #25 (2026-11-06), together with ADR-0030
+`*.orchestra`. The owner reviewed the golden files by eye on 2026-11-07, as ADR-0029 S12 asks
+("hand-reviewed" files): done. F1.15 was merged with PR #25 (2026-11-06), together with ADR-0030
 (PR #26: macOS no longer blocks merges).
 
 **Step F1.16** (`feature/f1-16-test-scores`, 2026-11-07). The owner first chose to put the
@@ -512,7 +512,9 @@ preset, unchanged in output, and migrates its seven includers (`core-model`: `te
 `tests/history_memory.rs`, `benches/editor.rs`, `benches/parts.rs`; `io`: `tests/project_cases.rs`,
 `benches/project.rs`; `playback`: `benches/perform.rs`) plus `spikes/fileformat`.
 `tests/plain_fingerprint.rs` pins the four plain documents (length + FNV-1a of the saved bytes),
-values computed both with the new crate and with the old file on `main` (identical). **Next:**
+values computed both with the new crate and with the old file on `main` (identical). Merged with
+PR #27 (2026-11-07), CI green on the three platforms, benchmarks without regressions; SCALETTA
+v0.41. **Next:**
 F1.16b, the **full** preset (everything the model holds; `crates/io/tests/common/everything.rs`,
 the document with every kind of object used by the golden files, is a useful starting point) and
 the phase benchmarks (open, edit, unroll; instruction counts, the seconds stay in F2.23); then
