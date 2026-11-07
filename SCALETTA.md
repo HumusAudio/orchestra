@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.43, approvata dal proprietario il 2026-11-07.**
+> **Stato di questo documento: v0.44, approvata dal proprietario il 2026-11-07.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -453,7 +453,7 @@ Dettagli:
 | F1.15c | **File golden della versione 1 e meccanismo delle migrazioni**, documentazione, PR di tutto F1.15 | ✅ PR #25 | 1 |
 | F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | ✅ PR #27 | 1 |
 | F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | ✅ PR #29 | 1–2 |
-| F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ⬜ | 1 |
+| F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ✅ PR #31 | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
 
@@ -636,6 +636,15 @@ Dettagli:
   resta il caso denso. Il D.S. al Coda usa `RepeatsAfterJump::Play` perché con `Skip` i movimenti
   successivi perderebbero i ritornelli: osservazione annotata in ROADMAP per i documenti con più
   movimenti.
+  **F1.16c fatto il 2026-11-07 (PR #31):** `crates/test-scores/benches/phase.rs` misura in istruzioni
+  percorsi completi sul preset "full". Regola approvata dal proprietario: **1 istruzione per
+  nanosecondo** sul portatile di riferimento (volutamente pessimista; i tempi veri in F2.23).
+  Apertura di 100 battute (byte → documento → srotolamento → note suonate) 86,6 M ≈ 87 ms (budget
+  1 s); pesante 2,03 G ≈ 2 s; modifica di una nota del violino I nel ritornello, dalla notazione o
+  dalla DAW entro la soglia (comando + aggiornamenti) 0,38–0,49 M ≈ 0,5 ms (budget 50 ms);
+  srotolamento 0,38 M; salvataggio 24 M. Una nota del pianoforte costa circa 1,6 M (finestra
+  d'aggiornamento più grande). Il job dei benchmark in CI cresce di circa 2,5 minuti. F1.16
+  completo; il prossimo passo è F1.18.
 
 **"Primo ascolto" anticipato (approvato il 2026-10-30, D11):**
 **F1.18:** esportazione **MIDI file** (crate `io`) degli eventi
@@ -945,3 +954,4 @@ raccomandato.
 | 2026-11-07 | 0.41 | F1.16 fatto (PR #27, ADR-0031): crate `test-scores` con il preset "plain"; nota per F1.16b (`everything.rs` come punto di partenza); revisione dei file golden fatta dal proprietario, nessun problema | proprietario |
 | 2026-11-07 | 0.42 | F1.16b diviso in F1.16b (preset "full" plausibile, organico vero) e F1.16c (benchmark di fase in `test-scores`) | proprietario |
 | 2026-11-07 | 0.43 | F1.16b fatto (PR #29): preset "full" plausibile, densità realistica (scelta A), `Play` sul D.S.; osservazione sui ritornelli dopo un salto in ROADMAP | proprietario |
+| 2026-11-07 | 0.44 | F1.16c fatto (PR #31): benchmark di fase sul preset "full", regola 1 istruzione/ns; F1.16 completo, prossimo passo F1.18 | proprietario |

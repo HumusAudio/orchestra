@@ -548,7 +548,9 @@ pessimistic. With it: open 100 bars 86.6 M ≈ 87 ms (budget 1 s); heavy 2.03 G 
 0.39–0.49 M ≈ 0.5 ms (budget 50 ms); unroll 0.38 M; save 24 M. A piano note costs about 1.6 M,
 because its update window is larger. The CI job grows by about 2.5 minutes. Benchmarks run
 outside `cargo xtask bench` need `GUNGRAUN_ENVS=TMPDIR`, or Valgrind fails to start in the
-sandbox; `xtask` already does this. **Next:** F1.18 (MIDI export), then F1.17 (phase close, with
+sandbox; `xtask` already does this. Merged with PR #31 (2026-11-07), CI green on the three
+platforms (the bench job went from about 13 to about 15 minutes); SCALETTA v0.44, F1.16 complete.
+**Next:** F1.18 (MIDI export), then F1.17 (phase close, with
 the test command of milestone M1).
 
 | Step | What | Status |
