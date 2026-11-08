@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.44, approvata dal proprietario il 2026-11-07.**
+> **Stato di questo documento: v0.45, approvata dal proprietario il 2026-11-08.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -454,7 +454,7 @@ Dettagli:
 | F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | ✅ PR #27 | 1 |
 | F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | ✅ PR #29 | 1–2 |
 | F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ✅ PR #31 | 1 |
-| F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ⬜ | 1–2 |
+| F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | 🔄 ADR-0032 (Proposed) | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
 
 Dettagli:
@@ -768,6 +768,12 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 | F3.10 | **Progetto di riferimento + benchmark**: callback ≤ 2,6 ms, zero xrun in 10 minuti | ⬜ | 2 |
 | F3.11 | **Chiusura fase** | ⬜ | 1–2 |
 
+- **F3.01** **Requisito del proprietario (2026-11-08, ADR-0032):** **MIDI 2.0 di default
+  all'interno del programma**: gli eventi tra la riproduzione e gli strumenti non scendono mai
+  sotto la precisione del MIDI 2.0 (velocity a 16 bit, microtoni, controller per nota); verso i
+  dispositivi MIDI esterni si usa UMP, con ripiego automatico su MIDI 1.0 se il dispositivo non
+  lo supporta; per i plugin le espressioni per nota di CLAP e VST3. Il MIDI 1.0 resta solo
+  nell'esportazione di file v0 (F1.18).
 - **F3.03** Da ADR-0024 §10: i dati di controller per nota (ADR-0004) arrivano con il primo
   strumento che li usa.
 - ❓ **Decisione F3.03:** quali strumenti interni (sintetizzatore semplice? campionatore SFZ/SF2?)
@@ -786,7 +792,8 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 
 | Filone | Quando (proposta) | Note |
 |---|---|---|
-| **Esportazione MIDI** | F1.18 (approvato) | Primo ascolto |
+| **Esportazione MIDI** | F1.18 (approvato) | Primo ascolto; SMF 1.0 (ADR-0032) |
+| **Esportazione MIDI 2.0 su file** (MIDI Clip File) | con F3.04 | Opzione accanto a SMF 1.0, che resta il default finché pochi programmi leggono il nuovo formato (proprietario, 2026-11-08; da riverificare lo stato dello standard) |
 | **Importazione MIDI** | dopo F3.06 | ADR-0004: va *dedotto* l'intento (quantizzazione, grafia, voci): difficile, merita un ADR. Grafia secondo il contesto melodico (ADR-0023 §6) |
 | **MusicXML import/export** | dopo F2B | Fondamentale per l'interoperabilità con gli altri software di notazione. **Da ricordare:** le armature non tradizionali (Bartók, klezmer, maqam e makam), rimandate dal proprietario, come secondo caso di `Key` con la loro regola di grafia (ADR-0023 §5); le armature diverse per rigo (ADR-0024 C6) |
 | **Stampa ed esportazione PDF** | dopo F2B | Sempre in colori chiari (ADR-0014) |
@@ -955,3 +962,4 @@ raccomandato.
 | 2026-11-07 | 0.42 | F1.16b diviso in F1.16b (preset "full" plausibile, organico vero) e F1.16c (benchmark di fase in `test-scores`) | proprietario |
 | 2026-11-07 | 0.43 | F1.16b fatto (PR #29): preset "full" plausibile, densità realistica (scelta A), `Play` sul D.S.; osservazione sui ritornelli dopo un salto in ROADMAP | proprietario |
 | 2026-11-07 | 0.44 | F1.16c fatto (PR #31): benchmark di fase sul preset "full", regola 1 istruzione/ns; F1.16 completo, prossimo passo F1.18 | proprietario |
+| 2026-11-08 | 0.45 | F1.18 avviato (bozza di ADR-0032, scelte E1–E12 approvate); requisito "MIDI 2.0 di default all'interno" in F3.01; esportazione MIDI 2.0 su file come filone con F3.04 | proprietario |
