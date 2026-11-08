@@ -169,6 +169,42 @@ fn voltas() {
     assert_eq!(voltas[3].last(), bars[9]);
 }
 
+/// The structure of the form (`Document::form_sections`, shared by validation and playback): the
+/// repeated part of a section ends at its last end repeat, the section itself at the end of its last
+/// volta; the plays come from the voltas; a jump-free section without a start begins at bar 0.
+#[test]
+fn form_sections() {
+    let (mut b, bars) = builder(10);
+    // A first section without a start repeat: bars 0–1, played twice.
+    b.add_repeat_end(bars[1], 2).unwrap();
+    // "|: … 1.–3. :| 4." over bars 5–9.
+    b.add_repeat_start(bars[5]).unwrap();
+    b.add_volta(bars[7], bars[7], passes(1, 3), true, None)
+        .unwrap();
+    b.add_repeat_end(bars[7], 4).unwrap();
+    b.add_volta(bars[8], bars[9], passes(4, 4), false, None)
+        .unwrap();
+    let document = b.build().unwrap();
+    let form = document.form_sections().unwrap();
+    let spans: Vec<(u32, u32, u32, u8)> = form
+        .sections
+        .iter()
+        .map(|s| (s.start, s.last_end, s.last, s.plays))
+        .collect();
+    assert_eq!(spans, [(0, 1, 1, 2), (5, 7, 9, 4)]);
+    assert_eq!(
+        form.voltas
+            .iter()
+            .map(|v| (v.first, v.is_last, v.section))
+            .collect::<Vec<_>>(),
+        [(7, false, 1), (8, true, 1)]
+    );
+    // The repeated part: bar 7 is in it, the last volta (bars 8–9) is not, nor bar 3.
+    assert_eq!(form.repeated_at(7).map(|s| s.start), Some(5));
+    assert_eq!(form.repeated_at(8), None);
+    assert_eq!(form.repeated_at(3), None);
+}
+
 /// "1. :‖ 2. :‖ 3." (ADR-0025 §3 as corrected on 2026-11-03): every volta but the last ends with
 /// an end repeat, the second one without a start of its own.
 #[test]

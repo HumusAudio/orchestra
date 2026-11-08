@@ -321,14 +321,21 @@ impl Document {
         // Pass rules, sorted by start: the end of the last one seen in each scope. A vector that
         // allocates only if the instrument has pass rules (an empty `Vec` does not allocate).
         let mut scope_ends: Vec<(DynamicScope, (u32, Duration))> = Vec::new();
+        // The form's sections, read once and only if there is a pass rule to check (a document
+        // without pass rules allocates nothing here).
+        let sections = if instrument.pass_rules().is_empty() {
+            crate::form::FormSections::default()
+        } else {
+            self.form_sections()?
+        };
         for rule in instrument.pass_rules() {
             let start = point_key(bars, rule.start);
             let end = point_key(bars, rule.end);
-            let Some(section) = self.section_at(start.0) else {
+            let Some(section) = sections.repeated_at(start.0) else {
                 return Err(invalid(Violation::PassRuleOutsideRepeat(rule.id)));
             };
             // The end may be anywhere up to the barline closing the section: (last + 1, 0).
-            if end > (section.last.saturating_add(1), Duration::ZERO) {
+            if end > (section.last_end.saturating_add(1), Duration::ZERO) {
                 return Err(invalid(Violation::PassRuleOutsideRepeat(rule.id)));
             }
             if rule.plays.last().is_none_or(|p| p > section.plays) {

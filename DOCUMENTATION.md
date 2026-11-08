@@ -1408,9 +1408,14 @@ repeat has its source bars, its bars hold no event on its staff, two of one staf
 and no form marking lies between its first source bar and its last repeated bar (otherwise "the
 previous bars" would depend on the path taken); a pass rule lies inside one repeated section, its
 passes are within the section's plays, and two of one scope do not overlap. Both need "the
-repeated section containing this bar": `Document::section_at` merges the repeat barlines like rule
-8, extends a section to the further ends of its voltas, stops at the first section after the bar
-and computes the number of plays only for the section found.
+repeated section containing this bar": `Document::form_sections` reads the form once into a
+`FormSections` (the repeat barlines merged like rule 8, a section extended to the further ends of
+its voltas, the voltas grouped and attached to their section, which takes its plays from them),
+and `FormSections::repeated_at` finds the section whose repeated part (up to its last end repeat,
+`last_end`) contains the bar. The same structure is what `playback` walks (it uses `last`, which
+also covers the last volta), so the rules and the player always agree on the sections; they used
+to compute them with two different algorithms. The checks read it only when there is something to
+check (a pass rule, a jump on a given pass), so most documents allocate nothing for it.
 
 ```rust
 // Segno at bar 2, a repeated chorus 2–4 with "To Coda" at the end of bar 3, D.S. al Coda at the
@@ -2164,9 +2169,8 @@ Around the path: `plays_of(bar)` lists where a written bar is played (P5), `cont
 staff)` gives the written bar a staff with bar repeats takes its notes from, with their own pass
 (P3), and `plays(voice, played, offset)` applies the pass rules (P4).
 
-**The walk** (`Unrolled::new`) reads the form once into indices (sections from the repeat barlines
-paired as `validate` pairs them, volta groups attached to their section, jumps with their markers'
-bars), then walks the bars: skip the voltas this play does not enter, play the bar, then at its end
+**The walk** (`Unrolled::new`) reads the form once into indices (sections and volta groups from
+`Document::form_sections`, the same reading validation uses, jumps with their markers' bars), then walks the bars: skip the voltas this play does not enter, play the bar, then at its end
 the active jump's Fine or To Coda, a jump that fires now (after the section's last play, or on
 `OnPass(n)`), an end repeat with plays left. A section entered from outside starts at play 1; after
 a jump that skips the repeats every section plays once, as play 1. Every jump is taken once, so the

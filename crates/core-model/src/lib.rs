@@ -144,7 +144,10 @@ pub use event::{
     NoteValueError, PlacedEvent, Rest, RestValue, Tie, Tuplet, TupletBracket, TupletDisplay,
     TupletNumber,
 };
-pub use form::{BarLabel, BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
+pub use form::{
+    BarLabel, BarNumbering, Form, FormSections, MAX_PLAYS, PassSet, RepeatEnd, RepeatSection,
+    RepeatStart, SectionVolta, Volta,
+};
 pub use id::{
     BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdHasher, IdMap, IdSet,
     InstrumentId, JumpId, KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId,
