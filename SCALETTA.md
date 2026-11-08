@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.47, approvata dal proprietario il 2026-11-08.**
+> **Stato di questo documento: v0.48, approvata dal proprietario il 2026-11-08.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -454,7 +454,7 @@ Dettagli:
 | F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | ✅ PR #27 | 1 |
 | F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | ✅ PR #29 | 1–2 |
 | F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ✅ PR #31 | 1 |
-| F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ✅ PR #33, ADR-0032, ADR-0027 §15 (taratura a orecchio, giri 1–2) | 1–2 |
+| F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ✅ PR #33, ADR-0032, ADR-0027 §15 (taratura a orecchio, giri 1–2); ADR-0033 (tasto a metà strada, PR #37) | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ✅ PR #35, tappa M1 | 1 |
 
 Dettagli:
@@ -741,6 +741,12 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
   con il budget di 1 ms di ADR-0027 §9.
   Da F1.15b: misurare lì l'apertura della partitura pesante (sulla macchina di sviluppo ≈ 0,4 s,
   2,2 miliardi di istruzioni; atteso ≈ 1 s), oltre alle 100 battute del budget di ADR-0007.
+  Dalla revisione del codice (2026-11-08, PR #37–#42): i conteggi di istruzioni citati qui e nella
+  chiusura di F1.16 sono cambiati (il caricamento e i comandi del modello sono più veloci) e non
+  si riscrivono nel testo storico: si rimisurano qui. Si aggiunge un benchmark con molti
+  abbellimenti e note lunghe, per decidere se le scansioni lineari di `playback` sugli abbellimenti
+  (`previous_end`, `shorten_previous`) e sulle note che coprono più battute (`Summary::new`)
+  vanno ottimizzate (punti D5 e D6 della revisione).
 - **F2.22** Da ADR-0026 §11 (X4, X6, X7), comandi composti rimandati qui: svuotare le battute e
   mettere la ripetizione di battuta; ritrascrivere le note dopo un cambio di armatura; trasformare
   le note di un gruppo irregolare in valori normali.
@@ -808,7 +814,7 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 | Filone | Quando (proposta) | Note |
 |---|---|---|
 | **Esportazione MIDI** | F1.18 (approvato) | Primo ascolto; SMF 1.0 (ADR-0032) |
-| **Esportazione MIDI 2.0 su file** (MIDI Clip File) | con F3.04 | Opzione accanto a SMF 1.0, che resta il default finché pochi programmi leggono il nuovo formato (proprietario, 2026-11-08; da riverificare lo stato dello standard) |
+| **Esportazione MIDI 2.0 su file** (MIDI Clip File) | con F3.04 | Tasto e bend di una nota da `MidiNote::nearest`, la regola unica di ADR-0033 (tasto inferiore a metà strada). Opzione accanto a SMF 1.0, che resta il default finché pochi programmi leggono il nuovo formato (proprietario, 2026-11-08; da riverificare lo stato dello standard) |
 | **Importazione MIDI** | dopo F3.06 | ADR-0004: va *dedotto* l'intento (quantizzazione, grafia, voci): difficile, merita un ADR. Grafia secondo il contesto melodico (ADR-0023 §6) |
 | **MusicXML import/export** | dopo F2B | Fondamentale per l'interoperabilità con gli altri software di notazione. **Da ricordare:** le armature non tradizionali (Bartók, klezmer, maqam e makam), rimandate dal proprietario, come secondo caso di `Key` con la loro regola di grafia (ADR-0023 §5); le armature diverse per rigo (ADR-0024 C6) |
 | **Stampa ed esportazione PDF** | dopo F2B | Sempre in colori chiari (ADR-0014) |
@@ -817,7 +823,7 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 | **Guide utente** | ogni tappa | Capitoli e screenshot crescono con le funzioni visibili |
 | **Glossario e traduzioni** | ogni testo nuovo | Revisione dei madrelingua quando possibile |
 | **Windows e macOS** | sempre in CI; prove su macchine reali a ogni tappa | ❓ Il proprietario ha accesso a macchine Windows/macOS per le prove manuali? |
-| **Prestazioni** | ogni percorso caldo | Benchmark in CI, regressioni visibili nelle PR |
+| **Prestazioni** | ogni percorso caldo | Benchmark in CI, regressioni visibili nelle PR. In F2.23: un benchmark con molti abbellimenti e note lunghe, per decidere D5/D6 della revisione del 2026-11-08 |
 | **Formato del file** | ogni cambio del modello | Migrazione + golden file (ADR-0010) |
 
 ---
@@ -980,3 +986,4 @@ raccomandato.
 | 2026-11-08 | 0.45 | F1.18 avviato (bozza di ADR-0032, scelte E1–E12 approvate); requisito "MIDI 2.0 di default all'interno" in F3.01; esportazione MIDI 2.0 su file come filone con F3.04 | proprietario |
 | 2026-11-08 | 0.46 | F1.18 fatto (PR #33): esportazione MIDI 1.0, profili d'attacco tarati a orecchio (ADR-0027 §15, giri 1–2); in F3.03 la revisione a orecchio di tutte le dinamiche | proprietario |
 | 2026-11-08 | 0.47 | F1.17 fatto (PR #35): Fase 1 chiusa, tappa M1 raggiunta (comando `m1`); D13 chiusa (F2.14 confermato); opzioni di riproduzione nelle Preferenze di F2.12; prossimo passo F2.01 | proprietario |
+| 2026-11-08 | 0.48 | Revisione del codice dopo M1 (PR #37–#42): duplicazioni e codice inutile rimossi, ADR-0033 (tasto inferiore a metà strada, emenda ADR-0032 E9), indice delle voci nel documento; in F2.23 la rimisura dei conteggi e un benchmark con abbellimenti e note lunghe (D5, D6); prossimo passo resta F2.01 | proprietario |
