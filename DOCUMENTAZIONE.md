@@ -1918,6 +1918,21 @@ iniettati (il tratto non diviso per il rapporto, le figure di un tratto non dist
 rapporto) sono stati presi, il secondo solo dal caso scritto apposta: un buco fra due figure è uno
 stato valido, quindi `validate` non può vederlo.
 
+**Le catene di note legate, in un solo modulo** (`src/chain.rs`). Tre comandi scrivono una durata
+come catena di eventi legati: l'inserimento di una nota a cavallo di una stanghetta, la riscrittura
+delle battute di un cambio di metro, e uno spostamento o un ridimensionamento dal lato DAW oltre la
+soglia. Condividono tre piccole funzioni invece di tre copie degli stessi cicli: `push_parts` scrive
+un tratto di battuta con le figure più lunghe prima, scalate dal rapporto del gruppo irregolare;
+`chain_ids` assegna gli ID di ogni parte, tenendo quelli che il chiamante ha già (nessuno per una
+nota nuova, quelli dell'evento per la prima parte di un evento riscritto, quelli della vecchia
+catena per uno spostamento DAW) e prendendone di nuovi in un ordine fisso, così lo stesso comando
+produce sempre gli stessi ID; `tie_to_next` lega la `k`-esima testa di nota di una parte alla
+`k`-esima della successiva, o dà all'ultima parte la legatura con cui finiva la catena. Gli
+oggetti che i comandi spostano o accorciano (forcelle, regole di passata, volte, ritornelli,
+marker, salti, ripetizioni di battuta, legature di portamento, segni, indicazioni di tempo
+graduali) hanno piccoli metodi `with_…` (`with_points`, `with_bars`, `with_bar`, `with_end`,
+`moved_to`, `with_gradual_end`) che cambiano uno o due campi e tengono il resto.
+
 #### Rewrite: la musica resta dove suona
 
 F1.11c parte 2b aggiunge il cambio di metro che riscrive la musica (modulo `rewrite`, ADR-0026 §7 con

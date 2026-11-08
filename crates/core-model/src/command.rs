@@ -50,9 +50,9 @@ use orchestra_core_time::{
 };
 
 use crate::bar_repeat::BarRepeat;
+use crate::chain::{chain_ids, push_parts, tie_to_next};
 use crate::daw_command::{self, MovePlayed, ResizePlayed};
 use crate::document::{Document, DocumentError, Placement};
-use crate::dynamic::Hairpin;
 use crate::edit::{Edit, Initial, MeterEdit, Object, ObjectRef};
 use crate::editor::{CommandError, Transaction};
 use crate::event::{
@@ -676,15 +676,13 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
     let ratio = tuplet_ratio(voice, &probe, value)?;
     let doc = tx.document();
     let mut chain: Vec<(BarId, Duration, NoteValue)> = Vec::new();
-    let mut push_part = |bar: BarId, start: Duration, length: Duration| {
-        let mut offset = start;
-        for value in split_values(length, ratio)? {
-            chain.push((bar, offset, value));
-            offset = offset.checked_add(value.length()?.checked_mul(ratio)?)?;
-        }
-        Ok::<(), DocumentError>(())
-    };
-    push_part(at.bar, at.offset, bar_length.checked_sub(at.offset)?)?;
+    push_parts(
+        &mut chain,
+        at.bar,
+        at.offset,
+        bar_length.checked_sub(at.offset)?,
+        ratio,
+    )?;
     let mut left = end.checked_sub(bar_length)?;
     let mut next = index;
     while left.is_positive() {
@@ -695,7 +693,7 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         );
         let bar = doc.bars().id_at(next).ok_or(DocumentError::PastLastBar)?;
         let take = left.min(doc.meter_map().bar_length(next)?);
-        push_part(bar, Duration::ZERO, take)?;
+        push_parts(&mut chain, bar, Duration::ZERO, take, ratio)?;
         left = left.checked_sub(take)?;
     }
     insert_chain(tx, &at, staff, kind, &chain)
@@ -772,28 +770,18 @@ fn insert_chain(
         PartKind::Chord { pitches, .. } => pitches,
         PartKind::Rest | PartKind::WholeBarRest => &[],
     };
-    // Every ID first: each event needs to know the noteheads of the next one to tie to them.
-    let mut ids: Vec<(EventId, Vec<NoteId>)> = Vec::with_capacity(chain.len());
-    for _ in chain {
-        let event = EventId::from_counter(tx.new_id()?);
-        let mut notes = Vec::with_capacity(pitches.len());
-        for _ in pitches {
-            notes.push(NoteId::from_counter(tx.new_id()?));
-        }
-        ids.push((event, notes));
-    }
+    // Every ID first (`chain_ids`: nothing is kept, the chain is new).
+    let ids = chain_ids(tx, chain.len(), pitches.len(), &[])?;
     for (i, (&(bar, offset, value), (event, notes))) in chain.iter().zip(&ids).enumerate() {
-        let next = ids.get(i.saturating_add(1)).map(|(_, n)| n.as_slice());
         let body = match kind {
             PartKind::Rest => EventBody::Rest(Rest::new(RestValue::Value(value), at.tuplet)),
             PartKind::WholeBarRest => EventBody::Rest(Rest::new(RestValue::WholeBar, None)),
             PartKind::Chord { grace, .. } => {
                 let mut made = Vec::with_capacity(pitches.len());
                 for (k, (&id, &pitch)) in notes.iter().zip(pitches).enumerate() {
+                    // Tied to the same pitch in the next part; the last part is not tied.
                     let mut note = Note::new(id, pitch);
-                    if let Some(&target) = next.and_then(|n| n.get(k)) {
-                        note.set_tie(Tie::To(target));
-                    }
+                    note.set_tie(tie_to_next(&ids, i, k, Tie::None));
                     made.push(note);
                 }
                 EventBody::Chord(chord_from(value, at.tuplet, grace, made, None)?)
@@ -1053,26 +1041,12 @@ pub(crate) fn change_event(
         EventChange::Pitch { note, pitch } => change_pitch(tx, note, pitch),
         EventChange::AddNote(pitch) => {
             let new_note = NoteId::from_counter(tx.new_id()?);
-            let event = placed.event_mut();
-            let staff = event.staff();
-            let EventBody::Chord(chord) = event.body() else {
+            let EventBody::Chord(chord) = placed.event().body() else {
                 return Err(DocumentError::NotAChord(id).into());
             };
             let mut notes: Vec<Note> = chord.notes().copied().collect();
             notes.push(Note::new(new_note, pitch));
-            let body = EventBody::Chord(chord_from(
-                chord.value(),
-                chord.tuplet(),
-                chord.grace(),
-                notes,
-                Some(chord),
-            )?);
-            replace_event(
-                tx,
-                voice,
-                bar,
-                PlacedEvent::new(placed.offset(), Event::new(id, staff, body)),
-            )
+            replace_noteheads(tx, voice, bar, &placed, notes)
         }
         EventChange::RemoveNote(note) => {
             let EventBody::Chord(chord) = placed.event().body() else {
@@ -1091,24 +1065,11 @@ pub(crate) fn change_event(
                 set_tie(tx, source, Tie::None)?;
             }
             let (voice, bar, placed) = current(tx.document(), id)?;
-            let staff = placed.event().staff();
             let EventBody::Chord(chord) = placed.event().body() else {
                 return Err(DocumentError::NotAChord(id).into());
             };
             let notes: Vec<Note> = chord.notes().filter(|n| n.id() != note).copied().collect();
-            let body = EventBody::Chord(chord_from(
-                chord.value(),
-                chord.tuplet(),
-                chord.grace(),
-                notes,
-                Some(chord),
-            )?);
-            replace_event(
-                tx,
-                voice,
-                bar,
-                PlacedEvent::new(placed.offset(), Event::new(id, staff, body)),
-            )
+            replace_noteheads(tx, voice, bar, &placed, notes)
         }
         EventChange::Tie { note, tie } => {
             if tie == Tie::To(note) {
@@ -1155,6 +1116,42 @@ pub(crate) fn change_event(
             replace_event(tx, voice, bar, PlacedEvent::new(placed.offset(), changed))
         }
     }
+}
+
+/// Replaces the chord `placed` (in `voice`, `bar`) by the same chord with the noteheads `notes`:
+/// same value, tuplet, grace and markings (`chord_from` with the old chord as model), sorted
+/// again, same offset, staff and ID. O(noteheads log noteheads).
+///
+/// The one copy of a step that adding a notehead, removing one and changing a pitch each wrote
+/// out (review point B12).
+///
+/// # Errors
+/// [`DocumentError::NotAChord`] if `placed` is a rest (callers have checked it already); those of
+/// `chord_from` and of the replacement.
+fn replace_noteheads(
+    tx: &mut Transaction<'_>,
+    voice: VoiceId,
+    bar: BarId,
+    placed: &PlacedEvent,
+    notes: Vec<Note>,
+) -> Result<(), CommandError> {
+    let event = placed.event();
+    let EventBody::Chord(chord) = event.body() else {
+        return Err(DocumentError::NotAChord(event.id()).into());
+    };
+    let body = EventBody::Chord(chord_from(
+        chord.value(),
+        chord.tuplet(),
+        chord.grace(),
+        notes,
+        Some(chord),
+    )?);
+    replace_event(
+        tx,
+        voice,
+        bar,
+        PlacedEvent::new(placed.offset(), Event::new(event.id(), event.staff(), body)),
+    )
 }
 
 /// Whether `note` is a notehead of event `id`. O(1) average (the note index).
@@ -1228,7 +1225,6 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
     }
     for (event, notes) in events {
         let (voice, bar, placed) = current(tx.document(), event)?;
-        let staff = placed.event().staff();
         let EventBody::Chord(chord) = placed.event().body() else {
             return Err(DocumentError::NotAChord(event).into());
         };
@@ -1242,19 +1238,7 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
                 }
             })
             .collect();
-        let body = EventBody::Chord(chord_from(
-            chord.value(),
-            chord.tuplet(),
-            chord.grace(),
-            changed,
-            Some(chord),
-        )?);
-        replace_event(
-            tx,
-            voice,
-            bar,
-            PlacedEvent::new(placed.offset(), Event::new(event, staff, body)),
-        )?;
+        replace_noteheads(tx, voice, bar, &placed, changed)?;
     }
     Ok(())
 }
@@ -1371,19 +1355,12 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
         tx.apply(edit)?;
     }
     for volta in grow {
-        tx.apply(Edit::Replace(Object::Volta(crate::form::Volta::new(
-            volta.id(),
-            volta.first(),
-            last,
-            volta.passes(),
-            volta.closed(),
-            volta.text().map(Box::from),
-        ))))?;
+        tx.apply(Edit::Replace(Object::Volta(
+            volta.with_bars(volta.first(), last),
+        )))?;
     }
     for repeat in repeat_ends {
-        tx.apply(Edit::Replace(Object::RepeatEnd(
-            crate::form::RepeatEnd::new(repeat.id(), last, repeat.times()),
-        )))?;
+        tx.apply(Edit::Replace(Object::RepeatEnd(repeat.with_bar(last))))?;
     }
     Ok(())
 }
@@ -1406,20 +1383,13 @@ fn ends_at(doc: &Document, point: ScorePoint, to: ScorePoint) -> Result<Vec<Edit
         for h in instrument.hairpins().iter().filter(|h| h.end() == point) {
             edits.push(Edit::Replace(Object::Hairpin {
                 instrument: instrument.id(),
-                hairpin: Hairpin::new(h.id(), h.start(), to, h.placement(), h.shape()),
+                hairpin: h.with_points(h.start(), to),
             }));
         }
         for r in instrument.pass_rules().iter().filter(|r| r.end() == point) {
             edits.push(Edit::Replace(Object::PassRule {
                 instrument: instrument.id(),
-                rule: crate::bar_repeat::PassRule::new(
-                    r.id(),
-                    r.start(),
-                    to,
-                    r.scope(),
-                    r.plays(),
-                    r.text().map(Box::from),
-                ),
+                rule: r.with_points(r.start(), to),
             }));
         }
     }
@@ -1427,13 +1397,11 @@ fn ends_at(doc: &Document, point: ScorePoint, to: ScorePoint) -> Result<Vec<Edit
         if let Some(TempoMarkChange::Gradual(g)) = mark.value().change()
             && g.end == point
         {
-            let mut moved = g;
-            moved.end = to;
             edits.push(Edit::Replace(Object::TempoMark(Mark::new(
                 mark.id(),
                 mark.bar(),
                 mark.offset(),
-                TempoMark::new(mark.value().text(), Some(TempoMarkChange::Gradual(moved)))?,
+                mark.value().with_gradual_end(to)?,
             ))));
         }
     }
@@ -1574,13 +1542,7 @@ fn clip_spanners(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError
             } else if (start, end) != (hairpin.start(), hairpin.end()) {
                 edits.push(Edit::Replace(Object::Hairpin {
                     instrument: instrument.id(),
-                    hairpin: Hairpin::new(
-                        hairpin.id(),
-                        start,
-                        end,
-                        hairpin.placement(),
-                        hairpin.shape(),
-                    ),
+                    hairpin: hairpin.with_points(start, end),
                 }));
             }
         }
@@ -1591,14 +1553,7 @@ fn clip_spanners(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError
             } else if (start, end) != (rule.start(), rule.end()) {
                 edits.push(Edit::Replace(Object::PassRule {
                     instrument: instrument.id(),
-                    rule: crate::bar_repeat::PassRule::new(
-                        rule.id(),
-                        start,
-                        end,
-                        rule.scope(),
-                        rule.plays(),
-                        rule.text().map(Box::from),
-                    ),
+                    rule: rule.with_points(start, end),
                 }));
             }
         }
@@ -1635,14 +1590,7 @@ fn clip_form(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> {
         match (first, last) {
             (Some(f), Some(l)) if index(f) <= index(l) => {
                 if (f, l) != (volta.first(), volta.last()) {
-                    edits.push(Edit::Replace(Object::Volta(crate::form::Volta::new(
-                        volta.id(),
-                        f,
-                        l,
-                        volta.passes(),
-                        volta.closed(),
-                        volta.text().map(Box::from),
-                    ))));
+                    edits.push(Edit::Replace(Object::Volta(volta.with_bars(f, l))));
                 }
             }
             _ => edits.push(Edit::Remove(ObjectRef::Volta(volta.id()))),
@@ -1709,13 +1657,9 @@ fn clip_bar_repeat(doc: &Document, cut: &Cut, repeat: &BarRepeat) -> Option<Edit
     } else {
         repeat.first()
     };
-    Some(Edit::Replace(Object::BarRepeat(BarRepeat::new(
-        repeat.id(),
-        repeat.staff(),
-        first_bar,
-        count,
-        repeat.span(),
-    ))))
+    Some(Edit::Replace(Object::BarRepeat(
+        repeat.with_bars(first_bar, count),
+    )))
 }
 
 /// Step 5 of [`delete_bars`] for the meter, the clefs, the key and the key overrides (U10).
@@ -1867,20 +1811,10 @@ fn carry_marks<I: Copy, T: Clone>(
                 edits.push(edit);
                 edits.push(Edit::Remove(name(last)));
             }
-            None => edits.push(moved(Mark::new(
-                last.id(),
-                next,
-                Duration::ZERO,
-                last.value().clone(),
-            ))),
+            None => edits.push(moved(last.moved_to(ScorePoint::start_of(next)))),
         },
         // …or moves to the start of the next bar.
-        (None, false) => edits.push(moved(Mark::new(
-            last.id(),
-            next,
-            Duration::ZERO,
-            last.value().clone(),
-        ))),
+        (None, false) => edits.push(moved(last.moved_to(ScorePoint::start_of(next)))),
     }
 }
 
@@ -1926,13 +1860,11 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
             if let Some(TempoMarkChange::Gradual(g)) = mark.value().change()
                 && cut.has(g.end.bar)
             {
-                let mut clipped = g;
-                clipped.end = cut.point;
                 edits.push(Edit::Replace(Object::TempoMark(Mark::new(
                     mark.id(),
                     mark.bar(),
                     mark.offset(),
-                    TempoMark::new(mark.value().text(), Some(TempoMarkChange::Gradual(clipped)))?,
+                    mark.value().with_gradual_end(cut.point)?,
                 ))));
             }
             continue;
@@ -1969,12 +1901,9 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
                     )?)));
                     edits.push(remove);
                 } else {
-                    edits.push(Edit::Replace(Object::TempoMark(Mark::new(
-                        last.id(),
-                        next,
-                        Duration::ZERO,
-                        last.value().clone(),
-                    ))));
+                    edits.push(Edit::Replace(Object::TempoMark(
+                        last.moved_to(ScorePoint::start_of(next)),
+                    )));
                 }
             }
             // The next bar has its own mark at its start: it wins.

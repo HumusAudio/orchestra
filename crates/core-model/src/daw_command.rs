@@ -71,14 +71,14 @@
 
 use orchestra_core_time::{BarIndex, Duration, Position, Rational};
 
+use crate::chain::{PartIds, chain_ids, push_parts, tie_to_next};
 use crate::command::{self, EventChange};
 use crate::document::{Document, DocumentError};
 use crate::edit::{Edit, Object, ObjectRef};
 use crate::editor::{CommandError, Transaction};
 use crate::event::{Event, EventBody, Note, NoteValue, PlacedEvent, Tie};
-use crate::id::{BarId, EventId, NoteId, TrackId, VoiceId};
-use crate::marking::GraceAttach;
-use crate::slur::Slur;
+use crate::id::{BarId, EventId, InstrumentId, NoteId, TrackId, VoiceId};
+use crate::marking::{GraceAttach, PerformanceOffsets};
 use crate::tolerance::Tolerance;
 
 /// How a DAW move treats the score (ADR-0028 §4).
@@ -148,14 +148,13 @@ pub(crate) fn move_played(
     order: &MovePlayed,
 ) -> Result<(), CommandError> {
     let doc = tx.document();
-    let (found, head) = doc
-        .note(order.note)
-        .ok_or(DocumentError::UnknownNote(order.note))?;
-    let event = found.event().id();
-    let is_grace = found.event().grace().is_some();
-    let voice = found.voice();
-    let (instrument, _) = doc.voice(voice).ok_or(DocumentError::UnknownVoice(voice))?;
-    let instrument = instrument.id();
+    let Target {
+        event,
+        is_grace,
+        voice,
+        instrument,
+        head,
+    } = target(doc, order.note)?;
 
     // One pass only: always an offset, stored as the difference from the inline offset (playback
     // adds the two, ADR-0028 §5). The entry's length and velocity stay as they were.
@@ -254,14 +253,13 @@ pub(crate) fn resize_played(
     order: &ResizePlayed,
 ) -> Result<(), CommandError> {
     let doc = tx.document();
-    let (found, _) = doc
-        .note(order.note)
-        .ok_or(DocumentError::UnknownNote(order.note))?;
-    let event = found.event().id();
-    let is_grace = found.event().grace().is_some();
-    let voice = found.voice();
-    let (instrument, _) = doc.voice(voice).ok_or(DocumentError::UnknownVoice(voice))?;
-    let instrument = instrument.id();
+    let Target {
+        event,
+        is_grace,
+        voice,
+        instrument,
+        head,
+    } = target(doc, order.note)?;
     let chain = written_chain(doc, order.note)?;
     // The inline length offsets of the noteheads after the first: N8 adds them all, so the first
     // notehead's share is what is left.
@@ -284,9 +282,6 @@ pub(crate) fn resize_played(
                 taken = taken.checked_add(table.get(n, pass).length)?;
             }
         }
-        let (_, head) = doc
-            .note(order.note)
-            .ok_or(DocumentError::UnknownNote(order.note))?;
         taken = taken.checked_add(head.offsets().length)?;
         let mut entry = table.get(order.note, pass);
         entry.length = order.length.checked_sub(taken)?;
@@ -335,6 +330,40 @@ pub(crate) fn resize_played(
     // residual (U3).
     let residual = order.length.checked_sub(delta.checked_mul(order.scale)?)?;
     set_length(tx, event, order.note, residual)
+}
+
+/// What a DAW move or resize needs to know about the notehead it starts from.
+#[derive(Debug, Clone, Copy)]
+struct Target {
+    /// The event holding the notehead.
+    event: EventId,
+    /// Whether that event is a grace chord (moved only by a performance offset).
+    is_grace: bool,
+    /// Its voice.
+    voice: VoiceId,
+    /// The instrument owning the voice (its pass offsets, its track's threshold).
+    instrument: InstrumentId,
+    /// The notehead itself, with its inline offsets.
+    head: Note,
+}
+
+/// The notehead `note` and where it lives. O(event lookup) + O(voices).
+///
+/// The preamble `move_played` and `resize_played` each wrote out (review point B13).
+///
+/// # Errors
+/// [`DocumentError::UnknownNote`], or [`DocumentError::UnknownVoice`] for an inconsistent index.
+fn target(doc: &Document, note: NoteId) -> Result<Target, DocumentError> {
+    let (found, head) = doc.note(note).ok_or(DocumentError::UnknownNote(note))?;
+    let voice = found.voice();
+    let (instrument, _) = doc.voice(voice).ok_or(DocumentError::UnknownVoice(voice))?;
+    Ok(Target {
+        event: found.event().id(),
+        is_grace: found.event().grace().is_some(),
+        voice,
+        instrument: instrument.id(),
+        head: *head,
+    })
 }
 
 /// Executes [`crate::Command::SetTolerance`]: the project's threshold (`track: None`) or a
@@ -472,11 +501,7 @@ fn chain_parts(
             .checked_sub(found.offset)?;
         let left = end.checked_duration_since(at)?;
         let piece = left.min(room);
-        let mut offset = found.offset;
-        for value in command::split_values(piece, Rational::ONE)? {
-            parts.push((bar, offset, value));
-            offset = offset.checked_add(value.length()?)?;
-        }
+        push_parts(&mut parts, bar, found.offset, piece, Rational::ONE)?;
         at = at.checked_add(piece)?;
     }
     Ok(parts)
@@ -558,19 +583,12 @@ fn rewrite_chain(
         }
     }
 
-    // 1. The IDs of the new pieces.
-    let mut ids: Vec<(EventId, NoteId)> = Vec::with_capacity(parts.len());
-    for j in 0..parts.len() {
-        match chain.get(j) {
-            Some(&pair) => ids.push(pair),
-            None => ids.push((
-                EventId::from_counter(tx.new_id()?),
-                NoteId::from_counter(tx.new_id()?),
-            )),
-        }
-    }
+    // 1. The IDs of the new pieces: the chain's own for as many parts as it had (one notehead
+    // each: a DAW move only rewrites chains of lone noteheads), new ones after.
+    let keep: Vec<PartIds> = chain.iter().map(|&(e, n)| (e, vec![n])).collect();
+    let ids = chain_ids(tx, parts.len(), 1, &keep)?;
     let surplus: Vec<EventId> = chain.iter().skip(parts.len()).map(|&(e, _)| e).collect();
-    let &(new_last, _) = ids.last().ok_or(DocumentError::Inconsistent)?;
+    let new_last = ids.last().ok_or(DocumentError::Inconsistent)?.0;
 
     if !stray.is_empty() {
         command::delete_events(tx, &stray)?;
@@ -592,7 +610,7 @@ fn rewrite_chain(
                 if new_last != last_event {
                     slur_edits.push(Edit::Replace(Object::Slur {
                         instrument: instrument.id(),
-                        slur: Slur::new(id, slur.start(), new_last, slur.placement()),
+                        slur: slur.with_end(new_last),
                     }));
                 }
             } else if start_gone || surplus.contains(&slur.end()) || slur.start() == new_last {
@@ -608,16 +626,16 @@ fn rewrite_chain(
     }
 
     // 4. The pieces.
-    for (j, (&(bar, offset, value), &(event_id, note_id))) in parts.iter().zip(&ids).enumerate() {
-        let tie = ids
-            .get(j.saturating_add(1))
-            .map_or(last_tie, |&(_, next)| Tie::To(next));
+    for (j, (&(bar, offset, value), (event_id, notes))) in parts.iter().zip(&ids).enumerate() {
+        let event_id = *event_id;
+        let &note_id = notes.first().ok_or(DocumentError::Inconsistent)?;
         let mut note = if j == 0 {
             head
         } else {
             Note::new(note_id, head.pitch())
         };
-        note.set_tie(tie);
+        // To the next piece; the last piece keeps the tie the chain ended with.
+        note.set_tie(tie_to_next(&ids, j, 0, last_tie));
         let like = (j == 0).then_some(&first_chord);
         let chord = command::chord_from(value, None, None, vec![note], like)?;
         let made = Event::new(event_id, staff, EventBody::Chord(chord));
@@ -734,18 +752,11 @@ fn set_length(
     note: NoteId,
     length: Duration,
 ) -> Result<(), CommandError> {
-    let (voice, bar, mut placed) = command::current(tx.document(), event)?;
-    let chord = command::chord_mut(&mut placed, event)?;
-    let Some(head) = chord.note_mut(note) else {
-        return Err(DocumentError::UnknownNote(note).into());
-    };
-    let mut offsets = head.offsets();
-    if offsets.length == length {
-        return Ok(());
-    }
-    offsets.length = length;
-    head.set_offsets(offsets);
-    command::replace_event(tx, voice, bar, placed)
+    set_offsets_with(tx, event, note, |offsets| {
+        let changed = offsets.length != length;
+        offsets.length = length;
+        changed
+    })
 }
 
 /// Sets the onset offset of one notehead, keeping its length and velocity offsets; nothing if it
@@ -760,16 +771,36 @@ fn set_onset(
     note: NoteId,
     onset: Duration,
 ) -> Result<(), CommandError> {
+    set_offsets_with(tx, event, note, |offsets| {
+        let changed = offsets.onset != onset;
+        offsets.onset = onset;
+        changed
+    })
+}
+
+/// Changes the performance offsets of one notehead with `change`, which edits them in place and
+/// says whether anything changed; the event is replaced only then, so an unchanged value leaves
+/// no history step. O(event lookup) + the replacement.
+///
+/// The body that `set_length` and `set_onset` each wrote out (review point B13).
+///
+/// # Errors
+/// [`DocumentError::UnknownNote`] if the event has no such notehead; the lookups' and the edit's.
+fn set_offsets_with(
+    tx: &mut Transaction<'_>,
+    event: EventId,
+    note: NoteId,
+    change: impl FnOnce(&mut PerformanceOffsets) -> bool,
+) -> Result<(), CommandError> {
     let (voice, bar, mut placed) = command::current(tx.document(), event)?;
     let chord = command::chord_mut(&mut placed, event)?;
     let Some(head) = chord.note_mut(note) else {
         return Err(DocumentError::UnknownNote(note).into());
     };
     let mut offsets = head.offsets();
-    if offsets.onset == onset {
+    if !change(&mut offsets) {
         return Ok(());
     }
-    offsets.onset = onset;
     head.set_offsets(offsets);
     command::replace_event(tx, voice, bar, placed)
 }

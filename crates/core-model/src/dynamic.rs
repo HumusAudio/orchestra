@@ -235,6 +235,16 @@ impl Dynamic {
         }
     }
 
+    /// This dynamic at another point, the rest unchanged. O(1) plus the copy of its mark.
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) fn with_point(&self, at: ScorePoint) -> Self {
+        Self { at, ..self.clone() }
+    }
+
     /// The dynamic's identity. O(1).
     #[must_use]
     pub const fn id(&self) -> DynamicId {
@@ -356,6 +366,20 @@ impl Hairpin {
             end,
             placement,
             shape,
+        }
+    }
+
+    /// This hairpin with other start and end points, the rest unchanged. O(1).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) const fn with_points(&self, start: ScorePoint, end: ScorePoint) -> Self {
+        Self {
+            start,
+            end,
+            ..*self
         }
     }
 

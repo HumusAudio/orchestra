@@ -133,6 +133,26 @@ impl TempoMark {
         })
     }
 
+    /// This mark with its gradual change ending at `end` instead; a mark without a gradual change
+    /// is returned unchanged. O(text length).
+    ///
+    /// For the commands that move or clip the end of a *rit.* or an *accel.* with the bars around
+    /// it (review point B11: they rebuilt the mark from its text and a modified copy of its
+    /// change, three times).
+    ///
+    /// # Errors
+    /// Those of [`TempoMark::new`], which cannot happen for a mark that was valid already: the
+    /// text and the presence of a change are kept.
+    pub(crate) fn with_gradual_end(&self, end: ScorePoint) -> Result<Self, DocumentError> {
+        match self.change {
+            Some(TempoMarkChange::Gradual(mut gradual)) => {
+                gradual.end = end;
+                Self::new(self.text(), Some(TempoMarkChange::Gradual(gradual)))
+            }
+            _ => Ok(self.clone()),
+        }
+    }
+
     /// A mark that sets a tempo, with optional text: the usual initial mark. O(length of `text`).
     ///
     /// # Errors

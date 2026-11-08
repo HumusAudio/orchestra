@@ -85,6 +85,7 @@
 #![deny(clippy::indexing_slicing)]
 
 pub mod bar_repeat;
+mod chain;
 pub mod change;
 pub mod command;
 #[cfg(test)]
