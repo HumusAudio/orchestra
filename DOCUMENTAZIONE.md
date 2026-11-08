@@ -1497,9 +1497,15 @@ battuta d'origine e la sua ultima battuta ripetuta (altrimenti "le battute prece
 dipenderebbero dalla strada fatta); una regola di passaggio sta dentro una sola sezione ripetuta, i
 suoi passaggi sono entro le esecuzioni della sezione, e due dello stesso ambito non si
 sovrappongono. Entrambe hanno bisogno della "sezione ripetuta che contiene questa battuta":
-`Document::section_at` unisce le stanghette di ritornello come la regola 8, allunga una sezione
-fino alle fini successive delle sue volte, si ferma alla prima sezione dopo la battuta e calcola il
-numero di esecuzioni solo per la sezione trovata.
+`Document::form_sections` legge la forma una volta in un `FormSections` (le stanghette di
+ritornello unite come la regola 8, una sezione allungata fino alle fini successive delle sue volte,
+le volte raggruppate e legate alla loro sezione, che ne prende il numero di esecuzioni), e
+`FormSections::repeated_at` trova la sezione la cui parte ripetuta (fino all'ultimo ritornello di
+fine, `last_end`) contiene la battuta. La stessa struttura è quella che percorre `playback` (che usa
+`last`, che comprende anche l'ultima volta), così le regole e il lettore sono sempre d'accordo sulle
+sezioni; prima le calcolavano con due algoritmi diversi. I controlli la leggono solo quando c'è
+qualcosa da controllare (una regola di passaggio, un salto a un dato passaggio), quindi la maggior
+parte dei documenti non alloca nulla per essa.
 
 ```rust
 // Segno at bar 2, a repeated chorus 2–4 with "To Coda" at the end of bar 3, D.S. al Coda at the
@@ -2312,9 +2318,9 @@ Intorno al percorso: `plays_of(bar)` elenca dove si suona una battuta scritta (P
 staff)` dà la battuta scritta da cui un rigo con ripetizioni di battuta prende le note, con il loro
 passaggio (P3), e `plays(voice, played, offset)` applica le regole di passaggio (P4).
 
-**Il cammino** (`Unrolled::new`) legge la forma una volta in indici (le sezioni dalle stanghette di
-ritornello accoppiate come fa `validate`, i gruppi di volte legati alla loro sezione, i salti con le
-battute dei loro segni), poi percorre le battute: salta le volte in cui questa esecuzione non entra,
+**Il cammino** (`Unrolled::new`) legge la forma una volta in indici (le sezioni e i gruppi di volte
+da `Document::form_sections`, la stessa lettura della validazione, i salti con le battute dei loro
+segni), poi percorre le battute: salta le volte in cui questa esecuzione non entra,
 suona la battuta, poi alla sua fine il Fine o il To Coda del salto attivo, un salto che scatta adesso
 (dopo l'ultima esecuzione della sezione, o con `OnPass(n)`), un ritornello di fine con esecuzioni
 rimaste. Una sezione in cui si entra da fuori comincia dall'esecuzione 1; dopo un salto che salta i

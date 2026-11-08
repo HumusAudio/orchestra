@@ -324,6 +324,18 @@ impl Document {
     /// [`DocumentError::Invalid`] with the first violation found, in the order of the jumps.
     pub(crate) fn check_jumps(&self) -> Result<(), DocumentError> {
         let bars = self.bars();
+        // The form's sections, read once and only if a jump fires on a given pass (the only check
+        // that needs them): most documents allocate nothing here.
+        let sections = if self
+            .form()
+            .jumps()
+            .iter()
+            .any(|j| matches!(j.spec.fires, JumpFires::OnPass(_)))
+        {
+            self.form_sections()?
+        } else {
+            crate::form::FormSections::default()
+        };
         // A point of the score in score order: (bar index, 0 for the start, 1 for the end).
         let kind_of = |id: MarkerId| self.marker(id).map(|m| (m.kind, bars.key(m.bar)));
         for jump in self.form().jumps() {
@@ -349,7 +361,7 @@ impl Document {
                 _ => return bad(Violation::JumpTargetKind),
             }
             if let JumpFires::OnPass(n) = spec.fires {
-                let plays = self.section_at(here.0).map_or(0, |s| s.plays);
+                let plays = sections.repeated_at(here.0).map_or(0, |s| s.plays);
                 if n == 0 || n > plays {
                     return bad(Violation::JumpPassOutOfRange);
                 }

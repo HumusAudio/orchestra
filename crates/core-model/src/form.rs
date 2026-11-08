@@ -784,106 +784,181 @@ impl Document {
     }
 }
 
-/// A repeated section of a valid document, as bar indices: from its first bar to the bar of its
-/// last end repeat (the further ends of its voltas included; the last volta, played once after
-/// it, is not part of it), with its number of plays.
+/// A repeated section of the form, as bar indices (ADR-0025 §2–§4).
+///
+/// # Two ends
+/// `last_end` is the bar of its last end repeat (the further ends of its voltas included): the
+/// part that is *repeated*, which the rules on pass rules and jumps (rules 10 and 11) work with,
+/// since the last volta is played once, after the repeats. `last` also covers that last volta:
+/// the part the player walks through as one section, playing a volta or skipping it by pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepeatSection {
+    /// The index of its first bar (0 when the first end repeat has no start repeat).
+    pub start: u32,
+    /// The indices of the bars at whose end it repeats, ascending (more than one with voltas:
+    /// "1. :‖ 2. :‖").
+    pub ends: Vec<u32>,
+    /// The index of its last end repeat: the last of `ends`.
+    pub last_end: u32,
+    /// The index of its last bar: `last_end`, or the last bar of its last volta.
+    pub last: u32,
+    /// How many times it is played: the highest pass of its voltas, or its end repeat's `times`.
+    pub plays: u8,
+}
+
+/// A volta, as bar indices, with the section it belongs to (ADR-0025 §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Section {
-    /// Index of the first bar (0 for a section without a start repeat).
-    pub(crate) first: u32,
-    /// Index of the bar carrying the last end repeat.
-    pub(crate) last: u32,
-    /// How many times the section is played: the highest volta number if it has voltas, its
-    /// `times` otherwise.
-    pub(crate) plays: u8,
+pub struct SectionVolta {
+    /// The index of its first bar.
+    pub first: u32,
+    /// The index of its last bar.
+    pub last: u32,
+    /// The passes it is played on.
+    pub passes: PassSet,
+    /// Whether it is the last volta of its group (the one played after the repeats).
+    pub is_last: bool,
+    /// The index of its section in [`FormSections::sections`].
+    pub section: usize,
+}
+
+/// The repeated sections of a document and the voltas attached to them: the structure of the
+/// form, read once. Both the validation (rules 10 and 11) and the player (`orchestra-playback`)
+/// use it, so they always agree on what a section is (review point A2: each used to compute it
+/// with its own algorithm).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FormSections {
+    /// The sections in score order; they do not overlap in a valid document.
+    pub sections: Vec<RepeatSection>,
+    /// The voltas that belong to a section, in score order. A volta of a group no section claims
+    /// (an invalid document) is left out.
+    pub voltas: Vec<SectionVolta>,
+}
+
+impl FormSections {
+    /// The section whose repeated part (`start ..= last_end`) contains the bar with index `bar`.
+    /// O(log s): the sections are sorted and disjoint.
+    #[must_use]
+    pub fn repeated_at(&self, bar: u32) -> Option<&RepeatSection> {
+        let after = self.sections.partition_point(|s| s.start <= bar);
+        let candidate = self.sections.get(after.checked_sub(1)?)?;
+        (bar <= candidate.last_end).then_some(candidate)
+    }
 }
 
 impl Document {
-    /// The repeated section containing the bar with index `at`, if any, in a document whose rules
-    /// 8 and 9 hold (ADR-0025 §2–§3). Used by rules 10 and 11.
+    /// The structure of the form: its repeated sections and their voltas (see [`FormSections`]).
     ///
     /// # How
-    /// The same merge of start and end repeats as rule 8: a start opens a section, an end closes
-    /// the open one (or one from bar 0 if none is open and none was closed yet), and a further end
-    /// of a volta group extends the section just closed. The walk stops at the first section
-    /// starting after the bar, and the number of plays is computed once, for the section found.
-    /// O(r + s + c·v) for r ends and s starts before the bar, the c further volta ends among them
-    /// and v voltas: tens. Never allocates.
-    pub(crate) fn section_at(&self, at: u32) -> Option<Section> {
+    /// 1. **Sections.** Start and end repeats are merged in score order, as rule 8 pairs them: a
+    ///    start opens a section, an end closes the open one; an end with none open is the first end
+    ///    of the score (a section from bar 0) or a further end of the voltas of the section just
+    ///    closed, which it extends.
+    /// 2. **Voltas.** They are grouped in score order, a group starting at the volta that holds the
+    ///    first pass. A group belongs to the section one of whose ends closes one of its voltas; it
+    ///    makes the section's plays its highest pass, and the section's last bar its own last bar.
+    ///
+    /// The results agree with rules 8 and 9 on every valid document; on an invalid one they are
+    /// whatever the merge gives, and only `validate` decides.
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`] for a form marking on a bar the document does not have (an
+    /// inconsistent document).
+    ///
+    /// # Complexity
+    /// O(f log f + v·s) for f repeat barlines, v voltas and s sections: tens. Allocates the two
+    /// lists (and a few scratch lists).
+    pub fn form_sections(&self) -> Result<FormSections, DocumentError> {
         let bars = self.bars();
-        let form = self.form();
-        let (starts, ends) = (form.repeat_starts(), form.repeat_ends());
-        // The section found so far: its first and last bar and the end repeat that closed it.
-        // Its number of plays is computed only for the section returned (`plays_of` is O(v)).
-        let found = |c: Option<(u32, u32, &RepeatEnd)>| {
-            c.filter(|&(first, last, _)| first <= at && at <= last)
-                .map(|(first, last, end)| Section {
-                    first,
-                    last,
-                    plays: self.plays_of(end),
-                })
+        let index = |bar: BarId| -> Result<u32, DocumentError> {
+            Ok(bars
+                .index_of(bar)
+                .ok_or(DocumentError::UnknownBar(bar))?
+                .get())
         };
-        let mut s = 0_usize;
+        let form = self.form();
+
+        // 1. Sections: (bar, 0 for a start or 1 for an end, times of an end), in score order; at
+        // the same bar the start comes first (it opens the section the end closes).
+        let mut marks: Vec<(u32, u8, u8)> = Vec::new();
+        for r in form.repeat_starts() {
+            marks.push((index(r.bar)?, 0, 0));
+        }
+        for r in form.repeat_ends() {
+            marks.push((index(r.bar)?, 1, r.times));
+        }
+        marks.sort_unstable();
+        let mut sections: Vec<RepeatSection> = Vec::new();
         let mut open: Option<u32> = None;
-        let mut current: Option<(u32, u32, &RepeatEnd)> = None;
-        for end in ends {
-            let end_at = bars.key(end.bar);
-            // Open the last start at or before this end (rule 8 guarantees at most one).
-            while let Some(start) = starts.get(s) {
-                let start_at = bars.key(start.bar);
-                if start_at > end_at {
-                    break;
-                }
-                open = Some(start_at);
-                s = s.saturating_add(1);
+        for (bar, kind, times) in marks {
+            if kind == 0 {
+                open = Some(bar);
+                continue;
             }
+            let fresh = |start: u32| RepeatSection {
+                start,
+                ends: vec![bar],
+                last_end: bar,
+                last: bar,
+                plays: times,
+            };
             match open.take() {
-                Some(first) => {
-                    // A new section: the previous one is final. Once a section starts after the
-                    // bar, no later one can contain it.
-                    if first > at || current.is_some_and(|(f, l, _)| f <= at && at <= l) {
-                        return found(current);
+                Some(start) => sections.push(fresh(start)),
+                None => match sections.last_mut() {
+                    // A further end of the voltas of the section just closed.
+                    Some(last) => {
+                        last.ends.push(bar);
+                        last.last_end = last.last_end.max(bar);
+                        last.last = last.last.max(bar);
                     }
-                    current = Some((first, end_at, end));
-                }
-                None => match current.as_mut() {
-                    // A further end of a volta group: the section grows.
-                    Some(c) if self.is_volta_continuation(end) => c.1 = end_at,
-                    Some(c) => {
-                        if c.0 <= at && at <= c.1 {
-                            return found(current);
-                        }
-                        // Unreachable in a valid document (rule 8); keep the walk total.
-                        *c = (0, end_at, end);
-                    }
-                    // The first end of the score without a start: from bar 0.
-                    None => current = Some((0, end_at, end)),
+                    // The first end of the score, with no start: the section starts at bar 0.
+                    None => sections.push(fresh(0)),
                 },
             }
         }
-        found(current)
-    }
 
-    /// How many times the section of an end repeat is played: the highest pass of the volta group
-    /// whose volta it closes, or its own `times`. O(v).
-    fn plays_of(&self, end: &RepeatEnd) -> u8 {
-        let voltas = self.form().voltas();
-        let Some(i) = voltas.iter().position(|v| v.last == end.bar) else {
-            return end.times;
-        };
-        // Walk back to the group's first volta, then forward over the whole group.
-        let start = voltas
-            .get(..=i)
-            .and_then(|head| head.iter().rposition(|v| v.passes.contains(1)))
-            .unwrap_or(i);
-        let mut passes = PassSet::EMPTY;
-        for (k, v) in voltas.iter().enumerate().skip(start) {
-            if k > start && v.passes.contains(1) {
-                break;
-            }
-            passes = passes.union(v.passes);
+        // 2. Voltas, grouped (a group starts at the volta holding pass 1).
+        let mut voltas: Vec<(u32, u32, PassSet)> = Vec::with_capacity(form.voltas().len());
+        for v in form.voltas() {
+            voltas.push((index(v.first)?, index(v.last)?, v.passes));
         }
-        passes.last().unwrap_or(end.times)
+        voltas.sort_unstable_by_key(|v| v.0);
+        let mut out: Vec<SectionVolta> = Vec::with_capacity(voltas.len());
+        let mut rest = voltas.as_slice();
+        while !rest.is_empty() {
+            // The group: the first volta left and the following ones, up to the next volta that
+            // holds pass 1 (which starts the next group).
+            let size = rest
+                .iter()
+                .skip(1)
+                .position(|v| v.2.contains(1))
+                .map_or(rest.len(), |p| p.saturating_add(1));
+            let (group, next) = rest.split_at(size.min(rest.len()));
+            rest = next;
+            let Some(section) = sections
+                .iter()
+                .position(|s| group.iter().any(|v| s.ends.contains(&v.1)))
+            else {
+                continue;
+            };
+            if let Some(s) = sections.get_mut(section) {
+                s.plays = group.iter().filter_map(|v| v.2.last()).max().unwrap_or(2);
+                s.last = s.last.max(group.last().map_or(0, |v| v.1));
+            }
+            let count = group.len();
+            for (k, &(first, last, passes)) in group.iter().enumerate() {
+                out.push(SectionVolta {
+                    first,
+                    last,
+                    passes,
+                    is_last: k.saturating_add(1) == count,
+                    section,
+                });
+            }
+        }
+        Ok(FormSections {
+            sections,
+            voltas: out,
+        })
     }
 }
 

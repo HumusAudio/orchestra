@@ -264,90 +264,30 @@ impl FormIndex {
         };
         let form = doc.form();
 
-        // Sections: starts and ends merged in score order, as `validate` pairs them (rule 8): an
-        // end closes the open start; an end without one is the first end of the score (from bar
-        // 0) or a further end of the voltas of the section just closed.
-        let mut marks: Vec<(u32, u8, Option<u8>)> = Vec::new();
-        for r in form.repeat_starts() {
-            marks.push((index(r.bar())?, 0, None));
-        }
-        for r in form.repeat_ends() {
-            marks.push((index(r.bar())?, 1, Some(r.times())));
-        }
-        marks.sort_unstable();
-        let mut sections: Vec<Section> = Vec::new();
-        let mut open: Option<u32> = None;
-        for (bar, kind, times) in marks {
-            if kind == 0 {
-                open = Some(bar);
-                continue;
-            }
-            let times = times.unwrap_or(2);
-            match open.take() {
-                Some(start) => sections.push(Section {
-                    start,
-                    ends: vec![bar],
-                    last: bar,
-                    plays: times,
-                }),
-                None => match sections.last_mut() {
-                    Some(last) => {
-                        last.ends.push(bar);
-                        last.last = last.last.max(bar);
-                    }
-                    None => sections.push(Section {
-                        start: 0,
-                        ends: vec![bar],
-                        last: bar,
-                        plays: times,
-                    }),
-                },
-            }
-        }
-
-        // Voltas: grouped in score order (a group starts at the volta holding pass 1); a group
-        // belongs to the section one of whose end repeats closes one of its voltas, and makes the
-        // section's plays its highest pass and its last bar the group's last.
-        let mut voltas: Vec<(u32, u32, orchestra_core_model::PassSet)> = Vec::new();
-        for v in form.voltas() {
-            voltas.push((index(v.first())?, index(v.last())?, v.passes()));
-        }
-        voltas.sort_unstable_by_key(|v| v.0);
+        // Sections and voltas: the model's own reading of the form (`Document::form_sections`),
+        // the same one validation uses, so the player and the rules cannot disagree on what a
+        // section is (review point A2: this used to be a second implementation). The player walks
+        // a section up to the end of its last volta (`last`).
+        let structure = doc.form_sections()?;
+        let sections: Vec<Section> = structure
+            .sections
+            .into_iter()
+            .map(|s| Section {
+                start: s.start,
+                ends: s.ends,
+                last: s.last,
+                plays: s.plays,
+            })
+            .collect();
         let mut volta_at: Vec<Option<VoltaInfo>> = vec![None; total];
-        let mut group: Vec<(u32, u32, orchestra_core_model::PassSet)> = Vec::new();
-        let mut groups: Vec<Vec<(u32, u32, orchestra_core_model::PassSet)>> = Vec::new();
-        for v in voltas {
-            if v.2.contains(1) && !group.is_empty() {
-                groups.push(std::mem::take(&mut group));
-            }
-            group.push(v);
-        }
-        if !group.is_empty() {
-            groups.push(group);
-        }
-        for g in groups {
-            let Some(section) = sections
-                .iter()
-                .position(|s| g.iter().any(|v| s.ends.contains(&v.1)))
-            else {
-                continue;
-            };
-            let plays = g.iter().filter_map(|v| v.2.last()).max().unwrap_or(2);
-            let last_bar = g.last().map_or(0, |v| v.1);
-            if let Some(s) = sections.get_mut(section) {
-                s.plays = plays;
-                s.last = s.last.max(last_bar);
-            }
-            let count = g.len();
-            for (k, v) in g.into_iter().enumerate() {
-                if let Some(slot) = volta_at.get_mut(usize::try_from(v.0).unwrap_or(usize::MAX)) {
-                    *slot = Some(VoltaInfo {
-                        last: v.1,
-                        passes: v.2,
-                        is_last: k.saturating_add(1) == count,
-                        section,
-                    });
-                }
+        for v in structure.voltas {
+            if let Some(slot) = volta_at.get_mut(usize::try_from(v.first).unwrap_or(usize::MAX)) {
+                *slot = Some(VoltaInfo {
+                    last: v.last,
+                    passes: v.passes,
+                    is_last: v.is_last,
+                    section: v.section,
+                });
             }
         }
         let mut section_of: Vec<Option<usize>> = vec![None; total];
