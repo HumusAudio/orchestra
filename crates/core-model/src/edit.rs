@@ -59,7 +59,7 @@ use crate::document::{
     Document, DocumentError, EventLocation, index_slur, index_tie, unindex_slur, unindex_tie,
 };
 use crate::dynamic::{Dynamic, DynamicPlacement, DynamicScope, Hairpin};
-use crate::event::{MAX_TUPLET_DEPTH, Note, PlacedEvent, Tie, Tuplet};
+use crate::event::{Chord, MAX_TUPLET_DEPTH, Note, PlacedEvent, Tie, Tuplet};
 use crate::form::{BarNumbering, MAX_PLAYS, RepeatEnd, RepeatStart, Volta};
 use crate::id::{
     BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdSet, InstrumentId, JumpId,
@@ -509,7 +509,7 @@ fn outgoing_ties(placed: &PlacedEvent) -> Vec<(NoteId, NoteId)> {
         .event()
         .chord()
         .into_iter()
-        .flat_map(crate::event::Chord::notes)
+        .flat_map(Chord::notes)
         .filter_map(|note| match note.tie() {
             Tie::To(target) => Some((note.id(), target)),
             Tie::None | Tie::LetRing => None,
@@ -612,19 +612,12 @@ impl Document {
     }
 
     /// The track position of the instrument owning a voice, and the voice's position in it.
-    /// O(voices of the document).
-    fn position_of_voice(&self, id: VoiceId) -> Result<(usize, usize), DocumentError> {
-        self.tracks
-            .iter()
-            .enumerate()
-            .find_map(|(t, track)| {
-                track
-                    .instrument
-                    .voices
-                    .iter()
-                    .position(|v| v.id == id)
-                    .map(|v| (t, v))
-            })
+    /// O(1) average.
+    pub(crate) fn position_of_voice(&self, id: VoiceId) -> Result<(usize, usize), DocumentError> {
+        // The voice index (`Document::voice_index`): one hash lookup instead of a scan.
+        self.voice_index
+            .get(&id)
+            .copied()
             .ok_or(DocumentError::UnknownVoice(id))
     }
 
@@ -706,7 +699,7 @@ impl Document {
 
     /// Checks a (bar, offset) point: the bar exists and the offset is not negative. Returns the
     /// bar's index. O(1) average.
-    fn check_point(&self, point: ScorePoint) -> Result<BarIndex, DocumentError> {
+    pub(crate) fn check_point(&self, point: ScorePoint) -> Result<BarIndex, DocumentError> {
         let index = self.bar_index(point.bar)?;
         if point.offset.is_negative() {
             return Err(DocumentError::NegativeOffset);
@@ -737,18 +730,33 @@ impl Document {
     // Insert
     // --------------------------------------------------------------------------------------------
 
-    /// Puts an object in its place (see [`Edit::Insert`]). On error nothing changed.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one short arm per kind of object: splitting the match would only scatter it"
-    )]
+    /// Puts an object in its place (see [`Edit::Insert`]), after checking that its ID was handed
+    /// out by the counter and names nothing yet. On error nothing changed.
     fn insert_object(
         &mut self,
         object: Object,
         changes: &mut ChangeSet,
     ) -> Result<(), DocumentError> {
+        self.check_new(object.reference())?;
+        self.place_object(object, changes)
+    }
+
+    /// [`insert_object`](Self::insert_object) without the check that the object's ID was handed
+    /// out and is not in use: for the builder, whose objects get IDs it has just taken from the
+    /// counter, so they are new by construction (and the check would cost a scan of the
+    /// object's list for every dynamic, hairpin or mark of a document being built). Every other
+    /// rule of the edit layer applies: the builder and the commands share them (review point A1).
+    /// On error nothing changed.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm per kind of object: splitting the match would only scatter it"
+    )]
+    pub(crate) fn place_object(
+        &mut self,
+        object: Object,
+        changes: &mut ChangeSet,
+    ) -> Result<(), DocumentError> {
         let name = object.reference();
-        self.check_new(name)?;
         // The instrument whose loudness changes, for playback (ADR-0027 §14 H11): read before the
         // object is moved into the document.
         let loudness = object.loudness_instrument();
@@ -998,35 +1006,57 @@ impl Document {
             return Err(DocumentError::UnknownTuplet(tuplet));
         }
         // Every notehead needs an issued, unused ID, distinct from the chord's other noteheads.
+        // Checked on the chord itself, without collecting the IDs: a chord has a handful of
+        // noteheads, and loading a document places every event through here (review point A1:
+        // the temporary lists cost an allocation per event).
         let id = placed.event().id();
-        let notes: Vec<_> = placed
-            .event()
-            .chord()
-            .map(|chord| chord.notes().map(Note::id).collect())
-            .unwrap_or_default();
-        for (i, note) in notes.iter().enumerate() {
-            let repeated = notes.get(..i).is_some_and(|earlier| earlier.contains(note));
-            if repeated || self.notes.contains_key(note) || !self.ids.has_issued(note.get()) {
+        let chord = placed.event().chord();
+        for (i, note) in chord.into_iter().flat_map(Chord::notes).enumerate() {
+            let note = note.id();
+            let repeated = chord
+                .into_iter()
+                .flat_map(Chord::notes)
+                .take(i)
+                .any(|earlier| earlier.id() == note);
+            if repeated || self.notes.contains_key(&note) || !self.ids.has_issued(note.get()) {
                 return Err(DocumentError::DuplicateObject(ObjectRef::Event(id)));
             }
         }
-        let ties = outgoing_ties(&placed);
+        // An exact place must keep the chunk sorted: checked before anything changes.
+        let place = match place {
+            None => None,
+            Some(place) => {
+                let place = usize::try_from(place).map_err(|_| DocumentError::PlaceOutOfOrder)?;
+                let fits = self
+                    .voice_at(t, v)?
+                    .content
+                    .chunks
+                    .get(usize::try_from(index.get()).map_err(|_| DocumentError::TooManyBars)?)
+                    .is_some_and(|chunk| chunk.fits_at(place, &placed));
+                if !fits {
+                    return Err(DocumentError::PlaceOutOfOrder);
+                }
+                Some(place)
+            }
+        };
+        // Nothing can fail from here on: the indices first, read from the event while it is still
+        // ours, then the event goes into its chunk.
+        self.events.insert(id, EventLocation { voice, bar });
+        for note in chord.into_iter().flat_map(Chord::notes) {
+            self.notes.insert(note.id(), id);
+            if let Tie::To(target) = note.tie() {
+                index_tie(&mut self.tie_index, note.id(), target);
+            }
+        }
         let chunk = self.chunk_at_mut(t, v, index, bar)?;
         match place {
             None => chunk.insert(placed),
+            // `fits_at` said yes and nothing changed the chunk since.
             Some(place) => {
-                let place = usize::try_from(place).map_err(|_| DocumentError::PlaceOutOfOrder)?;
                 if !chunk.insert_at(place, placed) {
-                    return Err(DocumentError::PlaceOutOfOrder);
+                    return Err(DocumentError::Inconsistent);
                 }
             }
-        }
-        self.events.insert(id, EventLocation { voice, bar });
-        for note in notes {
-            self.notes.insert(note, id);
-        }
-        for (source, target) in ties {
-            index_tie(&mut self.tie_index, source, target);
         }
         changes.cell(voice, bar);
         Ok(())

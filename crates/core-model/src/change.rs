@@ -139,6 +139,38 @@ impl ChangeSet {
     // Recording (used by the edits while they are applied)
     // --------------------------------------------------------------------------------------------
 
+    /// Empties the set, keeping the capacity of its lists. O(entries).
+    ///
+    /// The builder records the effects of every object it inserts in one scratch set and clears
+    /// it after each, so that building a large document allocates nothing for change sets nobody
+    /// reads.
+    pub(crate) fn clear(&mut self) {
+        let Self {
+            cells,
+            inserted,
+            removed,
+            replaced,
+            meter_from,
+            tempo_from,
+            form,
+            dynamics,
+            tolerance,
+            tempo_dirty,
+            notes_gone,
+        } = self;
+        cells.clear();
+        inserted.clear();
+        removed.clear();
+        replaced.clear();
+        *meter_from = None;
+        *tempo_from = None;
+        *form = false;
+        dynamics.clear();
+        *tolerance = false;
+        *tempo_dirty = false;
+        notes_gone.clear();
+    }
+
     /// Records that the events of `voice` in `bar` changed. O(1) amortised.
     ///
     /// A cell equal to one of the last two recorded is not recorded again: moving many events of

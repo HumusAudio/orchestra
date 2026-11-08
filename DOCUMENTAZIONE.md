@@ -1036,8 +1036,16 @@ assert_eq!(document.bars().len(), 8);
 
 Il builder prende gli ID in un ordine documentato (una battuta uno; una traccia di strumento quello
 della traccia, quello dello strumento, uno per rigo, uno per voce), così le stesse chiamate danno
-sempre lo stesso documento, ID compresi. Ogni metodo controlla tutto **prima** di creare qualcosa:
-un errore lascia il builder com'era e non consuma nessun ID.
+sempre lo stesso documento, ID compresi. Un errore lascia il builder com'era e non consuma nessun
+ID. Gli oggetti che possono creare anche i comandi (eventi, gruppi irregolari, legature di
+portamento, segni, dinamiche, forcelle, la forma, ripetizioni di battuta, regole di passata) li
+mette al loro posto lo **strato delle modifiche**, `Document::place_object`, lo stesso codice che
+esegue un `Edit::Insert`: il builder prende gli ID, costruisce l'oggetto e restituisce gli ID
+(`IdCounter::give_back`) se lo strato delle modifiche lo rifiuta. Così le regole su dove può
+andare un oggetto, quali doppioni si rifiutano e come resta ordinata ogni lista esistono una volta
+sola, condivise dal builder e dai comandi (punto A1 della revisione: prima erano scritte due volte,
+tre per gli eventi). Battute, tracce e voci, che nessuna modifica crea una per una, restano compito
+del builder.
 
 **Limiti** (decisione del proprietario, 2026-11-02): al massimo **16 righi** e **256 voci** per
 strumento. Non sono limiti musicali (l'interfaccia potrà comunque offrire quattro voci per rigo, o
@@ -1045,10 +1053,14 @@ qualunque altro numero) ma tecnici: nessuna partitura vera ci si avvicina, e imp
 corrotto o malevolo di chiedere milioni di voci quando lo si apre. Alzarli cambia una costante, non
 il formato del file.
 
-**Ricerche.** Le battute sono molte, quindi hanno l'indice hash; tracce, righi e voci sono pochi
-(qualche centinaio in una grande partitura orchestrale) e si trovano scorrendoli, il che costa meno
-che tenere aggiornato un altro indice. L'indice da ID a posizione descritto da ADR-0022 §1 è per gli
-eventi, che sono centinaia di migliaia (F1.09).
+**Ricerche.** Le battute sono molte, quindi hanno l'indice hash; tracce e righi sono pochi
+(qualche centinaio in una grande partitura orchestrale) e si trovano scorrendoli. Anche le **voci**
+hanno un indice (`voice_index`, voce → la sua traccia e il suo posto tra le voci dello strumento),
+pur essendo altrettanto poche: ogni evento messo, cercato o modificato ha bisogno della sua voce, e
+lo scorrimento è stato misurato in ≈ 70 M istruzioni sulle ≈ 890 M del caricamento della partitura
+di riferimento pesante (revisione, 2026-11-08). Voci e tracce si aggiungono soltanto, in coda e dal
+builder, quindi l'indice non deve mai spostare una voce. L'indice da ID a posizione descritto da
+ADR-0022 §1 è per gli eventi, che sono centinaia di migliaia (F1.09).
 
 **Test.** `tests/document_cases.rs` ha 12 casi scritti a mano (ID in sequenza tra tipi diversi, una
 voce per rigo, voci aggiunte, strumenti traspositori, inizio delle battute dopo una levare, i limiti
@@ -1319,9 +1331,9 @@ l'inizio della sua battuta più l'offset, **fermato alla stanghetta** (decisione
 all'offset 5/4 di una battuta in 4/4 finirebbe dopo un'indicazione all'inizio della battuta seguente.
 Il limite mantiene l'ordine; due indicazioni possono allora cadere nella stessa posizione, e vince
 quella che viene dopo nella partitura (l'altra resta scritta); un cambio graduale ridotto a niente
-vale come cambio immediato al suo tempo d'arrivo. `add_tempo_mark` prova l'indicazione con l'ID che il
-contatore darebbe come prossimo (`IdCounter::peek`), ricava la mappa e, se qualcosa non va, la
-toglie di nuovo: tutto o niente, nessun ID consumato. `validate` (regola 7) fa lo stesso percorso
+vale come cambio immediato al suo tempo d'arrivo. `add_tempo_mark` mette l'indicazione al suo
+posto, ricava la mappa e, se qualcosa non va, la toglie di nuovo e ne restituisce l'ID: tutto o
+niente, nessun ID consumato. `validate` (regola 7) fa lo stesso percorso
 senza costruire la mappa, quindi non alloca nulla di più.
 
 ```rust

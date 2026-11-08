@@ -50,16 +50,18 @@
 use std::error::Error;
 use std::fmt;
 use std::hash::Hash;
+use std::num::NonZeroU64;
 
 use orchestra_core_time::{
-    BarIndex, Duration, MeterMap, MeterMapError, Position, Rational, RationalError, TempoMap,
-    TempoMapError,
+    BarIndex, Duration, MeterMap, MeterMapError, Position, RationalError, TempoMap, TempoMapError,
 };
 
 use crate::bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
+use crate::change::ChangeSet;
+use crate::command::chord_from;
 use crate::content::{Chunk, VoiceContent, metric_duration};
 use crate::dynamic::{Dynamic, DynamicMark, DynamicPlacement, DynamicScope, Hairpin, HairpinShape};
-use crate::edit::ObjectRef;
+use crate::edit::{Object, ObjectRef};
 use crate::event::{
     Chord, Event, EventBody, MAX_TUPLET_DEPTH, Note, NoteValue, NoteValueError, PlacedEvent, Rest,
     RestValue, Tie, Tuplet,
@@ -73,7 +75,7 @@ use crate::id::{
 use crate::jump::{Jump, JumpSpec, Marker, MarkerKind};
 use crate::mark_command::check_text;
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
-use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint, point_key};
+use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint};
 use crate::pass_offsets::PassOffsets;
 use crate::pitch::{Interval, Key, Pitch, PitchError};
 use crate::slur::{Slur, SlurPlacement, SlurRefs};
@@ -975,6 +977,15 @@ pub struct Document {
     /// is open (a tie whose target was just removed); noteheads tied into by nothing have no
     /// entry. Rebuilt at load, never saved.
     pub(crate) tie_index: IdMap<NoteId, IdRefs<NoteId>>,
+    /// Derived index: where each voice is, as (its track's position in `tracks`, its position in
+    /// its instrument's voices). Voices and tracks are only ever appended, by the builder, so the
+    /// positions never move. Rebuilt at load, never saved.
+    ///
+    /// # Why an index?
+    /// Voices are few, and they used to be found by scanning every instrument; but every event
+    /// placed, looked up or edited needs its voice, and the benchmark gate measured the scan at
+    /// ≈ 70 M instructions for loading the heavy reference score (review points A1 and D7).
+    pub(crate) voice_index: IdMap<VoiceId, (usize, usize)>,
     /// The tolerance thresholds of the DAW move (ADR-0028 §1): the project value and the
     /// per-track overrides. Saved in the file (F1.15).
     pub(crate) tolerance: ToleranceSettings,
@@ -1016,6 +1027,7 @@ impl Document {
             notes,
             slur_index,
             tie_index,
+            voice_index,
             tolerance,
         } = self;
         let Self {
@@ -1034,6 +1046,7 @@ impl Document {
             notes: other_notes,
             slur_index: other_slur_index,
             tie_index: other_tie_index,
+            voice_index: other_voice_index,
             tolerance: other_tolerance,
         } = other;
         meter_map == other_meter_map
@@ -1049,6 +1062,7 @@ impl Document {
             && notes == other_notes
             && slur_index == other_slur_index
             && tie_index == other_tie_index
+            && voice_index == other_voice_index
             && tolerance == other_tolerance
     }
 
@@ -1072,6 +1086,12 @@ impl Document {
         let mut notes: IdMap<NoteId, EventId> = IdMap::default();
         let mut slurs: IdMap<EventId, SlurRefs> = IdMap::default();
         let mut ties: IdMap<NoteId, IdRefs<NoteId>> = IdMap::default();
+        let mut voices: IdMap<VoiceId, (usize, usize)> = IdMap::default();
+        for (t, track) in self.tracks.iter().enumerate() {
+            for (v, voice) in track.instrument.voices.iter().enumerate() {
+                voices.insert(voice.id, (t, v));
+            }
+        }
         let mut chunks_ok = true;
         for instrument in self.instruments() {
             for voice in &instrument.voices {
@@ -1107,6 +1127,7 @@ impl Document {
             && notes == self.notes
             && slurs == self.slur_index
             && ties == self.tie_index
+            && voices == self.voice_index
     }
 
     /// The meter map: bar lengths, meters, beat groupings, numbering. O(1).
@@ -1181,10 +1202,13 @@ impl Document {
             .find_map(|i| i.staff(id).map(|staff| (i, staff)))
     }
 
-    /// The voice with this ID and the instrument it belongs to. O(voices of the whole document).
+    /// The voice with this ID and the instrument it belongs to. O(1) average: one lookup in the
+    /// voice index.
     pub fn voice(&self, id: VoiceId) -> Option<(&Instrument, &Voice)> {
-        self.instruments()
-            .find_map(|i| i.voice(id).map(|voice| (i, voice)))
+        // One hash lookup in the voice index, then two direct positions.
+        let &(t, v) = self.voice_index.get(&id)?;
+        let instrument = &self.tracks.get(t)?.instrument;
+        Some((instrument, instrument.voices.get(v)?))
     }
 
     /// Where this bar starts, as an absolute written position: the bar's index in the bar list,
@@ -1520,18 +1544,6 @@ pub struct ChordIds {
     pub notes: Vec<NoteId>,
 }
 
-/// Where a placement was found: the track and voice positions and the bar index, checked.
-struct Resolved {
-    /// Position of the track in the document's track list.
-    track: usize,
-    /// Position of the voice in its instrument's voice list.
-    voice: usize,
-    /// Position of the bar's chunk in the voice's chunk list.
-    chunk: usize,
-    /// The staff the event is drawn on (the given one, or the voice's home staff).
-    staff: StaffId,
-}
-
 /// Creates a new [`Document`] (owner's decision of 2026-11-02).
 ///
 /// The builder is for documents that do not exist yet: a file being opened (F1.15), the generated
@@ -1556,6 +1568,10 @@ pub struct DocumentBuilder {
     /// The document under construction (crate-visible for the loader of `crate::parts`, which
     /// restores the saved ID counter in it).
     pub(crate) doc: Document,
+    /// Where the edit layer records the effects of each object the builder inserts. Nobody reads
+    /// them while a document is being built: the set is cleared after every insertion, keeping
+    /// its capacity, so building allocates nothing for it after the first objects.
+    scratch: ChangeSet,
 }
 
 impl DocumentBuilder {
@@ -1598,9 +1614,11 @@ impl DocumentBuilder {
                 notes: IdMap::default(),
                 slur_index: IdMap::default(),
                 tie_index: IdMap::default(),
+                voice_index: IdMap::default(),
                 tolerance: ToleranceSettings::new()?,
                 revision: 0,
             },
+            scratch: ChangeSet::default(),
         })
     }
 
@@ -1713,6 +1731,11 @@ impl DocumentBuilder {
             });
         }
 
+        // The new track goes last: its voices are indexed at that position.
+        let t = self.doc.tracks.len();
+        for (v, voice) in voices.iter().enumerate() {
+            self.doc.voice_index.insert(voice.id, (t, v));
+        }
         self.doc.tracks.push(Track {
             id: track_id,
             instrument: Instrument {
@@ -1766,12 +1789,46 @@ impl DocumentBuilder {
             return Err(DocumentError::TooManyVoices);
         }
         let id = VoiceId::from_counter(issue(&mut self.doc.ids)?);
+        let v = track.instrument.voices.len();
         track.instrument.voices.push(Voice {
             id,
             home_staff,
             content: VoiceContent::with_bars(bars),
         });
+        self.doc.voice_index.insert(id, (track_index, v));
         Ok(id)
+    }
+
+    /// Inserts one object with a fresh ID: takes the ID, makes the object with `make`, and puts it
+    /// in the document with the rules of the edit layer (`Document::place_object`), the same
+    /// rules every command obeys. If the object is refused the ID is given back, so an error
+    /// leaves the builder exactly as it was and never consumes an ID. Returns the raw ID.
+    ///
+    /// # Why through the edit layer?
+    /// The builder used to check and insert every kind of object with its own copy of the rules
+    /// (where a mark may go, which duplicates are refused, the order of each list); the edit layer
+    /// had a second copy and the commands a third for events (review point A1). One copy now
+    /// decides, so the documents a builder makes and the ones commands make cannot drift apart.
+    ///
+    /// # Errors
+    /// [`DocumentError::IdsExhausted`]; whatever `make` or the edit layer refuses.
+    ///
+    /// # Complexity
+    /// O(1) for the ID, plus the cost of the insertion (see `Document::place_object`).
+    fn insert_new(
+        &mut self,
+        make: impl FnOnce(NonZeroU64) -> Result<Object, DocumentError>,
+    ) -> Result<NonZeroU64, DocumentError> {
+        let raw = issue(&mut self.doc.ids)?;
+        let result = make(raw).and_then(|object| self.doc.place_object(object, &mut self.scratch));
+        self.scratch.clear();
+        match result {
+            Ok(()) => Ok(raw),
+            Err(e) => {
+                self.doc.ids.give_back(&[raw]);
+                Err(e)
+            }
+        }
     }
 
     /// Adds a tuplet to a voice, nested in `parent` (a tuplet of the same voice) or at top level,
@@ -1788,24 +1845,17 @@ impl DocumentBuilder {
         tuplet: Tuplet,
         parent: Option<TupletId>,
     ) -> Result<TupletId, DocumentError> {
-        let (t, v) = self.voice_position(voice)?;
-        let content = &self.voice_mut(t, v, voice)?.content;
-        if let Some(p) = parent {
-            if !content.tuplets.contains_key(&p) {
-                return Err(DocumentError::UnknownTuplet(p));
-            }
-            if content.depth_of(p) >= MAX_TUPLET_DEPTH {
-                return Err(DocumentError::TupletTooDeep);
-            }
-        }
-        let id = TupletId::from_counter(issue(&mut self.doc.ids)?);
+        // The nesting is checked by the edit layer (`Document::place_object`), as for a command.
         let mut tuplet = tuplet;
         tuplet.set_parent(parent);
-        self.voice_mut(t, v, voice)?
-            .content
-            .tuplets
-            .insert(id, tuplet);
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Tuplet {
+                voice,
+                id: TupletId::from_counter(raw),
+                tuplet,
+            })
+        })?;
+        Ok(TupletId::from_counter(raw))
     }
 
     /// Adds a chord (a single note is a chord of one pitch) and returns its IDs (ADR-0024 §1).
@@ -1861,13 +1911,21 @@ impl DocumentBuilder {
         if pitches.is_empty() {
             return Err(DocumentError::EmptyChord);
         }
-        let resolved = self.resolve(&at)?;
-        // The sort key of every notehead, computed before any ID is taken because it can fail:
-        // the exact sounding pitch, then the letter's place on the staff (F♯ before G♭).
-        let keys = pitches
-            .iter()
-            .map(|p| Ok((p.sounding()?, p.diatonic_index())))
-            .collect::<Result<Vec<(Rational, i64)>, PitchError>>()?;
+        // The event needs its staff before it is made: the placement's, or the voice's home staff.
+        // The bar and the offset are checked first, as the edit layer does.
+        self.doc.check_point(ScorePoint::new(at.bar, at.offset))?;
+        let staff = match at.staff {
+            Some(staff) => staff,
+            None => {
+                self.doc
+                    .voice(at.voice)
+                    .ok_or(DocumentError::UnknownVoice(at.voice))?
+                    .1
+                    .home_staff
+            }
+        };
+        // One ID for the event, one per notehead: all taken up front (and given back together if
+        // the chord is refused), so a failure never leaves the counter advanced.
         let needed = u64::try_from(pitches.len())
             .ok()
             .and_then(|n| n.checked_add(1))
@@ -1875,39 +1933,51 @@ impl DocumentBuilder {
         if !self.doc.ids.has_room_for(needed) {
             return Err(DocumentError::IdsExhausted);
         }
-
-        let ids = &mut self.doc.ids;
-        let event_id = EventId::from_counter(issue(ids)?);
-        let note_ids = pitches
-            .iter()
-            .map(|_| ids.next().map(NoteId::from_counter))
-            .collect::<Option<Vec<NoteId>>>()
-            .ok_or(DocumentError::IdsExhausted)?;
-        // Pair each key with its notehead, then sort; `sort_by_key` is stable, so two noteheads with
-        // the same sound and letter (a doubled unison) keep the given order.
-        let mut keyed: Vec<((Rational, i64), Note)> = keys
-            .into_iter()
-            .zip(pitches.iter().zip(&note_ids))
-            .map(|(key, (&pitch, &id))| (key, Note::new(id, pitch)))
-            .collect();
-        keyed.sort_by_key(|k| k.0);
-        let mut sorted = keyed.into_iter().map(|(_, note)| note);
-        let lowest = sorted.next().ok_or(DocumentError::EmptyChord)?;
-        let upper: Box<[Note]> = sorted.collect();
-
-        let chord = Chord::from_sorted(value, at.tuplet, grace, lowest, upper);
-        self.place(
-            &at,
-            &resolved,
-            Event::new(event_id, resolved.staff, EventBody::Chord(chord)),
-        )?;
-        for &note in &note_ids {
-            self.doc.notes.insert(note, event_id);
+        let mut taken: Vec<NonZeroU64> = Vec::with_capacity(pitches.len().saturating_add(1));
+        for _ in 0..=pitches.len() {
+            // Cannot fail after `has_room_for`; if it ever did, nothing stays taken.
+            let Some(raw) = self.doc.ids.next() else {
+                self.doc.ids.give_back(&taken);
+                return Err(DocumentError::IdsExhausted);
+            };
+            taken.push(raw);
         }
-        Ok(ChordIds {
-            event: event_id,
-            notes: note_ids,
-        })
+        let Some((&event_raw, note_raws)) = taken.split_first() else {
+            return Err(DocumentError::Inconsistent);
+        };
+        let event = EventId::from_counter(event_raw);
+        let notes: Vec<NoteId> = note_raws
+            .iter()
+            .copied()
+            .map(NoteId::from_counter)
+            .collect();
+        // The noteheads in the order of `pitches`; `chord_from` sorts them by sounding pitch (the
+        // same rule as a command: one implementation, review point B10).
+        let made = notes
+            .iter()
+            .zip(pitches)
+            .map(|(&id, &pitch)| Note::new(id, pitch))
+            .collect();
+        let result = chord_from(value, at.tuplet, grace, made, None).and_then(|chord| {
+            self.doc.place_object(
+                Object::Event {
+                    voice: at.voice,
+                    bar: at.bar,
+                    placed: PlacedEvent::new(
+                        at.offset,
+                        Event::new(event, staff, EventBody::Chord(chord)),
+                    ),
+                    place: None,
+                },
+                &mut self.scratch,
+            )
+        });
+        self.scratch.clear();
+        if let Err(e) = result {
+            self.doc.ids.give_back(&taken);
+            return Err(e);
+        }
+        Ok(ChordIds { event, notes })
     }
 
     /// Adds a rest and returns its event's ID (ADR-0024 §1–§2). Costs as
@@ -1920,15 +1990,31 @@ impl DocumentBuilder {
         if matches!(value, RestValue::WholeBar) && at.tuplet.is_some() {
             return Err(DocumentError::WholeBarRestInTuplet);
         }
-        let resolved = self.resolve(&at)?;
-        let id = EventId::from_counter(issue(&mut self.doc.ids)?);
-        let rest = Rest::new(value, at.tuplet);
-        self.place(
-            &at,
-            &resolved,
-            Event::new(id, resolved.staff, EventBody::Rest(rest)),
-        )?;
-        Ok(id)
+        // As for a chord: the bar and offset first, then the staff the rest is drawn on.
+        self.doc.check_point(ScorePoint::new(at.bar, at.offset))?;
+        let staff = match at.staff {
+            Some(staff) => staff,
+            None => {
+                self.doc
+                    .voice(at.voice)
+                    .ok_or(DocumentError::UnknownVoice(at.voice))?
+                    .1
+                    .home_staff
+            }
+        };
+        let raw = self.insert_new(|raw| {
+            let rest = Rest::new(value, at.tuplet);
+            Ok(Object::Event {
+                voice: at.voice,
+                bar: at.bar,
+                placed: PlacedEvent::new(
+                    at.offset,
+                    Event::new(EventId::from_counter(raw), staff, EventBody::Rest(rest)),
+                ),
+                place: None,
+            })
+        })?;
+        Ok(EventId::from_counter(raw))
     }
 
     /// Sets the tie that starts from a notehead (ADR-0024 §4). Whether the target is legal (same
@@ -2105,31 +2191,24 @@ impl DocumentBuilder {
         if !self.doc.events.contains_key(&end) {
             return Err(DocumentError::UnknownEvent(end));
         }
+        // The slur belongs to the instrument of its first event.
         let location = *self
             .doc
             .events
             .get(&start)
             .ok_or(DocumentError::UnknownEvent(start))?;
-        let (t, _) = self.voice_position(location.voice)?;
-        // Split the borrows: the counter, the tracks and the index are distinct fields, so the
-        // instrument can be held while the ID is taken. The instrument is found first, so that
-        // no error can come after the ID has been consumed.
-        let Document {
-            ids,
-            tracks,
-            slur_index,
-            ..
-        } = &mut self.doc;
-        let instrument = &mut tracks
-            .get_mut(t)
-            .ok_or(DocumentError::UnknownVoice(location.voice))?
-            .instrument;
-        let id = SlurId::from_counter(issue(ids)?);
-        instrument.slurs.push(Slur::new(id, start, end, placement));
-        for event in [start, end] {
-            index_slur(slur_index, event, id);
-        }
-        Ok(id)
+        let (instrument, _) = self
+            .doc
+            .voice(location.voice)
+            .ok_or(DocumentError::UnknownVoice(location.voice))?;
+        let instrument = instrument.id;
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Slur {
+                instrument,
+                slur: Slur::new(SlurId::from_counter(raw), start, end, placement),
+            })
+        })?;
+        Ok(SlurId::from_counter(raw))
     }
 
     /// Adds a clef change on a staff at (bar, offset) and returns its ID (ADR-0024 §9). O(staves)
@@ -2147,26 +2226,15 @@ impl DocumentBuilder {
         offset: Duration,
         clef: Clef,
     ) -> Result<ClefId, DocumentError> {
-        let index = self.check_point(bar, offset)?;
-        if index == BarIndex::FIRST && offset.is_zero() {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let Document {
-            ids, bars, tracks, ..
-        } = &mut self.doc;
-        let target = tracks
-            .iter_mut()
-            .flat_map(|t| t.instrument.staves.iter_mut())
-            .find(|s| s.id == staff)
-            .ok_or(DocumentError::UnknownStaff(staff))?;
-        if target.clef_changes.has_mark_at(bars, index, offset) {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = ClefId::from_counter(issue(ids)?);
-        target
-            .clef_changes
-            .insert(Mark::new(id, bar, offset, clef), bars)?;
-        Ok(id)
+        // The edit layer refuses the first point of the score (the initial clef is there) and a
+        // second clef change at the same point of the staff.
+        let raw = self.insert_new(|raw| {
+            Ok(Object::ClefChange {
+                staff,
+                mark: Mark::new(ClefId::from_counter(raw), bar, offset, clef),
+            })
+        })?;
+        Ok(ClefId::from_counter(raw))
     }
 
     /// Adds a key change of the whole score at (bar, offset), at concert pitch, and returns its ID
@@ -2182,21 +2250,15 @@ impl DocumentBuilder {
         offset: Duration,
         key: Key,
     ) -> Result<KeyChangeId, DocumentError> {
-        let index = self.check_point(bar, offset)?;
-        let Document {
-            ids,
-            bars,
-            key_changes,
-            ..
-        } = &mut self.doc;
-        if (index == BarIndex::FIRST && offset.is_zero())
-            || key_changes.has_mark_at(bars, index, offset)
-        {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = KeyChangeId::from_counter(issue(ids)?);
-        key_changes.insert(Mark::new(id, bar, offset, key), bars)?;
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::KeyChange(Mark::new(
+                KeyChangeId::from_counter(raw),
+                bar,
+                offset,
+                key,
+            )))
+        })?;
+        Ok(KeyChangeId::from_counter(raw))
     }
 
     /// Adds an override of an instrument's key from (bar, offset) on, and returns its ID
@@ -2214,23 +2276,13 @@ impl DocumentBuilder {
         offset: Duration,
         key_override: KeyOverride,
     ) -> Result<KeyChangeId, DocumentError> {
-        let index = self.check_point(bar, offset)?;
-        let Document {
-            ids, bars, tracks, ..
-        } = &mut self.doc;
-        let target = tracks
-            .iter_mut()
-            .map(|t| &mut t.instrument)
-            .find(|i| i.id == instrument)
-            .ok_or(DocumentError::UnknownInstrument(instrument))?;
-        if target.key_overrides.has_mark_at(bars, index, offset) {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = KeyChangeId::from_counter(issue(ids)?);
-        target
-            .key_overrides
-            .insert(Mark::new(id, bar, offset, key_override), bars)?;
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::KeyOverride {
+                instrument,
+                mark: Mark::new(KeyChangeId::from_counter(raw), bar, offset, key_override),
+            })
+        })?;
+        Ok(KeyChangeId::from_counter(raw))
     }
 
     /// Adds a tempo mark at a point and returns its ID (ADR-0024 §11), then derives the tempo map
@@ -2257,32 +2309,25 @@ impl DocumentBuilder {
         at: ScorePoint,
         mark: TempoMark,
     ) -> Result<TempoMarkId, DocumentError> {
-        let index = self.check_point(at.bar, at.offset)?;
-        if let Some(TempoMarkChange::Gradual(gradual)) = mark.change() {
-            self.check_point(gradual.end.bar, gradual.end.offset)?;
-        }
-        let Document {
-            ids,
-            bars,
-            tempo_marks,
-            ..
-        } = &mut self.doc;
-        if (index == BarIndex::FIRST && at.offset.is_zero())
-            || tempo_marks.has_mark_at(bars, index, at.offset)
-        {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = TempoMarkId::from_counter(ids.peek().ok_or(DocumentError::IdsExhausted)?);
-        tempo_marks.insert(Mark::new(id, at.bar, at.offset, mark), bars)?;
+        let raw = self.insert_new(|raw| {
+            Ok(Object::TempoMark(Mark::new(
+                TempoMarkId::from_counter(raw),
+                at.bar,
+                at.offset,
+                mark,
+            )))
+        })?;
+        let id = TempoMarkId::from_counter(raw);
+        // Only the derived tempo map can tell whether the mark fits (a change inside a gradual
+        // one): if it does not, the mark and its ID are taken back, all or nothing.
         match self.doc.derive_tempo_map() {
             Ok(map) => {
                 self.doc.tempo_map = map;
-                // Taken for good only now: `peek` returned exactly this value.
-                self.doc.ids.next();
                 Ok(id)
             }
             Err(e) => {
                 self.doc.tempo_marks.remove(id);
+                self.doc.ids.give_back(&[raw]);
                 Err(e)
             }
         }
@@ -2307,37 +2352,13 @@ impl DocumentBuilder {
         placement: DynamicPlacement,
         mark: DynamicMark,
     ) -> Result<DynamicId, DocumentError> {
-        self.check_point(at.bar, at.offset)?;
-        let t = self.check_dynamic_placement(instrument, placement)?;
-        let Document {
-            ids, bars, tracks, ..
-        } = &mut self.doc;
-        let target = &mut tracks
-            .get_mut(t)
-            .ok_or(DocumentError::UnknownInstrument(instrument))?
-            .instrument;
-        let key = point_key(bars, at);
-        // The dynamics at this point are a contiguous run of the sorted list: from the first one
-        // not before the point to the first one after it.
-        let first = target
-            .dynamics
-            .partition_point(|d| point_key(bars, d.at()) < key);
-        let after = target
-            .dynamics
-            .partition_point(|d| point_key(bars, d.at()) <= key);
-        if target
-            .dynamics
-            .get(first..after)
-            .is_some_and(|run| run.iter().any(|d| d.placement().scope == placement.scope))
-        {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = DynamicId::from_counter(issue(ids)?);
-        // At the end of the run: IDs only grow, so at one point the order is creation order.
-        target
-            .dynamics
-            .insert(after, Dynamic::new(id, at, placement, mark));
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Dynamic {
+                instrument,
+                dynamic: Dynamic::new(DynamicId::from_counter(raw), at, placement, mark),
+            })
+        })?;
+        Ok(DynamicId::from_counter(raw))
     }
 
     /// Adds a hairpin to an instrument, from `start` (included) to `end` (excluded), and returns
@@ -2360,53 +2381,13 @@ impl DocumentBuilder {
         placement: DynamicPlacement,
         shape: HairpinShape,
     ) -> Result<HairpinId, DocumentError> {
-        self.check_point(start.bar, start.offset)?;
-        self.check_point(end.bar, end.offset)?;
-        if point_key(&self.doc.bars, end) <= point_key(&self.doc.bars, start) {
-            return Err(DocumentError::HairpinNotForward);
-        }
-        let t = self.check_dynamic_placement(instrument, placement)?;
-        let Document {
-            ids, bars, tracks, ..
-        } = &mut self.doc;
-        let target = &mut tracks
-            .get_mut(t)
-            .ok_or(DocumentError::UnknownInstrument(instrument))?
-            .instrument;
-        let key = point_key(bars, start);
-        let after = target
-            .hairpins
-            .partition_point(|h| point_key(bars, h.start()) <= key);
-        let id = HairpinId::from_counter(issue(ids)?);
-        target
-            .hairpins
-            .insert(after, Hairpin::new(id, start, end, placement, shape));
-        Ok(id)
-    }
-
-    /// Checks the placement of a dynamic or hairpin: the instrument exists, and the staff and the
-    /// voice of the scope belong to it. Returns the instrument's track position.
-    /// O(tracks) + O(staves + voices).
-    fn check_dynamic_placement(
-        &self,
-        instrument: InstrumentId,
-        placement: DynamicPlacement,
-    ) -> Result<usize, DocumentError> {
-        let (t, target) = self
-            .doc
-            .instruments()
-            .enumerate()
-            .find(|(_, i)| i.id == instrument)
-            .ok_or(DocumentError::UnknownInstrument(instrument))?;
-        if target.staff(placement.staff).is_none() {
-            return Err(DocumentError::StaffOfAnotherInstrument(placement.staff));
-        }
-        if let DynamicScope::Voice(voice) = placement.scope
-            && target.voice(voice).is_none()
-        {
-            return Err(DocumentError::VoiceOfAnotherInstrument(voice));
-        }
-        Ok(t)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Hairpin {
+                instrument,
+                hairpin: Hairpin::new(HairpinId::from_counter(raw), start, end, placement, shape),
+            })
+        })?;
+        Ok(HairpinId::from_counter(raw))
     }
 
     /// Adds a start repeat (‖:) at the start of `bar` and returns its ID (ADR-0025 §2). How it
@@ -2417,22 +2398,13 @@ impl DocumentBuilder {
     /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`] (another start repeat on
     /// the bar), [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
     pub fn add_repeat_start(&mut self, bar: BarId) -> Result<RepeatId, DocumentError> {
-        let at = self.doc.bar_index(bar)?.get();
-        let Document {
-            ids, bars, form, ..
-        } = &mut self.doc;
-        let key = |b: BarId| bars.key(b);
-        let place = form.repeat_starts.partition_point(|r| key(r.bar()) < at);
-        if form
-            .repeat_starts
-            .get(place)
-            .is_some_and(|r| key(r.bar()) == at)
-        {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = RepeatId::from_counter(issue(ids)?);
-        form.repeat_starts.insert(place, RepeatStart::new(id, bar));
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::RepeatStart(RepeatStart::new(
+                RepeatId::from_counter(raw),
+                bar,
+            )))
+        })?;
+        Ok(RepeatId::from_counter(raw))
     }
 
     /// Adds an end repeat (:‖) at the end of `bar`, played `times` times in all, and returns its
@@ -2443,26 +2415,14 @@ impl DocumentBuilder {
     /// [`DocumentError::UnknownBar`], [`DocumentError::DuplicateMark`],
     /// [`DocumentError::IdsExhausted`]. The builder is unchanged on error.
     pub fn add_repeat_end(&mut self, bar: BarId, times: u8) -> Result<RepeatId, DocumentError> {
-        if !(2..=MAX_PLAYS).contains(&times) {
-            return Err(DocumentError::PlaysOutOfRange(times));
-        }
-        let at = self.doc.bar_index(bar)?.get();
-        let Document {
-            ids, bars, form, ..
-        } = &mut self.doc;
-        let key = |b: BarId| bars.key(b);
-        let place = form.repeat_ends.partition_point(|r| key(r.bar()) < at);
-        if form
-            .repeat_ends
-            .get(place)
-            .is_some_and(|r| key(r.bar()) == at)
-        {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = RepeatId::from_counter(issue(ids)?);
-        form.repeat_ends
-            .insert(place, RepeatEnd::new(id, bar, times));
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::RepeatEnd(RepeatEnd::new(
+                RepeatId::from_counter(raw),
+                bar,
+                times,
+            )))
+        })?;
+        Ok(RepeatId::from_counter(raw))
     }
 
     /// Adds a volta over `first..=last`, played on `passes`, and returns its ID (ADR-0025 §3).
@@ -2481,28 +2441,21 @@ impl DocumentBuilder {
         closed: bool,
         text: Option<&str>,
     ) -> Result<VoltaId, DocumentError> {
-        let from = self.doc.bar_index(first)?.get();
-        let to = self.doc.bar_index(last)?.get();
-        if to < from {
-            return Err(DocumentError::VoltaNotForward);
-        }
-        if passes.is_empty() {
-            return Err(DocumentError::EmptyPassSet);
-        }
+        // The bars first, then the text (the edit layer checks the order and the passes).
+        self.doc.bar_index(first)?;
+        self.doc.bar_index(last)?;
         check_text(text)?;
-        let Document {
-            ids, bars, form, ..
-        } = &mut self.doc;
-        let key = |b: BarId| bars.key(b);
-        // After the voltas starting at or before `first`: at one first bar (an overlap, refused
-        // by `validate`), creation order.
-        let place = form.voltas.partition_point(|v| key(v.first()) <= from);
-        let id = VoltaId::from_counter(issue(ids)?);
-        form.voltas.insert(
-            place,
-            Volta::new(id, first, last, passes, closed, text.map(Box::from)),
-        );
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Volta(Volta::new(
+                VoltaId::from_counter(raw),
+                first,
+                last,
+                passes,
+                closed,
+                text.map(Box::from),
+            )))
+        })?;
+        Ok(VoltaId::from_counter(raw))
     }
 
     /// Adds a marker on a barline and returns its ID (ADR-0025 §4): a segno or a coda at the start
@@ -2518,28 +2471,17 @@ impl DocumentBuilder {
         kind: MarkerKind,
         text: Option<&str>,
     ) -> Result<MarkerId, DocumentError> {
-        let at = self.doc.bar_index(bar)?.get();
+        self.doc.bar_index(bar)?;
         check_text(text)?;
-        let Document {
-            ids, bars, form, ..
-        } = &mut self.doc;
-        // Score order of markers: bar, then the start side (0) before the end side (1).
-        let key = |b: BarId, k: MarkerKind| (bars.key(b), u8::from(!k.at_start()));
-        let own = (at, u8::from(!kind.at_start()));
-        let place = form
-            .markers
-            .partition_point(|m| key(m.bar(), m.kind()) < own);
-        if form
-            .markers
-            .get(place)
-            .is_some_and(|m| key(m.bar(), m.kind()) == own)
-        {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = MarkerId::from_counter(issue(ids)?);
-        form.markers
-            .insert(place, Marker::new(id, bar, kind, text.map(Box::from)));
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Marker(Marker::new(
+                MarkerId::from_counter(raw),
+                bar,
+                kind,
+                text.map(Box::from),
+            )))
+        })?;
+        Ok(MarkerId::from_counter(raw))
     }
 
     /// Adds a jump at the end of `bar` and returns its ID (ADR-0025 §4). That its markers have the
@@ -2556,21 +2498,20 @@ impl DocumentBuilder {
         spec: JumpSpec,
         text: Option<&str>,
     ) -> Result<JumpId, DocumentError> {
-        let at = self.doc.bar_index(bar)?.get();
+        self.doc.bar_index(bar)?;
         check_text(text)?;
+        // The markers are the builder's check, as for the mark command: an edit does not check
+        // them (see `crate::edit`).
         self.doc.check_jump_markers(&spec)?;
-        let Document {
-            ids, bars, form, ..
-        } = &mut self.doc;
-        let key = |b: BarId| bars.key(b);
-        let place = form.jumps.partition_point(|j| key(j.bar()) < at);
-        if form.jumps.get(place).is_some_and(|j| key(j.bar()) == at) {
-            return Err(DocumentError::DuplicateMark);
-        }
-        let id = JumpId::from_counter(issue(ids)?);
-        form.jumps
-            .insert(place, Jump::new(id, bar, spec, text.map(Box::from)));
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::Jump(Jump::new(
+                JumpId::from_counter(raw),
+                bar,
+                spec,
+                text.map(Box::from),
+            )))
+        })?;
+        Ok(JumpId::from_counter(raw))
     }
 
     /// Adds a bar repeat (%) on `staff`: `count` bars from `first` repeat the `span` bars before
@@ -2588,25 +2529,16 @@ impl DocumentBuilder {
         count: u32,
         span: BarRepeatSpan,
     ) -> Result<BarRepeatId, DocumentError> {
-        let at = self.doc.bar_index(first)?.get();
-        if count == 0 || !count.is_multiple_of(span.bars()) {
-            return Err(DocumentError::BarRepeatCount);
-        }
-        let Document {
-            ids, bars, tracks, ..
-        } = &mut self.doc;
-        let target = tracks
-            .iter_mut()
-            .map(|t| &mut t.instrument)
-            .find(|i| i.staff(staff).is_some())
-            .ok_or(DocumentError::UnknownStaff(staff))?;
-        let key = |b: BarId| bars.key(b);
-        let place = target.bar_repeats.partition_point(|r| key(r.first()) <= at);
-        let id = BarRepeatId::from_counter(issue(ids)?);
-        target
-            .bar_repeats
-            .insert(place, BarRepeat::new(id, staff, first, count, span));
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::BarRepeat(BarRepeat::new(
+                BarRepeatId::from_counter(raw),
+                staff,
+                first,
+                count,
+                span,
+            )))
+        })?;
+        Ok(BarRepeatId::from_counter(raw))
     }
 
     /// Adds a pass rule to an instrument: the passage from `start` (included) to `end` (excluded)
@@ -2630,38 +2562,21 @@ impl DocumentBuilder {
         plays: PassSet,
         text: Option<&str>,
     ) -> Result<PassRuleId, DocumentError> {
-        self.check_point(start.bar, start.offset)?;
-        self.check_point(end.bar, end.offset)?;
-        if point_key(&self.doc.bars, end) <= point_key(&self.doc.bars, start) {
-            return Err(DocumentError::PassRuleNotForward);
-        }
-        if plays.is_empty() {
-            return Err(DocumentError::EmptyPassSet);
-        }
         check_text(text)?;
-        let Document {
-            ids, bars, tracks, ..
-        } = &mut self.doc;
-        let target = tracks
-            .iter_mut()
-            .map(|t| &mut t.instrument)
-            .find(|i| i.id == instrument)
-            .ok_or(DocumentError::UnknownInstrument(instrument))?;
-        if let DynamicScope::Voice(voice) = scope
-            && target.voice(voice).is_none()
-        {
-            return Err(DocumentError::VoiceOfAnotherInstrument(voice));
-        }
-        let key = point_key(bars, start);
-        let place = target
-            .pass_rules
-            .partition_point(|r| point_key(bars, r.start()) <= key);
-        let id = PassRuleId::from_counter(issue(ids)?);
-        target.pass_rules.insert(
-            place,
-            PassRule::new(id, start, end, scope, plays, text.map(Box::from)),
-        );
-        Ok(id)
+        let raw = self.insert_new(|raw| {
+            Ok(Object::PassRule {
+                instrument,
+                rule: PassRule::new(
+                    PassRuleId::from_counter(raw),
+                    start,
+                    end,
+                    scope,
+                    plays,
+                    text.map(Box::from),
+                ),
+            })
+        })?;
+        Ok(PassRuleId::from_counter(raw))
     }
 
     /// Sets how the bars of later voltas are numbered (ADR-0025 F9); [`BarNumbering::Continue`]
@@ -2687,31 +2602,9 @@ impl DocumentBuilder {
         Ok(self.doc)
     }
 
-    /// Checks a (bar, offset) point for a mark: the bar exists and the offset is not negative.
-    /// Returns the bar's index. O(1) average.
-    fn check_point(&self, bar: BarId, offset: Duration) -> Result<BarIndex, DocumentError> {
-        let index = self.doc.bar_index(bar)?;
-        if offset.is_negative() {
-            return Err(DocumentError::NegativeOffset);
-        }
-        Ok(index)
-    }
-
     /// The positions of a voice: its track in the document, itself in its instrument. O(voices).
     fn voice_position(&self, voice: VoiceId) -> Result<(usize, usize), DocumentError> {
-        self.doc
-            .tracks
-            .iter()
-            .enumerate()
-            .find_map(|(t, track)| {
-                track
-                    .instrument
-                    .voices
-                    .iter()
-                    .position(|v| v.id == voice)
-                    .map(|v| (t, v))
-            })
-            .ok_or(DocumentError::UnknownVoice(voice))
+        self.doc.position_of_voice(voice)
     }
 
     /// The voice at these positions, mutably. O(1).
@@ -2771,70 +2664,13 @@ impl DocumentBuilder {
             EventBody::Rest(_) => Err(DocumentError::UnknownNote(note)),
         }
     }
-
-    /// Checks a placement without changing anything: the voice and bar exist, the offset is not
-    /// negative, the staff belongs to the voice's instrument, the tuplet to the voice.
-    /// O(voices) + O(staves).
-    fn resolve(&self, at: &Placement) -> Result<Resolved, DocumentError> {
-        let index = self.check_point(at.bar, at.offset)?;
-        let (t, v) = self.voice_position(at.voice)?;
-        let track = self
-            .doc
-            .tracks
-            .get(t)
-            .ok_or(DocumentError::UnknownVoice(at.voice))?;
-        let voice = track
-            .instrument
-            .voices
-            .get(v)
-            .ok_or(DocumentError::UnknownVoice(at.voice))?;
-        let staff = at.staff.unwrap_or(voice.home_staff);
-        if track.instrument.staff(staff).is_none() {
-            return Err(DocumentError::StaffOfAnotherInstrument(staff));
-        }
-        if let Some(tuplet) = at.tuplet
-            && !voice.content.tuplets.contains_key(&tuplet)
-        {
-            return Err(DocumentError::UnknownTuplet(tuplet));
-        }
-        Ok(Resolved {
-            track: t,
-            voice: v,
-            chunk: usize::try_from(index.get()).map_err(|_| DocumentError::TooManyBars)?,
-            staff,
-        })
-    }
-
-    /// Inserts a resolved event into its chunk and the event index. O(k).
-    fn place(
-        &mut self,
-        at: &Placement,
-        resolved: &Resolved,
-        event: Event,
-    ) -> Result<(), DocumentError> {
-        let id = event.id();
-        self.voice_mut(resolved.track, resolved.voice, at.voice)?
-            .content
-            .chunks
-            .get_mut(resolved.chunk)
-            .ok_or(DocumentError::UnknownBar(at.bar))?
-            .insert(PlacedEvent::new(at.offset, event));
-        self.doc.events.insert(
-            id,
-            EventLocation {
-                voice: at.voice,
-                bar: at.bar,
-            },
-        );
-        Ok(())
-    }
 }
 
 /// The next raw ID of the document's counter, or [`DocumentError::IdsExhausted`] when the counter
 /// has handed out its last one. O(1).
 ///
 /// The builder takes an ID in two dozen places; this keeps the error in one (review point B6).
-fn issue(ids: &mut IdCounter) -> Result<std::num::NonZeroU64, DocumentError> {
+fn issue(ids: &mut IdCounter) -> Result<NonZeroU64, DocumentError> {
     ids.next().ok_or(DocumentError::IdsExhausted)
 }
 
@@ -2889,7 +2725,7 @@ pub(crate) fn unindex_slur(index: &mut IdMap<EventId, SlurRefs>, event: EventId,
 mod tests {
     use std::num::NonZeroU64;
 
-    use orchestra_core_time::{Meter, MeterChange, Tempo};
+    use orchestra_core_time::{Meter, MeterChange, Rational, Tempo};
 
     use super::*;
     use crate::pitch::Mode;

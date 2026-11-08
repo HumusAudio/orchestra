@@ -983,8 +983,14 @@ assert_eq!(document.bars().len(), 8);
 
 The builder takes the IDs in a documented order (a bar one; an instrument track the track's, the
 instrument's, one per staff, one per voice), so the same calls always give the same document, IDs
-included. Every method checks everything **before** creating anything: an error leaves the builder
-as it was and consumes no ID.
+included. An error leaves the builder as it was and consumes no ID. The objects that commands can also
+create (events, tuplets, slurs, marks, dynamics, hairpins, the form, bar repeats, pass rules) are
+put in place by the **edit layer**, `Document::place_object`, the very code an `Edit::Insert` runs:
+the builder takes the IDs, makes the object, and gives the IDs back (`IdCounter::give_back`) if
+the edit layer refuses it. So the rules of where an object may go, which duplicates are refused and
+how each list is kept sorted exist once, shared by the builder and the commands (review point A1:
+they used to be written twice, three times for events). Bars, tracks and voices, which no edit
+creates one by one, stay the builder's own.
 
 **Limits** (owner's decision, 2026-11-02): at most **16 staves** and **256 voices** per instrument.
 They are not musical limits (the interface may still offer four voices per staff, or any other
@@ -992,10 +998,14 @@ number) but technical ones: no real score gets close, and they stop a corrupt or
 from asking for millions of voices when it is opened. Raising them changes a constant, not the file
 format.
 
-**Lookups.** Bars are many, so they have the hash index; tracks, staves and voices are few (a few
-hundred in a large orchestral score) and are found by a linear scan, which is cheaper than keeping
-another index up to date. The index from ID to location that ADR-0022 §1 describes is for events,
-which are hundreds of thousands (F1.09).
+**Lookups.** Bars are many, so they have the hash index; tracks and staves are few (a few hundred
+in a large orchestral score) and are found by a linear scan. **Voices** have an index too
+(`voice_index`, voice → its track and its place among the instrument's voices), although they are
+as few: every event placed, looked up or edited needs its voice, and the scan measured ≈ 70 M
+instructions out of the ≈ 890 M of loading the heavy reference score (review, 2026-11-08). Voices
+and tracks are only ever appended, by the builder, so the index never has to move an entry. The
+index from ID to location that ADR-0022 §1 describes is for events, which are hundreds of
+thousands (F1.09).
 
 **Tests.** `tests/document_cases.rs` has 12 hand-written cases (IDs in sequence across kinds, one
 voice per staff, extra voices, transposing instruments, bar starts after a pickup, the limits at 16
@@ -1245,9 +1255,8 @@ it, both judged in score order, on what the user sees (`Violation::GradualTempoN
 without the clamp a mark at offset 5/4 of a 4/4 bar would land after a mark at the start of the
 next bar. Clamping keeps the order; two marks may then land on the same position, and the later
 one in score order wins (the other stays written); a gradual change shrunk to nothing acts as an
-immediate change to its target. `add_tempo_mark` tries the mark with the ID the counter would hand
-out next (`IdCounter::peek`), derives the map, and takes the mark out again on failure: all or
-nothing, no ID consumed. `validate` (rule 7) runs the same walk without building the map, so it
+immediate change to its target. `add_tempo_mark` puts the mark in place, derives the map, and on
+failure takes the mark out again and gives its ID back: all or nothing, no ID consumed. `validate` (rule 7) runs the same walk without building the map, so it
 allocates nothing more.
 
 ```rust

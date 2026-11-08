@@ -464,16 +464,21 @@ pub(crate) fn chord_from(
     notes: Vec<Note>,
     like: Option<&Chord>,
 ) -> Result<Chord, DocumentError> {
-    let mut keyed = notes
-        .into_iter()
-        .map(|note| {
-            let pitch = note.pitch();
-            Ok(((pitch.sounding()?, pitch.diatonic_index()), note))
-        })
-        .collect::<Result<Vec<_>, crate::pitch::PitchError>>()?;
-    // Stable, so two noteheads sounding the same with the same letter keep their order.
-    keyed.sort_by_key(|k| k.0);
-    let mut sorted = keyed.into_iter().map(|(_, note)| note);
+    let mut notes = notes;
+    // Every sounding pitch is computed once up front, so that an overflow is reported (it cannot
+    // be from inside the comparison below).
+    for note in &notes {
+        note.pitch().sounding()?;
+    }
+    // Sorted in place, without a list of keys (review point A1: every event loaded goes through
+    // here, and the list cost an allocation per chord; a single notehead needs no sorting at all).
+    // The keys cannot fail any more (checked above); `sort_by_key` is stable, so two noteheads
+    // sounding the same with the same letter keep their order.
+    if notes.len() > 1 {
+        let key = |note: &Note| (note.pitch().sounding().ok(), note.pitch().diatonic_index());
+        notes.sort_by_key(key);
+    }
+    let mut sorted = notes.into_iter();
     let lowest = sorted.next().ok_or(DocumentError::EmptyChord)?;
     let mut chord = Chord::from_sorted(value, tuplet, grace, lowest, sorted.collect());
     if let Some(like) = like {

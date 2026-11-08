@@ -58,6 +58,22 @@ impl Chunk {
         events.insert(at, placed);
     }
 
+    /// Whether `placed` may go at exactly place `index` of the chunk, keeping it sorted (see
+    /// [`insert_at`](Self::insert_at)). O(1). Lets a caller check the place before it changes
+    /// anything else (the edit layer indexes the event's noteheads first).
+    pub(crate) fn fits_at(&self, index: usize, placed: &PlacedEvent) -> bool {
+        let events = self.events();
+        let key = placed.order_key();
+        index <= events.len()
+            && index
+                .checked_sub(1)
+                .and_then(|i| events.get(i))
+                .is_none_or(|before| before.order_key() <= key)
+            && events
+                .get(index)
+                .is_none_or(|after| key <= after.order_key())
+    }
+
     /// Inserts an event at exactly place `index` of the chunk, if that place keeps the chunk
     /// sorted: every event before it has a key not later than its own, every event after it a key
     /// not earlier. Returns `false` (and changes nothing) otherwise.
@@ -71,16 +87,7 @@ impl Chunk {
     ///
     /// O(k) to shift the later events, plus a copy of the chunk if a snapshot still shares it.
     pub(crate) fn insert_at(&mut self, index: usize, placed: PlacedEvent) -> bool {
-        let events = self.events();
-        let key = placed.order_key();
-        let fits = index <= events.len()
-            && index
-                .checked_sub(1)
-                .and_then(|i| events.get(i))
-                .is_none_or(|before| before.order_key() <= key)
-            && events
-                .get(index)
-                .is_none_or(|after| key <= after.order_key());
+        let fits = self.fits_at(index, &placed);
         if fits {
             Arc::make_mut(self.events.get_or_insert_with(Arc::default)).insert(index, placed);
         }
