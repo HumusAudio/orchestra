@@ -2753,8 +2753,8 @@ a stretch of Δ ticks that must last N units (1 unit = 1/960 µs):
 **Il salvataggio** passa da `src/safe_write.rs`, lo stesso salvataggio sicuro del file di progetto,
 spostato lì da `project` perché lo usino entrambi (vedi "Salvare in modo sicuro" qui sopra).
 
-**Per ascoltare** c'è un esempio, uno strumento per sviluppatori (il comando vero della tappa M1
-arriva con F1.17):
+**Per ascoltare** c'è un esempio, uno strumento per sviluppatori (il comando di prova della tappa
+M1 è nella sezione seguente):
 
 ```sh
 cargo run -p orchestra-io --example export_midi -- full normal out.mid
@@ -2792,6 +2792,39 @@ midi::export (full preset)       18 390 000     442 690 000 instructions
 Circa 18 ms e 0,44 s con la regola di F1.16c (1 istruzione per nanosecondo sul portatile di
 riferimento), dentro i budget proposti da ADR-0032 (100 M e 2 G). Il file della partitura pesante
 pesa circa 0,9 MB.
+
+#### Il comando di prova della tappa M1
+
+La tappa M1 della scaletta ("il motore musicale senza interfaccia", F1.17) si verifica a mano con
+un solo comando, un altro esempio del crate, uno strumento per sviluppatori:
+
+```sh
+cargo run -p orchestra-io --example m1 -- OUT_DIR
+cargo run -p orchestra-io --example m1 -- OUT_DIR --heavy --notes
+```
+
+Esegue i cinque passi della tappa, nell'ordine, e si ferma con un errore al primo che non riesce:
+
+1. **crea** la partitura di riferimento, il preset "full" di `orchestra-test-scores` (ritornelli,
+   volte, salti, cambi di tempo graduali, dinamiche, un'orchestra vera); `--heavy` prende la
+   dimensione pesante (1 000 battute, 28 strumenti) invece di quella normale (100 battute, 9
+   strumenti);
+2. la **salva** come `OUT_DIR/m1.orchestra`, con il salvataggio sicuro del file di progetto;
+3. la **riapre** e controlla che sia identica in tre modi, gli stessi dei test di andata e ritorno:
+   la stessa musica (`same_content`), la stessa descrizione con ID e contatori (`to_parts`), gli
+   stessi byte quando la si salva di nuovo;
+4. **stampa l'esecuzione srotolata** del documento *riaperto*, così quello che suona è davvero il
+   file: una riga per battuta suonata (numero della battuta suonata e di quella scritta,
+   passaggio, esecuzione della sua sezione, inizio in secondi, seguito da `~` dentro un cambio di
+   tempo graduale, dove il tempo è un'approssimazione), poi le note suonate per strumento; con
+   `--notes` anche ogni nota (battuta, inizio e fine esatti in semibrevi, secondi, altezza reale
+   con C4 = 60, velocity a 7 bit);
+5. **esporta** `OUT_DIR/m1.mid`, ogni strumento con un programma General MIDI ricavato dal nome, da
+   ascoltare con qualunque lettore (FluidSynth con un soundfont General MIDI va bene).
+
+La tabella dei programmi General MIDI è condivisa con `export_midi` in `examples/common/gm.rs`,
+inclusa da tutti e due con `#[path]`: Cargo compila come esempio a sé ogni file messo direttamente
+in `examples/`, quindi un file condiviso va in una sottocartella.
 
 ### orchestra-test-support: contare le allocazioni nei test
 

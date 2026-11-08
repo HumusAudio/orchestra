@@ -2584,8 +2584,8 @@ a stretch of Δ ticks that must last N units (1 unit = 1/960 µs):
 **Saving** goes through `src/safe_write.rs`, the same safe write as the project file, moved there
 from `project` so that both share it (see "Saving safely" above).
 
-**To listen** there is an example, a developer tool (the real command of milestone M1 comes in
-F1.17):
+**To listen** there is an example, a developer tool (the test command of milestone M1 is the next
+section):
 
 ```sh
 cargo run -p orchestra-io --example export_midi -- full normal out.mid
@@ -2621,6 +2621,38 @@ midi::export (full preset)       18 390 000     442 690 000 instructions
 About 18 ms and 0.44 s by the rule of F1.16c (1 instruction per nanosecond on the reference
 laptop), within the budgets proposed by ADR-0032 (100 M and 2 G). The heavy score's file has about
 0.9 MB.
+
+#### The test command of milestone M1
+
+Milestone M1 of SCALETTA ("the musical engine without an interface", F1.17) is checked by hand with
+one command, another example of the crate, a developer tool:
+
+```sh
+cargo run -p orchestra-io --example m1 -- OUT_DIR
+cargo run -p orchestra-io --example m1 -- OUT_DIR --heavy --notes
+```
+
+It runs the five steps of the milestone, in order, and stops with an error at the first one that
+fails:
+
+1. it **creates** the reference score, the "full" preset of `orchestra-test-scores` (repeats,
+   voltas, jumps, gradual tempo changes, dynamics, a real orchestra); `--heavy` takes the heavy
+   size (1 000 bars, 28 instruments) instead of the normal one (100 bars, 9 instruments);
+2. it **saves** it as `OUT_DIR/m1.orchestra`, with the safe write of the project file;
+3. it **reopens** it and checks that it is identical in three ways, the same as the round-trip
+   tests: the same music (`same_content`), the same description with IDs and counters
+   (`to_parts`), the same bytes when saved again;
+4. it **prints the unrolled performance** of the *reopened* document, so that what plays really is
+   the file: one line per played bar (played and written bar number, pass, play of its section,
+   start in seconds, followed by `~` inside a gradual tempo change, where the time is an
+   approximation), then the played notes per instrument; with `--notes` every note too (bar,
+   exact start and end in whole notes, seconds, sounding pitch with C4 = 60, 7-bit velocity);
+5. it **exports** `OUT_DIR/m1.mid`, every instrument with a General MIDI program from its name, to
+   be listened to with any player (FluidSynth with a General MIDI soundfont works well).
+
+The table of General MIDI programs is shared with `export_midi` in `examples/common/gm.rs`,
+included by both with `#[path]`: Cargo builds every file directly in `examples/` as an example of
+its own, so a shared file goes in a subdirectory.
 
 ### orchestra-test-support: counting allocations in tests
 
