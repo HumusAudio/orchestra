@@ -425,9 +425,7 @@ fn plan(
         .instruments()
         .flat_map(crate::document::Instrument::bar_repeats)
     {
-        let first_bar = crate::form::index(doc.bars(), repeat.first());
-        let source = first_bar.saturating_sub(repeat.span().bars());
-        let stop = first_bar.saturating_add(repeat.count());
+        let (source, _, stop) = repeat.covered(doc.bars());
         if source < end && stop > i {
             return Err(DocumentError::InsideBarRepeat(repeat.id()));
         }
@@ -614,11 +612,7 @@ fn move_event(
     // the region's end it stays overfull in the last bar (R8).
     // The starts are sorted: the ones strictly inside the event are one run, found by two binary
     // searches (O(log n) per event, instead of a scan of every new bar).
-    let limit = if end < region.total {
-        end
-    } else {
-        region.total
-    };
+    let limit = end.min(region.total);
     let from = grid.starts.partition_point(|&c| c <= start);
     let to = grid.starts.partition_point(|&c| c < limit);
     let cuts: Vec<Duration> = grid.starts.get(from..to).unwrap_or(&[]).to_vec();

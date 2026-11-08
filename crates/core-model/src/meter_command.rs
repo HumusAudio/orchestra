@@ -88,9 +88,7 @@ fn check_bar_repeats(doc: &Document, at: BarIndex, whole_range: bool) -> Result<
         .instruments()
         .flat_map(crate::document::Instrument::bar_repeats)
     {
-        let first = crate::form::index(doc.bars(), repeat.first());
-        let source = first.saturating_sub(repeat.span().bars());
-        let end = first.saturating_add(repeat.count());
+        let (source, _, end) = repeat.covered(doc.bars());
         let inside = if whole_range {
             source < at && at < end
         } else {

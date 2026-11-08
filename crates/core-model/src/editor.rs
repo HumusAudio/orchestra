@@ -435,22 +435,15 @@ impl Editor {
         }
         let mark = self.open.as_ref().map_or(0, |open| open.inverses.len());
         let mut local = self.execute_open(command)?;
-        if local.tempo_dirty {
-            match self.document.derive_tempo_map() {
-                Ok(map) => {
-                    local.set_tempo_from(first_difference(self.document.tempo_map(), &map));
-                    self.document.tempo_map = map;
-                }
-                Err(cause) => {
-                    let tail: Vec<Edit> = self
-                        .open
-                        .as_mut()
-                        .map(|open| open.inverses.drain(mark..).collect())
-                        .unwrap_or_default();
-                    self.revert(&tail, cause)?;
-                    return Err(CommandError::Document(cause));
-                }
-            }
+        // The map in the document is the one before this update (edits never touch it).
+        if let Err(cause) = self.rederive_tempo(&mut local, None) {
+            let tail: Vec<Edit> = self
+                .open
+                .as_mut()
+                .map(|open| open.inverses.drain(mark..).collect())
+                .unwrap_or_default();
+            self.revert(&tail, cause)?;
+            return Err(CommandError::Document(cause));
         }
         let open = self.open.as_mut().ok_or(CommandError::NoGesture)?;
         // Compaction: keep only the first `Replace` inverse of each object in the gesture.
@@ -655,19 +648,13 @@ impl Editor {
         if inverses.is_empty() {
             return Ok(ChangeSet::default());
         }
-        if changes.tempo_dirty {
-            match self.document.derive_tempo_map() {
-                Ok(map) => {
-                    changes.set_tempo_from(first_difference(&tempo_before, &map));
-                    self.document.tempo_map = map;
-                }
-                Err(cause) => {
-                    self.revert(&inverses, cause)?;
-                    // A gesture may have rebuilt the tempo map live: put back the one from before.
-                    self.document.tempo_map = tempo_before;
-                    return Err(CommandError::Document(cause));
-                }
-            }
+        // A gesture may have rebuilt the tempo map live, so the document's map is not
+        // necessarily the one from before the transaction: compare with the saved one.
+        if let Err(cause) = self.rederive_tempo(&mut changes, Some(&tempo_before)) {
+            self.revert(&inverses, cause)?;
+            // Put back the map from before the transaction (see above).
+            self.document.tempo_map = tempo_before;
+            return Err(CommandError::Document(cause));
         }
         changes.tempo_dirty = false;
         changes.finish();
@@ -699,6 +686,34 @@ impl Editor {
         Ok(())
     }
 
+    /// Rebuilds the tempo map from the tempo marks if the edits touched them (`tempo_dirty`), and
+    /// records in `changes` from where the timing changed. `before` is the map to compare with;
+    /// `None` means the one still in the document (edits never touch it, only this function
+    /// replaces it). Does nothing when the tempo is clean.
+    ///
+    /// The one copy of a step that `update_gesture`, `commit` and `run` each wrote out (review
+    /// point B16); each caller keeps its own way of undoing a failure.
+    ///
+    /// # Errors
+    /// The tempo map's, as a [`DocumentError`]; the document's map is then left unchanged.
+    ///
+    /// # Complexity
+    /// O(tempo marks) for the map, O(segments) for the comparison.
+    fn rederive_tempo(
+        &mut self,
+        changes: &mut ChangeSet,
+        before: Option<&TempoMap>,
+    ) -> Result<(), DocumentError> {
+        if !changes.tempo_dirty {
+            return Ok(());
+        }
+        let map = self.document.derive_tempo_map()?;
+        let before = before.unwrap_or(&self.document.tempo_map);
+        changes.set_tempo_from(first_difference(before, &map));
+        self.document.tempo_map = map;
+        Ok(())
+    }
+
     /// Applies the inverses of a failed transaction, last first, and puts the tempo map back if it
     /// had been rebuilt. O(edits).
     fn revert(&mut self, inverses: &[Edit], cause: DocumentError) -> Result<(), CommandError> {
@@ -715,7 +730,6 @@ impl Editor {
     /// what they changed; derives the tempo map if needed and bumps the revision. If anything
     /// fails, the edits already applied are reverted and the error returned.
     fn run(&mut self, edits: &[Edit]) -> Result<(Step, ChangeSet), CommandError> {
-        let tempo_before = self.document.tempo_map().clone();
         let mut changes = ChangeSet::default();
         let mut inverses = Vec::with_capacity(edits.len());
         for edit in edits {
@@ -727,17 +741,12 @@ impl Editor {
                 }
             }
         }
-        if changes.tempo_dirty {
-            match self.document.derive_tempo_map() {
-                Ok(map) => {
-                    changes.set_tempo_from(first_difference(&tempo_before, &map));
-                    self.document.tempo_map = map;
-                }
-                Err(cause) => {
-                    self.revert(&inverses, cause)?;
-                    return Err(CommandError::Document(cause));
-                }
-            }
+        // No gesture is open during an undo or a redo, and edits never touch the tempo map, so
+        // the document still holds the map from before the step: no copy of it is needed (it used
+        // to be cloned at every undo and redo, review point D1).
+        if let Err(cause) = self.rederive_tempo(&mut changes, None) {
+            self.revert(&inverses, cause)?;
+            return Err(CommandError::Document(cause));
         }
         changes.tempo_dirty = false;
         changes.finish();

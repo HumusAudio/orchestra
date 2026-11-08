@@ -45,14 +45,13 @@
 //! O(path × events of a bar) items per voice, O(1) average per tie followed (an index by notehead),
 //! O(n log n) to sort the n notes of an instrument.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
 
 use orchestra_core_model::{
     Arpeggio, Articulation, ArticulationSet, Chord, Document, DocumentError, Event, EventBody,
-    EventId, GraceAttach, GraceKind, InstrumentId, NoteId, PassOffsets, PerformanceOffsets,
-    PitchError, StaffId, Tie, VoiceId,
+    EventId, GraceAttach, GraceKind, IdMap, IdSet, InstrumentId, NoteId, PassOffsets,
+    PerformanceOffsets, PitchError, StaffId, Tie, VoiceId,
 };
 use orchestra_core_time::{Duration, Position, Rational, RationalError, Seconds};
 
@@ -65,21 +64,29 @@ mod update;
 // Constants of ADR-0027
 // ------------------------------------------------------------------------------------------------
 
+/// `1/den` of a whole note, as a constant.
+///
+/// `Rational::new` returns a `Result`, so a constant cannot use `?`; the `match` is evaluated at
+/// compile time, and for the positive denominators used below it always takes the `Ok` arm (the
+/// `Err` arm is unreachable: a failure would be a wrong constant, caught by the tests, never a
+/// run-time error). The constants used to be functions returning `Result`, re-evaluated at every
+/// call (review point C3).
+const fn whole_fraction(den: i64) -> Duration {
+    match Rational::new(1, den) {
+        Ok(r) => Duration::from_rational(r),
+        Err(_) => Duration::ZERO,
+    }
+}
+
 /// The duration of one acciaccatura and of one `After` grace note: 1/32 of a whole note, about
 /// 65 ms at ♩ = 120 (ADR-0027 §5, `MuseScore`'s duration).
-fn grace_length() -> Result<Duration, RationalError> {
-    Ok(Duration::from_rational(Rational::new(1, 32)?))
-}
+const GRACE_LENGTH: Duration = whole_fraction(32);
 
 /// The distance between two notes of an arpeggio: 1/64 of a whole note (ADR-0027 §6).
-fn arpeggio_step() -> Result<Duration, RationalError> {
-    Ok(Duration::from_rational(Rational::new(1, 64)?))
-}
+const ARPEGGIO_STEP: Duration = whole_fraction(64);
 
 /// The shortest a played note lasts: 1/1024 of a whole note (ADR-0027 §8).
-fn min_length() -> Result<Duration, RationalError> {
-    Ok(Duration::from_rational(Rational::new(1, 1024)?))
-}
+const MIN_LENGTH: Duration = whole_fraction(1024);
 
 // ------------------------------------------------------------------------------------------------
 // Errors
@@ -585,7 +592,7 @@ fn perform_range(
 fn find_chains(items: &[Vec<Item>]) -> Result<Vec<Chain>, PerformError> {
     // Every notehead of a main event, by ID: where it is played (voice, item), for the ties. A
     // notehead played several times (a repeat) has several places.
-    let mut places: HashMap<NoteId, Vec<(usize, usize)>> = HashMap::new();
+    let mut places: IdMap<NoteId, Vec<(usize, usize)>> = IdMap::default();
     for (v, list) in items.iter().enumerate() {
         for (i, item) in list.iter().enumerate() {
             if item.event.grace().is_some() {
@@ -598,8 +605,7 @@ fn find_chains(items: &[Vec<Item>]) -> Result<Vec<Chain>, PerformError> {
     }
 
     // N1, N2: chains, followed notehead by notehead along the ties that sound next on the path.
-    let mut continued: std::collections::HashSet<(usize, usize, NoteId)> =
-        std::collections::HashSet::new();
+    let mut continued: IdSet<(usize, usize, NoteId)> = IdSet::default();
     let mut chains: Vec<Chain> = Vec::new();
     for (v, list) in items.iter().enumerate() {
         for (i, item) in list.iter().enumerate() {
@@ -746,26 +752,44 @@ fn chain_note(
         offset: offsets.velocity,
     };
     let loud = basis.profile(timelines)?;
-    let note = PlayedNote {
-        note: first_note.id(),
-        event: first.event.id(),
-        instrument,
-        voice,
-        staff: first.event.staff(),
-        played: first.played,
-        pass: first.pass,
-        start,
-        end,
-        pitch: first_note.pitch().sounding()?,
-        velocity: loud.velocity,
-        hold: loud.hold,
-        settle_in: loud.settle_in,
-        settle_to: loud.settle_to,
-    };
+    let note = played_note(&first_note, first, (instrument, voice), (start, end), loud)?;
     Ok(Slot {
         note,
         last: last.played,
         basis,
+    })
+}
+
+/// A played note of the notehead `note` of the item `item`, sounding from `start` to `end` with
+/// the attack profile `loud`. O(1).
+///
+/// The one place where a [`PlayedNote`] is assembled: tie chains (`chain_note`) and grace notes
+/// (`push_grace`) each filled in the fourteen fields (review point B17).
+///
+/// # Errors
+/// The pitch error of an absurd alteration (see `Pitch::sounding`).
+fn played_note(
+    note: &orchestra_core_model::Note,
+    item: &Item,
+    (instrument, voice): (InstrumentId, VoiceId),
+    (start, end): (Position, Position),
+    loud: loudness::Profile,
+) -> Result<PlayedNote, PerformError> {
+    Ok(PlayedNote {
+        note: note.id(),
+        event: item.event.id(),
+        instrument,
+        voice,
+        staff: item.event.staff(),
+        played: item.played,
+        pass: item.pass,
+        start,
+        end,
+        pitch: note.pitch().sounding()?,
+        velocity: loud.velocity,
+        hold: loud.hold,
+        settle_in: loud.settle_in,
+        settle_to: loud.settle_to,
     })
 }
 
@@ -794,8 +818,9 @@ fn place_graces(
     graces: &mut Vec<Slot>,
 ) -> Result<(), PerformError> {
     let voice = voices.get(v).ok_or(UnrollError::Endless)?.id();
-    let unit = grace_length()?;
-    let half = Rational::new(1, 2)?;
+    // What every grace note pushed below shares: its voice, instrument and pass offsets.
+    let context = (v, instrument, voice, passes);
+    let unit = GRACE_LENGTH;
     let mut i = 0;
     while i < list.len() {
         let Some(item) = list.get(i) else { break };
@@ -803,36 +828,14 @@ fn place_graces(
             i = i.saturating_add(1);
             continue;
         };
+        // The run of graces of the same attachment at the same point: items `i..j`.
+        let j = grace_run_end(list, i, grace.attach);
         if grace.attach == GraceAttach::After {
             // A run of `After` graces: they end where the note they follow ends.
-            let mut run = vec![i];
-            let mut j = i.saturating_add(1);
-            while let Some(next) = list.get(j) {
-                if next
-                    .event
-                    .grace()
-                    .is_some_and(|g| g.attach == GraceAttach::After)
-                    && next.start == item.start
-                {
-                    run.push(j);
-                    j = j.saturating_add(1);
-                } else {
-                    break;
-                }
-            }
+            let n = count(j.saturating_sub(i))?;
             let (at, limit) = previous_end(notes, v, item.start)?;
-            let mut total = unit.checked_mul(Rational::from_integer(
-                i64::try_from(run.len()).unwrap_or(1),
-            )?)?;
-            if let Some(limit) = limit {
-                let max = limit.checked_mul(half)?;
-                if total > max {
-                    total = max;
-                }
-            }
-            let each = total.checked_div(Rational::from_integer(
-                i64::try_from(run.len()).unwrap_or(1),
-            )?)?;
+            let total = at_most_half_of(unit.checked_mul(n)?, limit)?;
+            let each = total.checked_div(n)?;
             // N6: acciaccaturas of the next note at the same point come after these graces, so
             // these end where those begin (each acciaccatura lasts one unit, before the beat).
             let following = list
@@ -845,91 +848,32 @@ fn place_graces(
                             .grace()
                             .is_some_and(|g| g.attach == GraceAttach::Before)
                 })
-                .filter(|x| {
-                    x.event
-                        .grace()
-                        .is_some_and(|g| g.kind == GraceKind::Acciaccatura)
-                })
+                .filter(|x| is_acciaccatura(x))
                 .count();
-            let reserve = unit.checked_mul(Rational::from_integer(
-                i64::try_from(following).unwrap_or(0),
-            )?)?;
-            let from = at.checked_sub(reserve)?.checked_sub(total)?;
+            let from = at
+                .checked_sub(unit.checked_mul(count(following)?)?)?
+                .checked_sub(total)?;
             shorten_previous(notes, v, item.start, from);
-            for (k, &g) in run.iter().enumerate() {
-                let start = from.checked_add(
-                    each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
-                )?;
-                push_grace(
-                    list,
-                    g,
-                    timelines,
-                    (v, instrument, voice, passes),
-                    start,
-                    each,
-                    graces,
-                )?;
-            }
+            spread(list, i..j, from, each, timelines, context, graces)?;
             i = j;
             continue;
         }
-        // A run of `Before` graces, then their main event.
-        let mut run = vec![i];
-        let mut j = i.saturating_add(1);
-        while let Some(next) = list.get(j) {
-            if next
-                .event
-                .grace()
-                .is_some_and(|g| g.attach == GraceAttach::Before)
-                && next.start == item.start
-            {
-                run.push(j);
-                j = j.saturating_add(1);
-            } else {
-                break;
-            }
-        }
-        let accs: Vec<usize> = run
-            .iter()
-            .copied()
-            .filter(|&g| {
-                list.get(g)
-                    .and_then(|x| x.event.grace())
-                    .is_some_and(|x| x.kind == GraceKind::Acciaccatura)
-            })
-            .collect();
-        let apps: Vec<usize> = run.iter().copied().filter(|g| !accs.contains(g)).collect();
+        // A run of `Before` graces, then their main event, split into acciaccaturas (before the
+        // beat) and appoggiaturas (on it).
+        let (accs, apps): (Vec<usize>, Vec<usize>) =
+            (i..j).partition(|&g| list.get(g).is_some_and(is_acciaccatura));
         let beat = item.start;
         // Acciaccaturas before the beat, taking time from the previous note (N5).
         if !accs.is_empty() {
-            let n = Rational::from_integer(i64::try_from(accs.len()).unwrap_or(1))?;
-            let mut total = unit.checked_mul(n)?;
+            let n = count(accs.len())?;
             let (prev_end, limit) = previous_end(notes, v, beat)?;
-            if let Some(limit) = limit
-                && prev_end == beat
-            {
-                let max = limit.checked_mul(half)?;
-                if total > max {
-                    total = max;
-                }
-            }
+            // Only a previous note ending right on the beat gives up time.
+            let limit = limit.filter(|_| prev_end == beat);
+            let total = at_most_half_of(unit.checked_mul(n)?, limit)?;
             let each = total.checked_div(n)?;
             let from = beat.checked_sub(total)?;
             shorten_previous(notes, v, beat, from);
-            for (k, &g) in accs.iter().enumerate() {
-                let start = from.checked_add(
-                    each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
-                )?;
-                push_grace(
-                    list,
-                    g,
-                    timelines,
-                    (v, instrument, voice, passes),
-                    start,
-                    each,
-                    graces,
-                )?;
-            }
+            spread(list, accs, from, each, timelines, context, graces)?;
         }
         // Appoggiaturas on the beat, taking time from the main note.
         if !apps.is_empty()
@@ -944,22 +888,8 @@ fn place_graces(
                 _ => Rational::new(4, 7)?,
             };
             let total = main.length.checked_mul(share)?;
-            let n = Rational::from_integer(i64::try_from(apps.len()).unwrap_or(1))?;
-            let each = total.checked_div(n)?;
-            for (k, &g) in apps.iter().enumerate() {
-                let start = beat.checked_add(
-                    each.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?,
-                )?;
-                push_grace(
-                    list,
-                    g,
-                    timelines,
-                    (v, instrument, voice, passes),
-                    start,
-                    each,
-                    graces,
-                )?;
-            }
+            let each = total.checked_div(count(apps.len())?)?;
+            spread(list, apps, beat, each, timelines, context, graces)?;
             // The main note (every chain starting at that item) starts after them.
             let new_start = beat.checked_add(total)?;
             for (chain, note) in notes.iter_mut() {
@@ -973,6 +903,75 @@ fn place_graces(
             }
         }
         i = j;
+    }
+    Ok(())
+}
+
+/// The end (exclusive) of the run of grace notes attached by `attach` that starts at `i`: the
+/// following items that are graces with the same attachment and the same start as item `i`. `i`
+/// itself is assumed to be one of them, so the result is at least `i + 1` when `i` is in range.
+/// O(run length).
+///
+/// It was written out twice in `place_graces`, once per attachment (review point B17).
+fn grace_run_end(list: &[Item], i: usize, attach: GraceAttach) -> usize {
+    let Some(first) = list.get(i) else {
+        return i;
+    };
+    let mut j = i.saturating_add(1);
+    while list.get(j).is_some_and(|next| {
+        next.event.grace().is_some_and(|g| g.attach == attach) && next.start == first.start
+    }) {
+        j = j.saturating_add(1);
+    }
+    j
+}
+
+/// Whether the item is an acciaccatura (a crushed grace note, ADR-0027 N5). O(1).
+fn is_acciaccatura(item: &Item) -> bool {
+    item.event
+        .grace()
+        .is_some_and(|g| g.kind == GraceKind::Acciaccatura)
+}
+
+/// A count of grace notes as a rational, for multiplying and dividing durations. Counts are tiny;
+/// a count beyond `i64` cannot happen and is reported as an overflow rather than replaced by a
+/// made-up value. O(1).
+fn count(n: usize) -> Result<Rational, RationalError> {
+    Rational::from_integer(i64::try_from(n).map_err(|_| RationalError::Overflow)?)
+}
+
+/// `total`, but no more than half of `limit` when there is one: grace notes never take more than
+/// half of the note they borrow time from (ADR-0027 N5, N6). O(1).
+fn at_most_half_of(total: Duration, limit: Option<Duration>) -> Result<Duration, RationalError> {
+    Ok(match limit {
+        Some(limit) => total.min(limit.checked_mul(Rational::new(1, 2)?)?),
+        None => total,
+    })
+}
+
+/// Plays the grace notes at the indices `run`, one after the other from `from`, each lasting
+/// `each`: the `k`-th starts at `from + k × each`. O(run length × noteheads).
+///
+/// The same loop was written three times (`After` graces, acciaccaturas, appoggiaturas; review
+/// point B17).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the run, its timing and the context of `push_grace`, all needed; a struct would only \
+              rename them"
+)]
+fn spread(
+    list: &[Item],
+    run: impl IntoIterator<Item = usize>,
+    from: Position,
+    each: Duration,
+    timelines: &[Timeline],
+    context: (usize, InstrumentId, VoiceId, &PassOffsets),
+    graces: &mut Vec<Slot>,
+) -> Result<(), PerformError> {
+    let mut start = from;
+    for g in run {
+        push_grace(list, g, timelines, context, start, each, graces)?;
+        start = start.checked_add(each)?;
     }
     Ok(())
 }
@@ -1067,25 +1066,19 @@ fn push_grace(
             offset: offsets.velocity,
         };
         let loud = basis.profile(timelines)?;
-        let played = PlayedNote {
-            note: note.id(),
-            event: item.event.id(),
-            instrument,
-            voice,
-            staff: item.event.staff(),
-            played: item.played,
-            pass: item.pass,
-            start: start.checked_add(offsets.onset)?,
-            end: start
-                .checked_add(length)?
-                .checked_add(offsets.onset)?
-                .checked_add(offsets.length)?,
-            pitch: note.pitch().sounding()?,
-            velocity: loud.velocity,
-            hold: loud.hold,
-            settle_in: loud.settle_in,
-            settle_to: loud.settle_to,
-        };
+        let played = played_note(
+            note,
+            item,
+            (instrument, voice),
+            (
+                start.checked_add(offsets.onset)?,
+                start
+                    .checked_add(length)?
+                    .checked_add(offsets.onset)?
+                    .checked_add(offsets.length)?,
+            ),
+            loud,
+        )?;
         graces.push(Slot {
             note: played,
             last: item.played,
@@ -1102,9 +1095,9 @@ fn push_grace(
 /// # Errors
 /// The arithmetic errors.
 fn arpeggiate(items: &[Vec<Item>], notes: &mut [Slot]) -> Result<(), PerformError> {
-    let step = arpeggio_step()?;
+    let step = ARPEGGIO_STEP;
     // The events with an arpeggio sign, and their direction.
-    let mut signs: HashMap<EventId, bool> = HashMap::new();
+    let mut signs: IdMap<EventId, bool> = IdMap::default();
     for list in items {
         for item in list {
             if let EventBody::Chord(chord) = item.event.body() {
@@ -1124,7 +1117,7 @@ fn arpeggiate(items: &[Vec<Item>], notes: &mut [Slot]) -> Result<(), PerformErro
         return Ok(());
     }
     // Group the notes of one arpeggiated event at one played start.
-    let mut groups: HashMap<(EventId, u32), Vec<usize>> = HashMap::new();
+    let mut groups: IdMap<(EventId, u32), Vec<usize>> = IdMap::default();
     for (k, slot) in notes.iter().enumerate() {
         let note = &slot.note;
         if signs.contains_key(&note.event) {
@@ -1157,7 +1150,7 @@ fn arpeggiate(items: &[Vec<Item>], notes: &mut [Slot]) -> Result<(), PerformErro
 /// # Errors
 /// The arithmetic errors.
 fn bound(note: &mut PlayedNote) -> Result<(), PerformError> {
-    let shortest = note.start.checked_add(min_length()?)?;
+    let shortest = note.start.checked_add(MIN_LENGTH)?;
     if note.end < shortest {
         note.end = shortest;
     }

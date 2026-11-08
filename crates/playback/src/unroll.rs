@@ -693,14 +693,6 @@ impl Unrolled {
         let (instrument, _) = doc.voice(voice).ok_or(DocumentError::UnknownVoice(voice))?;
         let meter = doc.meter_map();
         let at = meter.bar_start(p.index)?.checked_add(offset)?;
-        let position_of =
-            |point: orchestra_core_model::ScorePoint| -> Result<Position, UnrollError> {
-                let index = doc
-                    .bars()
-                    .index_of(point.bar)
-                    .ok_or(DocumentError::UnknownBar(point.bar))?;
-                Ok(meter.bar_start(index)?.checked_add(point.offset)?)
-            };
         for rule in instrument.pass_rules() {
             let applies = match rule.scope() {
                 DynamicScope::Instrument => true,
@@ -709,7 +701,7 @@ impl Unrolled {
             if !applies {
                 continue;
             }
-            if position_of(rule.start())? <= at && at < position_of(rule.end())? {
+            if doc.point_position(rule.start())? <= at && at < doc.point_position(rule.end())? {
                 let play = p.section_play.unwrap_or(1);
                 if !rule.plays().contains(play) {
                     return Ok(false);

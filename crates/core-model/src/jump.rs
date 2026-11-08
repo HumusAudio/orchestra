@@ -24,7 +24,7 @@
 //! is taken once, so the path is finite whatever the order.
 
 use crate::document::{Document, DocumentError};
-use crate::form::{index, invalid};
+use crate::form::invalid;
 use crate::id::{BarId, JumpId, MarkerId};
 use crate::validate::Violation;
 
@@ -261,6 +261,27 @@ impl Jump {
 // ------------------------------------------------------------------------------------------------
 
 impl Document {
+    /// Refuses a jump whose target, "until" or "then" marker does not exist. O(m) per marker.
+    ///
+    /// Used by the builder and by the mark commands; an edit does not check it, because a later
+    /// edit of the same transaction could add or remove the markers (see `crate::edit`). It was
+    /// written out in both places (review point B7).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownMarker`] with the first marker missing.
+    pub(crate) fn check_jump_markers(&self, spec: &JumpSpec) -> Result<(), DocumentError> {
+        let target = match spec.to {
+            JumpTarget::Start => None,
+            JumpTarget::Marker(id) => Some(id),
+        };
+        for id in [target, spec.until, spec.then].into_iter().flatten() {
+            if self.marker(id).is_none() {
+                return Err(DocumentError::UnknownMarker(id));
+            }
+        }
+        Ok(())
+    }
+
     /// The marker with this ID. O(m): markers are few (a handful per score).
     pub fn marker(&self, id: MarkerId) -> Option<&Marker> {
         self.form().markers().iter().find(|m| m.id == id)
@@ -278,7 +299,7 @@ impl Document {
     pub(crate) fn check_jumps(&self) -> Result<(), DocumentError> {
         let bars = self.bars();
         // A point of the score in score order: (bar index, 0 for the start, 1 for the end).
-        let kind_of = |id: MarkerId| self.marker(id).map(|m| (m.kind, index(bars, m.bar)));
+        let kind_of = |id: MarkerId| self.marker(id).map(|m| (m.kind, bars.key(m.bar)));
         for jump in self.form().jumps() {
             let bad = |v: fn(JumpId) -> Violation| Err(invalid(v(jump.id)));
             let spec = jump.spec;
@@ -289,7 +310,7 @@ impl Document {
                     _ => return bad(Violation::JumpTargetKind),
                 },
             };
-            let here = (index(bars, jump.bar), 1_u8);
+            let here = (bars.key(jump.bar), 1_u8);
             match (spec.until.map(kind_of), spec.then.map(kind_of)) {
                 (None, None) => {}
                 (Some(Some((MarkerKind::Fine, at))), None)

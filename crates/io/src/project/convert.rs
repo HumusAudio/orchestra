@@ -20,16 +20,14 @@
 //! Both directions are O(size of the document), one pass, plus a hash map from bar IDs to their
 //! index while loading.
 
-use std::collections::HashMap;
-
 use orchestra_core_model::{
     ArticulationSet, BarId, BarRepeat, BarRepeatId, CellParts, Chord, ClefId, DocumentParts,
     Dynamic, DynamicId, DynamicMark, DynamicPlacement, DynamicScope, Event, EventBody, EventId,
-    Grace, GradualMark, Hairpin, HairpinId, HairpinShape, InstrumentId, Interval, Jump, JumpFires,
-    JumpId, JumpSpec, JumpTarget, Key, KeyChangeId, KeyOverride, KeySignature, Mark, Marker,
-    MarkerId, Metronome, Note, NoteId, OtherDynamic, PassOffset, PassRule, PassRuleId, PassSet,
-    PerformanceOffsets, PlacedEvent, RepeatEnd, RepeatId, RepeatStart, Rest, ScorePoint, Slur,
-    SlurId, SlurPlacement, StaffId, StaffParts, TempoMark, TempoMarkChange, TempoMarkId, Tie,
+    Grace, GradualMark, Hairpin, HairpinId, HairpinShape, IdMap, InstrumentId, Interval, Jump,
+    JumpFires, JumpId, JumpSpec, JumpTarget, Key, KeyChangeId, KeyOverride, KeySignature, Mark,
+    Marker, MarkerId, Metronome, Note, NoteId, OtherDynamic, PassOffset, PassRule, PassRuleId,
+    PassSet, PerformanceOffsets, PlacedEvent, RepeatEnd, RepeatId, RepeatStart, Rest, ScorePoint,
+    Slur, SlurId, SlurPlacement, StaffId, StaffParts, TempoMark, TempoMarkChange, TempoMarkId, Tie,
     TrackId, TrackParts, Tuplet, TupletDisplay, TupletId, VoiceId, VoiceParts, Volta, VoltaId,
 };
 use orchestra_core_time::{BarIndex, Duration, IrregularBar, MeterChange, MeterMap, Tempo};
@@ -595,7 +593,7 @@ fn id<T>(raw: u64, from_raw: fn(u64) -> Option<T>) -> Result<T, LoadError> {
 /// The bar IDs of the file and where each is, for the meter map's entries (I6).
 struct Bars {
     /// Bar ID (raw) → index.
-    index: HashMap<u64, u32>,
+    index: IdMap<u64, u32>,
 }
 
 impl Bars {

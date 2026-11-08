@@ -651,8 +651,8 @@ impl Document {
             // Rule 11: no event drawn on the staff of a bar repeat covering this bar.
             let at = index.get();
             for repeat in instrument.bar_repeats() {
-                let first = crate::form::index(self.bars(), repeat.first());
-                let covers = first <= at && at < first.saturating_add(repeat.count());
+                let (_, first, end) = repeat.covered(self.bars());
+                let covers = first <= at && at < end;
                 if covers
                     && voice
                         .events_at(index)

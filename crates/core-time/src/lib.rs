@@ -50,6 +50,25 @@
 // Tests are exempt from the first one through clippy.toml.
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+/// Unwraps a `Result` inside a `const fn`, returning the error early.
+///
+/// The `?` operator relies on the `Try` trait, which cannot be called in a `const fn` on stable
+/// Rust; this macro is the hand-written equivalent of `?`. The error is returned as it is (no
+/// `From` conversion, unlike `?`), so the enclosing function must return the same error type.
+///
+/// # Why here?
+/// `macro_rules!` macros are visible, in textual order, to everything declared after them in the
+/// same crate: defining it once at the root, before the `mod` lines, makes it available to every
+/// module (it used to be copied into `rational`, `position` and `clock`, review point B1).
+macro_rules! const_try {
+    ($result:expr) => {
+        match $result {
+            Ok(value) => value,
+            Err(error) => return Err(error),
+        }
+    };
+}
+
 pub mod clock;
 pub mod meter;
 pub mod meter_map;

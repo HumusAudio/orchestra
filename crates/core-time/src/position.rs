@@ -57,19 +57,6 @@ use std::ops::Neg;
 
 use crate::rational::{Rational, RationalError};
 
-/// Unwraps a `Result<Rational, RationalError>` inside a `const fn`, returning the error early.
-///
-/// The `?` operator and `Result::map` are not callable in a `const fn` on stable Rust, so each
-/// forwarding method uses this hand-written equivalent of `?` before re-wrapping the value.
-macro_rules! const_try {
-    ($result:expr) => {
-        match $result {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        }
-    };
-}
-
 /// A point on the written timeline, in whole notes from the start of the score (ADR-0018 §1).
 ///
 /// Zero is the start of bar 0, which is the pickup bar when the score has one. Positions are
@@ -300,27 +287,18 @@ impl Neg for Duration {
 impl fmt::Debug for Position {
     /// Writes `Position(3/8)`, or `Position(2)` for integers.
     ///
-    /// Only `Debug`, like `Rational`: the text form for files and the interface comes in F1.15.
+    /// Only `Debug`: a position has no text form of its own. Files write its rational
+    /// (`Rational`'s `Display` and `FromStr`, F1.15), the interface will show bars and beats.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_parts(f, "Position", self.0)
+        // `Rational`'s `Display` writes `3/8`, or `2` for an integer: the same text the two
+        // `Debug` implementations used to build by hand (review point B2).
+        write!(f, "Position({})", self.0)
     }
 }
 
 impl fmt::Debug for Duration {
     /// Writes `Duration(-1/4)`, or `Duration(1)` for integers. Only `Debug` (see [`Position`]).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write_parts(f, "Duration", self.0)
-    }
-}
-
-/// Writes `Name(num/den)`, or `Name(num)` when the value is an integer.
-///
-/// Shared by the two `Debug` implementations. It does not reuse `Rational`'s `Debug`, which would
-/// give the noisier `Position(Rational(3/8))`.
-fn write_parts(f: &mut fmt::Formatter<'_>, name: &str, value: Rational) -> fmt::Result {
-    if value.is_integer() {
-        write!(f, "{name}({})", value.numerator())
-    } else {
-        write!(f, "{name}({}/{})", value.numerator(), value.denominator())
+        write!(f, "Duration({})", self.0)
     }
 }

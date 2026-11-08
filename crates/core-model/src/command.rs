@@ -45,8 +45,6 @@
 //! - **W3**: entering an event that would reach past the last bar is refused.
 //! - **W4–W6**: see [`Command::DeleteBars`] and [`Command::InsertBars`].
 
-use std::collections::HashSet;
-
 use orchestra_core_time::{
     BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar, MeterChange,
 };
@@ -1201,7 +1199,7 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
     // The chain, by a walk over the ties in both directions; `seen` stops a loop (a tie that is
     // not forward never passes `validate`, but the walk must not depend on that).
     let mut chain: Vec<NoteId> = Vec::new();
-    let mut seen: HashSet<NoteId> = HashSet::new();
+    let mut seen: IdSet<NoteId> = IdSet::default();
     let mut todo = vec![note];
     while let Some(n) = todo.pop() {
         if !seen.insert(n) {
@@ -1309,9 +1307,7 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
         .instruments()
         .flat_map(crate::document::Instrument::bar_repeats)
     {
-        let first = crate::form::index(doc.bars(), repeat.first());
-        let source = first.saturating_sub(repeat.span().bars());
-        let end = first.saturating_add(repeat.count());
+        let (source, _, end) = repeat.covered(doc.bars());
         if source < at.get() && at.get() < end {
             return Err(DocumentError::InsideBarRepeat(repeat.id()).into());
         }
@@ -1618,7 +1614,7 @@ fn clip_spanners(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError
 fn clip_form(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> {
     let doc = tx.document();
     let bars = doc.bars();
-    let index = |bar: BarId| crate::form::index(bars, bar);
+    let index = |bar: BarId| bars.key(bar);
     let mut edits = Vec::new();
     let form = doc.form();
     for volta in form.voltas() {
@@ -1691,10 +1687,8 @@ fn clip_form(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> {
 /// moved to the first bar after the run if its first bar is deleted. `None` if it is untouched.
 /// O(1).
 fn clip_bar_repeat(doc: &Document, cut: &Cut, repeat: &BarRepeat) -> Option<Edit> {
-    let first = crate::form::index(doc.bars(), repeat.first());
     let span = repeat.span().bars();
-    let source = first.saturating_sub(span);
-    let end = first.saturating_add(repeat.count());
+    let (source, first, end) = repeat.covered(doc.bars());
     // Bars of [a, b) inside the run.
     let overlap = |a: u32, b: u32| b.min(cut.end).saturating_sub(a.max(cut.first));
     let remove = Some(Edit::Remove(ObjectRef::BarRepeat(repeat.id())));

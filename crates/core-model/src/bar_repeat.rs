@@ -25,9 +25,9 @@
 
 use orchestra_core_time::{BarIndex, Duration};
 
-use crate::document::{Document, DocumentError, Instrument};
+use crate::document::{BarList, Document, DocumentError, Instrument};
 use crate::dynamic::DynamicScope;
-use crate::form::{PassSet, index, invalid};
+use crate::form::{PassSet, invalid};
 use crate::id::{BarId, BarRepeatId, PassRuleId, StaffId};
 use crate::marks::{ScorePoint, point_key};
 use crate::validate::Violation;
@@ -125,6 +125,22 @@ impl BarRepeat {
     #[must_use]
     pub const fn span(&self) -> BarRepeatSpan {
         self.span
+    }
+
+    /// The bar indices this repeat ties together, as `(source, first, end)`: the source bars it
+    /// repeats start at `source = first − span`, the repeated bars run from `first` up to `end =
+    /// first + count` (exclusive). Indices from `BarList::key`; the subtraction saturates at 0
+    /// (a repeat without source is refused by validation, `BarRepeatNoSource`). O(1) average.
+    ///
+    /// The one place of this arithmetic: inserting bars, deleting bars, rewriting bars and
+    /// validating chunks each wrote it out (review point B14).
+    pub(crate) fn covered(&self, bars: &BarList) -> (u32, u32, u32) {
+        let first = bars.key(self.first);
+        (
+            first.saturating_sub(self.span.bars()),
+            first,
+            first.saturating_add(self.count),
+        )
     }
 }
 
@@ -238,7 +254,7 @@ impl Document {
         let mut ends: [Option<(StaffId, u32)>; crate::document::MAX_STAVES_PER_INSTRUMENT] =
             [None; crate::document::MAX_STAVES_PER_INSTRUMENT];
         for repeat in instrument.bar_repeats() {
-            let first = index(bars, repeat.first);
+            let first = bars.key(repeat.first);
             let span = repeat.span.bars();
             let last = first.saturating_add(repeat.count).saturating_sub(1);
             let Some(source) = first.checked_sub(span) else {
@@ -313,11 +329,11 @@ impl Document {
         // A marking at the start of bar k is inside when from < k ≤ to; at the end of bar k when
         // from ≤ k < to.
         let at_start = |bar: BarId| {
-            let k = index(bars, bar);
+            let k = bars.key(bar);
             from < k && k <= to
         };
         let at_end = |bar: BarId| {
-            let k = index(bars, bar);
+            let k = bars.key(bar);
             from <= k && k < to
         };
         form.repeat_starts().iter().any(|r| at_start(r.bar()))

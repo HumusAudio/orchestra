@@ -316,8 +316,13 @@ const QUARTER: Rational = match Rational::new(1, 4) {
 ```
 
 Essere `const` costa un po' di prolissità: dentro una `const fn` non si possono ancora usare `?` e
-`TryFrom`, quindi il file ha due piccole macro (`const_try!`, `or_overflow!`) che fanno il lavoro
-di `?`, e alcune conversioni `as`, ognuna con il suo motivo. Gli altri metodi sono `abs`,
+`TryFrom`, quindi il crate ha due piccole macro che fanno il lavoro di `?`: `const_try!`, definita
+una volta sola alla radice del crate (`lib.rs`, prima delle righe `mod`, così ogni modulo la vede:
+prima era copiata in tre file), e `or_overflow!` in questo file; e alcune conversioni `as`, ognuna
+con il suo motivo. Anche il GCD binario è scritto una volta sola, come macro `stein_gcd!` espansa
+da `gcd_u64` e `gcd_u128` (una funzione generica non può chiamare i metodi degli interi in una
+`const fn`). Le forme `Debug` di `Position`, `Duration` e `Seconds` stampano il razionale interno
+con il suo `Display` (`Position(3/8)`). Gli altri metodi sono `abs`,
 `signum`, `is_zero`, `is_positive`, `is_negative`, `is_integer`, `floor`/`ceil`/`trunc` (verso
 `i64`, non possono fallire) e `to_f64`, un'approssimazione solo per la visualizzazione che non
 deve mai rientrare nel modello. `Debug` stampa `Rational(3/8)`; la forma testuale canonica del file di
@@ -991,7 +996,12 @@ vieta. Ciò che è attaccato a una battuta (da F1.09 le note) usa come chiave il
 inserire una battuta non sposterà nient'altro. Un indice inverso (`BarId` → posizione) risponde in
 O(1) in media, con una funzione di hash nostra: una moltiplicazione per 2⁶⁴/φ invece del `SipHash`
 standard, che difende da chiavi scelte da un attaccante, mentre le nostre chiavi vengono dal nostro
-contatore.
+contatore. La funzione di hash e le due mappe costruite su di essa, `IdMap` e `IdSet`, sono
+pubbliche: `playback` e `io` le usano per le proprie mappe con chiave un ID (catene di legature,
+arpeggi, le battute di un file in caricamento), così ogni mappa del genere nel workspace usa lo
+stesso hash. Dentro il modello, `BarList::key(battuta)` è l'indice della battuta come chiave di
+ordinamento (`u32::MAX` per una battuta sconosciuta), l'unico posto di una regola prima scritta
+nove volte.
 
 **Come si crea un documento.** Con un `DocumentBuilder` (decisione del proprietario, 2026-11-02):
 serve per i documenti che non esistono ancora (il file che si apre, il generatore della partitura di
@@ -1131,7 +1141,9 @@ valore va allo stesso suono, più avanti, nello stesso strumento. La prima viola
 **Ricerche.** Un indice ricavato da `EventId` e `NoteId` a (voce, battuta) trova qualunque evento o
 testa di nota: una ricerca hash, lo scorrimento delle voci, lo scorrimento di un blocco.
 `events(voce, battuta)` dà un blocco, `metric_duration` ed `event_position` il tempo ricavato di un
-evento. Nessuna di queste alloca.
+evento, e `point_position` la posizione scritta di un qualunque `ScorePoint` (inizio della battuta
+più scostamento), che `playback` usa per le regole di passata, le dinamiche e le forcelle. Nessuna
+di queste alloca.
 
 **Test.** `tests/voice_cases.rs` ha 16 casi scritti a mano, uno per ciascun caso di ADR-0024 §13 di
 questo passo (accordo enarmonico, gruppi irregolari annidati con 1/12 e 1/30, gruppo incompleto,
