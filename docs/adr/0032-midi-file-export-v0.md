@@ -1,7 +1,9 @@
 # ADR-0032 — MIDI file export v0: Standard MIDI File 1.0, written by us
 
 - **Status:** Accepted (owner, 2026-11-08; SCALETTA F1.18). Precisions P1–P3 approved by the owner
-  the same day, after the implementation (§ "Precisions made while implementing").
+  the same day, after the implementation (§ "Precisions made while implementing"). **E9 amended
+  by ADR-0033** (2026-11-08): a pitch exactly half way between two keys takes the lower key bent
+  up by a half, as in ADR-0023 §3, also in a bend conflict.
 - **Date:** 2026-11-08
 - **Amends:** `docs/ARCHITECTURE.md`, the table of allowed internal dependencies (`io` may depend
   on `playback`). It leaves ADR-0027 unchanged: the played notes stay as they are; this ADR only

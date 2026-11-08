@@ -872,7 +872,11 @@ rule of `playback`.
 and `midi()` turns it into a `MidiNote`: the nearest key and a bend in semitones. A quarter tone
 lies exactly between two keys; the rule takes the **lower** key and bends up by a half, so the
 result is deterministic. A key outside 0–127 is a `PitchError::MidiOutOfRange`, never clipped.
-Chromatic pitches take a fast path with plain integer sums.
+Chromatic pitches take a fast path with plain integer sums. The rule itself lives in
+`MidiNote::nearest(sounding)`, which takes any exact sounding pitch: `midi()` calls it for
+microtonal spellings, and the MIDI file export calls it for the played notes, so the model and the
+file always give a note the same key (ADR-0033). It has the same integer fast path as `midi()`, so
+the export's chromatic notes cost no rational arithmetic.
 
 An **`Interval`** is a pair (diatonic steps, semitones), both signed, the same pair MusicXML uses for
 transposing instruments. Its **quality** is derived from the difference between its semitones and
@@ -2591,13 +2595,14 @@ a stretch of Δ ticks that must last N units (1 unit = 1/960 µs):
   (4/3) gets a marker with the meter as text and a warning.
 - `notes.rs`: channels, notes and controllers (E6–E10). Instrument *i* plays on the *i*-th of the
   15 channels without the drums' channel 10, shared beyond 15 with a warning; each channel is set up
-  once (bend range ±2 semitones by RPN 0, CC 11 at 127, bend at the centre). A note's key is the
-  nearest semitone and its bend the rest; the note-on velocity is `max(v, s) >> 9`, **at least 1**
+  once (bend range ±2 semitones by RPN 0, CC 11 at 127, bend at the centre). A note's key and bend
+  come from `MidiNote::nearest`, the model's own rule (exactly half way: the **lower** key bent up
+  by a half, ADR-0033); the encoder only turns the bend into 14 bits; the note-on velocity is `max(v, s) >> 9`, **at least 1**
   (a 0 would be a note-off: *niente* is 1). The **latest attack owns the channel's CC 11**: from its
   start to the next note-on or its own end it writes `127 × level / max(v, s)` in 10 ms steps,
   `level` following the attack profile (hold, then linear to the settling level). A note-on finding
   nothing sounding sets the bend it needs; finding another bend sounding, it is played on the
-  nearest key under it (`BendRounded`). A unison on one channel attacks again and only the last
+  nearest key under it, the lower one on a tie (`BendRounded`). A unison on one channel attacks again and only the last
   note on the key turns it off, in the track that holds it, so every track closes its own notes;
   two attacks of one key **at the same tick** are a single attack (a note-off there would be sorted
   before the note-on it should close).

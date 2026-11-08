@@ -17,7 +17,7 @@
 )]
 
 use orchestra_core_model::pitch::{
-    Alteration, Interval, Key, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
+    Alteration, Interval, Key, MidiNote, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
 use orchestra_core_time::Rational;
 
@@ -77,6 +77,32 @@ fn midi_range() {
     assert_eq!(p(Step::C, -1, -1).midi(), Err(PitchError::MidiOutOfRange));
     // B♯−2 sounds like C−1: the spelling is outside the octave but the key is fine.
     assert_eq!(p(Step::B, 1, -2).midi().unwrap().key, 0);
+}
+
+/// `MidiNote::nearest`, the one rule shared with the MIDI export (ADR-0033): exactly half way
+/// takes the lower key bent up by a half, at the ends of the range too; otherwise the nearest key.
+#[test]
+fn nearest_key_of_a_sounding_pitch() {
+    let nearest = |n, d| MidiNote::nearest(r(n, d));
+    assert_eq!(
+        nearest(121, 2),
+        Ok(MidiNote {
+            key: 60,
+            bend: r(1, 2)
+        })
+    );
+    assert_eq!(
+        nearest(243, 4),
+        Ok(MidiNote {
+            key: 61,
+            bend: r(-1, 4)
+        })
+    );
+    assert_eq!(nearest(255, 2).map(|m| m.key), Ok(127));
+    assert_eq!(nearest(-1, 2), Err(PitchError::MidiOutOfRange));
+    assert_eq!(nearest(256, 2), Err(PitchError::MidiOutOfRange));
+    // The same answer as `Pitch::midi` for a spelled quarter tone.
+    assert_eq!(pm(Step::C, 1, 2, 4).midi(), nearest(121, 2));
 }
 
 /// Quarter tones: the nearest key, the lower one on a tie, and the bend.

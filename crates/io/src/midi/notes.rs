@@ -8,8 +8,9 @@
 //!    without channel 10 (General MIDI drums). Beyond 15 instruments channels are shared, with a
 //!    warning. Each channel is set up once, at tick 0, in the track of its first instrument: pitch
 //!    bend range ±2 semitones (RPN 0), CC 11 = 127, bend at the centre.
-//! 2. **Notes.** Each played note gets its key and bend from its exact pitch (key = the nearest
-//!    semitone, halves up; bend = the remainder, −½ ..< ½ semitone, as `8 192 + round(b × 4 096)`),
+//! 2. **Notes.** Each played note gets its key and bend from its exact pitch with the model's own
+//!    rule, `MidiNote::nearest` (key = the nearest semitone, the lower one exactly half way; bend =
+//!    the remainder, −½ <.. ½ semitone, ADR-0033), the bend written as `8 192 + round(b × 4 096)`;
 //!    its ticks (E3; at least one tick long) and its note-on velocity `max(v, s) >> 9`, at least 1
 //!    (a 7-bit 0 would be a note-off). A key outside 0 ..= 127 is skipped with a warning.
 //! 3. **Who owns the channel's CC 11 (E8).** The latest attack: the notes of a channel are sorted
@@ -21,14 +22,15 @@
 //! 4. **The channel's state, in time order (E9, E10).** All the channel's actions sorted by tick,
 //!    then note-offs, controllers (CC 11, bend), note-ons, then key: a note-on finding nothing
 //!    sounding sets the bend it needs; finding other notes sounding with a different bend, it is
-//!    played on the nearest key under the current bend (`BendRounded`); finding its own key
+//!    played on the nearest key under the current bend, the lower one on a tie (`BendRounded`,
+//!    ADR-0033); finding its own key
 //!    sounding (a unison), it writes a note-off and a new note-on, and only the **last** note on
 //!    that key writes the final note-off.
 //! 5. **Tracks.** Each event goes to the track of its instrument; each track is sorted by tick,
 //!    then by the group of E10 (note-offs, controllers, note-ons), channel and key, so the bytes
 //!    are deterministic.
 
-use orchestra_core_model::Document;
+use orchestra_core_model::{Document, MidiNote};
 use orchestra_core_time::{RationalError, Seconds};
 use orchestra_playback::{Performance, PlayedNote};
 
@@ -115,34 +117,55 @@ fn units_of_seconds(seconds: Seconds) -> Result<i64, RationalError> {
     scaled_round(seconds.as_rational(), UNITS_PER_SECOND)
 }
 
-/// The key and the bend of an exact pitch in semitones (step 2), or `None` outside 0 ..= 127.
+/// The key and the 14-bit bend of an exact pitch in semitones (step 2), or `None` outside
+/// 0 ..= 127.
+///
+/// # Why reuse `MidiNote::nearest`?
+/// The key of a note half way between two keys must be the same in the model and in the file
+/// (ADR-0033: the lower key, bent up by a half). Computing it here with a formula of our own is
+/// exactly how the two once disagreed, so the encoder only adds the conversion of the bend.
+///
+/// # Bend units
+/// The bend `b` (semitones, in `(−1/2, +1/2]`) becomes `8 192 + round(b × 4 096)`: 4 096 units per
+/// semitone with the ±2 semitone range set by RPN 0, so the result lies in 6 145 ..= 10 240 and
+/// the clamp to 0 ..= 16 383 is only a guard.
+///
+/// # Complexity
 /// O(1).
 fn key_and_bend(pitch: orchestra_core_time::Rational) -> Option<(u8, u16)> {
-    let (n, d) = (
-        i128::from(pitch.numerator()),
-        i128::from(pitch.denominator()),
+    // An out-of-range key (or an absurd pitch) is reported by the caller as `PitchOutOfRange`.
+    let note = MidiNote::nearest(pitch).ok()?;
+    // bend × 4 096, rounded half away from zero (`round_div`, the rounding of the whole encoder).
+    let bend = round_div(
+        i128::from(note.bend.numerator()) * BEND_PER_SEMITONE,
+        i128::from(note.bend.denominator()),
     );
-    // key = floor(pitch + 1/2) = floor((2n + d) / 2d): the nearest semitone, halves up.
-    let key = (2 * n + d).div_euclid(2 * d);
-    // bend = (pitch − key) × 4 096, rounded, in −2 048 ..= 2 048.
-    let bend = round_div((n - key * d) * BEND_PER_SEMITONE, d);
-    let key = u8::try_from(key).ok().filter(|k| *k <= 127)?;
     let bend = u16::try_from((i128::from(BEND_CENTRE) + bend).clamp(0, 16_383)).ok()?;
-    Some((key, bend))
+    Some((note.key, bend))
 }
 
 /// The nearest key to `pitch` when the channel is bent by `bend` (step 4, `BendRounded`): the key
-/// whose bent sound is closest, `floor(pitch − c + 1/2)` for the channel's offset `c` in
-/// semitones. `None` outside 0 ..= 127. O(1).
+/// whose bent sound is closest, the **lower** one on a tie (ADR-0033), i.e.
+/// `⌈pitch − c − 1/2⌉` for the channel's offset `c = (bend − 8 192) / 4 096` semitones. `None`
+/// outside 0 ..= 127.
+///
+/// # Exact integer form
+/// With `pitch = n/d`, `pitch − c − 1/2 = (4 096·n − offset·d − 2 048·d) / (4 096·d)`; the
+/// denominator is positive (`d > 0`), so the ceiling is `−⌊−a / b⌋`, computed with `div_euclid`
+/// (which floors for a positive divisor). Everything fits in `i128`: `|n|, d < 2⁶³` and the
+/// factors are below 2¹⁴.
+///
+/// # Complexity
+/// O(1).
 fn key_under_bend(pitch: orchestra_core_time::Rational, bend: u16) -> Option<u8> {
     let (n, d) = (
         i128::from(pitch.numerator()),
         i128::from(pitch.denominator()),
     );
     let offset = i128::from(bend) - i128::from(BEND_CENTRE);
-    // floor((n·4096 − offset·d + 2048·d) / (4096·d)).
-    let key = (n * BEND_PER_SEMITONE - offset * d + (BEND_PER_SEMITONE / 2) * d)
-        .div_euclid(BEND_PER_SEMITONE * d);
+    let a = n * BEND_PER_SEMITONE - offset * d - (BEND_PER_SEMITONE / 2) * d;
+    let b = BEND_PER_SEMITONE * d;
+    let key = -(-a).div_euclid(b);
     u8::try_from(key).ok().filter(|k| *k <= 127)
 }
 
@@ -600,15 +623,15 @@ mod tests {
     use super::*;
     use orchestra_core_time::{Rational, RationalError};
 
-    /// Keys and bends: a plain C4, a quarter-tone above, three quarters above (rounded up to the
-    /// next key, bent down), out of range.
+    /// Keys and bends: a plain C4, a quarter-tone above (exactly half way: the lower key bent up,
+    /// ADR-0033), a quarter and three quarters of a semitone above, the ends of the range.
     #[test]
     fn keys_and_bends() -> Result<(), RationalError> {
         assert_eq!(key_and_bend(Rational::from_integer(60)?), Some((60, 8_192)));
         assert_eq!(
             key_and_bend(Rational::new(121, 2)?),
-            Some((61, 8_192 - 2_048)),
-            "halves up"
+            Some((60, 8_192 + 2_048)),
+            "half way: the lower key"
         );
         assert_eq!(
             key_and_bend(Rational::new(241, 4)?),
@@ -620,11 +643,18 @@ mod tests {
         );
         assert_eq!(key_and_bend(Rational::from_integer(128)?), None);
         assert_eq!(key_and_bend(Rational::from_integer(-1)?), None);
+        // The ends move with the rule, exactly as in `Pitch::midi`: 127½ is 127 bent up, −½ would
+        // need key −1.
+        assert_eq!(
+            key_and_bend(Rational::new(255, 2)?),
+            Some((127, 8_192 + 2_048))
+        );
+        assert_eq!(key_and_bend(Rational::new(-1, 2)?), None);
         Ok(())
     }
 
-    /// The nearest key under a bend: a plain D under a quarter-tone up stays D (error ¼); a
-    /// quarter-tone sharp C under no bend becomes C.
+    /// The nearest key under a bend: a plain D under an eighth-tone up stays D (error ¼); a
+    /// quarter of a semitone above C under no bend becomes C; half-way cases take the lower key.
     #[test]
     fn keys_under_a_bend() -> Result<(), RationalError> {
         assert_eq!(
@@ -634,6 +664,13 @@ mod tests {
         assert_eq!(key_under_bend(Rational::new(241, 4)?, 8_192), Some(60));
         assert_eq!(
             key_under_bend(Rational::from_integer(62)?, 8_192 + 2_048 + 100),
+            Some(61)
+        );
+        // Half way under the bend: E4 + ½ under no bend, and D4 under a bend of +½, take the
+        // lower key (ADR-0033).
+        assert_eq!(key_under_bend(Rational::new(129, 2)?, 8_192), Some(64));
+        assert_eq!(
+            key_under_bend(Rational::from_integer(62)?, 8_192 + 2_048),
             Some(61)
         );
         Ok(())

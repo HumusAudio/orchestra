@@ -354,6 +354,62 @@ pub struct MidiNote {
     pub bend: Rational,
 }
 
+impl MidiNote {
+    /// The nearest MIDI key to an exact sounding pitch in semitones (C4 = 60, a quarter-tone sharp
+    /// C4 = 60½), and the bend from that key to the pitch (ADR-0023 §3, ADR-0033).
+    ///
+    /// # The rule
+    /// The key is `⌈sounding − 1/2⌉`: the nearest integer, and the **lower** one on a tie (a
+    /// quarter tone above C4 is C4 bent up by a half, never C♯4 bent down). The bend therefore
+    /// lies in `(−1/2, +1/2]`. This is the one implementation of the rule: [`Pitch::midi`] uses it
+    /// for microtonal spellings, and the MIDI file export (`orchestra-io`) uses it for the played
+    /// notes, whose pitch is already a sounding `Rational`, so the model and the file always
+    /// agree on the key of a note.
+    ///
+    /// # Why exact arithmetic?
+    /// A pitch exactly half way between two keys must be recognised as such: with an `f64`,
+    /// `60.5 - 0.5` is exact, but sums of alterations and transpositions in thirds of a tone are
+    /// not, and a value a hair below or above the half would flip the key.
+    ///
+    /// # Errors
+    /// [`PitchError::MidiOutOfRange`] if the key is outside 0–127 (so 127½ is playable as 127
+    /// bent up, −½ is not); [`PitchError::Arithmetic`] only for pitches near the `i64` limits,
+    /// which no [`Pitch`] produces.
+    ///
+    /// # Complexity
+    /// O(1): an integer test for chromatic pitches; otherwise one subtraction, one ceiling, one
+    /// subtraction on rationals. `#[inline]` so that the export, in another crate, can inline it.
+    #[inline]
+    pub fn nearest(sounding: Rational) -> Result<Self, PitchError> {
+        // Fast path for chromatic pitches (almost every note): an integer is its own key, with no
+        // bend and no rational arithmetic. The MIDI export calls this for every played note, and
+        // without it the export took ≈ 10% more instructions than its own integer formula did
+        // (measured by the benchmark gate, `io/benches/midi.rs`, 2026-11-08).
+        if let Some(key) = as_integer(sounding) {
+            let key = u8::try_from(key)
+                .ok()
+                .filter(|k| *k <= 127)
+                .ok_or(PitchError::MidiOutOfRange)?;
+            return Ok(Self {
+                key,
+                bend: Rational::ZERO,
+            });
+        }
+        // ⌈x − 1/2⌉ is the nearest integer with ties going down: for x = 60½ it gives 60, for
+        // 60¾ it gives 61, for 60¼ it gives 60.
+        let half = Rational::new(1, 2)?;
+        let key = sounding.checked_sub(half)?.ceil();
+        // Only 0–127 are MIDI keys; anything else is reported, never clamped.
+        let key_u8 = u8::try_from(key)
+            .ok()
+            .filter(|k| *k <= 127)
+            .ok_or(PitchError::MidiOutOfRange)?;
+        // The bend is what is left between the key and the exact pitch, in (−1/2, +1/2].
+        let bend = sounding.checked_sub(int(key)?)?;
+        Ok(Self { key: key_u8, bend })
+    }
+}
+
 impl Pitch {
     /// A pitch from its spelling. Infallible: every step, alteration and octave combination is a
     /// valid spelling (whether it is *playable* is answered by [`midi`](Self::midi)). O(1).
@@ -440,16 +496,8 @@ impl Pitch {
                 bend: Rational::ZERO,
             });
         }
-        // Microtonal alterations: nearest key, lower on a tie, through exact arithmetic.
-        let exact = self.sounding()?;
-        let half = Rational::new(1, 2)?;
-        let key = exact.checked_sub(half)?.ceil();
-        let key_u8 = u8::try_from(key)
-            .ok()
-            .filter(|k| *k <= 127)
-            .ok_or(PitchError::MidiOutOfRange)?;
-        let bend = exact.checked_sub(int(key)?)?;
-        Ok(MidiNote { key: key_u8, bend })
+        // Microtonal alterations: the shared rule for any exact sounding pitch (ADR-0033).
+        MidiNote::nearest(self.sounding()?)
     }
 
     /// This pitch moved by `interval`, with the spelling the interval implies (ADR-0023 §4).
