@@ -1683,18 +1683,19 @@ fn carry_state(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
     let mut edits = Vec::new();
 
     // The meter: the map's own entries (the last change inside the run moves to the next bar).
-    let last_meter = doc
-        .meter_map()
-        .meter_changes()
-        .iter()
-        .rev()
-        .find(|(bar, _)| (cut.first..cut.end).contains(&bar.get()));
+    // The list is sorted: the last entry before the run's end is found by a binary search, and
+    // it is inside the run if it is not before its first bar.
+    let changes = doc.meter_map().meter_changes();
+    let last_meter = changes
+        .partition_point(|(bar, _)| bar.get() < cut.end)
+        .checked_sub(1)
+        .and_then(|i| changes.get(i))
+        .filter(|(bar, _)| bar.get() >= cut.first);
     if let (Some(&(_, change)), Some(next)) = (last_meter, cut.next) {
         let has_own = doc
             .meter_map()
-            .meter_changes()
-            .iter()
-            .any(|(bar, _)| bar.get() == cut.end);
+            .meter_change_at(BarIndex::new(cut.end))
+            .is_some();
         if !has_own {
             edits.push(Edit::Meter(MeterEdit::MeterChange {
                 bar: next,

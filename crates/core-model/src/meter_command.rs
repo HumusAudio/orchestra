@@ -61,11 +61,7 @@ pub enum MeterMode {
 /// [`DocumentError::Inconsistent`] if there is none (the map always has one at bar 0).
 fn change_in_force(doc: &Document, at: BarIndex) -> Result<MeterChange, DocumentError> {
     doc.meter_map()
-        .meter_changes()
-        .iter()
-        .rev()
-        .find(|(b, _)| *b <= at)
-        .map(|(_, c)| *c)
+        .meter_change_in_force(at)
         .ok_or(DocumentError::Inconsistent)
 }
 
@@ -160,12 +156,11 @@ pub(crate) fn change_meter(
         map.meter_at(BarIndex::new(before))?
     };
     // The section: up to the next meter change after `at`, which keeps its own meter.
-    let next = map
-        .meter_changes()
-        .iter()
-        .map(|(b, _)| b.get())
-        .find(|&b| b > at.get())
-        .unwrap_or(u32::MAX);
+    // The list is sorted: the first entry after `at` is found by a binary search.
+    let changes = map.meter_changes();
+    let next = changes
+        .get(changes.partition_point(|(b, _)| *b <= at))
+        .map_or(u32::MAX, |(b, _)| b.get());
     let nominal = meter.nominal_length()?;
     let mut stale = Vec::new();
     for &(b, grouping) in map.bar_groupings() {

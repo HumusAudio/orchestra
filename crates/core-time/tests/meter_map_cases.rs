@@ -162,6 +162,19 @@ fn meter_changes() {
     assert_eq!(map.bar_start(bar(5)).unwrap(), p(17, 4));
     assert_eq!(map.meter_at(bar(3)).unwrap(), meter(&[3], 4));
     assert_eq!(map.meter_at(bar(100)).unwrap(), meter(&[6], 8));
+    // The entries themselves, by binary search: exactly at a bar, and in force at a bar.
+    let three_four = Some(MeterChange::new(meter(&[3], 4)));
+    assert_eq!(map.meter_change_at(bar(2)), three_four);
+    assert_eq!(map.meter_change_at(bar(3)), None);
+    assert_eq!(map.meter_change_in_force(bar(3)), three_four);
+    assert_eq!(
+        map.meter_change_in_force(bar(0)),
+        Some(MeterChange::new(meter(&[4], 4)))
+    );
+    assert_eq!(
+        map.meter_change_in_force(bar(100)),
+        Some(MeterChange::new(meter(&[6], 8)))
+    );
     assert_eq!(
         map.locate(p(3, 1)).unwrap(),
         BarPosition {
