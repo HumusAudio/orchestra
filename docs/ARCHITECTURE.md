@@ -41,7 +41,8 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
    ┌──┬┴──┬───┐   │    └── plugin-host
    │  │   │   i18n│            │
    │  │ notation-layout        │
-   │  playback ◄───────────────┘ (audio-engine reads playback output)
+   │  playback ◄───────────────┘ (audio-engine reads playback output;
+   │  │                             io reads it too, for the MIDI export: ADR-0032)
    │  │
  video core-model
    │  │
@@ -59,7 +60,7 @@ future `cargo xtask check` step may verify this table automatically):
 | notation-layout | core-time, core-model |
 | plugin-host | core-time |
 | audio-engine | core-time, playback, plugin-host |
-| io | core-time, core-model (external: `serde`, `serde_json`, ADR-0029) |
+| io | core-time, core-model, playback (the played notes of the MIDI export, ADR-0032 E11) (external: `serde`, `serde_json`, ADR-0029) |
 | i18n | — |
 | video | core-time |
 | ui | core-time, core-model, playback, notation-layout, i18n, video |
@@ -70,6 +71,8 @@ future `cargo xtask check` step may verify this table automatically):
 Notable consequences:
 
 - `core-model` never depends on views, layout, audio or files: it can be tested in isolation.
+- `io` reads `playback` only to write what is played (the MIDI export, ADR-0032): an import
+  still goes through the model's commands, never through `playback`.
 - `audio-engine` does not see `core-model`: the audio thread receives pre-computed event buffers
   from `playback`, never live model data.
 - `ui` does not see `audio-engine` or `plugin-host`: transport control goes through `app` wiring

@@ -90,6 +90,11 @@ proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # `cargo update` to 0.20.1 would break `cargo xtask bench` locally and in CI. Bump it together with
 # the runner version in .github/workflows/ci.yml and in the developer documentation.
 gungraun = "=0.20.0"
+# midly: an independent Standard MIDI File reader, the oracle of the MIDI export's tests (ADR-0032
+# E2, verified on crates.io 2026-11-08: 0.5.3, Unlicense). Dev-dependency of `orchestra-io` only:
+# the export writes its own bytes. Default features off (`std` only): no parallel parsing, no
+# `rayon`.
+midly = { version = "0.5.3", default-features = false, features = ["std"] }
 
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a

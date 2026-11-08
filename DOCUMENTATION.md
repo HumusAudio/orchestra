@@ -2472,7 +2472,7 @@ missing step is `LoadError::Migration { from, message }`. The first format chang
 function to the chain and a `tests/golden/v2/` directory; the files of `v1/` stay as they are and
 must keep loading into the same documents.
 
-**Saving safely** (S13). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
+**Saving safely** (S13; the steps live in `src/safe_write.rs`, shared with the MIDI export). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
 directory, syncs it, renames it over the target, then syncs the directory where the platform needs
 it; on error the temporary file is removed and the previous file is intact. The directory sync is
 the crate's first platform-specific code, in `src/platform/` behind the `FileSystem` trait (CLAUDE.md
@@ -2503,6 +2503,123 @@ ADR-0007; the heavy score in about a second, to be measured there (F2.23).
 
 The release binary grows by about 0.6 MB (stripped) with the project file: 1.18 MB for a probe that
 loads and saves a project against 0.55 MB for one that only uses the model.
+
+#### The MIDI export
+
+`crates/io/src/midi/` writes the **played notes** of ADR-0027 as a Standard MIDI File 1.0
+(ADR-0032, SCALETTA F1.18): the first way to *listen* to the model, with any player, long before
+the audio engine. MIDI 1.0 appears **only** here: the played notes keep 16-bit velocities, exact
+microtones and a per-note volume profile, and every reduction to 7 bits or to a key plus a bend
+happens in this encoder (E1). Inside the finished program the default will be MIDI 2.0 (the owner's
+requirement, recorded in SCALETTA F3.01). For this, `io` now depends on `playback` (going
+downwards, no cycle; `docs/ARCHITECTURE.md`). The API:
+
+```rust
+pub fn export(
+    doc: &Document,
+    path: &Unrolled,
+    performance: &Performance,
+    options: &MidiOptions,
+) -> Result<MidiExport, MidiError>;                       // bytes + warnings
+pub fn save(export: &MidiExport, path: &Path) -> Result<(), MidiError>; // safe save
+```
+
+The export never fails for a musical reason: what the file cannot say exactly comes back as a
+`MidiWarning` next to the bytes (a lead-in, a shared channel, a rounded bend, a key out of range,
+a meter that cannot be written, a clamped tempo), each naming the note, the instrument or the
+played bar. `MidiOptions` holds the optional General MIDI program of each instrument (E7: the model
+has no sound settings yet, F3 brings them) and the text of the lead-in marker, which the caller
+provides, because the library writes no text of its own in any language (CLAUDE.md §7).
+
+**The file** is format 1 at 960 ticks per quarter note (E3: binary values, triplets and quintuplets
+fall on exact ticks; positions are rounded, never durations, so a septuplet never drifts). Track 0,
+the conductor, holds the tempo, the time signatures and the markers; then one track per instrument,
+in score order, named with the instrument's name.
+
+**The modules.**
+- `smf.rs`: the bytes. Variable-length quantities, channel and meta events, track chunks with
+  their "end of track", the header. No running status (E2): every event writes its status byte,
+  simpler and read by everything. It knows nothing about music; its unit tests check it against
+  the examples of the specification.
+- `timing.rs`: positions to ticks and the **tempo rebuilt from the seconds** (E4). MIDI time changes
+  in steps; ours changes continuously in an accelerando and jumps at a repeat (the shift of F1.12).
+  So the export takes breakpoints (tempo changes as played, shifts, a 32nd-note grid and the note
+  starts inside gradual changes), asks the path for their time, and gives each stretch the tempo
+  that makes it last exactly what it lasts. Counting time in units of 1/960 µs, one tick at `T`
+  µs per quarter lasts exactly `T` units, so two tempo steps per stretch hit the target exactly:
+
+```text
+a stretch of Δ ticks that must last N units (1 unit = 1/960 µs):
+  T = N div Δ,  k = N mod Δ
+  first Δ − k ticks at T µs per quarter, last k ticks at T + 1
+  (Δ − k)·T + k·(T + 1) = N   exactly
+```
+
+  Every breakpoint then falls on its time to within half a unit, and nothing accumulates (each
+  stretch is measured from where the reader really is). Inside a long constant stretch whose
+  microseconds per quarter are not an integer (♩ = 72 is 833 333.3 µs), a note between two
+  breakpoints can be off by at most Δ/4 units: 21 µs on the whole full preset, far below anything
+  audible. The module also keeps the reader's clock (`units_at`, `tick_at`) to place the CC 11
+  curves in seconds.
+- `meters.rs`: a time signature for every played bar with **its real length** (E5): the meter as
+  written for a regular bar (6/8 stays 6/8), otherwise a fraction with a power-of-two denominator
+  (an anacrusis of 1/4, a 5/8 irregular bar, a free bar of 8/4); written only where it changes, so
+  a sequencer's bar lines follow ours through repeats and jumps. A length the format cannot write
+  (4/3) gets a marker with the meter as text and a warning.
+- `notes.rs`: channels, notes and controllers (E6–E10). Instrument *i* plays on the *i*-th of the
+  15 channels without the drums' channel 10, shared beyond 15 with a warning; each channel is set up
+  once (bend range ±2 semitones by RPN 0, CC 11 at 127, bend at the centre). A note's key is the
+  nearest semitone and its bend the rest; the note-on velocity is `max(v, s) >> 9`, **at least 1**
+  (a 0 would be a note-off: *niente* is 1). The **latest attack owns the channel's CC 11**: from its
+  start to the next note-on or its own end it writes `127 × level / max(v, s)` in 10 ms steps,
+  `level` following the attack profile (hold, then linear to the settling level). A note-on finding
+  nothing sounding sets the bend it needs; finding another bend sounding, it is played on the
+  nearest key under it (`BendRounded`). A unison on one channel attacks again and only the last
+  note on the key turns it off, in the track that holds it, so every track closes its own notes;
+  two attacks of one key **at the same tick** are a single attack (a note-off there would be sorted
+  before the note-on it should close).
+- `mod.rs`: the API, the options, the warnings, the errors, and the assembly of the tracks.
+
+**Saving** goes through `src/safe_write.rs`, the same safe write as the project file, moved there
+from `project` so that both share it (see "Saving safely" above).
+
+**To listen** there is an example, a developer tool (the real command of milestone M1 comes in
+F1.17):
+
+```sh
+cargo run -p orchestra-io --example export_midi -- full normal out.mid
+cargo run -p orchestra-io --example export_midi -- listening listening.mid
+```
+
+`full`/`plain` with `normal`/`heavy` export a reference score, each instrument given a General MIDI
+program from its English name; `listening` writes the file for tuning the attack profiles by ear
+(E12, ADR-0027 §14): one bar per mark (none, stress, accent, marcato, *rf*, *sf*, *sffz*, *fp*,
+*sfp*, *pf*), each on a long and a short note, on a string ensemble, at ♩ = 60 and then at ♩ = 120.
+
+**Tests.** `tests/midi_cases.rs`: one quarter note checked **byte by byte** against bytes written
+out by hand; then, every file read back with **`midly`** (a dev-dependency only, the independent
+oracle of E2: our encoder is never checked by our own reader), a chord sorted by key and
+deterministic, a tempo change, an accelerando (stepped, every note start within 1 µs), time
+signatures of irregular bars and a marker for 4/3, a microtone's bend, rounded conflicting bends, a
+unison, an accent's falling CC 11 curve, *pf* rising and *niente* never silent, a lead-in for an
+early acciaccatura, seventeen instruments (channel 10 unused, two shared) and a program change,
+saving, and the full preset (every note-on closed, every attack written once, the times kept).
+`tests/midi_props.rs`: random scores (integer and non-integer tempi, an optional accelerando or
+ritardando, two voices, quarter tones) keep every note closed, no velocity 0, the same bytes twice,
+and every note's time within its bound. An injected bug (the second tempo step removed) was caught
+by the property test. The helpers are in `tests/common/midi.rs`.
+
+**Cost** (`benches/midi.rs`, the full preset, path and performance computed outside the measured
+region):
+
+```text
+operation                      normal score     heavy score
+midi::export (full preset)       18 390 000     442 690 000 instructions
+```
+
+About 18 ms and 0.44 s by the rule of F1.16c (1 instruction per nanosecond on the reference
+laptop), within the budgets proposed by ADR-0032 (100 M and 2 G). The heavy score's file has about
+0.9 MB.
 
 ### orchestra-test-support: counting allocations in tests
 

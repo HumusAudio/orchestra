@@ -1,6 +1,6 @@
 # ADR-0032 — MIDI file export v0: Standard MIDI File 1.0, written by us
 
-- **Status:** Proposed (draft for the owner, 2026-11-08; SCALETTA F1.18)
+- **Status:** Accepted (owner, 2026-11-08; SCALETTA F1.18)
 - **Date:** 2026-11-08
 - **Amends:** `docs/ARCHITECTURE.md`, the table of allowed internal dependencies (`io` may depend
   on `playback`). It leaves ADR-0027 unchanged: the played notes stay as they are; this ADR only
