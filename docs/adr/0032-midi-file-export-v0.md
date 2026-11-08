@@ -1,6 +1,7 @@
 # ADR-0032 — MIDI file export v0: Standard MIDI File 1.0, written by us
 
-- **Status:** Accepted (owner, 2026-11-08; SCALETTA F1.18)
+- **Status:** Accepted (owner, 2026-11-08; SCALETTA F1.18). Precisions P1–P3 approved by the owner
+  the same day, after the implementation (§ "Precisions made while implementing").
 - **Date:** 2026-11-08
 - **Amends:** `docs/ARCHITECTURE.md`, the table of allowed internal dependencies (`io` may depend
   on `playback`). It leaves ADR-0027 unchanged: the played notes stay as they are; this ADR only
@@ -203,6 +204,17 @@ The example also writes a small **listening file** (built in the example with th
 marcato), *rf*, *sf*, *sffz*, *fp*, *sfp*, *pf*, at ♩ = 60 and ♩ = 120, on long and short notes.
 The owner listens and decides changes to ADR-0027 §14, which become an **amendment** to ADR-0027
 (approved separately); this ADR changes no value.
+
+### Precisions made while implementing (owner, 2026-11-08)
+
+Found while writing and testing the code, approved by the owner before the step was closed. They
+make E4, E5 and E10 precise; the rest of the decision is unchanged.
+
+| # | Precision |
+|---|---|
+| P1 | **Simultaneous unisons (E10).** Two attacks of one key **at the same tick** on one channel (two voices in unison, two instruments sharing a channel) are written as **one** attack: the second note only counts as sounding, and the key is turned off when the last of them ends. A re-attack needs a note-off at that tick, which the order of E10 (note-offs first) would place before the note-on it must close, leaving the note open. A unison starting **later** is re-attacked as E10 says. The note-off of a re-attack, and the final one, go to the track that holds the key (the latest note-on), so that every track closes the notes it opens even when two tracks share a channel. In the full preset 236 of 5 248 played notes are such unisons. |
+| P2 | **Exactness of the tempo (E4).** Every breakpoint falls on its time to within half a unit of 1/960 µs, as E4 says. **Between** breakpoints, in a constant-tempo stretch whose microseconds per quarter note are not an integer (♩ = 72 is 833 333.3 µs), the two tempo steps of the stretch make a note deviate from the exact time by at most Δ/4 units for a stretch of Δ ticks: 21 µs at worst on the whole full preset, far below anything audible. E4's "within one microsecond" holds for breakpoints, among which every note start inside a gradual change. |
+| P3 | **The lead-in marker (E5).** Its text is given by the caller (`MidiOptions::set_lead_in_marker`), and by default there is none: the library writes no text of its own in any language (CLAUDE.md §7); the interface will pass its translated text. The lead-in's time signature (`k/4`) and the `LeadIn` warning are always written. |
 
 ### Tests and benchmarks
 

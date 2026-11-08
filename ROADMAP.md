@@ -566,15 +566,12 @@ reader. Example `cargo run -p orchestra-io --example export_midi -- (full|plain)
 OUT.mid` or `-- listening OUT.mid` (the file for tuning ADR-0027 §14 by ear). Tests: a byte-exact
 case, 13 cases read back with `midly`, a property test on random scores (an injected tempo bug
 caught); benchmarks 18.4 M instructions (normal full preset) and 443 M (heavy), within the
-proposed budgets. **Three precisions found while coding, waiting for the owner** (to be recorded
-in ADR-0032 if approved): (1) two attacks of one key at the same tick on one channel are written
-as one attack (a note-off there would be sorted before the note-on, E10); 236 of the 5 248 notes of
-the full preset are such unisons; (2) inside a long constant stretch with a non-integer number of
-µs per quarter, a note between breakpoints can be off by up to Δ/4 units (21 µs on the full preset;
-breakpoints stay exact), slightly looser than E4's wording; (3) the lead-in marker's text is given
-by the caller (`MidiOptions::set_lead_in_marker`), none by default, because the library writes no
-language text (E5 said "with a marker"). **Still to do in F1.18:** the owner's approval of the
-three precisions, the listening session (E12), the PR and green CI.
+proposed budgets. **Three precisions found while coding, approved by the owner and recorded as ADR-0032
+P1–P3 (2026-11-08):** (P1) two attacks of one key at the same tick on one channel are one attack
+(236 of the 5 248 notes of the full preset); (P2) between breakpoints, in a constant stretch with a
+non-integer number of µs per quarter, a note can be off by up to Δ/4 units of 1/960 µs (21 µs on
+the full preset; breakpoints exact); (P3) the lead-in marker's text comes from the caller, none by
+default. **Still to do in F1.18:** the listening session (E12), the PR and green CI.
 **Next:** finish F1.18, then F1.17 (phase close, with the test command of milestone M1).
 
 | Step | What | Status |
