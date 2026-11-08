@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.46, approvata dal proprietario il 2026-11-08.**
+> **Stato di questo documento: v0.47, approvata dal proprietario il 2026-11-08.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -455,7 +455,7 @@ Dettagli:
 | F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | ✅ PR #29 | 1–2 |
 | F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ✅ PR #31 | 1 |
 | F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ✅ PR #33, ADR-0032, ADR-0027 §15 (taratura a orecchio, giri 1–2) | 1–2 |
-| F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
+| F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ✅ PR #35, tappa M1 | 1 |
 
 Dettagli:
 
@@ -660,6 +660,14 @@ tempi e i gradini di §14 (di nuovo con gli strumenti interni di F3).
 
 **Tappa M1** (§7): "motore musicale senza interfaccia".
 
+**F1.17 fatto il 2026-11-08 (PR #35): Fase 1 chiusa, tappa M1 raggiunta.** Il comando di prova è
+un esempio di `orchestra-io`: `cargo run -p orchestra-io --example m1 -- CARTELLA [--heavy]
+[--notes]`. Crea la partitura di riferimento "full" (normale, o pesante con `--heavy`), la salva
+come `m1.orchestra`, la riapre e verifica che sia identica (musica, descrizione, byte), stampa
+l'esecuzione srotolata (battute suonate con passaggio, sezione e secondi; note per strumento; ogni
+nota con `--notes`) ed esporta `m1.mid`. Strumento per sviluppatori, guide invariate. Prossimo
+passo: F2.01.
+
 ---
 
 ## 4. MEDIO TERMINE
@@ -687,7 +695,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
-| F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua) | ⬜ | 2 |
+| F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
@@ -696,8 +704,11 @@ controllo completo. Va fatta bene una volta sola.
   Richiede che il proprietario esegua i test sul proprio schermo.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
-- **F2.14** ❓ Proposta di Claude: anticiparlo qui perché un musicista che perde lavoro smette di
-  usare il programma. Da confermare.
+- **F2.12** Approvato dal proprietario il 2026-11-08: nelle Preferenze anche le **opzioni di
+  riproduzione**, cioè i valori oggi fissi di ADR-0027 §14–§15 (gradini degli accenti, tenute e
+  ritorni dei profili d'attacco), con i valori tarati a orecchio come predefiniti.
+- **F2.14** Proposta di Claude, **confermata dal proprietario il 2026-11-08** (D13 chiusa):
+  anticiparlo qui perché un musicista che perde lavoro smette di usare il programma.
 
 **Tappa M2A.**
 
@@ -898,7 +909,7 @@ modifica.
 | D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | **chiusa** 2026-11-06: ADR-0029 (JSON semplice, `serde` solo in `io`, `.orchestra`) |
 | D11 | Esportazione MIDI anticipata (F1.18) | fine F1-B | **chiusa** 2026-10-30: sì |
 | D12 | Widget retained o immediato; layout; appunti | F2.08 | aperta |
-| D13 | Salvataggio automatico già in F2A | F2.14 | aperta |
+| D13 | Salvataggio automatico già in F2A | F2.14 | **chiusa** 2026-11-08: sì |
 | D14 | Algoritmo di spaziatura orizzontale | F2.18 | aperta |
 | D15 | Strumenti interni e suoni | F3.03 | aperta |
 | D16 | Backend audio: crate esistente o nostri | F3.04 | aperta |
@@ -968,3 +979,4 @@ raccomandato.
 | 2026-11-07 | 0.44 | F1.16c fatto (PR #31): benchmark di fase sul preset "full", regola 1 istruzione/ns; F1.16 completo, prossimo passo F1.18 | proprietario |
 | 2026-11-08 | 0.45 | F1.18 avviato (bozza di ADR-0032, scelte E1–E12 approvate); requisito "MIDI 2.0 di default all'interno" in F3.01; esportazione MIDI 2.0 su file come filone con F3.04 | proprietario |
 | 2026-11-08 | 0.46 | F1.18 fatto (PR #33): esportazione MIDI 1.0, profili d'attacco tarati a orecchio (ADR-0027 §15, giri 1–2); in F3.03 la revisione a orecchio di tutte le dinamiche | proprietario |
+| 2026-11-08 | 0.47 | F1.17 fatto (PR #35): Fase 1 chiusa, tappa M1 raggiunta (comando `m1`); D13 chiusa (F2.14 confermato); opzioni di riproduzione nelle Preferenze di F2.12; prossimo passo F2.01 | proprietario |

@@ -601,7 +601,7 @@ from *fff* held 0.2 s then down in 0.2 s, *fp*/*pf* held 0.6 s, *rf*/*sf*/*sffz*
 0.6 / 0.8 s. The owner wants **all the dynamics reviewed again** later (F3, internal instruments).
 The owner approved round 2 as it is. **F1.18 done** (2026-11-08, PR #33, merged; SCALETTA v0.46,
 PR #34).
-**F1.17 (2026-11-08, `feature/f1-17-phase-close`):** the phase close. The owner approved the
+**F1.17 done (2026-11-08, PR #35, merged; SCALETTA v0.47):** the phase close. The owner approved the
 recommendations: the **test command of milestone M1** is an example of `orchestra-io`, `cargo run
 -p orchestra-io --example m1 -- OUT_DIR [--heavy] [--notes]`, on the normal full preset (heavy
 with `--heavy`). It creates the score, saves it as `m1.orchestra`, reopens it and checks it is
@@ -611,7 +611,8 @@ exports `m1.mid`. Normal preset: 100 bars, 9 instruments, a 509 739-byte file, 1
 5 248 notes, a 49 481-byte MIDI file with no warning; heavy: 1 000 bars, 28 instruments, 1 330
 played bars, 101 783 notes. The General MIDI program table moved to `examples/common/gm.rs`,
 shared with `export_midi`. Developer tool, `User-visible: no`, guides unchanged. ROADMAP's status
-rewritten as a summary of the end of Phase 1.
+rewritten as a summary of the end of Phase 1. SCALETTA v0.47: D13 closed (automatic save in
+F2.14 confirmed), the playback options of ADR-0027 §14–§15 in the Preferences of F2.12.
 
 | Step | What | Status |
 |---|---|---|
