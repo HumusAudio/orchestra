@@ -499,7 +499,9 @@ starts:    0      1/4        9/4
 So every lookup is a binary search (`partition_point`) followed by one or two exact divisions:
 `locate` (position → bar and offset), `bar_start`, `position_of`, `beat_of` (point → beat, or
 `None` in a free bar), `beat_position` (the inverse), `beat_range` (the beats that start inside a
-bar, for the metronome), `display_number`. None of them allocates (`tests/meter_map_no_alloc.rs`).
+bar, for the metronome), `display_number`, and on the source data `meter_change_at` (the entry
+written at a bar) and `meter_change_in_force` (the last one at or before it), which the model's
+commands used to find by scanning the list. None of them allocates (`tests/meter_map_no_alloc.rs`).
 The last segment continues forever: where the score ends is the model's business.
 
 Some rules worth knowing:
@@ -2212,7 +2214,8 @@ for note in performance.notes(piano) {
 The steps, voice by voice:
 
 1. **The items**: the voice's events bar by bar along the path; on a staff with bar repeats, from
-   the source bar with its pass; those the pass rules silence left out.
+   the source bar with its pass; those the pass rules silence left out. An item borrows its event
+   from the document rather than copying it, so playing a chord once per pass allocates nothing.
 2. **Tie chains** (N1, N2): a notehead is followed along its tie only if its target sounds right
    after it on the path, so a tie at the end of a first ending stops at the barline when the
    music goes back, and goes on the time it leads into the next bar. A chain is one note.

@@ -373,8 +373,12 @@ impl Performance {
 // ------------------------------------------------------------------------------------------------
 
 /// One event played by a voice at one place of the path.
-#[derive(Debug, Clone)]
-struct Item {
+///
+/// It borrows the event from the document (`'a`): an event is played once per pass of its bar, and
+/// copying it each time cost an allocation for every chord of two or more noteheads (review point
+/// D4).
+#[derive(Debug, Clone, Copy)]
+struct Item<'a> {
     /// The played bar.
     played: u32,
     /// The pass of its notes.
@@ -389,11 +393,11 @@ struct Item {
     start: Position,
     /// Its metric duration (zero for a grace note).
     length: Duration,
-    /// The event.
-    event: Event,
+    /// The event, in the document.
+    event: &'a Event,
 }
 
-impl Item {
+impl Item<'_> {
     /// Where it ends on the unrolled timeline, as written. O(1).
     fn end(&self) -> Result<Position, RationalError> {
         self.start.checked_add(self.length)
@@ -406,13 +410,13 @@ impl Item {
 ///
 /// # Errors
 /// The path's and the document's errors (a bug of the model).
-fn items_of(
+fn items_of<'a>(
     doc: &Document,
     path: &Unrolled,
-    voice: &orchestra_core_model::Voice,
+    voice: &'a orchestra_core_model::Voice,
     staves: &[StaffId],
     (from, to): (u32, u32),
-) -> Result<Vec<Item>, PerformError> {
+) -> Result<Vec<Item<'a>>, PerformError> {
     let bars = doc.bars();
     let meter = doc.meter_map();
     let mut items = Vec::new();
@@ -432,7 +436,7 @@ fn items_of(
             let content = path.content(k, staff).ok_or(UnrollError::Endless)?;
             sources.push((staff, content.bar, content.pass));
         }
-        let mut here: Vec<(Duration, u8, usize, Item)> = Vec::new();
+        let mut here: Vec<(Duration, u8, usize, Item<'a>)> = Vec::new();
         let mut order = 0_usize;
         // Each distinct source bar once, keeping only its events on the staves it is the source
         // for (the bar itself for most staves, a source bar for a staff with a bar repeat).
@@ -474,7 +478,7 @@ fn items_of(
                         } else {
                             metric
                         },
-                        event: event.clone(),
+                        event,
                     },
                 ));
                 order = order.saturating_add(1);
@@ -531,7 +535,7 @@ fn perform_range(
         .map(orchestra_core_model::Staff::id)
         .collect();
     let voices = instrument.voices();
-    let mut items: Vec<Vec<Item>> = Vec::with_capacity(voices.len());
+    let mut items: Vec<Vec<Item<'_>>> = Vec::with_capacity(voices.len());
     for voice in voices {
         items.push(items_of(doc, path, voice, &staves, (from, to))?);
     }
@@ -589,7 +593,7 @@ fn perform_range(
 ///
 /// # Errors
 /// [`UnrollError::Endless`] for a link to nothing (a bug of the model).
-fn find_chains(items: &[Vec<Item>]) -> Result<Vec<Chain>, PerformError> {
+fn find_chains(items: &[Vec<Item<'_>>]) -> Result<Vec<Chain>, PerformError> {
     // Every notehead of a main event, by ID: where it is played (voice, item), for the ties. A
     // notehead played several times (a repeat) has several places.
     let mut places: IdMap<NoteId, Vec<(usize, usize)>> = IdMap::default();
@@ -694,14 +698,14 @@ fn length_factor(set: ArticulationSet) -> Result<Rational, RationalError> {
 /// # Errors
 /// [`PerformError::Unroll`] for a link to nothing (a bug); the arithmetic and pitch errors.
 fn chain_note(
-    items: &[Vec<Item>],
+    items: &[Vec<Item<'_>>],
     timelines: &[Timeline],
     instrument: InstrumentId,
     voices: &[orchestra_core_model::Voice],
     passes: &PassOffsets,
     chain: &Chain,
 ) -> Result<Slot, PerformError> {
-    let link = |k: usize| -> Result<(&Item, orchestra_core_model::Note), PerformError> {
+    let link = |k: usize| -> Result<(&Item<'_>, orchestra_core_model::Note), PerformError> {
         let &(v, i, id) = chain.links.get(k).ok_or(UnrollError::Endless)?;
         let item = items
             .get(v)
@@ -770,7 +774,7 @@ fn chain_note(
 /// The pitch error of an absurd alteration (see `Pitch::sounding`).
 fn played_note(
     note: &orchestra_core_model::Note,
-    item: &Item,
+    item: &Item<'_>,
     (instrument, voice): (InstrumentId, VoiceId),
     (start, end): (Position, Position),
     loud: loudness::Profile,
@@ -810,7 +814,7 @@ fn played_note(
     reason = "the three kinds of grace runs (after, before the beat, on the beat), in reading order"
 )]
 fn place_graces(
-    list: &[Item],
+    list: &[Item<'_>],
     v: usize,
     timelines: &[Timeline],
     (instrument, voices, passes): (InstrumentId, &[orchestra_core_model::Voice], &PassOffsets),
@@ -913,7 +917,7 @@ fn place_graces(
 /// O(run length).
 ///
 /// It was written out twice in `place_graces`, once per attachment (review point B17).
-fn grace_run_end(list: &[Item], i: usize, attach: GraceAttach) -> usize {
+fn grace_run_end(list: &[Item<'_>], i: usize, attach: GraceAttach) -> usize {
     let Some(first) = list.get(i) else {
         return i;
     };
@@ -927,7 +931,7 @@ fn grace_run_end(list: &[Item], i: usize, attach: GraceAttach) -> usize {
 }
 
 /// Whether the item is an acciaccatura (a crushed grace note, ADR-0027 N5). O(1).
-fn is_acciaccatura(item: &Item) -> bool {
+fn is_acciaccatura(item: &Item<'_>) -> bool {
     item.event
         .grace()
         .is_some_and(|g| g.kind == GraceKind::Acciaccatura)
@@ -960,7 +964,7 @@ fn at_most_half_of(total: Duration, limit: Option<Duration>) -> Result<Duration,
               rename them"
 )]
 fn spread(
-    list: &[Item],
+    list: &[Item<'_>],
     run: impl IntoIterator<Item = usize>,
     from: Position,
     each: Duration,
@@ -1043,7 +1047,7 @@ fn with_pass(
 /// their own articulations but **without** the dynamic accent written there, which belongs to
 /// the main note (H10). O(noteheads).
 fn push_grace(
-    list: &[Item],
+    list: &[Item<'_>],
     g: usize,
     timelines: &[Timeline],
     (v, instrument, voice, passes): (usize, InstrumentId, VoiceId, &PassOffsets),
@@ -1094,7 +1098,7 @@ fn push_grace(
 ///
 /// # Errors
 /// The arithmetic errors.
-fn arpeggiate(items: &[Vec<Item>], notes: &mut [Slot]) -> Result<(), PerformError> {
+fn arpeggiate(items: &[Vec<Item<'_>>], notes: &mut [Slot]) -> Result<(), PerformError> {
     let step = ARPEGGIO_STEP;
     // The events with an arpeggio sign, and their direction.
     let mut signs: IdMap<EventId, bool> = IdMap::default();

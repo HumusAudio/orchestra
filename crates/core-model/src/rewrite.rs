@@ -373,7 +373,7 @@ fn meter_after_free_bars(
     while r < bars && map.is_free(BarIndex::new(r))? {
         r = r.saturating_add(1);
     }
-    if r >= bars || map.meter_changes().iter().any(|(b, _)| b.get() == r) {
+    if r >= bars || map.meter_change_at(BarIndex::new(r)).is_some() {
         return Ok(None);
     }
     let index = BarIndex::new(r);
@@ -382,14 +382,9 @@ fn meter_after_free_bars(
 }
 
 /// The meter change in force at a bar: the last entry of the meter map at or before it (with its
-/// beat grouping). Always `Some` in a valid document, whose map has an entry at bar 0. O(m).
+/// beat grouping). Always `Some` in a valid document, whose map has an entry at bar 0. O(log m).
 fn meter_change_in_force(doc: &Document, index: BarIndex) -> Option<MeterChange> {
-    doc.meter_map()
-        .meter_changes()
-        .iter()
-        .rev()
-        .find(|(b, _)| *b <= index)
-        .map(|(_, change)| *change)
+    doc.meter_map().meter_change_in_force(index)
 }
 
 /// Steps 1–3: the region, the refusal of R10, the grid with its splits.
@@ -410,7 +405,7 @@ fn plan(
     //    `ChangeMeter`, a meter change at `at` itself is the one being replaced.
     let mut end = i.saturating_add(1);
     while end < bars {
-        let has_change = map.meter_changes().iter().any(|(b, _)| b.get() == end);
+        let has_change = map.meter_change_at(BarIndex::new(end)).is_some();
         if has_change || map.is_free(BarIndex::new(end))? {
             break;
         }
@@ -919,11 +914,7 @@ fn new_span(
     let mut span = BarSpan::empty(count);
     let entry = match meter_entry {
         FirstMeter::Set(change) => change,
-        FirstMeter::Keep => map
-            .meter_changes()
-            .iter()
-            .find(|(b, _)| b.get() == region.first)
-            .map(|(_, c)| *c),
+        FirstMeter::Keep => map.meter_change_at(BarIndex::new(region.first)),
     };
     if let Some(change) = entry {
         span.set_meter_change(BarIndex::FIRST, change);

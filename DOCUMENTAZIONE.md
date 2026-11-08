@@ -525,7 +525,9 @@ starts:    0      1/4        9/4
 Così ogni ricerca è una ricerca binaria (`partition_point`) seguita da una o due divisioni
 esatte: `locate` (posizione → battuta e scostamento), `bar_start`, `position_of`, `beat_of` (punto
 → movimento, oppure `None` in una battuta libera), `beat_position` (l'inversa), `beat_range` (i
-movimenti che iniziano dentro una battuta, per il metronomo), `display_number`. Nessuna alloca
+movimenti che iniziano dentro una battuta, per il metronomo), `display_number`, e sui dati di
+partenza `meter_change_at` (la voce scritta in una battuta) e `meter_change_in_force` (l'ultima in
+quella battuta o prima), che i comandi del modello cercavano scorrendo la lista. Nessuna alloca
 (`tests/meter_map_no_alloc.rs`). L'ultimo segmento continua per sempre: dove finisce la partitura
 è affare del modello.
 
@@ -2368,7 +2370,8 @@ I passi, voce per voce:
 
 1. **Gli elementi**: gli eventi della voce battuta per battuta lungo il percorso; su un rigo con
    ripetizioni di battuta, dalla battuta d'origine con il suo passaggio; quelli che le regole di
-   passaggio fanno tacere, esclusi.
+   passaggio fanno tacere, esclusi. Un elemento prende in prestito il suo evento dal documento
+   invece di copiarlo, così suonare un accordo a ogni passaggio non alloca nulla.
 2. **Catene di legature** (N1, N2): una testa di nota si segue lungo la sua legatura solo se la nota
    d'arrivo suona subito dopo lungo il percorso, così una legatura alla fine di una prima volta si
    ferma alla stanghetta quando la musica torna indietro, e prosegue la volta che porta alla battuta

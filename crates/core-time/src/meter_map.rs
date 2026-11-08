@@ -532,6 +532,30 @@ impl BarSpan {
         &self.sources.meter_changes
     }
 
+    /// The meter change written exactly at `bar`, if any. O(log m) for m meter changes: a binary
+    /// search on the sorted list, where callers used to scan it (review point D3).
+    #[must_use]
+    pub fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
+        let changes = &self.sources.meter_changes;
+        changes
+            .binary_search_by_key(&bar, |&(at, _)| at)
+            .ok()
+            .and_then(|i| changes.get(i))
+            .map(|&(_, change)| change)
+    }
+
+    /// The meter change in force at `bar`: the last one at or before it, with its beat grouping.
+    /// Always `Some`, since the map has an entry at bar 0 (kept `Option` so that callers state what
+    /// a missing one would mean). O(log m).
+    #[must_use]
+    pub fn meter_change_in_force(&self, bar: BarIndex) -> Option<MeterChange> {
+        let changes = &self.sources.meter_changes;
+        let after = changes.partition_point(|&(at, _)| at <= bar);
+        changes
+            .get(after.checked_sub(1)?)
+            .map(|&(_, change)| change)
+    }
+
     /// The irregular bars of the span, relative to it, sorted. O(1).
     #[must_use]
     pub fn irregular_bars(&self) -> &[(BarIndex, IrregularBar)] {
@@ -1174,6 +1198,30 @@ impl MeterMap {
     #[must_use]
     pub fn meter_changes(&self) -> &[(BarIndex, MeterChange)] {
         &self.sources.meter_changes
+    }
+
+    /// The meter change written exactly at `bar`, if any. O(log m) for m meter changes: a binary
+    /// search on the sorted list, where callers used to scan it (review point D3).
+    #[must_use]
+    pub fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
+        let changes = &self.sources.meter_changes;
+        changes
+            .binary_search_by_key(&bar, |&(at, _)| at)
+            .ok()
+            .and_then(|i| changes.get(i))
+            .map(|&(_, change)| change)
+    }
+
+    /// The meter change in force at `bar`: the last one at or before it, with its beat grouping.
+    /// Always `Some`, since the map has an entry at bar 0 (kept `Option` so that callers state what
+    /// a missing one would mean). O(log m).
+    #[must_use]
+    pub fn meter_change_in_force(&self, bar: BarIndex) -> Option<MeterChange> {
+        let changes = &self.sources.meter_changes;
+        let after = changes.partition_point(|&(at, _)| at <= bar);
+        changes
+            .get(after.checked_sub(1)?)
+            .map(|&(_, change)| change)
     }
 
     /// The irregular bars, sorted by bar.
