@@ -250,11 +250,12 @@ fn a_microtone_bends_the_channel() {
             _ => None,
         })
         .collect();
-    // The set-up's centre, C4 + ½ semitone as C♯4 bent down by ½ (−2 048), then the centre.
-    assert_eq!(bends, [(0, 8_192), (0, 6_144), (960, 8_192)]);
+    // The set-up's centre, C4 + ½ semitone as C4 bent up by ½ (+2 048: exactly half way takes
+    // the lower key, ADR-0033), then the centre.
+    assert_eq!(bends, [(0, 8_192), (0, 10_240), (960, 8_192)]);
     assert_eq!(
         decoded.notes(0),
-        [(0, 960, 0, 61, 75), (960, 1_920, 0, 60, 75)]
+        [(0, 960, 0, 60, 75), (960, 1_920, 0, 60, 75)]
     );
 }
 
@@ -278,8 +279,9 @@ fn conflicting_bends_are_rounded() {
         [MidiWarning::BendRounded { .. }]
     ));
     let decoded = decode(&out.bytes);
-    // C4 first (by key, no bend), then E4 + ½, halfway, played as F4 (65, halves up) unbent.
-    assert_eq!(decoded.notes(0), [(0, 960, 0, 60, 75), (0, 960, 0, 65, 75)]);
+    // C4 first (by key, no bend), then E4 + ½, half way, played unbent as E4 (64: the lower key,
+    // ADR-0033).
+    assert_eq!(decoded.notes(0), [(0, 960, 0, 60, 75), (0, 960, 0, 64, 75)]);
 }
 
 /// E10: two voices in unison: the second attack is heard again, and only the later end turns the

@@ -39,4 +39,5 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0029](0029-project-file-format-v1.md) | Project file format v1: plain JSON, a schema of its own, strict loading | Accepted |
 | [0030](0030-macos-ci-not-blocking-merges.md) | macOS CI no longer blocks merges; it still decides when work is done | Accepted |
 | [0031](0031-test-scores-crate.md) | A test-only crate for the reference scores | Accepted |
-| [0032](0032-midi-file-export-v0.md) | MIDI file export v0: Standard MIDI File 1.0, written by us | Accepted |
+| [0032](0032-midi-file-export-v0.md) | MIDI file export v0: Standard MIDI File 1.0, written by us | Accepted (E9 amended by ADR-0033) |
+| [0033](0033-midi-half-way-key.md) | One rule for a pitch half way between two MIDI keys: the lower key | Accepted |

@@ -914,7 +914,10 @@ alterazione` sulla scala MIDI, e `midi()` la trasforma in un `MidiNote`: il tast
 scostamento (bend) in semitoni. Un quarto di tono cade esattamente tra due tasti; la regola sceglie
 il tasto **sotto** e piega verso l'alto di mezzo semitono, così il risultato è deterministico. Un
 tasto fuori da 0–127 è un `PitchError::MidiOutOfRange`, mai tagliato in silenzio. Le altezze
-cromatiche prendono una scorciatoia con semplici somme di interi.
+cromatiche prendono una scorciatoia con semplici somme di interi. La regola vera e propria sta in
+`MidiNote::nearest(sounding)`, che accetta qualunque altezza sonora esatta: `midi()` la chiama per
+le grafie microtonali e l'esportazione MIDI la chiama per le note suonate, così il modello e il
+file danno sempre a una nota lo stesso tasto (ADR-0033).
 
 Un **`Interval`** è una coppia (passi diatonici, semitoni), entrambi con segno: la stessa coppia che
 MusicXML usa per gli strumenti traspositori. La **qualità** si ricava dalla differenza tra i suoi
@@ -2737,14 +2740,16 @@ a stretch of Δ ticks that must last N units (1 unit = 1/960 µs):
   metro come testo e un avviso.
 - `notes.rs`: canali, note e controller (E6–E10). Lo strumento *i* suona sull'*i*-esimo dei 15
   canali senza il 10 della batteria, condiviso oltre i 15 con un avviso; ogni canale si prepara una
-  volta (escursione del bend ±2 semitoni via RPN 0, CC 11 a 127, bend al centro). Il tasto di una
-  nota è il semitono più vicino e il bend il resto; la velocity del note-on è `max(v, s) >> 9`,
+  volta (escursione del bend ±2 semitoni via RPN 0, CC 11 a 127, bend al centro). Tasto e bend di
+  una nota vengono da `MidiNote::nearest`, la regola stessa del modello (esattamente a metà: il
+  tasto **inferiore** piegato in su di mezzo semitono, ADR-0033); il codificatore converte solo il
+  bend in 14 bit; la velocity del note-on è `max(v, s) >> 9`,
   **almeno 1** (uno 0 sarebbe un note-off: il *niente* vale 1). **L'ultimo attacco comanda il CC 11
   del canale**: dal suo inizio fino al note-on successivo o alla sua fine scrive `127 × livello /
   max(v, s)` a passi di 10 ms, con il livello che segue il profilo d'attacco (tenuta, poi lineare
   fino al livello di assestamento). Un note-on che non trova nulla in suono imposta il bend che gli
-  serve; se trova un altro bend in suono, si suona sul tasto più vicino sotto quel bend
-  (`BendRounded`). Un unisono sullo stesso canale riattacca e solo l'ultima nota sul tasto lo
+  serve; se trova un altro bend in suono, si suona sul tasto più vicino sotto quel bend, quello
+  inferiore a parità (`BendRounded`). Un unisono sullo stesso canale riattacca e solo l'ultima nota sul tasto lo
   spegne, nella traccia che lo tiene, così ogni traccia chiude le proprie note; due attacchi dello
   stesso tasto **nello stesso tick** sono un solo attacco (lì un note-off verrebbe ordinato prima
   del note-on che dovrebbe chiudere).
