@@ -221,11 +221,11 @@ fn tenuto_staccato_and_accent() {
     let notes = played(s);
     assert_eq!(spans(&notes), [(p(0, 1), p(3, 8)), (p(1, 2), p(1, 1))]);
     assert_eq!(notes[0].velocity, INITIAL_VELOCITY);
-    // H15: an accent is +15 on the 0–127 scale at the attack (mf 75 → 90), settling back to mf
-    // in 0.2 s.
-    assert_eq!(notes[1].velocity, up(90));
+    // H15, §15: an accent is +22 on the 0–127 scale at the attack (mf 75 → 97), settling back to mf
+    // in 0.25 s (§15).
+    assert_eq!(notes[1].velocity, up(97));
     assert_eq!(notes[1].settle_to, INITIAL_VELOCITY);
-    assert_eq!(notes[1].settle_in, secs(1, 5));
+    assert_eq!(notes[1].settle_in, secs(1, 4));
     assert_eq!(notes[1].hold, Seconds::ZERO);
 }
 

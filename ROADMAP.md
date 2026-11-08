@@ -550,8 +550,37 @@ because its update window is larger. The CI job grows by about 2.5 minutes. Benc
 outside `cargo xtask bench` need `GUNGRAUN_ENVS=TMPDIR`, or Valgrind fails to start in the
 sandbox; `xtask` already does this. Merged with PR #31 (2026-11-07), CI green on the three
 platforms (the bench job went from about 13 to about 15 minutes); SCALETTA v0.44, F1.16 complete.
-**Next:** F1.18 (MIDI export), then F1.17 (phase close, with
-the test command of milestone M1).
+Step **F1.18** (`feature/f1-18-midi-export`, 2026-11-08): before the code the owner accepted
+**ADR-0032, MIDI file export v0** (choices E1–E12), and asked that MIDI 1.0 be confined to the file
+export, with **MIDI 2.0 by default inside the program** (SCALETTA v0.45: requirement in F3.01, a
+MIDI 2.0 file export as an option with F3.04). Implemented in `crates/io/src/midi/`: our own SMF
+1.0 encoder (format 1, 960 ticks per quarter, no running status), the tempo rebuilt from the path's
+seconds with two exact tempo steps per stretch (units of 1/960 µs), a time signature of each played
+bar's real length (a marker for unwritable meters), one channel per instrument (shared beyond 15),
+optional General MIDI programs, velocity `max(v, s) >> 9` at least 1, the attack profile as a CC 11
+curve in 10 ms steps owned by the latest attack, microtones as pitch bend (RPN ±2) with rounding on
+conflict, unisons re-attacked and closed by the last note in the track holding the key. `io` now
+depends on `playback` (`docs/ARCHITECTURE.md`); the safe write moved to `src/safe_write.rs`, shared
+by the project file and the export; `midly` is a dev-dependency only, the tests' independent
+reader. Example `cargo run -p orchestra-io --example export_midi -- (full|plain) (normal|heavy)
+OUT.mid` or `-- listening OUT.mid` (the file for tuning ADR-0027 §14 by ear). Tests: a byte-exact
+case, 13 cases read back with `midly`, a property test on random scores (an injected tempo bug
+caught); benchmarks 18.4 M instructions (normal full preset) and 443 M (heavy), within the
+proposed budgets. **Three precisions found while coding, approved by the owner and recorded as ADR-0032
+P1–P3 (2026-11-08):** (P1) two attacks of one key at the same tick on one channel are one attack
+(236 of the 5 248 notes of the full preset); (P2) between breakpoints, in a constant stretch with a
+non-integer number of µs per quarter, a note can be off by up to Δ/4 units of 1/960 µs (21 µs on
+the full preset; breakpoints exact); (P3) the lead-in marker's text comes from the caller, none by
+default. **Listening, round 1 (2026-11-08):** the owner listened with FluidSynth and FluidR3 GM
+and asked for every time a little longer; approved as ADR-0027 §15 (new section, tuning by ear,
+one round after another): stress/soft accent 0.2 s, accent 0.25 s, marcato 0.3 s, *rf* 0.5 s,
+*sf* 0.8 s, *sffz* 1.0 s, *fp*/*pf* held 0.5 s, *sfp*/*sfpp* held 0.3 s (they had no hold).
+**Listening, round 2 (same day, §15):** accent +22 and marcato +30 (were +15, +22), *sfp*/*sfpp*
+from *fff* held 0.2 s then down in 0.2 s, *fp*/*pf* held 0.6 s, *rf*/*sf*/*sffz* back to 0.4 /
+0.6 / 0.8 s. The owner wants **all the dynamics reviewed again** later (F3, internal instruments).
+**Still to do in F1.18:** listening round 3 on the regenerated file (or the owner's ok), the PR and
+green CI.
+**Next:** finish F1.18, then F1.17 (phase close, with the test command of milestone M1).
 
 | Step | What | Status |
 |---|---|---|
@@ -638,7 +667,9 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   attacks, the hold and the settling times of accents, *sf*-like marks, *fp* and *pf*) is a
   provisional value to be **tuned by ear** with the owner. Bring it up as soon as the owner can
   listen: at F1.18 (MIDI export, first listening) and again with the internal instruments of F3;
-  they become playback options in F2.12.
+  they become playback options in F2.12. **F1.18 (2026-11-08):** the listening file is ready
+  (`cargo run -p orchestra-io --example export_midi -- listening listening.mid`); round 1 done and
+  recorded in ADR-0027 §15, round 2 too; the owner asked to review all the dynamics again in F3.
 - **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions

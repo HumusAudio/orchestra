@@ -2370,13 +2370,15 @@ vicino).
   nel verso giusto, altrimenti un livello in su o in giù (*al niente*: fino al nulla). Una
   dinamica dentro divide la rampa; dopo la forcella resta l'arrivo; una forcella suonata due volte
   riparte ogni volta dal livello in vigore in quel momento.
-- **Accenti dinamici** solo sulle note che cominciano esattamente nel loro punto (H3, H16):
-  *rf*/*rfz* un livello sopra, di ritorno al livello in 0,4 s; *sf*/*sfz*/*fz* due livelli, 0,6 s;
-  *sffz* tre, 0,8 s; *fp* è *f* tenuto 0,3 s poi *p* in 0,1 s; *sfp*/*sfpp* *ff* poi *p*/*pp* in
-  0,3 s; *pf* *p* tenuto 0,3 s poi *f* in 0,1 s; *n* è velocity 1. Gli abbellimenti prendono il
+- **Accenti dinamici** solo sulle note che cominciano esattamente nel loro punto (H3, H16, come
+  tarati a orecchio nel §15, giri 1–2): *rf*/*rfz* un livello sopra, di ritorno al livello in
+  0,4 s; *sf*/*sfz*/*fz* due livelli, 0,6 s; *sffz* tre, 0,8 s; *fp* è *f* tenuto 0,6 s poi *p* in
+  0,1 s; *sfp*/*sfpp* *fff* tenuto 0,2 s poi *p*/*pp* in 0,2 s; *pf* *p* tenuto 0,6 s poi *f* in
+  0,1 s; *n* è velocity 1. Gli abbellimenti prendono il
   livello della loro nota principale senza il suo accento (H10).
 - **Accenti di articolazione** a gradini fissi (H15, emenda le percentuali di §3): stress e
-  accento morbido +7 di ritorno in 0,15 s, accento +15 in 0,2 s, marcato +22 in 0,25 s; unstress −7
+  accento morbido +7 di ritorno in 0,2 s, accento +22 in 0,25 s, marcato +30 in 0,3 s (§15);
+  unstress −7
   su tutta la nota. Con un accento dinamico gli attacchi si sommano e vince il tempo più lungo
   (H17); lo scostamento di velocity sposta sia l'attacco sia il livello d'arrivo.
 
@@ -2631,7 +2633,7 @@ message }`. Il primo cambio di formato aggiungerà la sua funzione alla catena e
 `tests/golden/v2/`; i file di `v1/` restano come sono e devono continuare a caricarsi negli stessi
 documenti.
 
-**Salvare in modo sicuro** (S13). `save` scrive un file temporaneo `.<nome>.<id del processo>.tmp`
+**Salvare in modo sicuro** (S13; i passi stanno in `src/safe_write.rs`, condiviso con l'esportazione MIDI). `save` scrive un file temporaneo `.<nome>.<id del processo>.tmp`
 nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi
 sincronizza la cartella dove la piattaforma lo richiede; in caso d'errore il file temporaneo viene
 tolto e il file precedente resta intatto. La sincronizzazione della cartella è il primo codice
@@ -2666,6 +2668,130 @@ secondo, da misurare lì (F2.23).
 
 Il binario release cresce di circa 0,6 MB (dopo `strip`) con il file di progetto: 1,18 MB per un
 programma di prova che carica e salva un progetto contro 0,55 MB per uno che usa solo il modello.
+
+#### L'esportazione MIDI
+
+`crates/io/src/midi/` scrive le **note suonate** di ADR-0027 in uno Standard MIDI File 1.0
+(ADR-0032, SCALETTA F1.18): il primo modo per *ascoltare* il modello, con qualunque lettore, molto
+prima del motore audio. Il MIDI 1.0 compare **solo** qui: le note suonate conservano velocity a 16
+bit, microtoni esatti e un profilo di volume per nota, e ogni riduzione a 7 bit o a tasto più bend
+avviene in questo codificatore (E1). Nel programma finito il default sarà il MIDI 2.0 (requisito del
+proprietario, registrato in SCALETTA F3.01). Per questo `io` ora dipende da `playback` (verso il
+basso, senza cicli; `docs/ARCHITECTURE.md`). L'API:
+
+```rust
+pub fn export(
+    doc: &Document,
+    path: &Unrolled,
+    performance: &Performance,
+    options: &MidiOptions,
+) -> Result<MidiExport, MidiError>;                       // bytes + warnings
+pub fn save(export: &MidiExport, path: &Path) -> Result<(), MidiError>; // safe save
+```
+
+L'esportazione non fallisce mai per un motivo musicale: ciò che il file non può dire esattamente
+torna come `MidiWarning` accanto ai byte (un levare iniziale, un canale condiviso, un bend
+arrotondato, un tasto fuori estensione, un metro non scrivibile, un tempo limitato), e ogni avviso
+nomina la nota, lo strumento o la battuta suonata. `MidiOptions` contiene il programma General MIDI
+facoltativo di ogni strumento (E7: il modello non ha ancora impostazioni di suono, arrivano con F3)
+e il testo del marcatore del levare, che fornisce chi chiama, perché la libreria non scrive testi
+propri in nessuna lingua (CLAUDE.md §7).
+
+**Il file** è di formato 1 a 960 tick per semiminima (E3: valori binari, terzine e quintine cadono
+su tick esatti; si arrotondano le posizioni, mai le durate, quindi un settimino non deriva mai). La
+traccia 0, il "direttore", contiene tempo, indicazioni di metro e marcatori; poi una traccia per
+strumento, in ordine di partitura, con il nome dello strumento.
+
+**I moduli.**
+- `smf.rs`: i byte. Quantità a lunghezza variabile, eventi di canale e meta, blocchi di traccia con
+  il loro "fine traccia", l'intestazione. Niente running status (E2): ogni evento scrive il suo byte
+  di stato, più semplice e letto da tutti. Non sa nulla di musica; i suoi test unitari lo verificano
+  sugli esempi della specifica.
+- `timing.rs`: dalle posizioni ai tick e il **tempo ricostruito dai secondi** (E4). Il tempo MIDI
+  cambia a gradini; il nostro cambia con continuità in un accelerando e salta a un ritornello (lo
+  shift di F1.12). Quindi l'esportazione prende dei punti di rottura (i cambi di tempo come vengono
+  suonati, gli shift, una griglia di trentaduesimi e gli attacchi delle note dentro i cambi
+  graduali), chiede al percorso il loro tempo e dà a ogni tratto il tempo che lo fa durare
+  esattamente quanto dura. Contando il tempo in unità di 1/960 µs, un tick a `T` µs per semiminima
+  dura esattamente `T` unità, quindi due gradini di tempo per tratto colpiscono il bersaglio
+  esattamente:
+
+```text
+a stretch of Δ ticks that must last N units (1 unit = 1/960 µs):
+  T = N div Δ,  k = N mod Δ
+  first Δ − k ticks at T µs per quarter, last k ticks at T + 1
+  (Δ − k)·T + k·(T + 1) = N   exactly
+```
+
+  Ogni punto di rottura cade così sul suo tempo entro mezza unità, e nulla si accumula (ogni tratto
+  si misura da dove il lettore è davvero arrivato). Dentro un lungo tratto costante con un numero
+  non intero di microsecondi per semiminima (♩ = 72 vale 833 333,3 µs), una nota tra due punti di
+  rottura può scostarsi al massimo di Δ/4 unità: 21 µs su tutto il preset "full", molto sotto
+  qualunque soglia udibile. Il modulo tiene anche l'orologio del lettore (`units_at`, `tick_at`) per
+  collocare in secondi le curve del CC 11.
+- `meters.rs`: un'indicazione di metro per ogni battuta suonata con **la sua lunghezza vera** (E5):
+  il metro così com'è scritto per una battuta regolare (6/8 resta 6/8), altrimenti una frazione con
+  denominatore potenza di due (un levare di 1/4, una battuta irregolare di 5/8, una battuta libera di
+  8/4); scritta solo dove cambia, così le stanghette del sequencer seguono le nostre anche tra
+  ritornelli e salti. Una lunghezza che il formato non può scrivere (4/3) prende un marcatore con il
+  metro come testo e un avviso.
+- `notes.rs`: canali, note e controller (E6–E10). Lo strumento *i* suona sull'*i*-esimo dei 15
+  canali senza il 10 della batteria, condiviso oltre i 15 con un avviso; ogni canale si prepara una
+  volta (escursione del bend ±2 semitoni via RPN 0, CC 11 a 127, bend al centro). Il tasto di una
+  nota è il semitono più vicino e il bend il resto; la velocity del note-on è `max(v, s) >> 9`,
+  **almeno 1** (uno 0 sarebbe un note-off: il *niente* vale 1). **L'ultimo attacco comanda il CC 11
+  del canale**: dal suo inizio fino al note-on successivo o alla sua fine scrive `127 × livello /
+  max(v, s)` a passi di 10 ms, con il livello che segue il profilo d'attacco (tenuta, poi lineare
+  fino al livello di assestamento). Un note-on che non trova nulla in suono imposta il bend che gli
+  serve; se trova un altro bend in suono, si suona sul tasto più vicino sotto quel bend
+  (`BendRounded`). Un unisono sullo stesso canale riattacca e solo l'ultima nota sul tasto lo
+  spegne, nella traccia che lo tiene, così ogni traccia chiude le proprie note; due attacchi dello
+  stesso tasto **nello stesso tick** sono un solo attacco (lì un note-off verrebbe ordinato prima
+  del note-on che dovrebbe chiudere).
+- `mod.rs`: l'API, le opzioni, gli avvisi, gli errori e il montaggio delle tracce.
+
+**Il salvataggio** passa da `src/safe_write.rs`, lo stesso salvataggio sicuro del file di progetto,
+spostato lì da `project` perché lo usino entrambi (vedi "Salvare in modo sicuro" qui sopra).
+
+**Per ascoltare** c'è un esempio, uno strumento per sviluppatori (il comando vero della tappa M1
+arriva con F1.17):
+
+```sh
+cargo run -p orchestra-io --example export_midi -- full normal out.mid
+cargo run -p orchestra-io --example export_midi -- listening listening.mid
+```
+
+`full`/`plain` con `normal`/`heavy` esportano una partitura di riferimento, con un programma General
+MIDI per ogni strumento ricavato dal suo nome inglese; `listening` scrive il file per tarare a
+orecchio i profili d'attacco (E12, ADR-0027 §14): una battuta per segno (nessuno, stress, accento,
+marcato, *rf*, *sf*, *sffz*, *fp*, *sfp*, *pf*), ognuno su una nota lunga e una breve, con un insieme
+d'archi, a ♩ = 60 e poi a ♩ = 120.
+
+**Test.** `tests/midi_cases.rs`: una semiminima verificata **byte per byte** contro byte scritti a
+mano; poi, con ogni file riletto da **`midly`** (solo dipendenza di sviluppo, l'oracolo indipendente
+di E2: il nostro codificatore non è mai verificato dal nostro stesso lettore), un accordo ordinato
+per tasto e deterministico, un cambio di tempo, un accelerando (a gradini, ogni attacco entro 1 µs),
+le indicazioni di metro delle battute irregolari e un marcatore per il 4/3, il bend di un microtono,
+bend in conflitto arrotondati, un unisono, la curva discendente del CC 11 di un accento, il *pf* che
+sale e il *niente* mai muto, un levare per un'acciaccatura iniziale, diciassette strumenti (canale
+10 inutilizzato, due condivisi) e un program change, il salvataggio e il preset "full" (ogni note-on
+chiuso, ogni attacco scritto una volta, i tempi rispettati). `tests/midi_props.rs`: partiture
+casuali (tempi interi e no, un accelerando o un rallentando facoltativo, due voci, quarti di tono)
+mantengono ogni nota chiusa, nessuna velocity 0, gli stessi byte due volte e il tempo di ogni nota
+entro il suo limite. Un bug iniettato (tolto il secondo gradino di tempo) è stato preso dal test di
+proprietà. Gli aiuti comuni stanno in `tests/common/midi.rs`.
+
+**Costo** (`benches/midi.rs`, preset "full", percorso e note suonate calcolati fuori dalla regione
+misurata):
+
+```text
+operation                      normal score     heavy score
+midi::export (full preset)       18 390 000     442 690 000 instructions
+```
+
+Circa 18 ms e 0,44 s con la regola di F1.16c (1 istruzione per nanosecondo sul portatile di
+riferimento), dentro i budget proposti da ADR-0032 (100 M e 2 G). Il file della partitura pesante
+pesa circa 0,9 MB.
 
 ### orchestra-test-support: contare le allocazioni nei test
 

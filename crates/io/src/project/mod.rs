@@ -37,7 +37,7 @@ mod writer;
 
 use std::fmt;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 
 use orchestra_core_model::{Document, DocumentError};
@@ -274,54 +274,13 @@ pub fn load(path: &Path) -> Result<Document, LoadError> {
 }
 
 /// Saves a document to `path` **safely** (ADR-0029 S13): the bytes go to a temporary file in the
-/// same directory (`.<name>.<process id>.tmp`), which is synced to disk and then renamed over the
-/// target, and the directory is synced where the platform needs it (`crate::platform`). A failed
-/// save leaves the previous file as it was and removes the temporary file.
-///
-/// # Why the same directory
-/// A rename is atomic only within one file system; a temporary file elsewhere (say, `/tmp`) could
-/// be on another one, and the "rename" would become a copy that a crash can cut in half.
+/// same directory, which is synced to disk and then renamed over the target, and the directory is
+/// synced where the platform needs it. A failed save leaves the previous file as it was. The steps
+/// live in `crate::safe_write`, shared with the MIDI export (ADR-0032 E11).
 ///
 /// # Errors
 /// [`SaveError::Io`] with the failing path; [`SaveError::Encode`] as [`to_bytes`].
 pub fn save(doc: &Document, path: &Path) -> Result<(), SaveError> {
     let bytes = to_bytes(doc)?;
-    let io_error = |p: &Path| {
-        let p = p.to_path_buf();
-        move |e: io::Error| SaveError::Io {
-            kind: e.kind(),
-            path: p,
-        }
-    };
-    let name = path.file_name().ok_or_else(|| SaveError::Io {
-        kind: io::ErrorKind::InvalidInput,
-        path: path.to_path_buf(),
-    })?;
-    let directory = match path.parent() {
-        Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
-        _ => PathBuf::from("."),
-    };
-    let mut temp_name = std::ffi::OsString::from(".");
-    temp_name.push(name);
-    temp_name.push(format!(".{}.tmp", std::process::id()));
-    let temp = directory.join(temp_name);
-    let written = (|| -> Result<(), SaveError> {
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp)
-            .map_err(io_error(&temp))?;
-        file.write_all(&bytes).map_err(io_error(&temp))?;
-        file.sync_all().map_err(io_error(&temp))?;
-        drop(file);
-        fs::rename(&temp, path).map_err(io_error(path))?;
-        crate::platform::sync_directory(&directory).map_err(io_error(&directory))
-    })();
-    if written.is_err() {
-        // Best effort: the temporary file may not exist (the failure was opening it) or may
-        // already be the target (the failure was syncing the directory); either way there is
-        // nothing more to do, and the original error is the one to report.
-        let _ = fs::remove_file(&temp);
-    }
-    written
+    crate::safe_write::write(path, &bytes).map_err(|(kind, path)| SaveError::Io { kind, path })
 }
