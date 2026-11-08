@@ -131,9 +131,10 @@ impl IdCounter {
     /// The ID [`next`](Self::next) would hand out, without handing it out; `None` if the counter
     /// is exhausted. O(1).
     ///
-    /// For edits that can only be judged once the new object is in place (a tempo mark, whose
-    /// derived tempo map may turn out invalid): the object is tried with this ID, and the ID is
-    /// taken only if it stays, so that a rejected edit never consumes one.
+    /// Only the tests use it now (to name an ID not handed out yet): the builder, which tried a
+    /// tempo mark with the peeked ID, now takes the ID and gives it back on refusal
+    /// ([`give_back`](Self::give_back)), the same way for every object.
+    #[cfg(test)]
     pub(crate) fn peek(&self) -> Option<NonZeroU64> {
         match &self.script {
             // While loading, the next ID is the next scripted one.
@@ -148,6 +149,27 @@ impl IdCounter {
     /// (ADR-0022 §1, ADR-0026 §1). O(1).
     pub(crate) fn has_issued(&self, raw: u64) -> bool {
         raw != 0 && self.next.is_none_or(|next| raw < next.get())
+    }
+
+    /// Takes back the IDs just handed out, `taken` in the order they were handed out, so that the
+    /// counter is exactly as before (normal mode: its next value is the first of them again; script
+    /// mode: they are back on the script, in the same order). O(taken).
+    ///
+    /// # Contract
+    /// `taken` must be the **last** IDs handed out, with nothing handed out after them. The builder
+    /// guarantees it: it takes the IDs of one object, tries to insert the object, and gives them
+    /// back at once if the insertion is refused, so that a refused object never consumes an ID (the
+    /// rule the builder always had, now with the checks done by the edit layer, review point A1).
+    pub(crate) fn give_back(&mut self, taken: &[NonZeroU64]) {
+        match &mut self.script {
+            // The script is a stack whose top is the next ID: push the last taken first.
+            Some(script) => script.extend(taken.iter().rev()),
+            None => {
+                if let Some(&first) = taken.first() {
+                    self.next = Some(first);
+                }
+            }
+        }
     }
 
     /// Hands out the next ID, or `None` if the counter is exhausted. O(1).

@@ -345,13 +345,6 @@ impl<I: Copy + PartialEq, T> MarkList<I, T> {
         Some(self.marks.remove(at))
     }
 
-    /// Whether a mark is exactly at (`bar`, `offset`). O(log c). The document asks this before
-    /// taking an ID for a new mark, so that a duplicate never consumes one.
-    pub(crate) fn has_mark_at(&self, bars: &BarList, bar: BarIndex, offset: Duration) -> bool {
-        self.in_force_at(bars, bar, offset)
-            .is_some_and(|m| Self::key(bars, m.bar, m.offset) == (bar.get(), offset))
-    }
-
     /// The last mark at or before (`bar`, `offset`), if any: the one in force there. O(log c)
     /// comparisons, each an O(1) average hash lookup; never allocates.
     ///

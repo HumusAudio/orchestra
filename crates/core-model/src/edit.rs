@@ -706,7 +706,7 @@ impl Document {
 
     /// Checks a (bar, offset) point: the bar exists and the offset is not negative. Returns the
     /// bar's index. O(1) average.
-    fn check_point(&self, point: ScorePoint) -> Result<BarIndex, DocumentError> {
+    pub(crate) fn check_point(&self, point: ScorePoint) -> Result<BarIndex, DocumentError> {
         let index = self.bar_index(point.bar)?;
         if point.offset.is_negative() {
             return Err(DocumentError::NegativeOffset);
@@ -737,18 +737,33 @@ impl Document {
     // Insert
     // --------------------------------------------------------------------------------------------
 
-    /// Puts an object in its place (see [`Edit::Insert`]). On error nothing changed.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one short arm per kind of object: splitting the match would only scatter it"
-    )]
+    /// Puts an object in its place (see [`Edit::Insert`]), after checking that its ID was handed
+    /// out by the counter and names nothing yet. On error nothing changed.
     fn insert_object(
         &mut self,
         object: Object,
         changes: &mut ChangeSet,
     ) -> Result<(), DocumentError> {
+        self.check_new(object.reference())?;
+        self.place_object(object, changes)
+    }
+
+    /// [`insert_object`](Self::insert_object) without the check that the object's ID was handed
+    /// out and is not in use: for the builder, whose objects get IDs it has just taken from the
+    /// counter, so they are new by construction (and the check would cost a scan of the
+    /// object's list for every dynamic, hairpin or mark of a document being built). Every other
+    /// rule of the edit layer applies: the builder and the commands share them (review point A1).
+    /// On error nothing changed.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one short arm per kind of object: splitting the match would only scatter it"
+    )]
+    pub(crate) fn place_object(
+        &mut self,
+        object: Object,
+        changes: &mut ChangeSet,
+    ) -> Result<(), DocumentError> {
         let name = object.reference();
-        self.check_new(name)?;
         // The instrument whose loudness changes, for playback (ADR-0027 §14 H11): read before the
         // object is moved into the document.
         let loudness = object.loudness_instrument();

@@ -1036,8 +1036,16 @@ assert_eq!(document.bars().len(), 8);
 
 Il builder prende gli ID in un ordine documentato (una battuta uno; una traccia di strumento quello
 della traccia, quello dello strumento, uno per rigo, uno per voce), così le stesse chiamate danno
-sempre lo stesso documento, ID compresi. Ogni metodo controlla tutto **prima** di creare qualcosa:
-un errore lascia il builder com'era e non consuma nessun ID.
+sempre lo stesso documento, ID compresi. Un errore lascia il builder com'era e non consuma nessun
+ID. Gli oggetti che possono creare anche i comandi (eventi, gruppi irregolari, legature di
+portamento, segni, dinamiche, forcelle, la forma, ripetizioni di battuta, regole di passata) li
+mette al loro posto lo **strato delle modifiche**, `Document::place_object`, lo stesso codice che
+esegue un `Edit::Insert`: il builder prende gli ID, costruisce l'oggetto e restituisce gli ID
+(`IdCounter::give_back`) se lo strato delle modifiche lo rifiuta. Così le regole su dove può
+andare un oggetto, quali doppioni si rifiutano e come resta ordinata ogni lista esistono una volta
+sola, condivise dal builder e dai comandi (punto A1 della revisione: prima erano scritte due volte,
+tre per gli eventi). Battute, tracce e voci, che nessuna modifica crea una per una, restano compito
+del builder.
 
 **Limiti** (decisione del proprietario, 2026-11-02): al massimo **16 righi** e **256 voci** per
 strumento. Non sono limiti musicali (l'interfaccia potrà comunque offrire quattro voci per rigo, o
@@ -1319,9 +1327,9 @@ l'inizio della sua battuta più l'offset, **fermato alla stanghetta** (decisione
 all'offset 5/4 di una battuta in 4/4 finirebbe dopo un'indicazione all'inizio della battuta seguente.
 Il limite mantiene l'ordine; due indicazioni possono allora cadere nella stessa posizione, e vince
 quella che viene dopo nella partitura (l'altra resta scritta); un cambio graduale ridotto a niente
-vale come cambio immediato al suo tempo d'arrivo. `add_tempo_mark` prova l'indicazione con l'ID che il
-contatore darebbe come prossimo (`IdCounter::peek`), ricava la mappa e, se qualcosa non va, la
-toglie di nuovo: tutto o niente, nessun ID consumato. `validate` (regola 7) fa lo stesso percorso
+vale come cambio immediato al suo tempo d'arrivo. `add_tempo_mark` mette l'indicazione al suo
+posto, ricava la mappa e, se qualcosa non va, la toglie di nuovo e ne restituisce l'ID: tutto o
+niente, nessun ID consumato. `validate` (regola 7) fa lo stesso percorso
 senza costruire la mappa, quindi non alloca nulla di più.
 
 ```rust
