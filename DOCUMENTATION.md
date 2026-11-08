@@ -2221,13 +2221,14 @@ nearest).
   the right way, else one level up or down (*al niente*: to nothing). A dynamic inside splits the
   ramp; after the hairpin the target stays; a hairpin played twice starts each time from the level
   in force then.
-- **Dynamic accents** act only on the notes starting exactly at their point (H3, H16): *rf*/*rfz*
-  one level up, back to the level in 0.4 s; *sf*/*sfz*/*fz* two levels, 0.6 s; *sffz* three,
-  0.8 s; *fp* is *f* held 0.3 s then *p* in 0.1 s; *sfp*/*sfpp* *ff* then *p*/*pp* in 0.3 s; *pf*
-  *p* held 0.3 s then *f* in 0.1 s; *n* is velocity 1. Grace notes take the level of their main
+- **Dynamic accents** act only on the notes starting exactly at their point (H3, H16, with the
+  times tuned by ear in §15, round 1): *rf*/*rfz* one level up, back to the level in 0.5 s;
+  *sf*/*sfz*/*fz* two levels, 0.8 s; *sffz* three, 1.0 s; *fp* is *f* held 0.5 s then *p* in
+  0.1 s; *sfp*/*sfpp* *ff* held 0.3 s then *p*/*pp* in 0.3 s; *pf* *p* held 0.5 s then *f* in
+  0.1 s; *n* is velocity 1. Grace notes take the level of their main
   note without its accent (H10).
 - **Articulation accents** are fixed steps (H15, amending the percentages of §3): stress and soft
-  accent +7 back in 0.15 s, accent +15 in 0.2 s, marcato +22 in 0.25 s; unstress −7 on the whole
+  accent +7 back in 0.2 s, accent +15 in 0.25 s, marcato +22 in 0.3 s (§15); unstress −7 on the whole
   note. With a dynamic accent the attacks add up and the longer time wins (H17); the velocity
   offset moves both the attack and the settling level.
 

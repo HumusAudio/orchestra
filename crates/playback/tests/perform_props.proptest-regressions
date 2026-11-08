@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 6f7c7916c194966a2344f58d1844e540cf7d71c4d8c2348be6bcec653d8192cb # shrinks to n = 3, seed = [0, 59, 0, 0, 0, 0, 0, 0], any_extra = true
+cc 15ab35f0ea7158eb0d73e13d66aea607370a3a2467e71767cd100ab0c315c469 # shrinks to n = 4, seed = [12, 85, 36, 0, 57, 0, 7, 8, 22, 54, 0, 84, 61, 0, 105, 105, 175, 1, 0, 72, 0, 22, 0, 61, 30, 0, 4, 0, 61, 63, 4, 0, 165, 81], any_extra = true, dynamics = true

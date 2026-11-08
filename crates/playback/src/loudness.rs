@@ -165,10 +165,14 @@ pub(crate) enum PointAccent {
 /// the level in force after it, if it sets one. O(1).
 ///
 /// - a level: no accent, that level;
-/// - *rf*/*rfz* (+1 level, 0.4 s), *sf*/*sfz*/*fz* (+2, 0.6 s), *sffz* (+3, 0.8 s): an accent,
+/// - *rf*/*rfz* (+1 level, 0.5 s), *sf*/*sfz*/*fz* (+2, 0.8 s), *sffz* (+3, 1.0 s): an accent,
 ///   the level unchanged;
-/// - *fp* (*f* held 0.3 s, then *p* in 0.1 s), *sfp*/*sfpp* (*ff*, then *p*/*pp* in 0.3 s), *pf*
-///   (*p* held 0.3 s, then *f* in 0.1 s): an accent, and the second level afterwards;
+/// - *fp* (*f* held 0.5 s, then *p* in 0.1 s), *sfp*/*sfpp* (*ff* held 0.3 s, then *p*/*pp* in
+///   0.3 s), *pf* (*p* held 0.5 s, then *f* in 0.1 s): an accent, and the second level
+///   afterwards;
+///
+/// The times are those of the tuning by ear, round 1 (§15, replacing those of H16); the levels
+/// are those of H3–H4.
 /// - *n*: level 0 (velocity 1 once bounded, H5);
 /// - free text: its level if it has one, else nothing.
 ///
@@ -191,13 +195,13 @@ fn mark_effect(mark: &DynamicMark) -> Result<(Option<PointAccent>, Option<i64>),
     };
     Ok(match mark {
         DynamicMark::Level(level) => (None, Some(level_value(*level))),
-        DynamicMark::Rf | DynamicMark::Rfz => (up(1, 4)?, None),
-        DynamicMark::Sf | DynamicMark::Sfz | DynamicMark::Fz => (up(2, 6)?, None),
-        DynamicMark::Sffz => (up(3, 8)?, None),
-        DynamicMark::Fp => (shift(F, 3, 1, P)?, Some(P)),
-        DynamicMark::Sfp => (shift(FF, 0, 3, P)?, Some(P)),
-        DynamicMark::Sfpp => (shift(FF, 0, 3, PP)?, Some(PP)),
-        DynamicMark::Pf => (shift(P, 3, 1, F)?, Some(F)),
+        DynamicMark::Rf | DynamicMark::Rfz => (up(1, 5)?, None),
+        DynamicMark::Sf | DynamicMark::Sfz | DynamicMark::Fz => (up(2, 8)?, None),
+        DynamicMark::Sffz => (up(3, 10)?, None),
+        DynamicMark::Fp => (shift(F, 5, 1, P)?, Some(P)),
+        DynamicMark::Sfp => (shift(FF, 3, 3, P)?, Some(P)),
+        DynamicMark::Sfpp => (shift(FF, 3, 3, PP)?, Some(PP)),
+        DynamicMark::Pf => (shift(P, 5, 1, F)?, Some(F)),
         DynamicMark::Niente => (None, Some(0)),
         DynamicMark::Other(other) => (None, other.level().map(level_value)),
     })
@@ -807,8 +811,9 @@ pub(crate) struct Profile {
     pub(crate) settle_to: u16,
 }
 
-/// The step of an articulation accent on the 0–127 scale and the time to settle back (H15):
-/// soft accent and stress +7 in 0.15 s, accent +15 in 0.2 s, marcato +22 in 0.25 s. Unstress is
+/// The step of an articulation accent on the 0–127 scale and the time to settle back (H15, times
+/// of the tuning by ear, round 1, §15): soft accent and stress +7 in 0.2 s, accent +15 in 0.25 s,
+/// marcato +22 in 0.3 s. Unstress is
 /// handled apart (−7 on the whole note, no profile). Steps add; the time is the longest. O(1).
 ///
 /// # Errors
@@ -818,10 +823,10 @@ fn articulation_step(set: ArticulationSet) -> Result<(i64, Seconds), RationalErr
     let mut step = 0_i64;
     let mut time = Seconds::ZERO;
     for (articulation, add, hundredths) in [
-        (Articulation::SoftAccent, 7, 15),
-        (Articulation::Stress, 7, 15),
-        (Articulation::Accent, 15, 20),
-        (Articulation::Marcato, 22, 25),
+        (Articulation::SoftAccent, 7, 20),
+        (Articulation::Stress, 7, 20),
+        (Articulation::Accent, 15, 25),
+        (Articulation::Marcato, 22, 30),
     ] {
         if set.contains(articulation) {
             step = step.saturating_add(add);

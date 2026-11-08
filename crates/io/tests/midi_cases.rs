@@ -319,7 +319,7 @@ fn expressions(decoded: &Decoded) -> Vec<(u64, u8)> {
 }
 
 /// E8: an accent at ♩ = 60 on a half note: the note-on at the accented velocity, then CC 11 down
-/// to the dynamic's level in 0.2 s (ADR-0027 H15), in 10 ms steps.
+/// to the dynamic's level in 0.25 s (ADR-0027 H15, §15), in 10 ms steps.
 #[test]
 fn an_accent_fades_back_with_cc11() {
     let mut s = Score::new(1, common_time(), 60, &["Horn"]);
@@ -332,13 +332,14 @@ fn an_accent_fades_back_with_cc11() {
     // mf 75 + 15 = 90 at the attack (H15).
     assert_eq!(decoded.notes(0), [(0, 1_920, 0, 60, 90)]);
     let cc = expressions(&decoded);
-    // Decreasing to round(127 × 75/90) = 106, the last point at 0.2 s (0.2 quarters = 192 ticks).
+    // Decreasing to round(127 × 75/90) = 106, the last point at 0.25 s (0.25 quarters = 240
+    // ticks).
     assert!(
         cc.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 > w[1].1),
         "{cc:?}"
     );
-    assert_eq!(cc.last(), Some(&(192, 106)));
-    assert!(cc.len() >= 15, "about one step per 10 ms: {cc:?}");
+    assert_eq!(cc.last(), Some(&(240, 106)));
+    assert!(cc.len() >= 20, "about one step per 10 ms: {cc:?}");
 }
 
 /// E8: *pf*: the note-on at the *f* velocity, CC 11 starting at the *p* ratio and rising to 127;
@@ -369,7 +370,7 @@ fn pf_rises_and_niente_is_not_silent() {
     assert_eq!(notes[0].4, 88, "pf: the note-on at f");
     assert_eq!(notes[1].4, 1, "niente: velocity 1, not a note-off");
     let cc = expressions(&decoded);
-    // p/f = 49/88 → 71, then up to 127 after the 0.3 s hold.
+    // p/f = 49/88 → 71, then up to 127 after the 0.5 s hold.
     assert_eq!(cc.first(), Some(&(0, 71)));
     assert!(cc.iter().any(|(_, v)| *v == 127));
     let _ = DynamicLevel::P;

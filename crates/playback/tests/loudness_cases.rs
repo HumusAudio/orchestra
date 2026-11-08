@@ -196,9 +196,9 @@ fn the_dynamic_in_force_follows_the_path() {
     assert_eq!(attacks(&notes), expected);
 }
 
-/// H3, H16: an *sf* in *p* attacks two levels up (*f*) and settles back to *p* in 0.6 s, only on
+/// H3, H16, §15: an *sf* in *p* attacks two levels up (*f*) and settles back to *p* in 0.8 s, only on
 /// the note starting at its point; an *sf* where no note starts does nothing; in *fff* it stops at
-/// *ffff*; *rf* is one level, *sffz* three.
+/// *ffff*; *rf* is one level (0.5 s), *sffz* three (1.0 s).
 #[test]
 fn sforzato_and_the_like() {
     let mut s = score(2);
@@ -224,16 +224,17 @@ fn sforzato_and_the_like() {
         ]
     );
     assert_eq!(notes[1].settle_to, up(49));
-    assert_eq!(notes[1].settle_in, secs(3, 5));
+    assert_eq!(notes[1].settle_in, secs(4, 5));
     assert_eq!(notes[1].hold, Seconds::ZERO);
-    assert_eq!(notes[3].settle_in, secs(2, 5));
+    assert_eq!(notes[3].settle_in, secs(1, 2));
     assert_eq!(notes[5].settle_to, up(114));
-    assert_eq!(notes[5].settle_in, secs(4, 5));
+    assert_eq!(notes[5].settle_in, secs(1, 1));
     assert!(flat(&notes[2]) && flat(&notes[4]));
 }
 
-/// H4, H16: *fp* is *f* held 0.3 s then *p* in 0.1 s, and *p* afterwards; *pf* the reverse;
-/// *sfpp* is *ff* then *pp* in 0.3 s; without a note at its point the second level holds at once.
+/// H4, H16, §15: *fp* is *f* held 0.5 s then *p* in 0.1 s, and *p* afterwards; *pf* the
+/// reverse; *sfpp* is *ff* held 0.3 s then *pp* in 0.3 s; without a note at its point the second
+/// level holds at once.
 #[test]
 fn forte_piano_and_piano_forte() {
     let mut s = score(2);
@@ -247,19 +248,19 @@ fn forte_piano_and_piano_forte() {
     let fp = &notes[0];
     assert_eq!(
         (fp.velocity, fp.hold, fp.settle_in, fp.settle_to),
-        (up(88), secs(3, 10), secs(1, 10), up(49))
+        (up(88), secs(1, 2), secs(1, 10), up(49))
     );
     assert_eq!(notes[1].velocity, up(49));
     let pf = &notes[2];
     assert_eq!(
         (pf.velocity, pf.hold, pf.settle_in, pf.settle_to),
-        (up(49), secs(3, 10), secs(1, 10), up(88))
+        (up(49), secs(1, 2), secs(1, 10), up(88))
     );
     assert_eq!(notes[3].velocity, up(88));
     let sfpp = &notes[4];
     assert_eq!(
         (sfpp.velocity, sfpp.hold, sfpp.settle_in, sfpp.settle_to),
-        (up(101), Seconds::ZERO, secs(3, 10), up(36))
+        (up(101), secs(3, 10), secs(3, 10), up(36))
     );
     assert_eq!(notes[5].velocity, up(36));
     assert_eq!(attacks(&notes[6..]), [up(49), up(49)]);
@@ -461,7 +462,8 @@ fn grace_notes_take_the_level_without_the_accent() {
     assert!(flat(&notes[0]));
 }
 
-/// H15, H17: articulation accents are fixed steps (accent +15 in 0.2 s, marcato +22 in 0.25 s);
+/// H15, H17, §15: articulation accents are fixed steps (accent +15 in 0.25 s, marcato +22 in
+/// 0.3 s);
 /// with an *sf* the attack adds both and the longer time wins; an unstress is −7 on the whole
 /// note; the velocity offset moves the attack and the settling level.
 #[test]
@@ -497,15 +499,15 @@ fn articulation_accents_are_fixed_steps() {
     )
     .unwrap();
     let notes = s.played();
-    // pp (36) + 15 = 51, settling back to 36 in 0.2 s: the same step as at mf.
+    // pp (36) + 15 = 51, settling back to 36 in 0.25 s: the same step as at mf.
     assert_eq!(
         (notes[0].velocity, notes[0].settle_to, notes[0].settle_in),
-        (up(51), up(36), secs(1, 5))
+        (up(51), up(36), secs(1, 4))
     );
-    // sf in pp: 36 + 26 = 62, + marcato 22 = 84, back to 36 in 0.6 s (the longer).
+    // sf in pp: 36 + 26 = 62, + marcato 22 = 84, back to 36 in 0.8 s (the longer).
     assert_eq!(
         (notes[1].velocity, notes[1].settle_to, notes[1].settle_in),
-        (up(84), up(36), secs(3, 5))
+        (up(84), up(36), secs(4, 5))
     );
     // Unstress: 29 for the whole note.
     assert_eq!(notes[2].velocity, up(29));

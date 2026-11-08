@@ -571,7 +571,11 @@ P1–P3 (2026-11-08):** (P1) two attacks of one key at the same tick on one chan
 (236 of the 5 248 notes of the full preset); (P2) between breakpoints, in a constant stretch with a
 non-integer number of µs per quarter, a note can be off by up to Δ/4 units of 1/960 µs (21 µs on
 the full preset; breakpoints exact); (P3) the lead-in marker's text comes from the caller, none by
-default. **Still to do in F1.18:** the listening session (E12), the PR and green CI.
+default. **Listening, round 1 (2026-11-08):** the owner listened with FluidSynth and FluidR3 GM
+and asked for every time a little longer; approved as ADR-0027 §15 (new section, tuning by ear,
+one round after another): stress/soft accent 0.2 s, accent 0.25 s, marcato 0.3 s, *rf* 0.5 s,
+*sf* 0.8 s, *sffz* 1.0 s, *fp*/*pf* held 0.5 s, *sfp*/*sfpp* held 0.3 s (they had no hold).
+**Still to do in F1.18:** listening round 2 on the regenerated file, the PR and green CI.
 **Next:** finish F1.18, then F1.17 (phase close, with the test command of milestone M1).
 
 | Step | What | Status |
@@ -660,8 +664,8 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   provisional value to be **tuned by ear** with the owner. Bring it up as soon as the owner can
   listen: at F1.18 (MIDI export, first listening) and again with the internal instruments of F3;
   they become playback options in F2.12. **F1.18 (2026-11-08):** the listening file is ready
-  (`cargo run -p orchestra-io --example export_midi -- listening listening.mid`); the session with
-  the owner is still to be held.
+  (`cargo run -p orchestra-io --example export_midi -- listening listening.mid`); round 1 done and
+  recorded in ADR-0027 §15, round 2 still to be held.
 - **Possible `Rational` optimisations seen in the first numbers (F1.03b), not urgent:** the
   equal-denominator fast path of the sum saves little because the final gcd dominates; the gcd
   could short-cut when one operand is 1 (integer values, the overflow path at ~455 instructions
