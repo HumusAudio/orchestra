@@ -117,10 +117,9 @@ impl Tempo {
     /// # Complexity
     /// O(log); no allocation.
     pub const fn speed(self) -> Result<Rational, RationalError> {
-        match self.unit.as_rational().checked_mul(self.bpm) {
-            Ok(per_minute) => per_minute.checked_div(SIXTY),
-            Err(error) => Err(error),
-        }
+        // Whole notes per minute first, then per second.
+        let per_minute = const_try!(self.unit.as_rational().checked_mul(self.bpm));
+        per_minute.checked_div(SIXTY)
     }
 
     /// The exact time that `duration` lasts at this constant tempo: `duration / speed`.
@@ -128,14 +127,10 @@ impl Tempo {
     /// # Errors
     /// [`RationalError::Overflow`] if the result does not fit.
     pub const fn seconds_for(self, duration: Duration) -> Result<Seconds, RationalError> {
-        let speed = match self.speed() {
-            Ok(speed) => speed,
-            Err(error) => return Err(error),
-        };
-        match duration.as_rational().checked_div(speed) {
-            Ok(seconds) => Ok(Seconds::from_rational(seconds)),
-            Err(error) => Err(error),
-        }
+        let speed = const_try!(self.speed());
+        Ok(Seconds::from_rational(const_try!(
+            duration.as_rational().checked_div(speed)
+        )))
     }
 
     /// The exact musical duration covered in `time` at this constant tempo: `time × speed`.
@@ -143,26 +138,26 @@ impl Tempo {
     /// # Errors
     /// [`RationalError::Overflow`] if the result does not fit.
     pub const fn duration_in(self, time: Seconds) -> Result<Duration, RationalError> {
-        let speed = match self.speed() {
-            Ok(speed) => speed,
-            Err(error) => return Err(error),
-        };
-        match time.as_rational().checked_mul(speed) {
-            Ok(whole_notes) => Ok(Duration::from_rational(whole_notes)),
-            Err(error) => Err(error),
-        }
+        let speed = const_try!(self.speed());
+        Ok(Duration::from_rational(const_try!(
+            time.as_rational().checked_mul(speed)
+        )))
     }
 }
 
 impl fmt::Debug for Tempo {
     /// Writes `Tempo(1/4 = 120)` or `Tempo(3/8 = 185/2)`: unit, then beats per minute.
+    ///
+    /// The unit is always written as a fraction (`1/1` for a whole note), because it reads as a
+    /// note value; the beats per minute use `Rational`'s `Display` (`120`, `185/2`).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let unit = self.unit.as_rational();
-        write!(f, "Tempo({}/{} = ", unit.numerator(), unit.denominator())?;
-        if self.bpm.is_integer() {
-            write!(f, "{})", self.bpm.numerator())
-        } else {
-            write!(f, "{}/{})", self.bpm.numerator(), self.bpm.denominator())
-        }
+        write!(
+            f,
+            "Tempo({}/{} = {})",
+            unit.numerator(),
+            unit.denominator(),
+            self.bpm
+        )
     }
 }
