@@ -1801,6 +1801,19 @@ property test now entering notes inside tuplets. Two injected bugs (the part not
 ratio, the values of a part not spaced by it) were caught, the second only by the case written for
 it: a gap between two values is a valid state, so `validate` cannot see it.
 
+**Tie chains, in one module** (`src/chain.rs`). Three commands write a duration as a chain of tied
+events: entering a note across a barline, rewriting the bars of a meter change, and a DAW move or
+resize beyond the threshold. They share three small functions instead of three copies of the same
+loops: `push_parts` writes one stretch of a bar with the longest values first, scaled by the tuplet
+ratio; `chain_ids` hands out the IDs of every part, keeping the ones the caller already has (none
+for a new note, the event's own for the first part of a rewritten event, the old chain's for a
+DAW move) and taking new ones in a fixed order, so the same command always makes the same IDs;
+`tie_to_next` ties the `k`-th notehead of a part to the `k`-th of the next, or gives the last part
+the tie the chain ended with. The objects that commands move or clip (hairpins, pass rules,
+voltas, repeats, markers, jumps, bar repeats, slurs, marks, gradual tempo marks) have small
+`with_…` methods (`with_points`, `with_bars`, `with_bar`, `with_end`, `moved_to`,
+`with_gradual_end`) that change one or two fields and keep the rest.
+
 #### Rewrite: the music stays where it sounds
 
 F1.11c part 2b adds the meter change that rewrites the music (module `rewrite`, ADR-0026 §7 with

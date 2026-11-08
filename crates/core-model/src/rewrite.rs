@@ -44,20 +44,16 @@ use orchestra_core_time::{
     BarIndex, BarKind, BarSpan, Duration, IrregularBar, MeterChange, Rational,
 };
 
-use crate::bar_repeat::PassRule;
-use crate::command::{replace_event_at, split_values};
+use crate::chain::{chain_ids, push_parts, tie_to_next};
+use crate::command::replace_event_at;
 use crate::document::{Document, DocumentError, is_whole_bar_rest};
-use crate::dynamic::{Dynamic, Hairpin};
 use crate::edit::{Edit, Object};
 use crate::editor::{CommandError, Transaction};
-use crate::event::{Chord, Event, EventBody, Note, NoteValue, PlacedEvent, Rest, RestValue, Tie};
-use crate::form::{RepeatEnd, RepeatStart, Volta};
-use crate::id::{BarId, EventId, NoteId, VoiceId};
-use crate::jump::{Jump, Marker};
+use crate::event::{Chord, Event, EventBody, Note, NoteValue, PlacedEvent, Rest, RestValue};
+use crate::id::{BarId, VoiceId};
 use crate::marking::GraceAttach;
 use crate::marks::{Mark, ScorePoint};
-use crate::slur::Slur;
-use crate::tempo_mark::{TempoMark, TempoMarkChange};
+use crate::tempo_mark::TempoMarkChange;
 
 /// What the meter change entry at the first bar of the region becomes.
 #[derive(Debug, Clone, Copy)]
@@ -643,11 +639,8 @@ fn move_event(
         let [from, to] = pair else {
             return Err(DocumentError::Inconsistent.into());
         };
-        let (bar, mut offset) = grid.locate(*from, false)?;
-        for value in split_values(to.checked_sub(*from)?, ratio)? {
-            parts.push((bar, offset, value));
-            offset = offset.checked_add(value.length()?.checked_mul(ratio)?)?;
-        }
+        let (bar, offset) = grid.locate(*from, false)?;
+        push_parts(&mut parts, bar, offset, to.checked_sub(*from)?, ratio)?;
     }
     write_parts(tx, region, voice, event, &parts)
 }
@@ -671,22 +664,10 @@ fn write_parts(
         .chord()
         .map(|c| c.notes().copied().collect())
         .unwrap_or_default();
-    // Every ID first: each part ties to the noteheads of the next.
-    let mut ids: Vec<(EventId, Vec<NoteId>)> = Vec::with_capacity(parts.len());
-    for j in 0..parts.len() {
-        if j == 0 {
-            ids.push((event.id(), originals.iter().map(Note::id).collect()));
-        } else {
-            let id = EventId::from_counter(tx.new_id()?);
-            let mut notes = Vec::with_capacity(originals.len());
-            for _ in &originals {
-                notes.push(NoteId::from_counter(tx.new_id()?));
-            }
-            ids.push((id, notes));
-        }
-    }
+    // Every ID first: the first part keeps the event's own IDs, the others are new.
+    let own = (event.id(), originals.iter().map(Note::id).collect());
+    let ids = chain_ids(tx, parts.len(), originals.len(), &[own])?;
     for (j, (&(bar, offset, value), (id, notes))) in parts.iter().zip(&ids).enumerate() {
-        let next = ids.get(j.saturating_add(1)).map(|(_, n)| n.as_slice());
         let body = match event.body() {
             EventBody::Chord(chord) => {
                 let mut made = Vec::with_capacity(originals.len());
@@ -696,11 +677,8 @@ fn write_parts(
                     } else {
                         Note::new(note_id, original.pitch())
                     };
-                    let tie = match next.and_then(|ns| ns.get(n)) {
-                        Some(&target) => Tie::To(target),
-                        None => original.tie(),
-                    };
-                    note.set_tie(tie);
+                    // To the next part; the last part keeps the tie the event had.
+                    note.set_tie(tie_to_next(&ids, j, n, original.tie()));
                     made.push(note);
                 }
                 let like: Option<&Chord> = (j == 0).then_some(chord);
@@ -748,7 +726,7 @@ fn write_parts(
             if found.end() == event.id() {
                 edits.push(Edit::Replace(Object::Slur {
                     instrument: instrument.id(),
-                    slur: Slur::new(slur, found.start(), *last_id, found.placement()),
+                    slur: found.with_end(*last_id),
                 }));
             }
         }
@@ -775,12 +753,7 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
         for d in instrument.dynamics().iter().filter(|d| touches(d.at())) {
             moved.push(Object::Dynamic {
                 instrument: owner,
-                dynamic: Dynamic::new(
-                    d.id(),
-                    region.moved(doc, d.at())?,
-                    d.placement(),
-                    d.mark().clone(),
-                ),
+                dynamic: d.with_point(region.moved(doc, d.at())?),
             });
         }
         for h in instrument
@@ -790,13 +763,7 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
         {
             moved.push(Object::Hairpin {
                 instrument: owner,
-                hairpin: Hairpin::new(
-                    h.id(),
-                    region.moved(doc, h.start())?,
-                    region.moved(doc, h.end())?,
-                    h.placement(),
-                    h.shape(),
-                ),
+                hairpin: h.with_points(region.moved(doc, h.start())?, region.moved(doc, h.end())?),
             });
         }
         for r in instrument
@@ -806,14 +773,7 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
         {
             moved.push(Object::PassRule {
                 instrument: owner,
-                rule: PassRule::new(
-                    r.id(),
-                    region.moved(doc, r.start())?,
-                    region.moved(doc, r.end())?,
-                    r.scope(),
-                    r.plays(),
-                    r.text().map(Box::from),
-                ),
+                rule: r.with_points(region.moved(doc, r.start())?, region.moved(doc, r.end())?),
             });
         }
         for m in instrument
@@ -822,10 +782,9 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
             .iter()
             .filter(|m| touches(m.point()))
         {
-            let to = region.moved(doc, m.point())?;
             moved.push(Object::KeyOverride {
                 instrument: owner,
-                mark: Mark::new(m.id(), to.bar, to.offset, *m.value()),
+                mark: m.moved_to(region.moved(doc, m.point())?),
             });
         }
         for staff in instrument.staves() {
@@ -835,10 +794,9 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
                 .iter()
                 .filter(|m| touches(m.point()))
             {
-                let to = region.moved(doc, m.point())?;
                 moved.push(Object::ClefChange {
                     staff: staff.id(),
-                    mark: Mark::new(m.id(), to.bar, to.offset, *m.value()),
+                    mark: m.moved_to(region.moved(doc, m.point())?),
                 });
             }
         }
@@ -849,13 +807,7 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
         .iter()
         .filter(|m| touches(m.point()))
     {
-        let to = region.moved(doc, m.point())?;
-        moved.push(Object::KeyChange(Mark::new(
-            m.id(),
-            to.bar,
-            to.offset,
-            *m.value(),
-        )));
+        moved.push(Object::KeyChange(m.moved_to(region.moved(doc, m.point())?)));
     }
     for m in doc.tempo_marks().as_slice() {
         let gradual_end = match m.value().change() {
@@ -865,14 +817,11 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
         if !touches(m.point()) && !gradual_end.is_some_and(|g| touches(g.end)) {
             continue;
         }
-        let to = region.moved(doc, m.point())?;
         let value = match gradual_end {
-            Some(mut g) => {
-                g.end = region.moved(doc, g.end)?;
-                TempoMark::new(m.value().text(), Some(TempoMarkChange::Gradual(g)))?
-            }
+            Some(g) => m.value().with_gradual_end(region.moved(doc, g.end)?)?,
             None => m.value().clone(),
         };
+        let to = region.moved(doc, m.point())?;
         moved.push(Object::TempoMark(Mark::new(
             m.id(),
             to.bar,
@@ -910,25 +859,20 @@ fn move_form(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandErr
     let mut moved = Vec::new();
     for r in form.repeat_starts() {
         if let Some(bar) = starting(r.bar())? {
-            moved.push(Object::RepeatStart(RepeatStart::new(r.id(), bar)));
+            moved.push(Object::RepeatStart(r.with_bar(bar)));
         }
     }
     for r in form.repeat_ends() {
         if let Some(bar) = ending(r.bar())? {
-            moved.push(Object::RepeatEnd(RepeatEnd::new(r.id(), bar, r.times())));
+            moved.push(Object::RepeatEnd(r.with_bar(bar)));
         }
     }
     for v in form.voltas() {
         let (first, last) = (starting(v.first())?, ending(v.last())?);
         if first.is_some() || last.is_some() {
-            moved.push(Object::Volta(Volta::new(
-                v.id(),
-                first.unwrap_or(v.first()),
-                last.unwrap_or(v.last()),
-                v.passes(),
-                v.closed(),
-                v.text().map(Box::from),
-            )));
+            moved.push(Object::Volta(
+                v.with_bars(first.unwrap_or(v.first()), last.unwrap_or(v.last())),
+            ));
         }
     }
     for m in form.markers() {
@@ -938,22 +882,12 @@ fn move_form(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandErr
             ending(m.bar())?
         };
         if let Some(bar) = bar {
-            moved.push(Object::Marker(Marker::new(
-                m.id(),
-                bar,
-                m.kind(),
-                m.text().map(Box::from),
-            )));
+            moved.push(Object::Marker(m.with_bar(bar)));
         }
     }
     for j in form.jumps() {
         if let Some(bar) = ending(j.bar())? {
-            moved.push(Object::Jump(Jump::new(
-                j.id(),
-                bar,
-                j.spec(),
-                j.text().map(Box::from),
-            )));
+            moved.push(Object::Jump(j.with_bar(bar)));
         }
     }
     reinsert(tx, moved)

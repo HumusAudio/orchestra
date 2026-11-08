@@ -177,6 +177,16 @@ impl RepeatStart {
         Self { id, bar }
     }
 
+    /// This repeat start at another bar. O(1).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) const fn with_bar(&self, bar: BarId) -> Self {
+        Self { bar, ..*self }
+    }
+
     /// The barline's identity. O(1).
     #[must_use]
     pub const fn id(&self) -> RepeatId {
@@ -215,6 +225,16 @@ impl RepeatEnd {
     /// checks what it creates, so no invalid document can come from it.
     pub const fn new(id: RepeatId, bar: BarId, times: u8) -> Self {
         Self { id, bar, times }
+    }
+
+    /// This repeat end at another bar, played as many times. O(1).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) const fn with_bar(&self, bar: BarId) -> Self {
+        Self { bar, ..*self }
     }
 
     /// The barline's identity. O(1).
@@ -285,6 +305,20 @@ impl Volta {
             passes,
             closed,
             text,
+        }
+    }
+
+    /// This volta over other first and last bars, the rest unchanged. O(text length).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) fn with_bars(&self, first: BarId, last: BarId) -> Self {
+        Self {
+            first,
+            last,
+            ..self.clone()
         }
     }
 

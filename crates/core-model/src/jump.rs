@@ -82,6 +82,19 @@ impl Marker {
         }
     }
 
+    /// This marker at another bar, the rest unchanged. O(text length).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) fn with_bar(&self, bar: BarId) -> Self {
+        Self {
+            bar,
+            ..self.clone()
+        }
+    }
+
     /// The marker's identity. O(1).
     #[must_use]
     pub const fn id(&self) -> MarkerId {
@@ -228,6 +241,19 @@ impl Jump {
             bar,
             spec,
             text,
+        }
+    }
+
+    /// This jump at another bar, the rest unchanged. O(text length).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) fn with_bar(&self, bar: BarId) -> Self {
+        Self {
+            bar,
+            ..self.clone()
         }
     }
 
