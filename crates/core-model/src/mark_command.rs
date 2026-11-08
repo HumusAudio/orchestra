@@ -58,7 +58,7 @@ use crate::id::{
     BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, JumpId, KeyChangeId,
     MarkerId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId, TupletId, VoiceId, VoltaId,
 };
-use crate::jump::{Jump, JumpSpec, JumpTarget, Marker, MarkerKind};
+use crate::jump::{Jump, JumpSpec, Marker, MarkerKind};
 use crate::marks::{Clef, KeyOverride, Mark, ScorePoint};
 use crate::pitch::Key;
 use crate::slur::{Slur, SlurPlacement};
@@ -229,11 +229,14 @@ pub struct NewVolta {
 // Building the objects
 // ------------------------------------------------------------------------------------------------
 
-/// Refuses a free text that is empty or only white space, as the builder does. O(text length).
+/// Refuses a free text that is empty or only white space. O(text length).
+///
+/// Shared with the builder (`DocumentBuilder::add_volta` and the others), which used to repeat
+/// the test (review point B7).
 ///
 /// # Errors
 /// [`DocumentError::EmptyText`].
-fn check_text(text: Option<&str>) -> Result<(), DocumentError> {
+pub(crate) fn check_text(text: Option<&str>) -> Result<(), DocumentError> {
     if text.is_some_and(|t| t.trim().is_empty()) {
         return Err(DocumentError::EmptyText);
     }
@@ -354,15 +357,7 @@ fn object_of(doc: &Document, raw: NonZeroU64, spec: &MarkSpec) -> Result<Object,
             check_text(text.as_deref())?;
             // An edit does not check the markers a jump names (a later edit of the same
             // transaction could remove them: see `crate::edit`), so the command does.
-            let target = match spec.to {
-                JumpTarget::Start => None,
-                JumpTarget::Marker(id) => Some(id),
-            };
-            for id in [target, spec.until, spec.then].into_iter().flatten() {
-                if doc.marker(id).is_none() {
-                    return Err(DocumentError::UnknownMarker(id));
-                }
-            }
+            doc.check_jump_markers(spec)?;
             Object::Jump(Jump::new(
                 JumpId::from_counter(raw),
                 *bar,
@@ -409,27 +404,13 @@ fn object_of(doc: &Document, raw: NonZeroU64, spec: &MarkSpec) -> Result<Object,
 /// The raw ID of a mark named by `name`, or [`DocumentError::NotAMark`] for an event, a tuplet,
 /// a bar or a value the document has once (they have commands of their own). O(1).
 fn mark_id(name: ObjectRef) -> Result<NonZeroU64, DocumentError> {
+    // Events, tuplets and bars have IDs but are not marks; the values a document has once have
+    // no ID at all (`raw_id` is `None`).
     let raw = match name {
-        ObjectRef::Slur(id) => id.get(),
-        ObjectRef::Dynamic(id) => id.get(),
-        ObjectRef::Hairpin(id) => id.get(),
-        ObjectRef::TempoMark(id) => id.get(),
-        ObjectRef::ClefChange(id) => id.get(),
-        ObjectRef::KeyChange(id) | ObjectRef::KeyOverride(id) => id.get(),
-        ObjectRef::RepeatStart(id) | ObjectRef::RepeatEnd(id) => id.get(),
-        ObjectRef::Volta(id) => id.get(),
-        ObjectRef::Marker(id) => id.get(),
-        ObjectRef::Jump(id) => id.get(),
-        ObjectRef::BarRepeat(id) => id.get(),
-        ObjectRef::PassRule(id) => id.get(),
-        ObjectRef::Bar(_)
-        | ObjectRef::Event(_)
-        | ObjectRef::Tuplet(_)
-        | ObjectRef::InitialTempo
-        | ObjectRef::InitialKey
-        | ObjectRef::InitialClef(_)
-        | ObjectRef::Numbering => return Err(DocumentError::NotAMark(name)),
-    };
+        ObjectRef::Bar(_) | ObjectRef::Event(_) | ObjectRef::Tuplet(_) => None,
+        _ => name.raw_id(),
+    }
+    .ok_or(DocumentError::NotAMark(name))?;
     // IDs come from a counter that starts at 1, so 0 never names anything.
     NonZeroU64::new(raw).ok_or(DocumentError::UnknownObject(name))
 }

@@ -55,7 +55,9 @@ use orchestra_core_time::{BarIndex, BarSpan, BeatGrouping, Duration, IrregularBa
 use crate::bar_repeat::{BarRepeat, PassRule};
 use crate::change::ChangeSet;
 use crate::content::Chunk;
-use crate::document::{Document, DocumentError, EventLocation, index_tie, unindex_tie};
+use crate::document::{
+    Document, DocumentError, EventLocation, index_slur, index_tie, unindex_slur, unindex_tie,
+};
 use crate::dynamic::{Dynamic, DynamicPlacement, DynamicScope, Hairpin};
 use crate::event::{MAX_TUPLET_DEPTH, Note, PlacedEvent, Tie, Tuplet};
 use crate::form::{BarNumbering, MAX_PLAYS, RepeatEnd, RepeatStart, Volta};
@@ -68,7 +70,7 @@ use crate::jump::{Jump, Marker};
 use crate::marking::PerformanceOffsets;
 use crate::marks::{Clef, KeyOverride, Mark, ScorePoint, point_key};
 use crate::pitch::Key;
-use crate::slur::{Slur, SlurRefs};
+use crate::slur::Slur;
 use crate::tempo_mark::{TempoMark, TempoMarkChange};
 use crate::tolerance::Tolerance;
 
@@ -125,6 +127,36 @@ pub enum ObjectRef {
     InitialClef(StaffId),
     /// The bar-numbering style of the form.
     Numbering,
+}
+
+impl ObjectRef {
+    /// The raw ID of the object named, or `None` for the values a document has exactly once
+    /// (the initial tempo, key and clefs, the numbering style), which have no ID. O(1).
+    ///
+    /// The one table from names to IDs: `check_new` and `mark_command::mark_id` used to repeat
+    /// it (review point B5).
+    pub(crate) const fn raw_id(self) -> Option<u64> {
+        match self {
+            Self::Bar(id) => Some(id.get()),
+            Self::Event(id) => Some(id.get()),
+            Self::Tuplet(id) => Some(id.get()),
+            Self::Slur(id) => Some(id.get()),
+            Self::Dynamic(id) => Some(id.get()),
+            Self::Hairpin(id) => Some(id.get()),
+            Self::TempoMark(id) => Some(id.get()),
+            Self::ClefChange(id) => Some(id.get()),
+            // A key change and a key override share the ID type (ADR-0023 §5), as do the two ends
+            // of a repeat: one arm each.
+            Self::KeyChange(id) | Self::KeyOverride(id) => Some(id.get()),
+            Self::RepeatStart(id) | Self::RepeatEnd(id) => Some(id.get()),
+            Self::Volta(id) => Some(id.get()),
+            Self::Marker(id) => Some(id.get()),
+            Self::Jump(id) => Some(id.get()),
+            Self::BarRepeat(id) => Some(id.get()),
+            Self::PassRule(id) => Some(id.get()),
+            Self::InitialTempo | Self::InitialKey | Self::InitialClef(_) | Self::Numbering => None,
+        }
+    }
 }
 
 /// An object with everything needed to put it in its place: what [`Edit::Insert`] and
@@ -324,6 +356,20 @@ pub enum MeterEdit {
     },
 }
 
+impl MeterEdit {
+    /// The bar every kind of meter edit names (the first bar, for a span). O(1).
+    const fn bar(&self) -> BarId {
+        match self {
+            Self::MeterChange { bar, .. }
+            | Self::IrregularBar { bar, .. }
+            | Self::BarGrouping { bar, .. }
+            | Self::Uncounted { bar, .. }
+            | Self::NumberingRestart { bar, .. }
+            | Self::Span { bar, .. } => *bar,
+        }
+    }
+}
+
 /// A value the document has exactly once (or once per staff), set by [`Edit::SetInitial`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Initial {
@@ -469,12 +515,6 @@ fn outgoing_ties(placed: &PlacedEvent) -> Vec<(NoteId, NoteId)> {
             Tie::None | Tie::LetRing => None,
         })
         .collect()
-}
-
-/// The ID of a bar's position, for sorting: its index, or `u32::MAX` for an unknown bar (which
-/// sorts last instead of panicking; a placed object's bar is always checked first). O(1) average.
-fn bar_key(doc_bars: &crate::document::BarList, bar: BarId) -> u32 {
-    doc_bars.index_of(bar).map_or(u32::MAX, BarIndex::get)
 }
 
 impl Document {
@@ -656,27 +696,7 @@ impl Document {
     /// Checks that an object's ID was handed out by the counter and is not in use. O(as
     /// [`contains`](Self::contains)).
     fn check_new(&self, name: ObjectRef) -> Result<(), DocumentError> {
-        let raw = match name {
-            ObjectRef::Bar(id) => Some(id.get()),
-            ObjectRef::Event(id) => Some(id.get()),
-            ObjectRef::Tuplet(id) => Some(id.get()),
-            ObjectRef::Slur(id) => Some(id.get()),
-            ObjectRef::Dynamic(id) => Some(id.get()),
-            ObjectRef::Hairpin(id) => Some(id.get()),
-            ObjectRef::TempoMark(id) => Some(id.get()),
-            ObjectRef::ClefChange(id) => Some(id.get()),
-            ObjectRef::KeyChange(id) | ObjectRef::KeyOverride(id) => Some(id.get()),
-            ObjectRef::RepeatStart(id) | ObjectRef::RepeatEnd(id) => Some(id.get()),
-            ObjectRef::Volta(id) => Some(id.get()),
-            ObjectRef::Marker(id) => Some(id.get()),
-            ObjectRef::Jump(id) => Some(id.get()),
-            ObjectRef::BarRepeat(id) => Some(id.get()),
-            ObjectRef::PassRule(id) => Some(id.get()),
-            ObjectRef::InitialTempo
-            | ObjectRef::InitialKey
-            | ObjectRef::InitialClef(_)
-            | ObjectRef::Numbering => None,
-        };
+        let raw = name.raw_id();
         // An ID the counter has not handed out yet would collide with a future object.
         if raw.is_none_or(|raw| !self.ids.has_issued(raw)) || self.contains(name) {
             return Err(DocumentError::DuplicateObject(name));
@@ -760,10 +780,7 @@ impl Document {
                 let slurs = &mut self.track_at_mut(t)?.instrument.slurs;
                 insert_sorted(slurs, slur, Slur::id);
                 for end in [slur.start(), slur.end()] {
-                    self.slur_index
-                        .entry(end)
-                        .and_modify(|refs| refs.insert(slur.id()))
-                        .or_insert_with(|| SlurRefs::one(slur.id()));
+                    index_slur(&mut self.slur_index, end, slur.id());
                 }
             }
             Object::Dynamic {
@@ -859,14 +876,10 @@ impl Document {
             Object::RepeatStart(repeat) => {
                 let at = self.bar_index(repeat.bar())?.get();
                 let Self { bars, form, .. } = self;
-                if form
-                    .repeat_starts
-                    .iter()
-                    .any(|r| bar_key(bars, r.bar()) == at)
-                {
+                if form.repeat_starts.iter().any(|r| bars.key(r.bar()) == at) {
                     return Err(DocumentError::DuplicateMark);
                 }
-                insert_sorted(&mut form.repeat_starts, repeat, |r| bar_key(bars, r.bar()));
+                insert_sorted(&mut form.repeat_starts, repeat, |r| bars.key(r.bar()));
             }
             Object::RepeatEnd(repeat) => {
                 if !(2..=MAX_PLAYS).contains(&repeat.times()) {
@@ -874,14 +887,10 @@ impl Document {
                 }
                 let at = self.bar_index(repeat.bar())?.get();
                 let Self { bars, form, .. } = self;
-                if form
-                    .repeat_ends
-                    .iter()
-                    .any(|r| bar_key(bars, r.bar()) == at)
-                {
+                if form.repeat_ends.iter().any(|r| bars.key(r.bar()) == at) {
                     return Err(DocumentError::DuplicateMark);
                 }
-                insert_sorted(&mut form.repeat_ends, repeat, |r| bar_key(bars, r.bar()));
+                insert_sorted(&mut form.repeat_ends, repeat, |r| bars.key(r.bar()));
             }
             Object::Volta(volta) => {
                 let first = self.bar_index(volta.first())?;
@@ -893,15 +902,13 @@ impl Document {
                     return Err(DocumentError::EmptyPassSet);
                 }
                 let Self { bars, form, .. } = self;
-                insert_sorted(&mut form.voltas, volta, |v| {
-                    (bar_key(bars, v.first()), v.id())
-                });
+                insert_sorted(&mut form.voltas, volta, |v| (bars.key(v.first()), v.id()));
             }
             Object::Marker(marker) => {
                 let at = self.bar_index(marker.bar())?.get();
                 let Self { bars, form, .. } = self;
                 // Score order of markers: bar, then the start side before the end side.
-                let key = |m: &Marker| (bar_key(bars, m.bar()), u8::from(!m.kind().at_start()));
+                let key = |m: &Marker| (bars.key(m.bar()), u8::from(!m.kind().at_start()));
                 let own = (at, u8::from(!marker.kind().at_start()));
                 if form.markers.iter().any(|m| key(m) == own) {
                     return Err(DocumentError::DuplicateMark);
@@ -911,10 +918,10 @@ impl Document {
             Object::Jump(jump) => {
                 let at = self.bar_index(jump.bar())?.get();
                 let Self { bars, form, .. } = self;
-                if form.jumps.iter().any(|j| bar_key(bars, j.bar()) == at) {
+                if form.jumps.iter().any(|j| bars.key(j.bar()) == at) {
                     return Err(DocumentError::DuplicateMark);
                 }
-                insert_sorted(&mut form.jumps, jump, |j| bar_key(bars, j.bar()));
+                insert_sorted(&mut form.jumps, jump, |j| bars.key(j.bar()));
             }
             Object::BarRepeat(repeat) => {
                 self.bar_index(repeat.first())?;
@@ -928,7 +935,7 @@ impl Document {
                     .ok_or(DocumentError::UnknownStaff(repeat.staff()))?
                     .instrument
                     .bar_repeats;
-                insert_sorted(list, repeat, |r| (bar_key(bars, r.first()), r.id()));
+                insert_sorted(list, repeat, |r| (bars.key(r.first()), r.id()));
             }
             Object::PassRule { instrument, rule } => {
                 self.check_point(rule.start())?;
@@ -1090,10 +1097,7 @@ impl Document {
                 let slur = instrument.instrument.slurs.remove(i);
                 let owner = instrument.instrument.id;
                 for end in [slur.start(), slur.end()] {
-                    let keep = self.slur_index.get_mut(&end).is_some_and(|r| r.remove(id));
-                    if !keep {
-                        self.slur_index.remove(&end);
-                    }
+                    unindex_slur(&mut self.slur_index, end, id);
                 }
                 Object::Slur {
                     instrument: owner,
@@ -1711,105 +1715,66 @@ impl Document {
         edit: MeterEdit,
         changes: &mut ChangeSet,
     ) -> Result<MeterEdit, DocumentError> {
+        // Every kind names a bar: it is looked up once here, before the mutable borrow of the
+        // meter map (it used to be repeated in each arm, review point B19).
+        let index = self.bar_index(edit.bar())?;
         let map = &mut self.meter_map;
-        let (index, inverse) = match edit {
+        let inverse = match edit {
             MeterEdit::MeterChange { bar, change } => {
-                let index = self
-                    .bars
-                    .index_of(bar)
-                    .ok_or(DocumentError::UnknownBar(bar))?;
                 let previous = match change {
                     Some(change) => map.set_meter_change(index, change)?,
                     None => map.remove_meter_change(index)?,
                 };
-                (
-                    index,
-                    MeterEdit::MeterChange {
-                        bar,
-                        change: previous,
-                    },
-                )
+                MeterEdit::MeterChange {
+                    bar,
+                    change: previous,
+                }
             }
             MeterEdit::IrregularBar { bar, irregular } => {
-                let index = self
-                    .bars
-                    .index_of(bar)
-                    .ok_or(DocumentError::UnknownBar(bar))?;
                 let previous = match irregular {
                     Some(irregular) => map.set_irregular_bar(index, irregular)?,
                     None => map.remove_irregular_bar(index)?,
                 };
-                (
-                    index,
-                    MeterEdit::IrregularBar {
-                        bar,
-                        irregular: previous,
-                    },
-                )
+                MeterEdit::IrregularBar {
+                    bar,
+                    irregular: previous,
+                }
             }
             MeterEdit::BarGrouping { bar, grouping } => {
-                let index = self
-                    .bars
-                    .index_of(bar)
-                    .ok_or(DocumentError::UnknownBar(bar))?;
                 let previous = match grouping {
                     Some(grouping) => map.set_bar_grouping(index, grouping)?,
                     None => map.remove_bar_grouping(index)?,
                 };
-                (
-                    index,
-                    MeterEdit::BarGrouping {
-                        bar,
-                        grouping: previous,
-                    },
-                )
+                MeterEdit::BarGrouping {
+                    bar,
+                    grouping: previous,
+                }
             }
             MeterEdit::Uncounted { bar, uncounted } => {
-                let index = self
-                    .bars
-                    .index_of(bar)
-                    .ok_or(DocumentError::UnknownBar(bar))?;
                 let previous = map.set_uncounted(index, uncounted);
-                (
-                    index,
-                    MeterEdit::Uncounted {
-                        bar,
-                        uncounted: previous,
-                    },
-                )
+                MeterEdit::Uncounted {
+                    bar,
+                    uncounted: previous,
+                }
             }
             MeterEdit::Span { bar, span } => {
-                let index = self
-                    .bars
-                    .index_of(bar)
-                    .ok_or(DocumentError::UnknownBar(bar))?;
                 // A run past the last bar would leave entries on bars the document does not have.
                 let end = u64::from(index.get()).saturating_add(u64::from(span.count()));
                 if end > u64::try_from(self.bars.len()).unwrap_or(u64::MAX) {
                     return Err(DocumentError::TooManyBars);
                 }
                 let previous = map.replace_span(index, &span)?;
-                (
-                    index,
-                    MeterEdit::Span {
-                        bar,
-                        span: previous,
-                    },
-                )
+                MeterEdit::Span {
+                    bar,
+                    span: previous,
+                }
             }
             MeterEdit::NumberingRestart { bar, number } => {
-                let index = self
-                    .bars
-                    .index_of(bar)
-                    .ok_or(DocumentError::UnknownBar(bar))?;
                 let previous = map.set_numbering_restart(index, number);
-                (
-                    index,
-                    MeterEdit::NumberingRestart {
-                        bar,
-                        number: previous,
-                    },
-                )
+                MeterEdit::NumberingRestart {
+                    bar,
+                    number: previous,
+                }
             }
         };
         changes.meter(index);

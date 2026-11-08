@@ -471,7 +471,7 @@ fn chain_parts(
             .bar_length(found.bar)?
             .checked_sub(found.offset)?;
         let left = end.checked_duration_since(at)?;
-        let piece = if left < room { left } else { room };
+        let piece = left.min(room);
         let mut offset = found.offset;
         for value in command::split_values(piece, Rational::ONE)? {
             parts.push((bar, offset, value));

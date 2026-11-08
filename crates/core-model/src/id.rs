@@ -323,8 +323,15 @@ define_id!(
 /// make lookups slower, and the loader can reject absurd files by size.
 ///
 /// No new dependency (`rustc-hash` would do the same): the whole hasher is a few lines.
+///
+/// # Public, for the crates above
+/// `playback` and `io` key their own maps by IDs too (notes of a tie chain, events of an
+/// arpeggio, bar IDs of a file being loaded); they use these types instead of the standard
+/// `HashMap`, so every map keyed by IDs in the workspace hashes the same way (review point C4).
+/// Keys that are not IDs (small integers, tuples of IDs and indices) work as well: integers other
+/// than `u64` go through [`write`](Hasher::write), which folds their bytes.
 #[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct IdHasher(u64);
+pub struct IdHasher(u64);
 
 /// The multiplier: 2⁶⁴ divided by the golden ratio, rounded to an odd number (Knuth, *The Art of
 /// Computer Programming*, vol. 3, §6.4). Being odd, multiplying by it is a bijection on `u64`, so
@@ -353,10 +360,12 @@ impl Hasher for IdHasher {
 }
 
 /// A hash map keyed by IDs, with [`IdHasher`]. Lookups and insertions are O(1) on average.
-pub(crate) type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
+/// Build one with `IdMap::default()` (`HashMap::new` exists only for the standard hasher).
+pub type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
 
 /// A hash set of IDs, with [`IdHasher`]. Membership tests are O(1) on average.
-pub(crate) type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
+/// Build one with `IdSet::default()`.
+pub type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
 
 /// A small, sorted set of IDs: the value of a derived index whose entries almost always hold one
 /// or two IDs (the slurs at an event, `crate::slur::SlurRefs`; the noteheads tied into a

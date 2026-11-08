@@ -298,8 +298,12 @@ const QUARTER: Rational = match Rational::new(1, 4) {
 ```
 
 Being `const` has a price in verbosity: `?` and `TryFrom` cannot be used inside a `const fn` yet,
-so the file has two small macros (`const_try!`, `or_overflow!`) that do the job of `?`, and a few
-`as` casts each with its reason. The other methods are `abs`, `signum`, `is_zero`,
+so the crate has two small macros that do the job of `?`: `const_try!`, defined once at the crate
+root (`lib.rs`, before the `mod` lines, so every module sees it: it used to be copied into three
+files), and `or_overflow!` in this file; and a few `as` casts each with its reason. The binary
+GCD is written once too, as the macro `stein_gcd!` expanded by `gcd_u64` and `gcd_u128` (a
+generic function cannot call integer methods in a `const fn`). The `Debug` forms of `Position`,
+`Duration` and `Seconds` print the inner rational with its `Display` (`Position(3/8)`). The other methods are `abs`, `signum`, `is_zero`,
 `is_positive`, `is_negative`, `is_integer`, `floor`/`ceil`/`trunc` (towards `i64`, they cannot
 fail) and `to_f64`, an approximation for display only that must never flow back into the model.
 `Debug` prints `Rational(3/8)`; the canonical text form of the project file is `Display` and
@@ -941,7 +945,11 @@ document holds next to the tempo map: repeating them here would be the duplicati
 forbids. What is attached to a bar (from F1.09 the notes) is keyed by `BarId`, so inserting a bar
 will move nothing else. An inverse index (`BarId` → position) answers in O(1) on average, with our
 own hasher: one multiplication by 2⁶⁴/φ instead of the standard `SipHash`, which defends against
-keys chosen by an attacker, while our keys come from our own counter.
+keys chosen by an attacker, while our keys come from our own counter. The hasher and the two maps
+built on it, `IdMap` and `IdSet`, are public: `playback` and `io` use them for their own maps keyed
+by IDs (tie chains, arpeggios, the bars of a file being loaded), so every such map in the workspace
+hashes the same way. Inside the model, `BarList::key(bar)` is the bar's index as a sort key
+(`u32::MAX` for an unknown bar), the one place of a rule once written out nine times.
 
 **How a document is created.** With a `DocumentBuilder` (owner's decision, 2026-11-02): it is for
 documents that do not exist yet (the file being opened, the reference score generator, tests and
@@ -1074,8 +1082,9 @@ to the same sound, later, in the same instrument. The first violation comes back
 
 **Lookups.** A derived index from `EventId` and `NoteId` to (voice, bar) finds any event or
 notehead: one hash lookup, the voice scan, a scan of one chunk. `events(voice, bar)` gives a
-chunk, `metric_duration` and `event_position` the derived time of an event. None of these
-allocates.
+chunk, `metric_duration` and `event_position` the derived time of an event, and `point_position`
+the written position of any `ScorePoint` (bar start plus offset), which `playback` uses for pass
+rules, dynamics and hairpins. None of these allocates.
 
 **Tests.** `tests/voice_cases.rs` has 16 hand-written cases, one per case of ADR-0024 §13 in this
 step (enharmonic chord, nested tuplets with 1/12 and 1/30, incomplete tuplet, tuplet across a

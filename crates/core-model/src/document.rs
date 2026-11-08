@@ -49,6 +49,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::hash::Hash;
 
 use orchestra_core_time::{
     BarIndex, Duration, MeterMap, MeterMapError, Position, Rational, RationalError, TempoMap,
@@ -69,7 +70,8 @@ use crate::id::{
     InstrumentId, JumpId, KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId,
     TempoMarkId, TrackId, TupletId, VoiceId, VoltaId,
 };
-use crate::jump::{Jump, JumpSpec, JumpTarget, Marker, MarkerKind};
+use crate::jump::{Jump, JumpSpec, Marker, MarkerKind};
+use crate::mark_command::check_text;
 use crate::marking::{Arpeggio, ArticulationSet, Fermata, Grace, Ornament, PerformanceOffsets};
 use crate::marks::{Clef, KeyOverride, KeySignature, Mark, MarkList, ScorePoint, point_key};
 use crate::pass_offsets::PassOffsets;
@@ -756,6 +758,16 @@ impl BarList {
         self.order.is_empty()
     }
 
+    /// The sort key of a bar: its index, or `u32::MAX` for a bar the document does not have
+    /// (which sorts after everything; the builder and the edits never let one in, so it only
+    /// matters for half-built states). O(1) average.
+    ///
+    /// The one place of this rule: it was written out in `form::index`, `edit::bar_key`,
+    /// `marks::point_key` and six closures of the builder (review point B4).
+    pub(crate) fn key(&self, bar: BarId) -> u32 {
+        self.index_of(bar).map_or(u32::MAX, BarIndex::get)
+    }
+
     /// The bars in score order. O(1).
     pub fn ids(&self) -> &[BarId] {
         &self.order
@@ -1085,10 +1097,7 @@ impl Document {
             }
             for slur in &instrument.slurs {
                 for end in [slur.start(), slur.end()] {
-                    slurs
-                        .entry(end)
-                        .and_modify(|refs| refs.insert(slur.id()))
-                        .or_insert_with(|| SlurRefs::one(slur.id()));
+                    index_slur(&mut slurs, end, slur.id());
                 }
             }
         }
@@ -1256,7 +1265,22 @@ impl Document {
     /// [`DocumentError::Arithmetic`] on overflow (absurd meters only).
     pub fn event_position(&self, id: EventId) -> Result<Position, DocumentError> {
         let found = self.event(id).ok_or(DocumentError::UnknownEvent(id))?;
-        Ok(self.bar_start(found.bar)?.checked_add(found.offset())?)
+        self.point_position(ScorePoint::new(found.bar, found.offset()))
+    }
+
+    /// The absolute written position of a point of the score: its bar's start plus its offset.
+    /// The offset is not clamped to the bar (an overfull bar's point may lie past its end, as
+    /// the events there do). O(1) average for the bar + O(log m) in the meter map. Never
+    /// allocates.
+    ///
+    /// The model and `playback` turned points into positions in half a dozen places with the same
+    /// two lines (review point B15).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownBar`]; [`DocumentError::MeterMap`] or
+    /// [`DocumentError::Arithmetic`] on overflow (absurd meters only).
+    pub fn point_position(&self, point: ScorePoint) -> Result<Position, DocumentError> {
+        Ok(self.bar_start(point.bar)?.checked_add(point.offset)?)
     }
 
     /// The clef in force on a staff at (bar, offset): the last clef change at or before the point,
@@ -1557,7 +1581,7 @@ impl DocumentBuilder {
         let tempo_map = TempoMap::new(metronome.tempo).map_err(DocumentError::TempoMap)?;
         let mut ids = IdCounter::new();
         // A fresh counter always has room for its first ID.
-        let id = TempoMarkId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = TempoMarkId::from_counter(issue(&mut ids)?);
         Ok(Self {
             doc: Document {
                 ids,
@@ -1592,7 +1616,7 @@ impl DocumentBuilder {
         if u32::try_from(self.doc.bars.len()).map_or(true, |n| n == u32::MAX) {
             return Err(DocumentError::TooManyBars);
         }
-        let id = BarId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = BarId::from_counter(issue(&mut self.doc.ids)?);
         self.doc.bars.push(id)?;
         // Keep every voice's chunks aligned with the bar list.
         for track in &mut self.doc.tracks {
@@ -1668,12 +1692,11 @@ impl DocumentBuilder {
         // compiler cannot know that, and an unwrap is not allowed in library code.
         let bars = self.doc.bars.len();
         let ids = &mut self.doc.ids;
-        let track_id = TrackId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
-        let instrument_id =
-            InstrumentId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let track_id = TrackId::from_counter(issue(ids)?);
+        let instrument_id = InstrumentId::from_counter(issue(ids)?);
         let mut staff_list = Vec::with_capacity(staves);
         for &clef in clefs {
-            let id = StaffId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+            let id = StaffId::from_counter(issue(ids)?);
             staff_list.push(Staff {
                 id,
                 initial_clef: clef,
@@ -1682,7 +1705,7 @@ impl DocumentBuilder {
         }
         let mut voices = Vec::with_capacity(staves);
         for staff in staff_list.iter().filter(|_| with_voices) {
-            let id = VoiceId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+            let id = VoiceId::from_counter(issue(ids)?);
             voices.push(Voice {
                 id,
                 home_staff: staff.id,
@@ -1742,7 +1765,7 @@ impl DocumentBuilder {
         if track.instrument.voices.len() >= MAX_VOICES_PER_INSTRUMENT {
             return Err(DocumentError::TooManyVoices);
         }
-        let id = VoiceId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = VoiceId::from_counter(issue(&mut self.doc.ids)?);
         track.instrument.voices.push(Voice {
             id,
             home_staff,
@@ -1775,7 +1798,7 @@ impl DocumentBuilder {
                 return Err(DocumentError::TupletTooDeep);
             }
         }
-        let id = TupletId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = TupletId::from_counter(issue(&mut self.doc.ids)?);
         let mut tuplet = tuplet;
         tuplet.set_parent(parent);
         self.voice_mut(t, v, voice)?
@@ -1854,7 +1877,7 @@ impl DocumentBuilder {
         }
 
         let ids = &mut self.doc.ids;
-        let event_id = EventId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let event_id = EventId::from_counter(issue(ids)?);
         let note_ids = pitches
             .iter()
             .map(|_| ids.next().map(NoteId::from_counter))
@@ -1898,7 +1921,7 @@ impl DocumentBuilder {
             return Err(DocumentError::WholeBarRestInTuplet);
         }
         let resolved = self.resolve(&at)?;
-        let id = EventId::from_counter(self.doc.ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = EventId::from_counter(issue(&mut self.doc.ids)?);
         let rest = Rest::new(value, at.tuplet);
         self.place(
             &at,
@@ -2101,13 +2124,10 @@ impl DocumentBuilder {
             .get_mut(t)
             .ok_or(DocumentError::UnknownVoice(location.voice))?
             .instrument;
-        let id = SlurId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = SlurId::from_counter(issue(ids)?);
         instrument.slurs.push(Slur::new(id, start, end, placement));
         for event in [start, end] {
-            slur_index
-                .entry(event)
-                .and_modify(|refs| refs.insert(id))
-                .or_insert_with(|| SlurRefs::one(id));
+            index_slur(slur_index, event, id);
         }
         Ok(id)
     }
@@ -2142,7 +2162,7 @@ impl DocumentBuilder {
         if target.clef_changes.has_mark_at(bars, index, offset) {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = ClefId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = ClefId::from_counter(issue(ids)?);
         target
             .clef_changes
             .insert(Mark::new(id, bar, offset, clef), bars)?;
@@ -2174,7 +2194,7 @@ impl DocumentBuilder {
         {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = KeyChangeId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = KeyChangeId::from_counter(issue(ids)?);
         key_changes.insert(Mark::new(id, bar, offset, key), bars)?;
         Ok(id)
     }
@@ -2206,7 +2226,7 @@ impl DocumentBuilder {
         if target.key_overrides.has_mark_at(bars, index, offset) {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = KeyChangeId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = KeyChangeId::from_counter(issue(ids)?);
         target
             .key_overrides
             .insert(Mark::new(id, bar, offset, key_override), bars)?;
@@ -2312,7 +2332,7 @@ impl DocumentBuilder {
         {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = DynamicId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = DynamicId::from_counter(issue(ids)?);
         // At the end of the run: IDs only grow, so at one point the order is creation order.
         target
             .dynamics
@@ -2357,7 +2377,7 @@ impl DocumentBuilder {
         let after = target
             .hairpins
             .partition_point(|h| point_key(bars, h.start()) <= key);
-        let id = HairpinId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = HairpinId::from_counter(issue(ids)?);
         target
             .hairpins
             .insert(after, Hairpin::new(id, start, end, placement, shape));
@@ -2401,7 +2421,7 @@ impl DocumentBuilder {
         let Document {
             ids, bars, form, ..
         } = &mut self.doc;
-        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let key = |b: BarId| bars.key(b);
         let place = form.repeat_starts.partition_point(|r| key(r.bar()) < at);
         if form
             .repeat_starts
@@ -2410,7 +2430,7 @@ impl DocumentBuilder {
         {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = RepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = RepeatId::from_counter(issue(ids)?);
         form.repeat_starts.insert(place, RepeatStart::new(id, bar));
         Ok(id)
     }
@@ -2430,7 +2450,7 @@ impl DocumentBuilder {
         let Document {
             ids, bars, form, ..
         } = &mut self.doc;
-        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let key = |b: BarId| bars.key(b);
         let place = form.repeat_ends.partition_point(|r| key(r.bar()) < at);
         if form
             .repeat_ends
@@ -2439,7 +2459,7 @@ impl DocumentBuilder {
         {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = RepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = RepeatId::from_counter(issue(ids)?);
         form.repeat_ends
             .insert(place, RepeatEnd::new(id, bar, times));
         Ok(id)
@@ -2469,17 +2489,15 @@ impl DocumentBuilder {
         if passes.is_empty() {
             return Err(DocumentError::EmptyPassSet);
         }
-        if text.is_some_and(|t| t.trim().is_empty()) {
-            return Err(DocumentError::EmptyText);
-        }
+        check_text(text)?;
         let Document {
             ids, bars, form, ..
         } = &mut self.doc;
-        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let key = |b: BarId| bars.key(b);
         // After the voltas starting at or before `first`: at one first bar (an overlap, refused
         // by `validate`), creation order.
         let place = form.voltas.partition_point(|v| key(v.first()) <= from);
-        let id = VoltaId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = VoltaId::from_counter(issue(ids)?);
         form.voltas.insert(
             place,
             Volta::new(id, first, last, passes, closed, text.map(Box::from)),
@@ -2501,19 +2519,12 @@ impl DocumentBuilder {
         text: Option<&str>,
     ) -> Result<MarkerId, DocumentError> {
         let at = self.doc.bar_index(bar)?.get();
-        if text.is_some_and(|t| t.trim().is_empty()) {
-            return Err(DocumentError::EmptyText);
-        }
+        check_text(text)?;
         let Document {
             ids, bars, form, ..
         } = &mut self.doc;
         // Score order of markers: bar, then the start side (0) before the end side (1).
-        let key = |b: BarId, k: MarkerKind| {
-            (
-                bars.index_of(b).map_or(u32::MAX, BarIndex::get),
-                u8::from(!k.at_start()),
-            )
-        };
+        let key = |b: BarId, k: MarkerKind| (bars.key(b), u8::from(!k.at_start()));
         let own = (at, u8::from(!kind.at_start()));
         let place = form
             .markers
@@ -2525,7 +2536,7 @@ impl DocumentBuilder {
         {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = MarkerId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = MarkerId::from_counter(issue(ids)?);
         form.markers
             .insert(place, Marker::new(id, bar, kind, text.map(Box::from)));
         Ok(id)
@@ -2546,27 +2557,17 @@ impl DocumentBuilder {
         text: Option<&str>,
     ) -> Result<JumpId, DocumentError> {
         let at = self.doc.bar_index(bar)?.get();
-        if text.is_some_and(|t| t.trim().is_empty()) {
-            return Err(DocumentError::EmptyText);
-        }
-        let target = match spec.to {
-            JumpTarget::Start => None,
-            JumpTarget::Marker(id) => Some(id),
-        };
-        for id in [target, spec.until, spec.then].into_iter().flatten() {
-            if self.doc.marker(id).is_none() {
-                return Err(DocumentError::UnknownMarker(id));
-            }
-        }
+        check_text(text)?;
+        self.doc.check_jump_markers(&spec)?;
         let Document {
             ids, bars, form, ..
         } = &mut self.doc;
-        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let key = |b: BarId| bars.key(b);
         let place = form.jumps.partition_point(|j| key(j.bar()) < at);
         if form.jumps.get(place).is_some_and(|j| key(j.bar()) == at) {
             return Err(DocumentError::DuplicateMark);
         }
-        let id = JumpId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = JumpId::from_counter(issue(ids)?);
         form.jumps
             .insert(place, Jump::new(id, bar, spec, text.map(Box::from)));
         Ok(id)
@@ -2599,9 +2600,9 @@ impl DocumentBuilder {
             .map(|t| &mut t.instrument)
             .find(|i| i.staff(staff).is_some())
             .ok_or(DocumentError::UnknownStaff(staff))?;
-        let key = |b: BarId| bars.index_of(b).map_or(u32::MAX, BarIndex::get);
+        let key = |b: BarId| bars.key(b);
         let place = target.bar_repeats.partition_point(|r| key(r.first()) <= at);
-        let id = BarRepeatId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = BarRepeatId::from_counter(issue(ids)?);
         target
             .bar_repeats
             .insert(place, BarRepeat::new(id, staff, first, count, span));
@@ -2637,9 +2638,7 @@ impl DocumentBuilder {
         if plays.is_empty() {
             return Err(DocumentError::EmptyPassSet);
         }
-        if text.is_some_and(|t| t.trim().is_empty()) {
-            return Err(DocumentError::EmptyText);
-        }
+        check_text(text)?;
         let Document {
             ids, bars, tracks, ..
         } = &mut self.doc;
@@ -2657,7 +2656,7 @@ impl DocumentBuilder {
         let place = target
             .pass_rules
             .partition_point(|r| point_key(bars, r.start()) <= key);
-        let id = PassRuleId::from_counter(ids.next().ok_or(DocumentError::IdsExhausted)?);
+        let id = PassRuleId::from_counter(issue(ids)?);
         target.pass_rules.insert(
             place,
             PassRule::new(id, start, end, scope, plays, text.map(Box::from)),
@@ -2831,27 +2830,59 @@ impl DocumentBuilder {
     }
 }
 
-/// Records in the backward tie index that `source` is tied into `target`. O(1) average.
-pub(crate) fn index_tie(index: &mut IdMap<NoteId, IdRefs<NoteId>>, source: NoteId, target: NoteId) {
-    index
-        .entry(target)
-        .and_modify(|sources| sources.insert(source))
-        .or_insert_with(|| IdRefs::one(source));
+/// The next raw ID of the document's counter, or [`DocumentError::IdsExhausted`] when the counter
+/// has handed out its last one. O(1).
+///
+/// The builder takes an ID in two dozen places; this keeps the error in one (review point B6).
+fn issue(ids: &mut IdCounter) -> Result<std::num::NonZeroU64, DocumentError> {
+    ids.next().ok_or(DocumentError::IdsExhausted)
 }
 
-/// Forgets in the backward tie index that `source` is tied into `target`, dropping the entry when
-/// it becomes empty (so that no empty entry ever exists). O(1) average.
+/// Adds `value` to the small set stored under `key` in a derived index, creating the entry if
+/// needed. O(1) average (the sets hold one or two IDs inline).
+///
+/// The one implementation behind the tie index and the slur index (review point B8: the slur
+/// index used to be updated with the same `entry`/`and_modify`/`or_insert_with` chain written out
+/// in three places).
+fn add_ref<K: Hash + Eq, T: Copy + Ord>(index: &mut IdMap<K, IdRefs<T>>, key: K, value: T) {
+    index
+        .entry(key)
+        .and_modify(|refs| refs.insert(value))
+        .or_insert_with(|| IdRefs::one(value));
+}
+
+/// Removes `value` from the set stored under `key`, dropping the entry when it becomes empty, so
+/// that a derived index never holds an empty entry (`indices_are_consistent` compares indices
+/// with `==`). O(1) average.
+fn drop_ref<K: Hash + Eq, T: Copy + Ord>(index: &mut IdMap<K, IdRefs<T>>, key: &K, value: T) {
+    let keep = index.get_mut(key).is_some_and(|refs| refs.remove(value));
+    if !keep {
+        index.remove(key);
+    }
+}
+
+/// Records in the backward tie index that `source` is tied into `target`. O(1) average.
+pub(crate) fn index_tie(index: &mut IdMap<NoteId, IdRefs<NoteId>>, source: NoteId, target: NoteId) {
+    add_ref(index, target, source);
+}
+
+/// Forgets in the backward tie index that `source` is tied into `target`. O(1) average.
 pub(crate) fn unindex_tie(
     index: &mut IdMap<NoteId, IdRefs<NoteId>>,
     source: NoteId,
     target: NoteId,
 ) {
-    let keep = index
-        .get_mut(&target)
-        .is_some_and(|sources| sources.remove(source));
-    if !keep {
-        index.remove(&target);
-    }
+    drop_ref(index, &target, source);
+}
+
+/// Records in the slur index that `slur` starts or ends at `event`. O(1) average.
+pub(crate) fn index_slur(index: &mut IdMap<EventId, SlurRefs>, event: EventId, slur: SlurId) {
+    add_ref(index, event, slur);
+}
+
+/// Forgets in the slur index that `slur` starts or ends at `event`. O(1) average.
+pub(crate) fn unindex_slur(index: &mut IdMap<EventId, SlurRefs>, event: EventId, slur: SlurId) {
+    drop_ref(index, &event, slur);
 }
 
 #[cfg(test)]
