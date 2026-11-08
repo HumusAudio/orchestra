@@ -369,9 +369,7 @@ impl Marks {
                 Dyn {
                     bar,
                     offset: at.offset,
-                    pos: meter
-                        .bar_start(BarIndex::new(bar))?
-                        .checked_add(at.offset)?,
+                    pos: doc.point_position(at)?,
                     voice: false,
                     accent,
                     after,
@@ -387,12 +385,8 @@ impl Marks {
                 Pin {
                     bar: sb,
                     offset: start.offset,
-                    start: meter
-                        .bar_start(BarIndex::new(sb))?
-                        .checked_add(start.offset)?,
-                    end: meter
-                        .bar_start(BarIndex::new(eb))?
-                        .checked_add(end.offset)?,
+                    start: doc.point_position(start)?,
+                    end: doc.point_position(end)?,
                     end_at: (eb, end.offset),
                     window: meter.bar_start(BarIndex::new(eb.saturating_add(1)))?,
                     kind: h.shape().kind,

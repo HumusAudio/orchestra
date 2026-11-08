@@ -28,16 +28,6 @@ use std::num::NonZeroU32;
 
 use crate::rational::{Rational, RationalError};
 
-/// Unwraps a `Result` inside a `const fn`, returning the error early (the `?` of stable `const`).
-macro_rules! const_try {
-    ($result:expr) => {
-        match $result {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        }
-    };
-}
-
 /// One half, used by the nearest-sample rounding.
 const HALF: Rational = match Rational::new(1, 2) {
     Ok(half) => half,
@@ -130,18 +120,9 @@ impl Seconds {
 }
 
 impl fmt::Debug for Seconds {
-    /// Writes `Seconds(1/3)`, or `Seconds(2)` for integers.
+    /// Writes `Seconds(1/3)`, or `Seconds(2)` for integers: `Rational`'s `Display` inside.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0.is_integer() {
-            write!(f, "Seconds({})", self.0.numerator())
-        } else {
-            write!(
-                f,
-                "Seconds({}/{})",
-                self.0.numerator(),
-                self.0.denominator()
-            )
-        }
+        write!(f, "Seconds({})", self.0)
     }
 }
 

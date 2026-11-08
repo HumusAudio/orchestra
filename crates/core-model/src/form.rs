@@ -25,7 +25,7 @@
 
 use orchestra_core_time::BarIndex;
 
-use crate::document::{BarList, Document, DocumentError};
+use crate::document::{Document, DocumentError};
 use crate::id::{BarId, RepeatId, VoltaId};
 use crate::jump::{Jump, Marker};
 use crate::validate::Violation;
@@ -177,6 +177,16 @@ impl RepeatStart {
         Self { id, bar }
     }
 
+    /// This repeat start at another bar. O(1).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) const fn with_bar(&self, bar: BarId) -> Self {
+        Self { bar, ..*self }
+    }
+
     /// The barline's identity. O(1).
     #[must_use]
     pub const fn id(&self) -> RepeatId {
@@ -215,6 +225,16 @@ impl RepeatEnd {
     /// checks what it creates, so no invalid document can come from it.
     pub const fn new(id: RepeatId, bar: BarId, times: u8) -> Self {
         Self { id, bar, times }
+    }
+
+    /// This repeat end at another bar, played as many times. O(1).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) const fn with_bar(&self, bar: BarId) -> Self {
+        Self { bar, ..*self }
     }
 
     /// The barline's identity. O(1).
@@ -285,6 +305,20 @@ impl Volta {
             passes,
             closed,
             text,
+        }
+    }
+
+    /// This volta over other first and last bars, the rest unchanged. O(text length).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) fn with_bars(&self, first: BarId, last: BarId) -> Self {
+        Self {
+            first,
+            last,
+            ..self.clone()
         }
     }
 
@@ -430,12 +464,6 @@ impl Form {
 // Validation (rules 8 and 9) and bar numbers
 // ------------------------------------------------------------------------------------------------
 
-/// The index of a bar, or `u32::MAX` for a bar the document does not have (which sorts after
-/// everything: the builder never lets one in, see `marks::point_key`). O(1) average.
-pub(crate) fn index(bars: &BarList, bar: BarId) -> u32 {
-    bars.index_of(bar).map_or(u32::MAX, BarIndex::get)
-}
-
 /// What rule 9 remembers of the volta group being read: where it starts in the volta list, its
 /// passes so far and the index of its last bar.
 #[derive(Debug, Clone, Copy)]
@@ -478,8 +506,8 @@ impl Document {
         let mut group: Option<Group> = None;
         let mut previous_last: Option<u32> = None;
         for (i, volta) in voltas.iter().enumerate() {
-            let first = index(bars, volta.first);
-            let last = index(bars, volta.last);
+            let first = bars.key(volta.first);
+            let last = bars.key(volta.last);
             if previous_last.is_some_and(|p| first <= p) {
                 return Err(invalid(Violation::VoltaOverlap(volta.id)));
             }
@@ -520,8 +548,8 @@ impl Document {
         let mut open: Option<RepeatId> = None;
         let mut seen_end = false;
         loop {
-            let next_start = starts.get(s).map(|r| (index(bars, r.bar), 0_u8, r.id));
-            let next_end = ends.get(e).map(|r| (index(bars, r.bar), 1_u8, r.id));
+            let next_start = starts.get(s).map(|r| (bars.key(r.bar), 0_u8, r.id));
+            let next_end = ends.get(e).map(|r| (bars.key(r.bar), 1_u8, r.id));
             let take_start = match (next_start, next_end) {
                 (None, None) => break,
                 (Some(_), None) => true,
@@ -568,10 +596,10 @@ impl Document {
         }
         let plays = group.passes.last().unwrap_or(2);
         for volta in inner {
-            let at = index(bars, volta.last);
+            let at = bars.key(volta.last);
             let end = form
                 .repeat_ends()
-                .binary_search_by_key(&at, |r| index(bars, r.bar))
+                .binary_search_by_key(&at, |r| bars.key(r.bar))
                 .ok()
                 .and_then(|i| form.repeat_ends().get(i))
                 .ok_or(invalid(Violation::VoltaWithoutRepeat(volta.id)))?;
@@ -580,9 +608,9 @@ impl Document {
             }
         }
         // No start repeat strictly after the group's first bar and up to its last one.
-        let (from, to) = (index(bars, first.first), index(bars, last.last));
+        let (from, to) = (bars.key(first.first), bars.key(last.last));
         if let Some(start) = form.repeat_starts().iter().find(|r| {
-            let at = index(bars, r.bar);
+            let at = bars.key(r.bar);
             at > from && at <= to
         }) {
             return Err(invalid(Violation::RepeatsOverlap(start.id)));
@@ -657,8 +685,8 @@ impl Document {
                 .saturating_add(1);
             let group = voltas.get(i..i.saturating_add(len)).unwrap_or(&[]);
             i = i.saturating_add(len);
-            let from = index(bars, head.first);
-            let to = group.last().map_or(from, |v| index(bars, v.last));
+            let from = bars.key(head.first);
+            let to = group.last().map_or(from, |v| bars.key(v.last));
             if from < restart || from > at.get() {
                 // Absorbed by a restart, or after the bar: changes nothing here.
                 if from > at.get() {
@@ -666,8 +694,7 @@ impl Document {
                 }
                 continue;
             }
-            let counted =
-                |v: &Volta| self.counted_between(index(bars, v.first), index(bars, v.last));
+            let counted = |v: &Volta| self.counted_between(bars.key(v.first), bars.key(v.last));
             if at.get() > to {
                 // After the group: moved back by what it adds beyond its longest volta.
                 let mut total: u32 = 0;
@@ -684,7 +711,7 @@ impl Document {
             let Some((place, volta)) = group
                 .iter()
                 .enumerate()
-                .find(|(_, v)| index(bars, v.first) <= at.get() && at.get() <= index(bars, v.last))
+                .find(|(_, v)| bars.key(v.first) <= at.get() && at.get() <= bars.key(v.last))
             else {
                 break;
             };
@@ -695,7 +722,7 @@ impl Document {
                 .first_counted_number(from, to)?
                 .unwrap_or(plain)
                 .saturating_sub(shift);
-            let before = self.counted_between_exclusive(index(bars, volta.first), at.get())?;
+            let before = self.counted_between_exclusive(bars.key(volta.first), at.get())?;
             let letter = (style == BarNumbering::SameAsFirstLettered)
                 .then(|| u8::try_from(place.saturating_add(1)).ok())
                 .flatten();
@@ -800,10 +827,10 @@ impl Document {
         let mut open: Option<u32> = None;
         let mut current: Option<(u32, u32, &RepeatEnd)> = None;
         for end in ends {
-            let end_at = index(bars, end.bar);
+            let end_at = bars.key(end.bar);
             // Open the last start at or before this end (rule 8 guarantees at most one).
             while let Some(start) = starts.get(s) {
-                let start_at = index(bars, start.bar);
+                let start_at = bars.key(start.bar);
                 if start_at > end_at {
                     break;
                 }

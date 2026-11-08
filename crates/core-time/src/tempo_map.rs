@@ -355,10 +355,9 @@ impl Shape {
 struct Segment {
     /// The written position where the segment starts.
     start: Position,
-    /// The time where it starts, in ticks of `1/TIME_GRID` s (ADR-0021 §1).
-    start_ticks: i64,
-    /// The same time as `Seconds`, for the binary search and the exact arithmetic: always
-    /// `start_ticks / TIME_GRID`, kept so that the lookups do not rebuild it.
+    /// The time where it starts: always a whole number of ticks of `1/TIME_GRID` s (ADR-0021 §1),
+    /// stored as `Seconds` for the binary search and the exact arithmetic of the lookups. (The
+    /// tick count itself was stored too, but nothing read it: review point C1.)
     start_time: Seconds,
     /// How the speed behaves.
     shape: Shape,
@@ -489,7 +488,7 @@ pub struct TempoMap {
     /// The source data: sorted by position, at most one change per position, the first an
     /// immediate change at position 0.
     changes: Vec<(Position, TempoChange)>,
-    /// The derived segments: sorted by `start` and by `start_ticks`, never empty; the first starts
+    /// The derived segments: sorted by `start` and by `start_time`, never empty; the first starts
     /// at position 0 and time 0 and is constant, the last is constant.
     segments: Vec<Segment>,
 }
@@ -537,12 +536,9 @@ fn grid_ticks(numerator: i128, denominator: i128) -> Result<i64, TempoMapError> 
     let fraction = if let Some(scaled) = rest.checked_mul(GRID_WIDE) {
         nearest(scaled, denominator)
     } else {
-        // `0 ≤ rest < denominator`, so both conversions to `u128` are exact, and the gcd is at
-        // least 1 (it divides `denominator ≠ 0`), so the divisions below cannot fail.
-        let common = gcd_u128(rest.unsigned_abs(), denominator.unsigned_abs());
-        let common = i128::try_from(common).map_err(|_| OVERFLOW)?;
-        let rest = rest.checked_div(common).ok_or(OVERFLOW)?;
-        let denominator = denominator.checked_div(common).ok_or(OVERFLOW)?;
+        // `0 ≤ rest < denominator`: reducing the fraction first (the same `reduce` as the exact
+        // comparisons below, review point B3) may bring `rest × GRID` back into range.
+        let (rest, denominator) = reduce(rest, denominator).ok_or(OVERFLOW)?;
         nearest(rest.checked_mul(GRID_WIDE).ok_or(OVERFLOW)?, denominator)
     }
     .ok_or(OVERFLOW)?;
@@ -786,7 +782,6 @@ fn build_segments(changes: &[(Position, TempoChange)]) -> Result<Vec<Segment>, T
     for (i, &(start, shape)) in shapes.iter().enumerate() {
         segments.push(Segment {
             start,
-            start_ticks: ticks,
             start_time: Seconds::from_rational(ticks_rational(ticks)?),
             shape,
         });

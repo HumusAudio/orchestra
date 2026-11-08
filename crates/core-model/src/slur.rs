@@ -70,6 +70,16 @@ impl Slur {
         }
     }
 
+    /// This slur ending at another event, the rest unchanged. O(1).
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) const fn with_end(&self, end: EventId) -> Self {
+        Self { end, ..*self }
+    }
+
     /// The slur's identity. O(1).
     #[must_use]
     pub const fn id(&self) -> SlurId {

@@ -84,12 +84,27 @@ pub(crate) const fn round_div(num: i128, den: i128) -> i128 {
 /// # Complexity
 /// O(1).
 pub(crate) fn ticks_of(position: Position) -> Result<i64, RationalError> {
-    let r = position.as_rational();
-    let ticks = round_div(
-        i128::from(r.numerator()) * i128::from(TICKS_PER_WHOLE),
+    scaled_round(position.as_rational(), TICKS_PER_WHOLE)
+}
+
+/// `round(r × factor)`, halves away from zero (`round_div`), as an `i64`: the conversion of an
+/// exact value into whole ticks or time units that the encoder makes everywhere.
+///
+/// The product is computed in `i128`: `|numerator| < 2⁶³` and `factor < 2³⁰` here, so it cannot
+/// overflow. Three functions wrote it out (`ticks_of`, `units_of`, `notes::units_of_seconds`,
+/// review point B18).
+///
+/// # Errors
+/// [`RationalError::Overflow`] if the rounded result does not fit an `i64`.
+///
+/// # Complexity
+/// O(1).
+pub(crate) fn scaled_round(r: Rational, factor: i64) -> Result<i64, RationalError> {
+    let rounded = round_div(
+        i128::from(r.numerator()) * i128::from(factor),
         i128::from(r.denominator()),
     );
-    i64::try_from(ticks).map_err(|_| RationalError::Overflow)
+    i64::try_from(rounded).map_err(|_| RationalError::Overflow)
 }
 
 /// The time of the path in units (see the module documentation), rounded to the nearest unit.
@@ -99,14 +114,7 @@ pub(crate) fn ticks_of(position: Position) -> Result<i64, RationalError> {
 /// approximate time is not finite.
 fn units_of(time: TimeAt) -> Result<i64, RationalError> {
     match time {
-        TimeAt::Exact(seconds) => {
-            let r = seconds.as_rational();
-            let units = round_div(
-                i128::from(r.numerator()) * i128::from(UNITS_PER_SECOND),
-                i128::from(r.denominator()),
-            );
-            i64::try_from(units).map_err(|_| RationalError::Overflow)
-        }
+        TimeAt::Exact(seconds) => scaled_round(seconds.as_rational(), UNITS_PER_SECOND),
         TimeAt::Approximate(seconds) => {
             // Inside a gradual change (see the module documentation). An `f64` has 53 bits of
             // mantissa, so an hour (3.5 × 10¹² units) keeps a resolution far below one unit.

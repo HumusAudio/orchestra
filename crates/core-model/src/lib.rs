@@ -85,6 +85,7 @@
 #![deny(clippy::indexing_slicing)]
 
 pub mod bar_repeat;
+mod chain;
 pub mod change;
 pub mod command;
 #[cfg(test)]
@@ -145,9 +146,9 @@ pub use event::{
 };
 pub use form::{BarLabel, BarNumbering, Form, MAX_PLAYS, PassSet, RepeatEnd, RepeatStart, Volta};
 pub use id::{
-    BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, InstrumentId, JumpId, KeyChangeId,
-    MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId, TempoMarkId, TrackId, TupletId,
-    VoiceId, VoltaId,
+    BarId, BarRepeatId, ClefId, DynamicId, EventId, HairpinId, IdHasher, IdMap, IdSet,
+    InstrumentId, JumpId, KeyChangeId, MarkerId, NoteId, PassRuleId, RepeatId, SlurId, StaffId,
+    TempoMarkId, TrackId, TupletId, VoiceId, VoltaId,
 };
 pub use jump::{Jump, JumpFires, JumpSpec, JumpTarget, Marker, MarkerKind, RepeatsAfterJump};
 pub use mark_command::{MarkSpec, NewVolta};

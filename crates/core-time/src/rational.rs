@@ -48,19 +48,6 @@ use std::error::Error;
 use std::fmt;
 use std::ops::Neg;
 
-/// Unwraps a `Result` inside a `const fn`, returning the error early.
-///
-/// The `?` operator relies on the `Try` trait, which cannot be called in a `const fn` on stable
-/// Rust; this macro is the hand-written equivalent of `?` for our `Result<_, RationalError>`.
-macro_rules! const_try {
-    ($result:expr) => {
-        match $result {
-            Ok(value) => value,
-            Err(error) => return Err(error),
-        }
-    };
-}
-
 /// Unwraps an `Option` coming from a `checked_*` integer operation inside a `const fn`, turning
 /// `None` into an early [`RationalError::Overflow`].
 ///
@@ -151,7 +138,53 @@ pub struct Rational {
     den: i64,
 }
 
-/// Greatest common divisor of two `u64`, with the binary (Stein) algorithm.
+/// The body of the binary (Stein) GCD, for any unsigned integer type: `gcd_u64` and `gcd_u128`
+/// expand it on their own operands (review point B3: the two copies used to be written out).
+///
+/// A macro and not a generic function because both callers are `const fn`, and trait methods
+/// (`trailing_zeros`, `wrapping_shr`, … through a `num`-like trait) cannot be called in a `const
+/// fn` on stable Rust. Expanded, it is exactly the code that was written twice before, so the
+/// instruction counts of the benchmarks do not change.
+///
+/// `$a` and `$b` must be mutable local variables of the same unsigned type; the macro evaluates
+/// to the GCD and leaves them modified.
+macro_rules! stein_gcd {
+    ($a:ident, $b:ident) => {{
+        if $a == 0 {
+            $b
+        } else if $b == 0 {
+            $a
+        } else {
+            // The common power of two: `trailing_zeros` of the OR is the number of factors 2
+            // shared by both. It is below the bit width because `a | b ≠ 0`.
+            let shift = ($a | $b).trailing_zeros();
+            // Make `a` odd. `trailing_zeros(a)` is below the bit width because `a ≠ 0`, so the
+            // shift is exact and `wrapping_shr` never masks its amount.
+            $a = $a.wrapping_shr($a.trailing_zeros());
+            loop {
+                // Make `b` odd as well (same reasoning: `b ≠ 0` at the top of every iteration).
+                $b = $b.wrapping_shr($b.trailing_zeros());
+                // Keep `a ≤ b`, so that the subtraction below cannot underflow.
+                if $a > $b {
+                    let t = $a;
+                    $a = $b;
+                    $b = t;
+                }
+                // `b ≥ a`, so this never wraps. Both are odd, so the difference is even (or zero),
+                // and `gcd(a, b) = gcd(a, b − a)`.
+                $b = $b.wrapping_sub($a);
+                if $b == 0 {
+                    break;
+                }
+            }
+            // Put back the common factors 2. The result is ≤ the original operands, so it fits
+            // and the shift cannot lose bits.
+            $a.wrapping_shl(shift)
+        }
+    }};
+}
+
+/// Greatest common divisor of two `u64`, with the binary (Stein) algorithm ([`stein_gcd`]).
 ///
 /// # Why Stein and not Euclid?
 /// Euclid needs one division per step, and integer division is among the slowest instructions
@@ -165,37 +198,7 @@ pub struct Rational {
 /// # Complexity
 /// O(log a + log b): each iteration removes at least one bit from the larger operand.
 const fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
-    if a == 0 {
-        return b;
-    }
-    if b == 0 {
-        return a;
-    }
-    // The common power of two: `trailing_zeros` of the OR is the number of factors 2 shared by
-    // both. It is below 64 because `a | b ≠ 0`.
-    let shift = (a | b).trailing_zeros();
-    // Make `a` odd. `trailing_zeros(a) < 64` because `a ≠ 0`, so the shift is exact and
-    // `wrapping_shr` never masks its amount.
-    a = a.wrapping_shr(a.trailing_zeros());
-    loop {
-        // Make `b` odd as well (same reasoning: `b ≠ 0` at the top of every iteration).
-        b = b.wrapping_shr(b.trailing_zeros());
-        // Keep `a ≤ b`, so that the subtraction below cannot underflow.
-        if a > b {
-            let t = a;
-            a = b;
-            b = t;
-        }
-        // `b ≥ a`, so this never wraps. Both are odd, so the difference is even (or zero), and
-        // `gcd(a, b) = gcd(a, b − a)`.
-        b = b.wrapping_sub(a);
-        if b == 0 {
-            break;
-        }
-    }
-    // Put back the common factors 2. The result is ≤ the original operands, so it fits and the
-    // shift cannot lose bits.
-    a.wrapping_shl(shift)
+    stein_gcd!(a, b)
 }
 
 /// Greatest common divisor of two `u128`: the same Stein algorithm as [`gcd_u64`], on 128 bits.
@@ -216,28 +219,7 @@ pub(crate) const fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
         )]
         return gcd_u64(a as u64, b as u64) as u128;
     }
-    if a == 0 {
-        return b;
-    }
-    if b == 0 {
-        return a;
-    }
-    // From here on the reasoning is identical to `gcd_u64`, with 128 instead of 64.
-    let shift = (a | b).trailing_zeros();
-    a = a.wrapping_shr(a.trailing_zeros());
-    loop {
-        b = b.wrapping_shr(b.trailing_zeros());
-        if a > b {
-            let t = a;
-            a = b;
-            b = t;
-        }
-        b = b.wrapping_sub(a);
-        if b == 0 {
-            break;
-        }
-    }
-    a.wrapping_shl(shift)
+    stein_gcd!(a, b)
 }
 
 /// Turns a magnitude into an `i64`, if it is at most `i64::MAX`.

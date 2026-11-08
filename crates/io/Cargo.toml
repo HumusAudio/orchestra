@@ -16,7 +16,9 @@ orchestra-core-time.workspace = true
 orchestra-core-model.workspace = true
 # The played notes that the MIDI export writes (ADR-0032 E11): downwards, no cycle.
 orchestra-playback.workspace = true
-# The project file (ADR-0029 S1): the schema's derives and the JSON encoding.
+# The project file (ADR-0029 S1): the schema's derives and the JSON encoding. Being a normal
+# dependency, `serde_json` is also available to the tests (the golden-file test builds random
+# JSON values with it): it needs no second entry under [dev-dependencies].
 serde.workspace = true
 serde_json.workspace = true
 
@@ -25,8 +27,6 @@ serde_json.workspace = true
 orchestra-test-scores.workspace = true
 # Property tests (ADR-0016): random documents saved and loaded back.
 proptest.workspace = true
-# The golden-file test builds random JSON values to put inside a valid file.
-serde_json.workspace = true
 # Instruction-count benchmarks of saving and loading (ADR-0016, ADR-0017).
 gungraun.workspace = true
 # An independent MIDI file reader: the oracle of the MIDI export's tests (ADR-0032 E2).

@@ -196,10 +196,7 @@ impl ScorePoint {
 /// are never removed without what sits on them, F1.11). Should one be missing anyway, it sorts
 /// after everything, which keeps binary searches well-defined instead of panicking.
 pub(crate) fn point_key(bars: &BarList, point: ScorePoint) -> (u32, Duration) {
-    (
-        bars.index_of(point.bar).map_or(u32::MAX, BarIndex::get),
-        point.offset,
-    )
+    (bars.key(point.bar), point.offset)
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -233,6 +230,19 @@ impl<I: Copy, T> Mark<I, T> {
             offset,
             value,
         }
+    }
+
+    /// This mark at another point, with a copy of its value. O(1) plus the copy of the value.
+    ///
+    /// For the commands that move or clip the object while keeping everything else (inserting,
+    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
+    /// (review point B11).
+    #[must_use]
+    pub(crate) fn moved_to(&self, point: ScorePoint) -> Self
+    where
+        T: Clone,
+    {
+        Self::new(self.id, point.bar, point.offset, self.value.clone())
     }
 
     /// The change's identity. O(1).

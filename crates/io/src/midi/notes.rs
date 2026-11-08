@@ -31,11 +31,11 @@
 //!    are deterministic.
 
 use orchestra_core_model::{Document, MidiNote};
-use orchestra_core_time::Seconds;
+use orchestra_core_time::{RationalError, Seconds};
 use orchestra_playback::{Performance, PlayedNote};
 
 use super::smf::{self, Event, Message};
-use super::timing::{TempoTrack, UNITS_PER_SECOND, round_div, ticks_of};
+use super::timing::{TempoTrack, UNITS_PER_SECOND, round_div, scaled_round, ticks_of};
 use super::{MidiError, MidiOptions, MidiWarning};
 
 /// The channels instruments are given, in order: all 16 but channel 10 (index 9), the General MIDI
@@ -108,13 +108,13 @@ impl Action {
 }
 
 /// The time of a profile's duration in units, rounded. O(1).
-fn units_of_seconds(seconds: Seconds) -> i64 {
-    let r = seconds.as_rational();
-    let units = round_div(
-        i128::from(r.numerator()) * i128::from(UNITS_PER_SECOND),
-        i128::from(r.denominator()),
-    );
-    i64::try_from(units).unwrap_or(i64::MAX)
+///
+/// # Errors
+/// [`RationalError::Overflow`] for a duration beyond `i64` units (about 300 years). It used to
+/// saturate silently to `i64::MAX`, unlike every other conversion of the encoder, which reports
+/// the overflow (review point B18).
+fn units_of_seconds(seconds: Seconds) -> Result<i64, RationalError> {
+    scaled_round(seconds.as_rational(), UNITS_PER_SECOND)
 }
 
 /// The key and the 14-bit bend of an exact pitch in semitones (step 2), or `None` outside
@@ -179,9 +179,17 @@ fn expression(level: i64, peak: i64) -> u8 {
 /// The CC 11 curve of `note`, owner of its channel in `[from, until)` (step 3): (tick, value)
 /// pairs, increasing ticks, consecutive values distinct.
 ///
+/// # Errors
+/// [`RationalError::Overflow`] for an attack profile longer than about 300 years.
+///
 /// # Complexity
 /// O(`settle_in` / 10 ms + 1), each point O(log s) in the tempo segments.
-fn curve(note: &PlayedNote, from: u64, until: u64, tempo: &TempoTrack) -> Vec<(u64, u8)> {
+fn curve(
+    note: &PlayedNote,
+    from: u64,
+    until: u64,
+    tempo: &TempoTrack,
+) -> Result<Vec<(u64, u8)>, RationalError> {
     let (v, s) = (i64::from(note.velocity), i64::from(note.settle_to));
     let peak = v.max(s);
     let mut out: Vec<(u64, u8)> = Vec::new();
@@ -191,11 +199,11 @@ fn curve(note: &PlayedNote, from: u64, until: u64, tempo: &TempoTrack) -> Vec<(u
         }
     };
     push(from, expression(v, peak));
-    let hold = units_of_seconds(note.hold);
-    let settle = units_of_seconds(note.settle_in);
+    let hold = units_of_seconds(note.hold)?;
+    let settle = units_of_seconds(note.settle_in)?;
     if hold == 0 && settle == 0 && s == v {
         // No profile: the attack's level for the whole note.
-        return out;
+        return Ok(out);
     }
     let start = tempo.units_at(from);
     let ramp = start.saturating_add(hold);
@@ -204,7 +212,7 @@ fn curve(note: &PlayedNote, from: u64, until: u64, tempo: &TempoTrack) -> Vec<(u
         while elapsed < settle {
             let tick = tempo.tick_at(ramp.saturating_add(elapsed));
             if tick >= until {
-                return out;
+                return Ok(out);
             }
             // level = v + (s − v) × elapsed / settle, exact in integers then rounded by `expression`
             // on the ratio: 127 × (v·settle + (s − v)·elapsed) / (peak·settle).
@@ -219,7 +227,7 @@ fn curve(note: &PlayedNote, from: u64, until: u64, tempo: &TempoTrack) -> Vec<(u
         tempo.tick_at(ramp.saturating_add(settle)),
         expression(s, peak),
     );
-    out
+    Ok(out)
 }
 
 /// An event of a track before the final sort (step 5), with its sorting keys.
@@ -361,7 +369,13 @@ fn prepare<'a>(
 /// Step 3: the actions of a channel's sorted notes, with the CC 11 curve of each note in the
 /// window where it owns the controller, sorted by tick, group and key (E10), the creation order
 /// breaking ties (stable sort). O(a log a) for a actions.
-fn actions(notes: &[Prepared<'_>], tempo: &TempoTrack) -> Vec<(u64, Action)> {
+///
+/// # Errors
+/// The overflow of an absurdly long attack profile (see `curve`).
+fn actions(
+    notes: &[Prepared<'_>],
+    tempo: &TempoTrack,
+) -> Result<Vec<(u64, Action)>, RationalError> {
     let mut actions: Vec<(u64, Action)> = Vec::with_capacity(notes.len().saturating_mul(3));
     for (i, p) in notes.iter().enumerate() {
         actions.push((p.start, Action::On(i)));
@@ -371,7 +385,7 @@ fn actions(notes: &[Prepared<'_>], tempo: &TempoTrack) -> Vec<(u64, Action)> {
         let next = notes.get(i + 1).map_or(u64::MAX, |q| q.start);
         let until = next.min(p.end);
         if until > p.start {
-            for (tick, value) in curve(p.note, p.start, until, tempo) {
+            for (tick, value) in curve(p.note, p.start, until, tempo)? {
                 actions.push((tick, Action::Expression(i, value)));
             }
         }
@@ -381,7 +395,7 @@ fn actions(notes: &[Prepared<'_>], tempo: &TempoTrack) -> Vec<(u64, Action)> {
         Action::Expression(..) => 0,
     };
     actions.sort_by_key(|(tick, a)| (*tick, a.group(), key_of(*a)));
-    actions
+    Ok(actions)
 }
 
 /// The state of one channel while its actions are played in order (step 4).
@@ -582,7 +596,7 @@ pub(crate) fn tracks(
     let by_channel = prepare(performance, &channel_of, lead, warnings)?;
     for (number, notes) in by_channel.iter().enumerate() {
         let mut channel = Channel::new(u8::try_from(number).unwrap_or(0), notes);
-        for (tick, action) in actions(notes, tempo) {
+        for (tick, action) in actions(notes, tempo)? {
             channel.play(tick, action, &mut tracks, warnings);
         }
     }
