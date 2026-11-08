@@ -917,7 +917,8 @@ tasto fuori da 0–127 è un `PitchError::MidiOutOfRange`, mai tagliato in silen
 cromatiche prendono una scorciatoia con semplici somme di interi. La regola vera e propria sta in
 `MidiNote::nearest(sounding)`, che accetta qualunque altezza sonora esatta: `midi()` la chiama per
 le grafie microtonali e l'esportazione MIDI la chiama per le note suonate, così il modello e il
-file danno sempre a una nota lo stesso tasto (ADR-0033).
+file danno sempre a una nota lo stesso tasto (ADR-0033). Ha la stessa scorciatoia per gli interi di
+`midi()`, così le note cromatiche dell'esportazione non costano aritmetica razionale.
 
 Un **`Interval`** è una coppia (passi diatonici, semitoni), entrambi con segno: la stessa coppia che
 MusicXML usa per gli strumenti traspositori. La **qualità** si ricava dalla differenza tra i suoi

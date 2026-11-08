@@ -377,8 +377,24 @@ impl MidiNote {
     /// which no [`Pitch`] produces.
     ///
     /// # Complexity
-    /// O(1): one subtraction, one ceiling, one subtraction on rationals.
+    /// O(1): an integer test for chromatic pitches; otherwise one subtraction, one ceiling, one
+    /// subtraction on rationals. `#[inline]` so that the export, in another crate, can inline it.
+    #[inline]
     pub fn nearest(sounding: Rational) -> Result<Self, PitchError> {
+        // Fast path for chromatic pitches (almost every note): an integer is its own key, with no
+        // bend and no rational arithmetic. The MIDI export calls this for every played note, and
+        // without it the export took ≈ 10% more instructions than its own integer formula did
+        // (measured by the benchmark gate, `io/benches/midi.rs`, 2026-11-08).
+        if let Some(key) = as_integer(sounding) {
+            let key = u8::try_from(key)
+                .ok()
+                .filter(|k| *k <= 127)
+                .ok_or(PitchError::MidiOutOfRange)?;
+            return Ok(Self {
+                key,
+                bend: Rational::ZERO,
+            });
+        }
         // ⌈x − 1/2⌉ is the nearest integer with ties going down: for x = 60½ it gives 60, for
         // 60¾ it gives 61, for 60¼ it gives 60.
         let half = Rational::new(1, 2)?;

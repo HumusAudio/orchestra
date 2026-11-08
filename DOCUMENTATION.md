@@ -871,7 +871,8 @@ result is deterministic. A key outside 0–127 is a `PitchError::MidiOutOfRange`
 Chromatic pitches take a fast path with plain integer sums. The rule itself lives in
 `MidiNote::nearest(sounding)`, which takes any exact sounding pitch: `midi()` calls it for
 microtonal spellings, and the MIDI file export calls it for the played notes, so the model and the
-file always give a note the same key (ADR-0033).
+file always give a note the same key (ADR-0033). It has the same integer fast path as `midi()`, so
+the export's chromatic notes cost no rational arithmetic.
 
 An **`Interval`** is a pair (diatonic steps, semitones), both signed, the same pair MusicXML uses for
 transposing instruments. Its **quality** is derived from the difference between its semitones and
