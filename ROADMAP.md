@@ -3,7 +3,28 @@
 Read this first at the start of every session (CLAUDE.md §0). It records **where we are**, **what
 comes next** and **which decisions are still open**. Decisions themselves live in `docs/adr/`.
 
-## Current status — Phase 0 complete and merged; visual identity added
+## Current status — Phase 1 complete: milestone M1, the musical engine without an interface
+
+**Summary (2026-11-08, F1.17).** Phases 0 and 1 are done. The workspace has the musical engine,
+with no interface yet:
+- `orchestra-core-time`: exact rationals (ADR-0015), positions and durations, the meter map with
+  beat grouping and the tempo map with gradual changes and an exact time grid (ADR-0018–0021);
+- `orchestra-core-model`: the single document (ADR-0022), spelled pitches, intervals and keys with
+  microtones (ADR-0023), voice content (ADR-0024), the form with repeats, voltas and jumps
+  (ADR-0025), commands with one undo/redo history (ADR-0026), DAW moves with the tolerance
+  threshold (ADR-0028);
+- `orchestra-playback`: the unrolled path and the played notes, with dynamics, hairpins and
+  attack profiles tuned by ear (ADR-0025, ADR-0027 §14–§15);
+- `orchestra-io`: the project file, version 1, with golden files and migrations (ADR-0029), and
+  the MIDI file export (ADR-0032);
+- `orchestra-test-scores`: the reference scores and the phase benchmarks (ADR-0031).
+
+**Milestone M1** is checked with `cargo run -p orchestra-io --example m1 -- OUT_DIR` (F1.17): it
+creates the full reference score, saves and reopens it identical, prints the unrolled
+performance and exports the MIDI file. **Next:** Phase 2A, the interface foundations, from F2.01
+(SCALETTA). The log below records every step, in order.
+
+### Log, step by step
 
 Phase 0 was merged into `main` (PR #1, 2026-10-29). Then, on `feature/logo-e-temi`: the owner's
 logo became the only project logo (outlined SVG in `assets/logo/`, used on the guide covers) and
@@ -578,9 +599,19 @@ one round after another): stress/soft accent 0.2 s, accent 0.25 s, marcato 0.3 s
 **Listening, round 2 (same day, §15):** accent +22 and marcato +30 (were +15, +22), *sfp*/*sfpp*
 from *fff* held 0.2 s then down in 0.2 s, *fp*/*pf* held 0.6 s, *rf*/*sf*/*sffz* back to 0.4 /
 0.6 / 0.8 s. The owner wants **all the dynamics reviewed again** later (F3, internal instruments).
-**Still to do in F1.18:** listening round 3 on the regenerated file (or the owner's ok), the PR and
-green CI.
-**Next:** finish F1.18, then F1.17 (phase close, with the test command of milestone M1).
+The owner approved round 2 as it is. **F1.18 done** (2026-11-08, PR #33, merged; SCALETTA v0.46,
+PR #34).
+**F1.17 (2026-11-08, `feature/f1-17-phase-close`):** the phase close. The owner approved the
+recommendations: the **test command of milestone M1** is an example of `orchestra-io`, `cargo run
+-p orchestra-io --example m1 -- OUT_DIR [--heavy] [--notes]`, on the normal full preset (heavy
+with `--heavy`). It creates the score, saves it as `m1.orchestra`, reopens it and checks it is
+identical (`same_content`, `to_parts`, the bytes of a second save), prints the played bars (bar,
+pass, section play, seconds) and the notes per instrument (every note with `--notes`), and
+exports `m1.mid`. Normal preset: 100 bars, 9 instruments, a 509 739-byte file, 133 played bars,
+5 248 notes, a 49 481-byte MIDI file with no warning; heavy: 1 000 bars, 28 instruments, 1 330
+played bars, 101 783 notes. The General MIDI program table moved to `examples/common/gm.rs`,
+shared with `export_midi`. Developer tool, `User-visible: no`, guides unchanged. ROADMAP's status
+rewritten as a summary of the end of Phase 1.
 
 | Step | What | Status |
 |---|---|---|
@@ -603,8 +634,8 @@ green CI.
 
 Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCALETTA.md`.
 
-1. **Phase 1 — `core-time` and `core-model`:** rational time type with overflow policy, tempo and
-   meter maps with O(log n) lookup, conversions to seconds/samples/frames (benchmarks: first
+1. **Phase 1 — `core-time` and `core-model` (done, 2026-11-08, milestone M1):** rational time
+   type with overflow policy, tempo and meter maps with O(log n) lookup, conversions to seconds/samples/frames (benchmarks: first
    `cargo xtask bench`); the document model with two-layer notes (ADR-0004), form (repeats,
    voltas, jumps), commands and unified undo/redo; concrete project file format with version 1
    and its first golden file (ADR-0010); MIDI file export of the performed events (SCALETTA

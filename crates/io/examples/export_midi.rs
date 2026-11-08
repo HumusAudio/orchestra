@@ -40,30 +40,10 @@ use orchestra_io::midi::{self, MidiOptions};
 use orchestra_playback::{Performance, Unrolled};
 use orchestra_test_scores::Size;
 
-/// The General MIDI program (0-based) for an instrument name of the presets: the first prefix
-/// that matches; a string ensemble for anything else. Only for this example: the program will get
-/// real sound settings in F3 (E7).
-const PROGRAMS: [(&str, u8); 16] = [
-    ("Piano", 0),
-    ("Harp", 46),
-    ("Timpani", 47),
-    ("Piccolo", 72),
-    ("Flute", 73),
-    ("Oboe", 68),
-    ("Clarinet", 71),
-    ("Bassoon", 70),
-    ("Horn", 60),
-    ("Trumpet", 56),
-    ("Trombone", 57),
-    ("Tuba", 58),
-    ("Violin", 40),
-    ("Viola", 41),
-    ("Violoncello", 42),
-    ("Contrabass", 43),
-];
+#[path = "common/gm.rs"]
+mod gm;
 
-/// The string ensemble program, for the listening file and unknown names.
-const STRINGS: u8 = 48;
+use gm::program_for;
 
 /// `n/den` of a whole note.
 fn d(n: i64, den: i64) -> Result<Duration, Box<dyn Error>> {
@@ -154,14 +134,6 @@ fn listening() -> Result<Document, Box<dyn Error>> {
         }
     }
     Ok(b.build()?)
-}
-
-/// The program for an instrument name (see [`PROGRAMS`]).
-fn program_for(name: &str) -> u8 {
-    PROGRAMS
-        .iter()
-        .find(|(prefix, _)| name.starts_with(prefix))
-        .map_or(STRINGS, |(_, p)| *p)
 }
 
 /// Parses the arguments, builds the score, exports and saves it, prints the warnings.
