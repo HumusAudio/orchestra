@@ -977,6 +977,15 @@ pub struct Document {
     /// is open (a tie whose target was just removed); noteheads tied into by nothing have no
     /// entry. Rebuilt at load, never saved.
     pub(crate) tie_index: IdMap<NoteId, IdRefs<NoteId>>,
+    /// Derived index: where each voice is, as (its track's position in `tracks`, its position in
+    /// its instrument's voices). Voices and tracks are only ever appended, by the builder, so the
+    /// positions never move. Rebuilt at load, never saved.
+    ///
+    /// # Why an index?
+    /// Voices are few, and they used to be found by scanning every instrument; but every event
+    /// placed, looked up or edited needs its voice, and the benchmark gate measured the scan at
+    /// ≈ 70 M instructions for loading the heavy reference score (review points A1 and D7).
+    pub(crate) voice_index: IdMap<VoiceId, (usize, usize)>,
     /// The tolerance thresholds of the DAW move (ADR-0028 §1): the project value and the
     /// per-track overrides. Saved in the file (F1.15).
     pub(crate) tolerance: ToleranceSettings,
@@ -1018,6 +1027,7 @@ impl Document {
             notes,
             slur_index,
             tie_index,
+            voice_index,
             tolerance,
         } = self;
         let Self {
@@ -1036,6 +1046,7 @@ impl Document {
             notes: other_notes,
             slur_index: other_slur_index,
             tie_index: other_tie_index,
+            voice_index: other_voice_index,
             tolerance: other_tolerance,
         } = other;
         meter_map == other_meter_map
@@ -1051,6 +1062,7 @@ impl Document {
             && notes == other_notes
             && slur_index == other_slur_index
             && tie_index == other_tie_index
+            && voice_index == other_voice_index
             && tolerance == other_tolerance
     }
 
@@ -1074,6 +1086,12 @@ impl Document {
         let mut notes: IdMap<NoteId, EventId> = IdMap::default();
         let mut slurs: IdMap<EventId, SlurRefs> = IdMap::default();
         let mut ties: IdMap<NoteId, IdRefs<NoteId>> = IdMap::default();
+        let mut voices: IdMap<VoiceId, (usize, usize)> = IdMap::default();
+        for (t, track) in self.tracks.iter().enumerate() {
+            for (v, voice) in track.instrument.voices.iter().enumerate() {
+                voices.insert(voice.id, (t, v));
+            }
+        }
         let mut chunks_ok = true;
         for instrument in self.instruments() {
             for voice in &instrument.voices {
@@ -1109,6 +1127,7 @@ impl Document {
             && notes == self.notes
             && slurs == self.slur_index
             && ties == self.tie_index
+            && voices == self.voice_index
     }
 
     /// The meter map: bar lengths, meters, beat groupings, numbering. O(1).
@@ -1183,10 +1202,13 @@ impl Document {
             .find_map(|i| i.staff(id).map(|staff| (i, staff)))
     }
 
-    /// The voice with this ID and the instrument it belongs to. O(voices of the whole document).
+    /// The voice with this ID and the instrument it belongs to. O(1) average: one lookup in the
+    /// voice index.
     pub fn voice(&self, id: VoiceId) -> Option<(&Instrument, &Voice)> {
-        self.instruments()
-            .find_map(|i| i.voice(id).map(|voice| (i, voice)))
+        // One hash lookup in the voice index, then two direct positions.
+        let &(t, v) = self.voice_index.get(&id)?;
+        let instrument = &self.tracks.get(t)?.instrument;
+        Some((instrument, instrument.voices.get(v)?))
     }
 
     /// Where this bar starts, as an absolute written position: the bar's index in the bar list,
@@ -1592,6 +1614,7 @@ impl DocumentBuilder {
                 notes: IdMap::default(),
                 slur_index: IdMap::default(),
                 tie_index: IdMap::default(),
+                voice_index: IdMap::default(),
                 tolerance: ToleranceSettings::new()?,
                 revision: 0,
             },
@@ -1708,6 +1731,11 @@ impl DocumentBuilder {
             });
         }
 
+        // The new track goes last: its voices are indexed at that position.
+        let t = self.doc.tracks.len();
+        for (v, voice) in voices.iter().enumerate() {
+            self.doc.voice_index.insert(voice.id, (t, v));
+        }
         self.doc.tracks.push(Track {
             id: track_id,
             instrument: Instrument {
@@ -1761,11 +1789,13 @@ impl DocumentBuilder {
             return Err(DocumentError::TooManyVoices);
         }
         let id = VoiceId::from_counter(issue(&mut self.doc.ids)?);
+        let v = track.instrument.voices.len();
         track.instrument.voices.push(Voice {
             id,
             home_staff,
             content: VoiceContent::with_bars(bars),
         });
+        self.doc.voice_index.insert(id, (track_index, v));
         Ok(id)
     }
 
@@ -1884,11 +1914,16 @@ impl DocumentBuilder {
         // The event needs its staff before it is made: the placement's, or the voice's home staff.
         // The bar and the offset are checked first, as the edit layer does.
         self.doc.check_point(ScorePoint::new(at.bar, at.offset))?;
-        let (_, voice) = self
-            .doc
-            .voice(at.voice)
-            .ok_or(DocumentError::UnknownVoice(at.voice))?;
-        let staff = at.staff.unwrap_or(voice.home_staff);
+        let staff = match at.staff {
+            Some(staff) => staff,
+            None => {
+                self.doc
+                    .voice(at.voice)
+                    .ok_or(DocumentError::UnknownVoice(at.voice))?
+                    .1
+                    .home_staff
+            }
+        };
         // One ID for the event, one per notehead: all taken up front (and given back together if
         // the chord is refused), so a failure never leaves the counter advanced.
         let needed = u64::try_from(pitches.len())
@@ -1957,11 +1992,16 @@ impl DocumentBuilder {
         }
         // As for a chord: the bar and offset first, then the staff the rest is drawn on.
         self.doc.check_point(ScorePoint::new(at.bar, at.offset))?;
-        let (_, voice) = self
-            .doc
-            .voice(at.voice)
-            .ok_or(DocumentError::UnknownVoice(at.voice))?;
-        let staff = at.staff.unwrap_or(voice.home_staff);
+        let staff = match at.staff {
+            Some(staff) => staff,
+            None => {
+                self.doc
+                    .voice(at.voice)
+                    .ok_or(DocumentError::UnknownVoice(at.voice))?
+                    .1
+                    .home_staff
+            }
+        };
         let raw = self.insert_new(|raw| {
             let rest = Rest::new(value, at.tuplet);
             Ok(Object::Event {
@@ -2564,19 +2604,7 @@ impl DocumentBuilder {
 
     /// The positions of a voice: its track in the document, itself in its instrument. O(voices).
     fn voice_position(&self, voice: VoiceId) -> Result<(usize, usize), DocumentError> {
-        self.doc
-            .tracks
-            .iter()
-            .enumerate()
-            .find_map(|(t, track)| {
-                track
-                    .instrument
-                    .voices
-                    .iter()
-                    .position(|v| v.id == voice)
-                    .map(|v| (t, v))
-            })
-            .ok_or(DocumentError::UnknownVoice(voice))
+        self.doc.position_of_voice(voice)
     }
 
     /// The voice at these positions, mutably. O(1).

@@ -1053,10 +1053,14 @@ qualunque altro numero) ma tecnici: nessuna partitura vera ci si avvicina, e imp
 corrotto o malevolo di chiedere milioni di voci quando lo si apre. Alzarli cambia una costante, non
 il formato del file.
 
-**Ricerche.** Le battute sono molte, quindi hanno l'indice hash; tracce, righi e voci sono pochi
-(qualche centinaio in una grande partitura orchestrale) e si trovano scorrendoli, il che costa meno
-che tenere aggiornato un altro indice. L'indice da ID a posizione descritto da ADR-0022 §1 è per gli
-eventi, che sono centinaia di migliaia (F1.09).
+**Ricerche.** Le battute sono molte, quindi hanno l'indice hash; tracce e righi sono pochi
+(qualche centinaio in una grande partitura orchestrale) e si trovano scorrendoli. Anche le **voci**
+hanno un indice (`voice_index`, voce → la sua traccia e il suo posto tra le voci dello strumento),
+pur essendo altrettanto poche: ogni evento messo, cercato o modificato ha bisogno della sua voce, e
+lo scorrimento è stato misurato in ≈ 70 M istruzioni sulle ≈ 890 M del caricamento della partitura
+di riferimento pesante (revisione, 2026-11-08). Voci e tracce si aggiungono soltanto, in coda e dal
+builder, quindi l'indice non deve mai spostare una voce. L'indice da ID a posizione descritto da
+ADR-0022 §1 è per gli eventi, che sono centinaia di migliaia (F1.09).
 
 **Test.** `tests/document_cases.rs` ha 12 casi scritti a mano (ID in sequenza tra tipi diversi, una
 voce per rigo, voci aggiunte, strumenti traspositori, inizio delle battute dopo una levare, i limiti

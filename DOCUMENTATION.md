@@ -998,10 +998,14 @@ number) but technical ones: no real score gets close, and they stop a corrupt or
 from asking for millions of voices when it is opened. Raising them changes a constant, not the file
 format.
 
-**Lookups.** Bars are many, so they have the hash index; tracks, staves and voices are few (a few
-hundred in a large orchestral score) and are found by a linear scan, which is cheaper than keeping
-another index up to date. The index from ID to location that ADR-0022 §1 describes is for events,
-which are hundreds of thousands (F1.09).
+**Lookups.** Bars are many, so they have the hash index; tracks and staves are few (a few hundred
+in a large orchestral score) and are found by a linear scan. **Voices** have an index too
+(`voice_index`, voice → its track and its place among the instrument's voices), although they are
+as few: every event placed, looked up or edited needs its voice, and the scan measured ≈ 70 M
+instructions out of the ≈ 890 M of loading the heavy reference score (review, 2026-11-08). Voices
+and tracks are only ever appended, by the builder, so the index never has to move an entry. The
+index from ID to location that ADR-0022 §1 describes is for events, which are hundreds of
+thousands (F1.09).
 
 **Tests.** `tests/document_cases.rs` has 12 hand-written cases (IDs in sequence across kinds, one
 voice per staff, extra voices, transposing instruments, bar starts after a pickup, the limits at 16
