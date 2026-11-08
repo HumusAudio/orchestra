@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.45, approvata dal proprietario il 2026-11-08.**
+> **Stato di questo documento: v0.46, approvata dal proprietario il 2026-11-08.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -454,7 +454,7 @@ Dettagli:
 | F1.16 | **Crate `test-scores` (ADR-0031) con il preset "plain"**: l'attuale generatore spostato senza cambiare i documenti, i 7 file che lo includono migrati | ✅ PR #27 | 1 |
 | F1.16b | **Preset "full"**: la partitura di riferimento plausibile con tutto ciò che il modello contiene (forma, gruppi irregolari, legature, dinamiche, tempi…), organico vero, normale e pesante; test di copertura, andata e ritorno, impronte | ✅ PR #29 | 1–2 |
 | F1.16c | **Benchmark di fase** sul preset "full" (`crates/test-scores/benches/phase.rs`): apertura (byte → documento → srotolamento → note suonate), modifica di una nota in un ritornello con aggiornamento incrementale, srotolamento, salvataggio | ✅ PR #31 | 1 |
-| F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | 🔄 ADR-0032 | 1–2 |
+| F1.18 | **Esportazione MIDI file** degli eventi suonati (`io`): primo ascolto del modello | ✅ PR #33, ADR-0032, ADR-0027 §15 (taratura a orecchio, giri 1–2) | 1–2 |
 | F1.17 | **Chiusura fase**: documentazione, ROADMAP, revisione della scaletta, PR | ⬜ | 1 |
 
 Dettagli:
@@ -776,6 +776,10 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
   nell'esportazione di file v0 (F1.18).
 - **F3.03** Da ADR-0024 §10: i dati di controller per nota (ADR-0004) arrivano con il primo
   strumento che li usa.
+- **F3.03** **Richiesta del proprietario (2026-11-08, F1.18):** con gli strumenti interni
+  **rivedere a orecchio tutte le dinamiche** (livelli, accenti, profili d'attacco di ADR-0027 §14–§15),
+  come nuovo giro di §15. Il file d'ascolto è quello dell'esempio
+  `cargo run -p orchestra-io --example export_midi -- listening OUT.mid`.
 - ❓ **Decisione F3.03:** quali strumenti interni (sintetizzatore semplice? campionatore SFZ/SF2?)
   e **quali suoni**, con licenze compatibili: è una scelta che pesa sull'esperienza d'uso.
 - ❓ **Decisione F3.04:** crate esistente (es. `cpal`, da verificare) o backend nostri (ALSA /
@@ -963,3 +967,4 @@ raccomandato.
 | 2026-11-07 | 0.43 | F1.16b fatto (PR #29): preset "full" plausibile, densità realistica (scelta A), `Play` sul D.S.; osservazione sui ritornelli dopo un salto in ROADMAP | proprietario |
 | 2026-11-07 | 0.44 | F1.16c fatto (PR #31): benchmark di fase sul preset "full", regola 1 istruzione/ns; F1.16 completo, prossimo passo F1.18 | proprietario |
 | 2026-11-08 | 0.45 | F1.18 avviato (bozza di ADR-0032, scelte E1–E12 approvate); requisito "MIDI 2.0 di default all'interno" in F3.01; esportazione MIDI 2.0 su file come filone con F3.04 | proprietario |
+| 2026-11-08 | 0.46 | F1.18 fatto (PR #33): esportazione MIDI 1.0, profili d'attacco tarati a orecchio (ADR-0027 §15, giri 1–2); in F3.03 la revisione a orecchio di tutte le dinamiche | proprietario |
