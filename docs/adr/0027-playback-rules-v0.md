@@ -12,7 +12,9 @@
   the sound inside the note (§1 and §4: held notes are no longer only a velocity).
 - **Amended** by the owner on 2026-11-08, after the first listening session of F1.18 (ADR-0032
   E12; §15, round 1): every settling time and hold of H15–H16 a little longer, *sfp*/*sfpp* now
-  held; further rounds of tuning by ear are added to §15.
+  held; further rounds of tuning by ear are added to §15. Round 2 approved the same day: larger
+  steps for accent and marcato, *sfp*/*sfpp* from *fff*, *fp*/*pf* held 0.6 s, the times of *rf*,
+  *sf*, *sffz* back to those of H16.
 - **Date:** 2026-11-05
 - **Refines:** ADR-0004 (two layers: written intent and performance, derived plus explicit
   offsets), ADR-0024 §4–§10 (ties, grace notes, articulations, ornaments, fermatas, arpeggios,
@@ -325,7 +327,7 @@ with the owner at F1.18 and in F3, and to become a playback option in F2.12.
 
 ### 15. Tuning by ear (owner, F1.18; ADR-0032 E12)
 
-Round 1 approved by the owner on 2026-11-08.
+Rounds 1 and 2 approved by the owner on 2026-11-08.
 
 The provisional values of H15–H16 tuned by ear by the owner, on the listening file of ADR-0032
 E12 (`cargo run -p orchestra-io --example export_midi -- listening OUT.mid`) played with
@@ -348,6 +350,28 @@ fine as it is; a held loud attack for *sfp*. A second listening follows, to adju
 | *fp* | *f* held 0.3 s, then *p* in 0.1 s | *f* held **0.5 s**, then *p* in 0.1 s |
 | *sfp*, *sfpp* | *ff*, then *p*/*pp* in 0.3 s | *ff* held **0.3 s**, then *p*/*pp* in 0.3 s |
 | *pf* | *p* held 0.3 s, then *f* in 0.1 s | *p* held **0.5 s**, then *f* in 0.1 s |
+
+**Round 2 (2026-11-08)**, on the file of round 1. The owner's notes: the attacks of accent and
+marcato not loud enough; *sfp*/*sfpp* from *fff* instead of *ff*, held 0.2 s and falling in 0.2 s;
+the hold of *fp* and *pf* 0.6 s; the times of *rf*, *sf*, *sffz* back to those of H16. The owner
+also asked that all the dynamics be reviewed again later (with the internal instruments of F3).
+This round changes a **level** too: the steps of accent and marcato (amending H15) and the attack
+of *sfp*/*sfpp* (amending H16). Marks not listed keep their round 1 values.
+
+| Mark | Round 1 | Round 2 |
+|---|---|---|
+| accent | +15, back in 0.25 s | **+22**, back in 0.25 s |
+| marcato | +22, back in 0.3 s | **+30**, back in 0.3 s |
+| *rf*, *rfz* | back in 0.5 s | back in **0.4 s** |
+| *sf*, *sfz*, *fz* | back in 0.8 s | back in **0.6 s** |
+| *sffz* | back in 1.0 s | back in **0.8 s** |
+| *fp* | *f* held 0.5 s, then *p* in 0.1 s | *f* held **0.6 s**, then *p* in 0.1 s |
+| *sfp*, *sfpp* | *ff* held 0.3 s, then *p*/*pp* in 0.3 s | ***fff*** held **0.2 s**, then *p*/*pp* in **0.2 s** |
+| *pf* | *p* held 0.5 s, then *f* in 0.1 s | *p* held **0.6 s**, then *f* in 0.1 s |
+
+In force after round 2: soft accent and stress +7 in 0.2 s, accent +22 in 0.25 s, marcato +30 in
+0.3 s; *rf* 0.4 s, *sf* 0.6 s, *sffz* 0.8 s; *fp* and *pf* held 0.6 s, then 0.1 s; *sfp*/*sfpp*
+*fff* held 0.2 s, then 0.2 s.
 
 ## Alternatives rejected
 

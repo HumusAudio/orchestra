@@ -2370,14 +2370,14 @@ vicino).
   nel verso giusto, altrimenti un livello in su o in giù (*al niente*: fino al nulla). Una
   dinamica dentro divide la rampa; dopo la forcella resta l'arrivo; una forcella suonata due volte
   riparte ogni volta dal livello in vigore in quel momento.
-- **Accenti dinamici** solo sulle note che cominciano esattamente nel loro punto (H3, H16, con i
-  tempi tarati a orecchio nel §15, giro 1): *rf*/*rfz* un livello sopra, di ritorno al livello in
-  0,5 s; *sf*/*sfz*/*fz* due livelli, 0,8 s; *sffz* tre, 1,0 s; *fp* è *f* tenuto 0,5 s poi *p* in
-  0,1 s; *sfp*/*sfpp* *ff* tenuto 0,3 s poi *p*/*pp* in 0,3 s; *pf* *p* tenuto 0,5 s poi *f* in
+- **Accenti dinamici** solo sulle note che cominciano esattamente nel loro punto (H3, H16, come
+  tarati a orecchio nel §15, giri 1–2): *rf*/*rfz* un livello sopra, di ritorno al livello in
+  0,4 s; *sf*/*sfz*/*fz* due livelli, 0,6 s; *sffz* tre, 0,8 s; *fp* è *f* tenuto 0,6 s poi *p* in
+  0,1 s; *sfp*/*sfpp* *fff* tenuto 0,2 s poi *p*/*pp* in 0,2 s; *pf* *p* tenuto 0,6 s poi *f* in
   0,1 s; *n* è velocity 1. Gli abbellimenti prendono il
   livello della loro nota principale senza il suo accento (H10).
 - **Accenti di articolazione** a gradini fissi (H15, emenda le percentuali di §3): stress e
-  accento morbido +7 di ritorno in 0,2 s, accento +15 in 0,25 s, marcato +22 in 0,3 s (§15);
+  accento morbido +7 di ritorno in 0,2 s, accento +22 in 0,25 s, marcato +30 in 0,3 s (§15);
   unstress −7
   su tutta la nota. Con un accento dinamico gli attacchi si sommano e vince il tempo più lungo
   (H17); lo scostamento di velocity sposta sia l'attacco sia il livello d'arrivo.

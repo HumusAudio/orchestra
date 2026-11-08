@@ -67,7 +67,7 @@ const LEVEL_STEP: i64 = 13;
 /// The loudest playable level, *ffff*: the top of the 0–127 scale (G4).
 const FFFF: i64 = 127;
 
-/// *p*, *mf*, *f* and *ff* on the 0–127 scale: the levels *fp*, *sfp*, *pf* go to and from (H16),
+/// *p*, *mf*, *f* and *fff* on the 0–127 scale: the levels *fp*, *sfp*, *pf* go to and from (H16),
 /// and *mf*, the level in force before any dynamic (H1, N9).
 const P: i64 = 49;
 /// *pp* on the 0–127 scale (the second level of *sfpp*, H16).
@@ -76,8 +76,9 @@ const PP: i64 = 36;
 const MF: i64 = 75;
 /// *f* on the 0–127 scale (the attack of *fp*, the second level of *pf*, H16).
 const F: i64 = 88;
-/// *ff* on the 0–127 scale (the attack of *sfp* and *sfpp*, H16).
-const FF: i64 = 101;
+/// *fff* on the 0–127 scale (the attack of *sfp* and *sfpp*: §15, round 2, instead of the *ff*
+/// of H16).
+const FFF: i64 = 114;
 
 /// The value on the 0–127 scale of a written level (G4): the ten levels from *pppp* to *ffff*
 /// spread evenly, one every 13 from 10; the softer and louder levels the model can hold
@@ -165,16 +166,16 @@ pub(crate) enum PointAccent {
 /// the level in force after it, if it sets one. O(1).
 ///
 /// - a level: no accent, that level;
-/// - *rf*/*rfz* (+1 level, 0.5 s), *sf*/*sfz*/*fz* (+2, 0.8 s), *sffz* (+3, 1.0 s): an accent,
+/// - *rf*/*rfz* (+1 level, 0.4 s), *sf*/*sfz*/*fz* (+2, 0.6 s), *sffz* (+3, 0.8 s): an accent,
 ///   the level unchanged;
-/// - *fp* (*f* held 0.5 s, then *p* in 0.1 s), *sfp*/*sfpp* (*ff* held 0.3 s, then *p*/*pp* in
-///   0.3 s), *pf* (*p* held 0.5 s, then *f* in 0.1 s): an accent, and the second level
+/// - *fp* (*f* held 0.6 s, then *p* in 0.1 s), *sfp*/*sfpp* (*fff* held 0.2 s, then *p*/*pp* in
+///   0.2 s), *pf* (*p* held 0.6 s, then *f* in 0.1 s): an accent, and the second level
 ///   afterwards;
-///
-/// The times are those of the tuning by ear, round 1 (§15, replacing those of H16); the levels
-/// are those of H3–H4.
 /// - *n*: level 0 (velocity 1 once bounded, H5);
 /// - free text: its level if it has one, else nothing.
+///
+/// The levels are those of H3–H4, except the *fff* attack of *sfp*/*sfpp*; the times are those
+/// of the tuning by ear (§15, rounds 1–2, replacing those of H16).
 ///
 /// # Errors
 /// Only the arithmetic of the constants (never on these values).
@@ -195,13 +196,13 @@ fn mark_effect(mark: &DynamicMark) -> Result<(Option<PointAccent>, Option<i64>),
     };
     Ok(match mark {
         DynamicMark::Level(level) => (None, Some(level_value(*level))),
-        DynamicMark::Rf | DynamicMark::Rfz => (up(1, 5)?, None),
-        DynamicMark::Sf | DynamicMark::Sfz | DynamicMark::Fz => (up(2, 8)?, None),
-        DynamicMark::Sffz => (up(3, 10)?, None),
-        DynamicMark::Fp => (shift(F, 5, 1, P)?, Some(P)),
-        DynamicMark::Sfp => (shift(FF, 3, 3, P)?, Some(P)),
-        DynamicMark::Sfpp => (shift(FF, 3, 3, PP)?, Some(PP)),
-        DynamicMark::Pf => (shift(P, 5, 1, F)?, Some(F)),
+        DynamicMark::Rf | DynamicMark::Rfz => (up(1, 4)?, None),
+        DynamicMark::Sf | DynamicMark::Sfz | DynamicMark::Fz => (up(2, 6)?, None),
+        DynamicMark::Sffz => (up(3, 8)?, None),
+        DynamicMark::Fp => (shift(F, 6, 1, P)?, Some(P)),
+        DynamicMark::Sfp => (shift(FFF, 2, 2, P)?, Some(P)),
+        DynamicMark::Sfpp => (shift(FFF, 2, 2, PP)?, Some(PP)),
+        DynamicMark::Pf => (shift(P, 6, 1, F)?, Some(F)),
         DynamicMark::Niente => (None, Some(0)),
         DynamicMark::Other(other) => (None, other.level().map(level_value)),
     })
@@ -812,8 +813,8 @@ pub(crate) struct Profile {
 }
 
 /// The step of an articulation accent on the 0–127 scale and the time to settle back (H15, times
-/// of the tuning by ear, round 1, §15): soft accent and stress +7 in 0.2 s, accent +15 in 0.25 s,
-/// marcato +22 in 0.3 s. Unstress is
+/// of the tuning by ear, rounds 1–2, §15): soft accent and stress +7 in 0.2 s, accent +22 in
+/// 0.25 s, marcato +30 in 0.3 s. Unstress is
 /// handled apart (−7 on the whole note, no profile). Steps add; the time is the longest. O(1).
 ///
 /// # Errors
@@ -825,8 +826,8 @@ fn articulation_step(set: ArticulationSet) -> Result<(i64, Seconds), RationalErr
     for (articulation, add, hundredths) in [
         (Articulation::SoftAccent, 7, 20),
         (Articulation::Stress, 7, 20),
-        (Articulation::Accent, 15, 25),
-        (Articulation::Marcato, 22, 30),
+        (Articulation::Accent, 22, 25),
+        (Articulation::Marcato, 30, 30),
     ] {
         if set.contains(articulation) {
             step = step.saturating_add(add);

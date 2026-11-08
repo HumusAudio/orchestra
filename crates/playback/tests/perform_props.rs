@@ -7,8 +7,8 @@
 //! - the notes of an instrument are sorted by start, then by pitch;
 //! - every note lasts at least 1/1024 of a whole note, and its velocity is in 1..=65 535;
 //! - its attack profile is well formed (ADR-0027 §14, H14): no profile at all when the attack and
-//!   the settling level are equal, otherwise a hold of 0, 0.3 s or 0.5 s and a settling time of
-//!   at most 1.0 s (the times of §15, round 1);
+//!   the settling level are equal, otherwise a hold of 0, 0.2 s or 0.6 s and a settling time of
+//!   at most 0.8 s (the times of §15, round 2);
 //! - every note names a notehead the document has, at the pitch it sounds;
 //! - without ties, grace notes, articulations, arpeggios and offsets, every written note is
 //!   played once per play of its bar, exactly where it is written on the path, and (H1) at the
@@ -54,8 +54,8 @@ proptest! {
                 if note.velocity == note.settle_to {
                     prop_assert!(note.hold == Seconds::ZERO && note.settle_in == Seconds::ZERO);
                 } else {
-                    prop_assert!([Seconds::ZERO, secs(3, 10), secs(1, 2)].contains(&note.hold));
-                    prop_assert!(note.settle_in <= secs(1, 1));
+                    prop_assert!([Seconds::ZERO, secs(1, 5), secs(3, 5)].contains(&note.hold));
+                    prop_assert!(note.settle_in <= secs(4, 5));
                 }
                 let (_, written) = doc.note(note.note).unwrap();
                 prop_assert_eq!(written.pitch().sounding().unwrap(), note.pitch);

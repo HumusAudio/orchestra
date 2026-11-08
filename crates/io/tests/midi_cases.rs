@@ -329,16 +329,16 @@ fn an_accent_fades_back_with_cc11() {
         .unwrap();
     let (_, out) = s.export();
     let decoded = decode(&out.bytes);
-    // mf 75 + 15 = 90 at the attack (H15).
-    assert_eq!(decoded.notes(0), [(0, 1_920, 0, 60, 90)]);
+    // mf 75 + 22 = 97 at the attack (H15, §15).
+    assert_eq!(decoded.notes(0), [(0, 1_920, 0, 60, 97)]);
     let cc = expressions(&decoded);
-    // Decreasing to round(127 × 75/90) = 106, the last point at 0.25 s (0.25 quarters = 240
+    // Decreasing to round(127 × 75/97) = 98, the last point at 0.25 s (0.25 quarters = 240
     // ticks).
     assert!(
         cc.windows(2).all(|w| w[0].0 < w[1].0 && w[0].1 > w[1].1),
         "{cc:?}"
     );
-    assert_eq!(cc.last(), Some(&(240, 106)));
+    assert_eq!(cc.last(), Some(&(240, 98)));
     assert!(cc.len() >= 20, "about one step per 10 ms: {cc:?}");
 }
 
@@ -370,7 +370,7 @@ fn pf_rises_and_niente_is_not_silent() {
     assert_eq!(notes[0].4, 88, "pf: the note-on at f");
     assert_eq!(notes[1].4, 1, "niente: velocity 1, not a note-off");
     let cc = expressions(&decoded);
-    // p/f = 49/88 → 71, then up to 127 after the 0.5 s hold.
+    // p/f = 49/88 → 71, then up to 127 after the 0.6 s hold.
     assert_eq!(cc.first(), Some(&(0, 71)));
     assert!(cc.iter().any(|(_, v)| *v == 127));
     let _ = DynamicLevel::P;
