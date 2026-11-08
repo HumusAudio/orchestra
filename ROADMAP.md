@@ -635,8 +635,8 @@ rewritten as a summary of the end of Phase 1.
 Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCALETTA.md`.
 
 1. **Phase 1 — `core-time` and `core-model` (done, 2026-11-08, milestone M1):** rational time
-   type with overflow policy, tempo and meter maps with O(log n) lookup, conversions to seconds/samples/frames (benchmarks: first
-   `cargo xtask bench`); the document model with two-layer notes (ADR-0004), form (repeats,
+   type with overflow policy, tempo and meter maps with O(log n) lookup, conversions to
+   seconds/samples/frames (benchmarks: first `cargo xtask bench`); the document model with two-layer notes (ADR-0004), form (repeats,
    voltas, jumps), commands and unified undo/redo; concrete project file format with version 1
    and its first golden file (ADR-0010); MIDI file export of the performed events (SCALETTA
    F1.18, approved 2026-10-30) so the owner can listen to the model before the audio engine.
