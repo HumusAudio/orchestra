@@ -635,20 +635,22 @@ pull requests, each with `cargo xtask check` and the benchmark gate:
 - **#39 (A3, B11–B13, merged):** `core-model/src/chain.rs`, the one implementation of tie chains
   for entering notes, rewriting bars and DAW moves (same IDs as before); `with_…` methods instead
   of rebuilding objects field by field.
-- **#40 (A1, B9, B10, D7):** the builder places objects through the edit layer
+- **#40 (A1, B9, B10, D7, merged):** the builder places objects through the edit layer
   (`Document::place_object`), giving IDs back on refusal (`IdCounter::give_back`). The gate
   measured loading at +17%/+21%; a **voice index** (`Document::voice_index`) and an
   allocation-free `insert_event` made it 0.8%/4.6% faster than before.
-- **#41 (A2):** `FormSections` / `Document::form_sections`, one reading of the repeated sections for
+- **#41 (A2, merged):** `FormSections` / `Document::form_sections`, one reading of the repeated sections for
   validation (`last_end`) and playback (`last`).
-- **#42 (D3, D4):** binary searches for meter changes (`MeterMap::meter_change_at`,
+- **#42 (D3, D4, merged):** binary searches for meter changes (`MeterMap::meter_change_at`,
   `meter_change_in_force`); `playback` borrows events instead of cloning them.
 Benchmark gate of #40–#42 together against `main`: no regression (worst +1.1%), `voice_lookup`
 −81%, editor commands −25% to −41%. **Not done, with the reason:** B20 (test helpers mean different
 things per file), D5/D6 (no benchmark exercises grace runs or long notes; the reference scores
 have 4 grace notes), the written tempi kept in the tempo map's segments (documented as kept for the
-metronome and the interface), `palette()` rebuilt per call (a documented choice). #40–#42 are
-stacked; the owner asked to merge them when their CI is green.
+metronome and the interface), `palette()` rebuilt per call (a documented choice). #40–#42 were
+stacked and merged in order once their CI was green, each next one retargeted to `main` before
+its base branch was deleted. SCALETTA v0.48 records the review, ADR-0033 under F1.18, and in
+F2.23 the new measurements and a benchmark with many grace notes and long notes (D5, D6).
 
 | Step | What | Status |
 |---|---|---|
