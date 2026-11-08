@@ -185,19 +185,31 @@ const fn letter_step(letter: u8) -> Option<Step> {
     }
 }
 
-/// The sign of a chromatic alteration of -3 to +3 semitones: `""`, `#`, `x` (double sharp), `#x`
-/// (triple), `b`, `bb`, `bbb`. `None` outside that range. O(1).
-const fn chromatic_sign(semitones: i64) -> Option<&'static str> {
-    match semitones {
-        0 => Some(""),
-        1 => Some("#"),
-        2 => Some("x"),
-        3 => Some("#x"),
-        -1 => Some("b"),
-        -2 => Some("bb"),
-        -3 => Some("bbb"),
-        _ => None,
+/// The signs of the chromatic alterations other than the natural: `#x` (triple sharp), `x`
+/// (double sharp), `#`, `bbb`, `bb`, `b`, with their semitones.
+///
+/// One table for both directions (review point B18: the decoder had a copy of it). The order
+/// matters for decoding, which takes the first sign that prefixes the text: `#x` before `#`, and
+/// `bbb` before `bb` before `b`, so the longest sign wins.
+const SIGNS: [(&str, i64); 6] = [
+    ("#x", 3),
+    ("x", 2),
+    ("#", 1),
+    ("bbb", -3),
+    ("bb", -2),
+    ("b", -1),
+];
+
+/// The sign of a chromatic alteration of -3 to +3 semitones: `""` for the natural, otherwise
+/// the entry of [`SIGNS`]. `None` outside that range. O(1) (six entries).
+fn chromatic_sign(semitones: i64) -> Option<&'static str> {
+    if semitones == 0 {
+        return Some("");
     }
+    SIGNS
+        .iter()
+        .find(|&&(_, n)| n == semitones)
+        .map(|&(sign, _)| sign)
 }
 
 /// The text of an alteration: a chromatic sign, or the exact semitones in brackets for a
@@ -227,14 +239,7 @@ fn decode_alteration(text: &str) -> Option<(Alteration, &str)> {
         }
         return Some((Alteration::new(semitones).ok()?, rest));
     }
-    for (sign, semitones) in [
-        ("#x", 3),
-        ("x", 2),
-        ("#", 1),
-        ("bbb", -3),
-        ("bb", -2),
-        ("b", -1),
-    ] {
+    for (sign, semitones) in SIGNS {
         if let Some(rest) = text.strip_prefix(sign) {
             return Some((Alteration::chromatic(semitones).ok()?, rest));
         }
