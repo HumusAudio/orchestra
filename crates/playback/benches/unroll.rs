@@ -3,8 +3,8 @@
 //! Instruction-count benchmark of the unrolling of the form (SCALETTA F1.12, P7).
 //!
 //! # Why this operation
-//! The path is rebuilt whole whenever the form, the bars or the maps change (P7): its cost is
-//! paid on every such edit, so it is measured on a score far fuller of repeats than a real one.
+//! The path is rebuilt whole whenever the form, the bars or the maps change (ADR-0025 P7): its cost
+//! is paid on every such edit, so it is measured on a score far fuller of repeats than a real one.
 //!
 //! # The score
 //! The one of `orchestra-core-model`'s `benches/form.rs`: 400 bars of 4/4 in 50 sections of 8

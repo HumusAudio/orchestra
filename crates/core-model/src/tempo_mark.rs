@@ -137,8 +137,8 @@ impl TempoMark {
     /// is returned unchanged. O(text length).
     ///
     /// For the commands that move or clip the end of a *rit.* or an *accel.* with the bars around
-    /// it (review point B11: they rebuilt the mark from its text and a modified copy of its
-    /// change, three times).
+    /// it: one method instead of rebuilding the mark from its text and a modified copy of its
+    /// change in each command.
     ///
     /// # Errors
     /// Those of [`TempoMark::new`], which cannot happen for a mark that was valid already: the

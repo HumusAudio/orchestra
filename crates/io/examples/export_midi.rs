@@ -38,7 +38,7 @@ use orchestra_core_model::{
 use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_io::midi::{self, MidiOptions};
 use orchestra_playback::{Performance, Unrolled};
-use orchestra_test_scores::Size;
+use orchestra_test_scores::{Instruments, Size};
 
 #[path = "common/gm.rs"]
 mod gm;
@@ -151,7 +151,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let doc = if preset == "full" {
                 orchestra_test_scores::full(size)
             } else {
-                orchestra_test_scores::plain(size, false)
+                orchestra_test_scores::plain(size, Instruments::Plain)
             };
             (doc, PathBuf::from(out))
         }

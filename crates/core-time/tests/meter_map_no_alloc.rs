@@ -64,7 +64,10 @@ fn busy_map() -> MeterMap {
         },
     )
     .unwrap();
-    map.set_uncounted(BarIndex::new(8), true);
+    map.set_numbering(
+        BarIndex::new(8),
+        orchestra_core_time::BarCounting::Uncounted,
+    );
     map.set_numbering_restart(BarIndex::new(10), Some(1));
     map
 }

@@ -4,29 +4,30 @@
 //! `.orchestra` file and loading it back.
 //!
 //! # The format, in short
-//! Version 1 is one plain UTF-8 JSON file (S1, S2), written deterministically with one record per
-//! line (S3, I9). Its first member is `"orchestra_format": 1` (S5); bars, events and marks are
-//! named by their saved IDs (S7, I6); exact values are canonical strings (S6, I4, I5). The schema
-//! is `schema`, separate from the model's memory layout (S4); `convert` maps it to and from the
-//! model's `DocumentParts`, and `Document::from_parts` checks the result as the builder checks
+//! Version 1 is one plain UTF-8 JSON file (ADR-0029 S1, ADR-0029 S2), written deterministically
+//! with one record per line (ADR-0029 S3, ADR-0029 I9). Its first member is `"orchestra_format": 1`
+//! (ADR-0029 S5); bars, events and marks are named by their saved IDs (ADR-0029 S7, ADR-0029 I6);
+//! exact values are canonical strings (ADR-0029 S6, ADR-0029 I4, ADR-0029 I5). The schema is
+//! `schema`, separate from the model's memory layout (ADR-0029 S4); `convert` maps it to and from
+//! the model's `DocumentParts`, and `Document::from_parts` checks the result as the builder checks
 //! what it creates.
 //!
 //! # Loading, step by step (`from_bytes`)
-//! 1. The size: more than [`MAX_FILE_BYTES`] is refused before anything is read (S9).
+//! 1. The size: more than [`MAX_FILE_BYTES`] is refused before anything is read (ADR-0029 S9).
 //! 2. The version, from the first bytes (`header`): newer → [`LoadError::NewerFormat`], a
 //!    compressed container too; not a project → [`LoadError::NotAProject`].
 //! 3. The JSON into the version-1 schema, strictly: unknown fields, wrong types, non-canonical
-//!    values are refused with their line and column (S8).
+//!    values are refused with their line and column (ADR-0029 S8).
 //! 4. The schema into `DocumentParts` (`convert`), then `Document::from_parts`.
 //!
 //! Nothing is ever partially loaded: every step either succeeds or the whole load fails. A file
 //! of an older version takes a slower path at step 3: the generic JSON tree, the chain of
-//! migrations (`migrate`), then the current schema (S11). Version 1 is the first, so the chain is
-//! empty for now.
+//! migrations (`migrate`), then the current schema (ADR-0029 S11). Version 1 is the first, so the
+//! chain is empty for now.
 //!
 //! # Saving (`save`)
 //! The bytes are written to a temporary file in the target's directory, synced, then renamed over
-//! the target (S13): a failed save leaves the previous file intact.
+//! the target (ADR-0029 S13): a failed save leaves the previous file intact.
 
 mod codec;
 mod convert;
@@ -254,8 +255,8 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Document, LoadError> {
         // The fast path: the current version, straight into the typed schema.
         serde_json::from_slice(body).map_err(json_error)?
     } else {
-        // An older version: the generic tree, its migrations, then the typed schema (S11). The
-        // reader's line and column are those of the old file, so the schema errors after the
+        // An older version: the generic tree, its migrations, then the typed schema (ADR-0029 S11).
+        // The reader's line and column are those of the old file, so the schema errors after the
         // migration have none.
         let tree: serde_json::Value = serde_json::from_slice(body).map_err(json_error)?;
         let tree =
@@ -291,8 +292,8 @@ fn json_error(e: serde_json::Error) -> LoadError {
     }
 }
 
-/// Loads the project file at `path` (see [`from_bytes`]). The size limit (S9) holds before the
-/// file is read and while it is read.
+/// Loads the project file at `path` (see [`from_bytes`]). The size limit (ADR-0029 S9) holds before
+/// the file is read and while it is read.
 ///
 /// # Why one open and a bounded read
 /// Checking the size with `metadata` and then calling `fs::read` looks at the file twice: if it

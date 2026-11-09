@@ -25,32 +25,54 @@
 
 mod common;
 
-use orchestra_test_scores::{Size, plain};
+use orchestra_test_scores::{Instruments, Size, plain};
 
-/// Asserts the fingerprint of the plain score of `size` (with the editing instrument if
-/// `editing`).
-fn assert_fingerprint(size: Size, editing: bool, len: usize, hash: u64) {
-    let name = format!("plain({size:?}, {editing})");
-    common::assert_fingerprint(&name, &plain(size, editing), len, hash);
+/// Asserts the fingerprint of the plain score of `size` with these `instruments`.
+fn assert_fingerprint(size: Size, instruments: Instruments, len: usize, hash: u64) {
+    let name = format!("plain({size:?}, {instruments:?})");
+    common::assert_fingerprint(&name, &plain(size, instruments), len, hash);
 }
 
 /// The normal score, without and with the editing instrument.
 #[test]
 fn the_normal_plain_score_is_unchanged() {
-    assert_fingerprint(Size::Normal, false, 836_643, 0xfd09_bbc1_911d_e245);
-    assert_fingerprint(Size::Normal, true, 836_998, 0x5969_b934_d135_b9d9);
+    assert_fingerprint(
+        Size::Normal,
+        Instruments::Plain,
+        836_643,
+        0xfd09_bbc1_911d_e245,
+    );
+    assert_fingerprint(
+        Size::Normal,
+        Instruments::WithEditing,
+        836_998,
+        0x5969_b934_d135_b9d9,
+    );
 }
 
 /// The heavy score, without and with the editing instrument.
 #[test]
 fn the_heavy_plain_score_is_unchanged() {
-    assert_fingerprint(Size::Heavy, false, 25_361_550, 0xf9ce_11b2_dd09_4128);
-    assert_fingerprint(Size::Heavy, true, 25_361_910, 0x6175_3e54_a2cb_4dc0);
+    assert_fingerprint(
+        Size::Heavy,
+        Instruments::Plain,
+        25_361_550,
+        0xf9ce_11b2_dd09_4128,
+    );
+    assert_fingerprint(
+        Size::Heavy,
+        Instruments::WithEditing,
+        25_361_910,
+        0x6175_3e54_a2cb_4dc0,
+    );
 }
 
 /// The generator is deterministic within one run too: two calls give equal documents. (Equality
 /// of documents is the model's own `PartialEq`, IDs included.)
 #[test]
 fn two_calls_give_the_same_document() {
-    assert_eq!(plain(Size::Normal, true), plain(Size::Normal, true));
+    assert_eq!(
+        plain(Size::Normal, Instruments::WithEditing),
+        plain(Size::Normal, Instruments::WithEditing)
+    );
 }

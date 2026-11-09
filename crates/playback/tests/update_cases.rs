@@ -129,7 +129,7 @@ fn check(doc: Document, command: &Command) {
 /// A tie removed at the start of a chain of three bars: the rest of the chain becomes a shorter
 /// note, so the ten acciaccaturas of the bar after it, bounded by half of the note they take their
 /// time from, get shorter too. The window must reach the bar of those graces, three bars after the
-/// change (H12: a note starting in the window reaches at most to the bar before its end).
+/// change (ADR-0027 H12: a note starting in the window reaches at most to the bar before its end).
 #[test]
 fn a_tie_removed_shortens_the_graces_after_the_chain() {
     let mut s = score(5, 1);
@@ -156,7 +156,7 @@ fn a_tie_removed_shortens_the_graces_after_the_chain() {
 
 /// A tie added at the end of a chain joins the next note to it: the thirteen acciaccaturas of the
 /// bar after it were bounded by half of that short note (1/8) and no longer are (half of the chain
-/// is 1/2). The window grows on the new notes, to the bar of those graces (H12).
+/// is 1/2). The window grows on the new notes, to the bar of those graces (ADR-0027 H12).
 #[test]
 fn a_tie_added_lengthens_the_chain() {
     let mut s = score(6, 1);
@@ -184,7 +184,7 @@ fn a_tie_added_lengthens_the_chain() {
 }
 
 /// The window keeps the graces of its first bar, bounded by half of the note before them, which
-/// is outside the window: that note must be computed too, as context (the margin of H12).
+/// is outside the window: that note must be computed too, as context (the margin of ADR-0027 H12).
 #[test]
 fn the_graces_of_the_first_kept_bar_see_the_note_before() {
     let mut s = score(4, 1);
@@ -208,7 +208,7 @@ fn the_graces_of_the_first_kept_bar_see_the_note_before() {
 }
 
 /// Acciaccaturas entered at the start of a bar take their time from the chain that ends there,
-/// which started two bars before: the window starts with that chain (H12).
+/// which started two bars before: the window starts with that chain (ADR-0027 H12).
 #[test]
 fn an_acciaccatura_entered_shortens_a_chain_from_before() {
     let mut s = score(4, 2);
@@ -236,8 +236,8 @@ fn an_acciaccatura_entered_shortens_a_chain_from_before() {
     );
 }
 
-/// A dynamic added recomputes only the velocities of its instrument (H11), with the notes of a
-/// repeat played after it at its level.
+/// A dynamic added recomputes only the velocities of its instrument (ADR-0027 H11), with the notes
+/// of a repeat played after it at its level.
 #[test]
 fn a_dynamic_added_changes_the_velocities() {
     let mut s = score(3, 4);

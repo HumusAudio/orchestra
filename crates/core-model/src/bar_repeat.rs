@@ -78,9 +78,9 @@ impl BarRepeat {
     /// A bar repeat with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(
         id: BarRepeatId,
         staff: StaffId,
@@ -101,8 +101,8 @@ impl BarRepeat {
     /// unchanged. O(1).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) const fn with_bars(&self, first: BarId, count: u32) -> Self {
         Self {
@@ -147,8 +147,8 @@ impl BarRepeat {
     /// first + count` (exclusive). Indices from `BarList::key`; the subtraction saturates at 0
     /// (a repeat without source is refused by validation, `BarRepeatNoSource`). O(1) average.
     ///
-    /// The one place of this arithmetic: inserting bars, deleting bars, rewriting bars and
-    /// validating chunks each wrote it out (review point B14).
+    /// The one place of this arithmetic, shared by inserting, deleting and rewriting bars and by
+    /// the validation of chunks, so they all agree on which bars a repeat covers.
     pub(crate) fn covered(&self, bars: &BarList) -> (u32, u32, u32) {
         let first = bars.key(self.first);
         (
@@ -185,9 +185,9 @@ impl PassRule {
     /// A pass rule with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(
         id: PassRuleId,
         start: ScorePoint,
@@ -209,8 +209,8 @@ impl PassRule {
     /// This pass rule with other start and end points, the rest unchanged. O(text length).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) fn with_points(&self, start: ScorePoint, end: ScorePoint) -> Self {
         Self {

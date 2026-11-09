@@ -148,7 +148,10 @@ fn meter() -> Document {
         },
     )
     .unwrap();
-    m.set_uncounted(BarIndex::new(0), true);
+    m.set_numbering(
+        BarIndex::new(0),
+        orchestra_core_time::BarCounting::Uncounted,
+    );
     m.set_meter_change(
         BarIndex::new(2),
         MeterChange::with_grouping(
@@ -167,7 +170,10 @@ fn meter() -> Document {
         },
     )
     .unwrap();
-    m.set_uncounted(BarIndex::new(4), true);
+    m.set_numbering(
+        BarIndex::new(4),
+        orchestra_core_time::BarCounting::Uncounted,
+    );
     m.set_meter_change(
         BarIndex::new(5),
         MeterChange::new(Meter::new(&[4], 4).unwrap()),

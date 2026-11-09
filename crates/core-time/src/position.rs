@@ -291,7 +291,7 @@ impl fmt::Debug for Position {
     /// (`Rational`'s `Display` and `FromStr`, F1.15), the interface will show bars and beats.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // `Rational`'s `Display` writes `3/8`, or `2` for an integer: the same text the two
-        // `Debug` implementations used to build by hand (review point B2).
+        // `Debug` implementations would otherwise build by hand.
         write!(f, "Position({})", self.0)
     }
 }

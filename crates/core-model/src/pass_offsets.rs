@@ -14,15 +14,15 @@
 //! `(NoteId, pass)`, where `pass` is the pass index of the note's notes as the path reports it
 //! (`StaffContent::pass` of F1.12): how many times *those notes* were played before. On a staff
 //! with bar repeats it counts the copies of the source bar too, so the original and each % copy
-//! have distinct keys (T4). The note is the first notehead of the played tie chain for the onset
-//! and the velocity, and every notehead of the chain contributes its length (T3, like N8 for the
-//! inline offsets).
+//! have distinct keys (ADR-0028 T4). The note is the first notehead of the played tie chain for the
+//! onset and the velocity, and every notehead of the chain contributes its length (ADR-0028 T3,
+//! like ADR-0027 N8 for the inline offsets).
 //!
 //! # Lifetime
 //! - An entry equal to [`PerformanceOffsets::NONE`] is never stored: setting it removes the entry,
 //!   so the table holds only real deviations and two equal tables mean the same performance.
-//! - When a note leaves the document, the editor removes its entries in the same command (T5);
-//!   the undo puts them back.
+//! - When a note leaves the document, the editor removes its entries in the same command
+//!   (ADR-0028 T5); the undo puts them back.
 //! - When the form changes and a pass no longer exists, the entry **stays**, ignored by playback:
 //!   deleting it would lose it on the undo of the form change (ADR-0028 §5).
 //!

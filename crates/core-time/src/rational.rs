@@ -139,7 +139,7 @@ pub struct Rational {
 }
 
 /// The body of the binary (Stein) GCD, for any unsigned integer type: `gcd_u64` and `gcd_u128`
-/// expand it on their own operands (review point B3: the two copies used to be written out).
+/// expand it on their own operands, so the algorithm is written once.
 ///
 /// A macro and not a generic function because both callers are `const fn`, and trait methods
 /// (`trailing_zeros`, `wrapping_shr`, … through a `num`-like trait) cannot be called in a `const

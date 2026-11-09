@@ -221,6 +221,18 @@ binari.
 `.gitignore` esclude `target/`, `dist/` (i PDF generati non si committano mai), le cartelle degli
 editor e i file `.env`.
 
+### Commenti: i riferimenti alle decisioni
+
+I commenti spiegano il codice **com'è adesso**: perché è scritto così, mai com'era prima (quella
+storia appartiene a git e alle pull request). Quando un commento rimanda a una decisione, nomina il
+documento che la contiene. Gli ADR etichettano le loro decisioni con sigle brevi (`V2`, `T1`, `P3`),
+e la stessa sigla vuol dire cose diverse in ADR diversi (`T1` è un'opzione dell'ADR-0024 e una
+decisione dell'ADR-0028; `U1`–`U9` esistono sia nell'ADR-0026 sia nell'ADR-0028), quindi una sigla
+si scrive con il suo ADR: `(ADR-0026 V2)`. Dentro una parentesi che nomina già l'ADR (`(ADR-0028
+§10, T1)`) o sotto un titolo che lo nomina (gli elenchi di decisioni in cima a `command.rs`,
+`mark_command.rs` e `meter_command.rs`) la sigla resta nuda. Le decisioni del piano di lavoro si
+scrivono `SCALETTA D04`.
+
 ## I crate
 
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
@@ -672,7 +684,12 @@ metro che sta per cambiare). Da F1.11c parte 2a (ADR-0026 §11 Z1) `replace_span
 in un colpo solo i dati di origine delle `span.count()` battute da `at` in poi con quelli dello span, e
 restituisce quelli che avevano: rimetterli è l'inversa esatta. Il numero di battute non cambia.
 `BarSpan` ha avuto i metodi che gli mancavano (`set_irregular_bar`, `set_bar_grouping`,
-`set_uncounted`, `set_numbering_restart`), così un comando può costruire i dati nuovi di un tratto.
+`set_numbering`, `set_numbering_restart`), così un comando può costruire i dati nuovi di un tratto.
+`set_numbering(bar, BarCounting::Uncounted)` (su `BarSpan` e su `MeterMap`) prende e restituisce un
+`BarCounting` (`Counted` o `Uncounted`) invece di un `bool`, così una chiamata dice cosa fa e lo
+stato precedente restituito non si può leggere al contrario; `BarCounting::uncounted_if` e
+`is_uncounted` convertono per i dati che tengono l'indicazione come `bool` (le modifiche, il file di
+progetto).
 
 ```rust
 // 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
@@ -3031,10 +3048,10 @@ compilati come una seconda copia del loro crate e vedrebbero tipi diversi.
 
 ```rust
 // In Cargo.toml: orchestra-test-scores.workspace = true, under [dev-dependencies] only.
-use orchestra_test_scores::{Size, plain};
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // 100 bars × 10 staves, without the empty editing instrument at the end.
-let document = plain(Size::Normal, false);
+let document = plain(Size::Normal, Instruments::Plain);
 assert_eq!(document.bars().len(), 100);
 ```
 

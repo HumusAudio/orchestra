@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The layout of the written file: structure indented, **one record per line** (ADR-0029 S3,
-//! owner's choice I9 of 2026-11-06).
+//! owner's choice ADR-0029 I9 of 2026-11-06).
 //!
 //! # The rule
 //! A `serde_json` [`Formatter`] that decides, for every object and array it opens, whether to

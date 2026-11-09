@@ -12,11 +12,11 @@
 //! - `deny_unknown_fields`: an unknown field is refused with its line and column (ADR-0029 S8),
 //!   never dropped.
 //! - Field order = the order written in the file (serde writes struct fields in declaration
-//!   order); the writer is therefore deterministic (S3).
-//! - Structural absences are omitted when absent (S6: `skip_serializing_if`) and filled in when
-//!   missing (`default`); user settings and every required field are always written.
-//! - Bars are named by **ID** everywhere, also in the meter map (I6), so inserting a bar changes
-//!   one line of the file, not every later entry.
+//!   order); the writer is therefore deterministic (ADR-0029 S3).
+//! - Structural absences are omitted when absent (ADR-0029 S6: `skip_serializing_if`) and filled in
+//!   when missing (`default`); user settings and every required field are always written.
+//! - Bars are named by **ID** everywhere, also in the meter map (ADR-0029 I6), so inserting a bar
+//!   changes one line of the file, not every later entry.
 //! - IDs are JSON integers; values with an exact meaning are the text forms of
 //!   `crate::project::codec`.
 
@@ -43,8 +43,8 @@ const fn is_false(b: &bool) -> bool {
     !*b
 }
 
-/// The whole file (I1). `orchestra_format` is first, so that the header scanner reads the version
-/// before anything else (ADR-0029 S5).
+/// The whole file (ADR-0029 I1). `orchestra_format` is first, so that the header scanner reads the
+/// version before anything else (ADR-0029 S5).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FileV1 {
@@ -52,7 +52,8 @@ pub(crate) struct FileV1 {
     pub(crate) orchestra_format: u32,
     /// Which program wrote the file: informational only, never used to decide anything.
     pub(crate) written_by: String,
-    /// The ID the counter hands out next; `null` once every value has been used (I1). Required.
+    /// The ID the counter hands out next; `null` once every value has been used (ADR-0029 I1).
+    /// Required.
     pub(crate) next_id: NextId,
     /// What belongs to the whole score.
     pub(crate) document: DocumentV1,
@@ -101,11 +102,11 @@ pub(crate) struct DocumentV1 {
     /// The jumps.
     #[serde(default, skip_serializing_if = "is_empty")]
     pub(crate) jumps: Vec<JumpV1>,
-    /// The bar-numbering style: a setting, always written (S6).
+    /// The bar-numbering style: a setting, always written (ADR-0029 S6).
     pub(crate) numbering: NumberingName,
 }
 
-/// The meter map (ADR-0018, ADR-0019), with bars by ID (I6).
+/// The meter map (ADR-0018, ADR-0019), with bars by ID (ADR-0029 I6).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MeterMapV1 {
@@ -547,7 +548,7 @@ pub(crate) struct GraceV1 {
 }
 
 /// One event: a chord (with `value` and `notes`) or a rest (with `rest`), exactly one of the two
-/// (I3; checked by the conversion, which names the event's ID).
+/// (ADR-0029 I3; checked by the conversion, which names the event's ID).
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EventV1 {

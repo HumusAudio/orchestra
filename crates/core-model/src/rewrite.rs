@@ -5,40 +5,42 @@
 //!
 //! # What it does
 //! The music keeps its place in time and the barlines move. From the bar of the change up to the
-//! next meter change, the next free bar or the end of the score (the **region**, R1), the old bars
-//! are replaced by a new **grid** of bars (R2): an optional special first bar (a pickup or free bar
-//! kept, or the bar `SetIrregularBar` asks for: R3, R4), then bars of the meter in force, then,
-//! if the region does not end on a barline of the grid, an irregular last bar with what is left,
-//! so that nothing after the region moves (at the end of the score the last bar keeps its full
-//! length instead). Every event and every mark is placed by its position into the new bars.
+//! next meter change, the next free bar or the end of the score (the **region**, ADR-0026 R1), the
+//! old bars are replaced by a new **grid** of bars (ADR-0026 R2): an optional special first bar (a
+//! pickup or free bar kept, or the bar `SetIrregularBar` asks for: ADR-0026 R3, ADR-0026 R4), then
+//! bars of the meter in force, then, if the region does not end on a barline of the grid, an
+//! irregular last bar with what is left, so that nothing after the region moves (at the end of the
+//! score the last bar keeps its full length instead). Every event and every mark is placed by its
+//! position into the new bars.
 //!
 //! # The steps, in order
 //! 1. The region and its old bars (start and length of each, relative to the region's start).
-//! 2. R10: refused if a bar repeat touches the region.
-//! 3. The grid, then the **splits** of R9: a form marking on an old barline that is no barline
-//!    of the grid splits the new bar holding it into irregular bars (ADR-0025 §1), so the form
-//!    and the played path do not change.
+//! 2. ADR-0026 R10: refused if a bar repeat touches the region.
+//! 3. The grid, then the **splits** of ADR-0026 R9: a form marking on an old barline that is no
+//!    barline of the grid splits the new bar holding it into irregular bars (ADR-0025 §1), so the
+//!    form and the played path do not change.
 //! 4. Bars added at the end of the region if the grid has more bars than the region had.
-//! 5. The events (R5, R6, R8), voice by voice and bar by bar in score order, each moved with one
-//!    `Replace` to its new bar and offset; one that now crosses a barline of the grid becomes a
-//!    tie chain (the first part keeps its IDs, the continuations get new ones and no performance
-//!    offsets, ADR-0026 §7 rule 2), written with `split_values` inside its tuplet (Z3, Z5); its
-//!    own ties go on from the last part, and the slurs that ended on it end on the last part.
-//!    Whole-bar rests become rests of written values (R6).
-//! 6. The marks with a point (R7) and the form markings (R9): removed, then inserted again at
-//!    their new places. Two phases, because a mark moved into a place another mark has not left
-//!    yet would be refused as a duplicate.
-//! 7. The meter map of the region in one bulk edit (Z1), and the bars the grid no longer needs
-//!    removed at the end of the region (they are empty by then).
-//! 8. R12: if the region ended at a free bar, the old meter is set again at the first bar after
-//!    the free bars, so that the change does not reach past them.
+//! 5. The events (ADR-0026 R5, ADR-0026 R6, ADR-0026 R8), voice by voice and bar by bar in score
+//!    order, each moved with one `Replace` to its new bar and offset; one that now crosses a
+//!    barline of the grid becomes a tie chain (the first part keeps its IDs, the continuations get
+//!    new ones and no performance offsets, ADR-0026 §7 rule 2), written with `split_values` inside
+//!    its tuplet (ADR-0026 Z3, ADR-0026 Z5); its own ties go on from the last part, and the slurs
+//!    that ended on it end on the last part. Whole-bar rests become rests of written values
+//!    (ADR-0026 R6).
+//! 6. The marks with a point (ADR-0026 R7) and the form markings (ADR-0026 R9): removed, then
+//!    inserted again at their new places. Two phases, because a mark moved into a place another
+//!    mark has not left yet would be refused as a duplicate.
+//! 7. The meter map of the region in one bulk edit (ADR-0026 Z1), and the bars the grid no longer
+//!    needs removed at the end of the region (they are empty by then).
+//! 8. ADR-0026 R12: if the region ended at a free bar, the old meter is set again at the first bar
+//!    after the free bars, so that the change does not reach past them.
 //!
 //! The local check of the editor then verifies every cell and every mark the command touched.
 //!
 //! # Complexity
 //! O(e + k) edits for the e events and k marks of the region (one `Replace` per event, two edits
 //! per mark), each O(chunk) or O(list); the meter map is rebuilt once; never O(score) outside the
-//! region. The history holds one old event per event moved (R11).
+//! region. The history holds one old event per event moved (ADR-0026 R11).
 
 use orchestra_core_time::{
     BarIndex, BarKind, BarSpan, Duration, IrregularBar, MeterChange, Rational,
@@ -112,8 +114,8 @@ impl Grid {
 
     /// The new bar holding the relative position `p` and the offset of `p` in it. A position on a
     /// barline belongs to the bar starting there, or, with `at_end`, to the bar ending there (an
-    /// `After` grace note, R5). A position past the last bar stays in the last bar, overfull (R8).
-    /// O(log n).
+    /// `After` grace note, ADR-0026 R5). A position past the last bar stays in the last bar,
+    /// overfull (ADR-0026 R8). O(log n).
     fn locate(&self, p: Duration, at_end: bool) -> Result<(usize, Duration), DocumentError> {
         let after = if at_end {
             self.starts.partition_point(|s| *s < p)
@@ -143,11 +145,11 @@ impl Grid {
         Ok(self.starting_at(p).is_some() || p == self.end()?)
     }
 
-    /// Splits the new bars at the given positions, which lie strictly inside bars (R9). The parts
-    /// of a regular or `AlignStart` bar are: the first `AlignStart`, the last `AlignEnd` (it ends
-    /// a nominal bar), any middle one `AlignStart`; a pickup's first part stays `AlignEnd`; a free
-    /// bar's parts stay free. Every part after the first is uncounted (ADR-0025 §1). O(n + c log c)
-    /// for c cuts.
+    /// Splits the new bars at the given positions, which lie strictly inside bars (ADR-0026 R9).
+    /// The parts of a regular or `AlignStart` bar are: the first `AlignStart`, the last `AlignEnd`
+    /// (it ends a nominal bar), any middle one `AlignStart`; a pickup's first part stays
+    /// `AlignEnd`; a free bar's parts stay free. Every part after the first is uncounted (ADR-0025
+    /// §1). O(n + c log c) for c cuts.
     fn split(&self, cuts: &mut Vec<Duration>) -> Result<Self, DocumentError> {
         cuts.sort_unstable();
         cuts.dedup();
@@ -251,7 +253,7 @@ impl Region {
         Ok(Some(start.checked_add(point.offset)?))
     }
 
-    /// A point moved into the new bars (R7): unchanged outside the region. O(log n).
+    /// A point moved into the new bars (ADR-0026 R7): unchanged outside the region. O(log n).
     fn moved(&self, doc: &Document, point: ScorePoint) -> Result<ScorePoint, DocumentError> {
         let Some(p) = self.position(doc, point)? else {
             return Ok(point);
@@ -278,12 +280,14 @@ impl Region {
 }
 
 /// Executes a rewrite from the bar at `at` (see the module documentation): `first` is the special
-/// first bar of the grid (R3, R4), `meter_entry` what the meter change entry at `at` becomes, and
-/// the grid's bars follow `change`'s meter, the one in force at `at` after the command.
+/// first bar of the grid (ADR-0026 R3, ADR-0026 R4), `meter_entry` what the meter change entry at
+/// `at` becomes, and the grid's bars follow `change`'s meter, the one in force at `at` after the
+/// command.
 ///
 /// # Errors
-/// [`DocumentError::InsideBarRepeat`] (R10); [`DocumentError::NotWritable`] for a part of a split
-/// no value can write; the meter map's errors (a pickup longer than the meter, R3); the edits'.
+/// [`DocumentError::InsideBarRepeat`] (ADR-0026 R10); [`DocumentError::NotWritable`] for a part of
+/// a split no value can write; the meter map's errors (a pickup longer than the meter,
+/// ADR-0026 R3); the edits'.
 pub(crate) fn rewrite(
     tx: &mut Transaction<'_>,
     at: BarIndex,
@@ -292,7 +296,7 @@ pub(crate) fn rewrite(
     change: MeterChange,
 ) -> Result<(), CommandError> {
     let mut region = plan(tx.document(), at, first, change)?;
-    // R12: the meter that must still be in force after the free bars that end the region.
+    // ADR-0026 R12: the meter that must still be in force after the free bars that end the region.
     let resume = meter_after_free_bars(tx.document(), &region)?;
     let old_count = region.end.saturating_sub(region.first);
     let new_count = u32::try_from(region.grid.len()).map_err(|_| DocumentError::TooManyBars)?;
@@ -333,8 +337,8 @@ pub(crate) fn rewrite(
         })?;
     }
 
-    // 8. R12: if the region ended at a free bar, the meter after the free bars is put back as it
-    //    was, with an explicit meter change, so that nothing after the region moves.
+    // 8. ADR-0026 R12: if the region ended at a free bar, the meter after the free bars is put back
+    //    as it was, with an explicit meter change, so that nothing after the region moves.
     if let Some((bar, old)) = resume {
         let doc = tx.document();
         let index = doc
@@ -351,16 +355,17 @@ pub(crate) fn rewrite(
     Ok(())
 }
 
-/// R12 (owner's choice of 2026-11-06): where the meter must resume after the free bars that end
-/// a region, and which meter, read **before** the rewrite.
+/// ADR-0026 R12 (owner's choice of 2026-11-06): where the meter must resume after the free bars
+/// that end a region, and which meter, read **before** the rewrite.
 ///
 /// # Why
 /// A free bar suspends the meter without ending it (ADR-0018): after it, the meter in force goes
-/// on. A region that ends at a free bar (R1) is rewritten alone, but the meter-map edit of the
-/// change still reaches the bars after the free bar, up to the next meter change; without this
+/// on. A region that ends at a free bar (ADR-0026 R1) is rewritten alone, but the meter-map edit of
+/// the change still reaches the bars after the free bar, up to the next meter change; without this
 /// step they would take the new meter while keeping their music, as under `KeepBars`: overfull
-/// bars, music no longer where it sounded (against R2, "nothing after the region moves"), and a
-/// tie across one of their barlines could point backwards (the command property test found it).
+/// bars, music no longer where it sounded (against ADR-0026 R2, "nothing after the region moves"),
+/// and a tie across one of their barlines could point backwards (the command property test found
+/// it).
 ///
 /// Returns the first bar that is not free after the free bars at the region's end, with the meter
 /// change in force there before the command; `None` if the region does not end at a free bar, if
@@ -396,7 +401,7 @@ fn meter_change_in_force(doc: &Document, index: BarIndex) -> Option<MeterChange>
     doc.meter_map().meter_change_in_force(index)
 }
 
-/// Steps 1–3: the region, the refusal of R10, the grid with its splits.
+/// Steps 1–3: the region, the refusal of ADR-0026 R10, the grid with its splits.
 ///
 /// # Complexity
 /// O(bars of the region × log m) for the old bars, O(r) for the bar repeats, O(f) for the form
@@ -410,8 +415,8 @@ fn plan(
     let map = doc.meter_map();
     let bars = u32::try_from(doc.bars().len()).map_err(|_| DocumentError::TooManyBars)?;
     let i = at.get();
-    // 1. The region: up to the next meter change or the next free bar after `at` (R1). Under
-    //    `ChangeMeter`, a meter change at `at` itself is the one being replaced.
+    // 1. The region: up to the next meter change or the next free bar after `at` (ADR-0026 R1).
+    //    Under `ChangeMeter`, a meter change at `at` itself is the one being replaced.
     let mut end = i.saturating_add(1);
     while end < bars {
         let has_change = map.meter_change_at(BarIndex::new(end)).is_some();
@@ -420,7 +425,7 @@ fn plan(
         }
         end = end.saturating_add(1);
     }
-    // 2. R10: a bar repeat whose source or repeated bars meet the region.
+    // 2. ADR-0026 R10: a bar repeat whose source or repeated bars meet the region.
     for repeat in doc
         .instruments()
         .flat_map(crate::document::Instrument::bar_repeats)
@@ -444,7 +449,8 @@ fn plan(
     };
     let at_score_end = end == bars;
 
-    // 3. The grid (R2, R3, R4): the special first bar, whole bars of the meter, the rest.
+    // 3. The grid (ADR-0026 R2, ADR-0026 R3, ADR-0026 R4): the special first bar, whole bars of the
+    //    meter, the rest.
     let nominal = change.meter.nominal_length()?;
     let mut grid = Grid::default();
     if let Some(first) = first {
@@ -469,7 +475,7 @@ fn plan(
             )?;
         }
     }
-    // R9: the old barlines that carry a form marking must stay barlines.
+    // ADR-0026 R9: the old barlines that carry a form marking must stay barlines.
     let region_ids: Vec<BarId> = doc
         .bars()
         .ids()
@@ -513,7 +519,7 @@ fn plan(
 /// The positions, relative to the region's start, of the old barlines of the region that carry a
 /// form marking: the start of a bar for a start repeat, the first bar of a volta and a marker on
 /// the start side; the end of a bar for an end repeat, the last bar of a volta, a marker on the end
-/// side and a jump (R9). O(f) for the f form markings.
+/// side and a jump (ADR-0026 R9). O(f) for the f form markings.
 fn form_positions(doc: &Document, region: &Region) -> Result<Vec<Duration>, DocumentError> {
     let form = doc.form();
     let mut out = Vec::new();
@@ -544,7 +550,7 @@ fn form_positions(doc: &Document, region: &Region) -> Result<Vec<Duration>, Docu
 }
 
 /// Step 5: every event of the region, moved into its new bar; tie chains where it now crosses a
-/// barline of the grid; whole-bar rests rewritten (R5, R6, R8).
+/// barline of the grid; whole-bar rests rewritten (ADR-0026 R5, ADR-0026 R6, ADR-0026 R8).
 ///
 /// # Complexity
 /// O(e) edits for the e events of the region, plus one edit per new part.
@@ -609,7 +615,7 @@ fn move_event(
     };
     let end = start.checked_add(length)?;
     // The barlines of the grid strictly inside the event, before the end of the region: past
-    // the region's end it stays overfull in the last bar (R8).
+    // the region's end it stays overfull in the last bar (ADR-0026 R8).
     // The starts are sorted: the ones strictly inside the event are one run, found by two binary
     // searches (O(log n) per event, instead of a scan of every new bar).
     let limit = end.min(region.total);
@@ -624,8 +630,8 @@ fn move_event(
     let mut edges = vec![start];
     edges.extend(cuts);
     edges.push(end);
-    // The ratio of the tuplet chain: a written value lasts `ratio` times its length (Z3). A
-    // whole-bar rest is in no tuplet.
+    // The ratio of the tuplet chain: a written value lasts `ratio` times its length (ADR-0026 Z3).
+    // A whole-bar rest is in no tuplet.
     let ratio = if whole {
         Rational::ONE
     } else {
@@ -649,11 +655,11 @@ fn move_event(
     write_parts(tx, region, voice, event, &parts)
 }
 
-/// Writes the parts of a split event (R5, R6): the first keeps the event's IDs, its noteheads,
-/// their performance offsets and the event's markings; the others get new IDs, plain noteheads and
-/// no markings (ADR-0026 §7 rule 2). Each notehead is tied to the same pitch of the next part;
-/// the last part's noteheads take the original ties. Rests are not tied. The slurs that ended on
-/// the event end on the last part.
+/// Writes the parts of a split event (ADR-0026 R5, ADR-0026 R6): the first keeps the event's IDs,
+/// its noteheads, their performance offsets and the event's markings; the others get new IDs, plain
+/// noteheads and no markings (ADR-0026 §7 rule 2). Each notehead is tied to the same pitch of the
+/// next part; the last part's noteheads take the original ties. Rests are not tied. The slurs that
+/// ended on the event end on the last part.
 ///
 /// # Complexity
 /// O(parts × noteheads) edits and IDs, plus O(slurs of the event).
@@ -741,9 +747,9 @@ fn write_parts(
     Ok(())
 }
 
-/// Step 6 for the marks with a point (R7): every mark with a point (or an end) in the region is
-/// removed, then inserted again at its moved points. O(k) edits for the k marks concerned, each
-/// O(list).
+/// Step 6 for the marks with a point (ADR-0026 R7): every mark with a point (or an end) in the
+/// region is removed, then inserted again at its moved points. O(k) edits for the k marks
+/// concerned, each O(list).
 #[allow(
     clippy::too_many_lines,
     reason = "one short loop per kind of mark: splitting them would only scatter the rule"
@@ -836,9 +842,9 @@ fn move_marks(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandEr
     reinsert(tx, moved)
 }
 
-/// Step 6 for the form markings (R9): each on an old bar of the region is removed, then inserted
-/// again on the new bar that starts or ends where its old barline was (the splits of the grid
-/// made sure there is one). O(f) edits.
+/// Step 6 for the form markings (ADR-0026 R9): each on an old bar of the region is removed, then
+/// inserted again on the new bar that starts or ends where its old barline was (the splits of the
+/// grid made sure there is one). O(f) edits.
 fn move_form(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandError> {
     let doc = tx.document();
     let grid = &region.grid;
@@ -912,7 +918,8 @@ fn reinsert(tx: &mut Transaction<'_>, objects: Vec<Object>) -> Result<(), Comman
 /// Step 7: the meter map data of the region's bars, `count` of them (the grid's, then empty bars
 /// that are about to be removed): the meter change entry at the first bar, the irregular and the
 /// uncounted bars of the grid, the numbering restarts moved to the new bar where their old bar
-/// started (R9). Groupings and uncounted marks of the old bars are not kept (R1). O(n + r log n).
+/// started (ADR-0026 R9). Groupings and uncounted marks of the old bars are not kept (ADR-0026 R1).
+/// O(n + r log n).
 fn new_span(
     doc: &Document,
     region: &Region,
@@ -940,7 +947,7 @@ fn new_span(
             span.set_irregular_bar(bar, *irregular);
         }
         if *uncounted {
-            span.set_uncounted(bar, true);
+            span.set_numbering(bar, orchestra_core_time::BarCounting::Uncounted);
         }
     }
     for &(b, number) in map.numbering_restarts() {

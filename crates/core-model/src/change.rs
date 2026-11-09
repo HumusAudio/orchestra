@@ -49,8 +49,9 @@ pub struct ChangeSet {
     /// rules) changed, so that the unrolled path of F1.12 must be recomputed.
     form: bool,
     /// The instruments whose dynamics or hairpins were inserted, removed or replaced (ADR-0027 §14,
-    /// H11): playback recomputes the velocities of these instruments only. The object lists name
-    /// a removed dynamic by ID alone, and the document no longer holds it to say whose it was.
+    /// ADR-0027 H11): playback recomputes the velocities of these instruments only. The object
+    /// lists name a removed dynamic by ID alone, and the document no longer holds it to say whose
+    /// it was.
     dynamics: Vec<InstrumentId>,
     /// Whether the tolerance thresholds of the DAW move changed (ADR-0028 §1): nothing derived
     /// depends on them today, but the DAW view shows them.

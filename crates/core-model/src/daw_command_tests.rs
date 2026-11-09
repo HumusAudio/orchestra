@@ -296,8 +296,8 @@ fn a_grid_that_brings_the_note_back_keeps_the_score() {
     assert_eq!(offsets(editor.document(), s.c.1).onset, d(1, 24));
 }
 
-/// A notehead of a chord with two noteheads (Q5) and the performance-only mode (§4) never change
-/// the score, whatever the size of the move.
+/// A notehead of a chord with two noteheads (ADR-0028 Q5) and the performance-only mode (§4) never
+/// change the score, whatever the size of the move.
 #[test]
 fn chords_and_the_performance_only_mode_keep_the_score() {
     let s = small();
@@ -317,13 +317,15 @@ fn chords_and_the_performance_only_mode_keep_the_score() {
     assert_eq!(offsets(editor.document(), s.c.1).onset, d(3, 8));
 }
 
-/// The refusals of Q6, Q9, T1 and T2, and a grid of zero: each leaves the document unchanged.
+/// The refusals of ADR-0028 Q6, ADR-0028 Q9, ADR-0028 T1 and ADR-0028 T2, and a grid of zero: each
+/// leaves the document unchanged.
 #[test]
 fn written_moves_that_cannot_be_written_are_refused() {
     let s = small();
     let mut editor = Editor::new(s.doc.clone());
     let cases = [
-        // Onto the chord of bar 0: the local check reports the overlap of the moved note (V2).
+        // Onto the chord of bar 0: the local check reports the overlap of the moved note
+        // (ADR-0026 V2).
         (
             drag(s.c.1, d(1, 2)),
             DocumentError::Invalid(Violation::Overlap(s.c.0)),
@@ -372,8 +374,8 @@ fn written_moves_that_cannot_be_written_are_refused() {
     );
 }
 
-/// A tie chain moves as a whole (Q7): the half E of bar 1 moved a quarter earlier takes its tied
-/// quarter E from bar 2 into bar 1, both by the same amount, and the tie still holds.
+/// A tie chain moves as a whole (ADR-0028 Q7): the half E of bar 1 moved a quarter earlier takes
+/// its tied quarter E from bar 2 into bar 1, both by the same amount, and the tie still holds.
 #[test]
 fn a_tie_chain_moves_as_a_whole() {
     let s = small();
@@ -400,8 +402,8 @@ fn a_tie_chain_moves_as_a_whole() {
     assert!(offsets(doc, s.e_half.1).onset.is_zero());
 }
 
-/// A threshold in milliseconds (T6): at ♩ = 120 a whole note lasts 2 s, so 3/64 is 93.75 ms,
-/// within 100 ms but beyond the default 1/32 (62.5 ms).
+/// A threshold in milliseconds (ADR-0028 T6): at ♩ = 120 a whole note lasts 2 s, so 3/64 is 93.75
+/// ms, within 100 ms but beyond the default 1/32 (62.5 ms).
 #[test]
 fn a_threshold_in_milliseconds_converts_through_the_tempo_map() {
     let s = small();
@@ -458,7 +460,8 @@ fn the_tolerance_command_is_undoable_and_checked() {
 }
 
 /// A move of one pass (§5) is always an offset of that pass, stored as the difference from the
-/// inline offset; deleting the note removes its entries (T5), and the undo brings them back.
+/// inline offset; deleting the note removes its entries (ADR-0028 T5), and the undo brings them
+/// back.
 #[test]
 fn a_pass_move_is_an_offset_of_that_pass_and_dies_with_its_note() {
     let s = small();
@@ -580,7 +583,7 @@ fn chain(doc: &Document, note: NoteId) -> Vec<(EventId, NoteId)> {
 }
 
 /// The written length of a chain (from the start of its first piece to the end of its last) and
-/// the sum of its noteheads' inline length offsets (N8).
+/// the sum of its noteheads' inline length offsets (ADR-0027 N8).
 fn chain_lengths(doc: &Document, note: NoteId) -> (Duration, Duration) {
     let pieces = chain(doc, note);
     let (first, _) = pieces[0];
@@ -601,8 +604,9 @@ fn value_of(doc: &Document, event: EventId) -> NoteValue {
     doc.event(event).unwrap().event().chord().unwrap().value()
 }
 
-/// U2: within the threshold a resize is a length offset; beyond it the written value changes on
-/// the grid (an eighth lengthened by a quarter becomes a dotted quarter) with no residual.
+/// ADR-0028 U2: within the threshold a resize is a length offset; beyond it the written value
+/// changes on the grid (an eighth lengthened by a quarter becomes a dotted quarter) with no
+/// residual.
 #[test]
 fn a_resize_beyond_the_threshold_changes_the_written_value() {
     let s = small();
@@ -619,10 +623,10 @@ fn a_resize_beyond_the_threshold_changes_the_written_value() {
     assert!(offsets(doc, s.c.1).length.is_zero());
 }
 
-/// U1: with a staccato's scale of ½, a written change of Δ plays Δ/2 longer, and the residual makes
-/// up the rest exactly. +3/32 played wants +3/16 written: on a 1/8 grid 5/16 is halfway and goes to
-/// 3/8 (farther from the written end), a written change of 1/4 that plays 1/8; the residual is
-/// −1/32.
+/// ADR-0028 U1: with a staccato's scale of ½, a written change of Δ plays Δ/2 longer, and the
+/// residual makes up the rest exactly. +3/32 played wants +3/16 written: on a 1/8 grid 5/16 is
+/// halfway and goes to 3/8 (farther from the written end), a written change of 1/4 that plays 1/8;
+/// the residual is −1/32.
 #[test]
 fn the_scale_of_the_rules_makes_the_residual_exact() {
     let s = small();
@@ -644,9 +648,9 @@ fn the_scale_of_the_rules_makes_the_residual_exact() {
     assert_eq!(offsets(doc, s.c.1).length, d(-1, 32));
 }
 
-/// U3, U4, U9: a tie chain lengthened keeps its pieces' IDs (the quarter E of bar 2 becomes a
-/// dotted half), and shortened to one piece deletes the surplus piece; the slur that ended on it
-/// ends on the new last piece, and the `After` grace follows the new end.
+/// ADR-0028 U3, ADR-0028 U4, ADR-0028 U9: a tie chain lengthened keeps its pieces' IDs (the quarter
+/// E of bar 2 becomes a dotted half), and shortened to one piece deletes the surplus piece; the
+/// slur that ended on it ends on the new last piece, and the `After` grace follows the new end.
 #[test]
 fn a_resized_chain_reuses_its_pieces() {
     let s = small();
@@ -675,9 +679,9 @@ fn a_resized_chain_reuses_its_pieces() {
     assert_eq!(written(doc, s.after), bar_1.checked_add(d(3, 4)).unwrap());
 }
 
-/// U4 and V2: lengthening across barlines into the triplet of bar 3 is refused as an overlap;
-/// U6: a tuplet note is refused beyond the threshold, a grace note and a chord's notehead stay
-/// offsets.
+/// ADR-0028 U4 and ADR-0026 V2: lengthening across barlines into the triplet of bar 3 is refused as
+/// an overlap; ADR-0028 U6: a tuplet note is refused beyond the threshold, a grace note and a
+/// chord's notehead stay offsets.
 #[test]
 fn resizes_that_cannot_be_written() {
     let s = small();
@@ -710,8 +714,8 @@ fn resizes_that_cannot_be_written() {
     );
 }
 
-/// U5: "move anyway" splits at the barline what the default rule refuses. The eighth C moved to
-/// 15/16 becomes a sixteenth tied to a sixteenth of bar 1; the first keeps its IDs.
+/// ADR-0028 U5: "move anyway" splits at the barline what the default rule refuses. The eighth C
+/// moved to 15/16 becomes a sixteenth tied to a sixteenth of bar 1; the first keeps its IDs.
 #[test]
 fn move_anyway_splits_at_the_barline() {
     let s = small();
@@ -747,8 +751,8 @@ fn move_anyway_splits_at_the_barline() {
 }
 
 /// Three details of the rewrite: a "let ring" on the last piece stays on the new last piece; a
-/// note shortened past its start keeps one grid step (U2); within the threshold the first
-/// notehead takes only what the other noteheads' length offsets do not already give (N8).
+/// note shortened past its start keeps one grid step (ADR-0028 U2); within the threshold the first
+/// notehead takes only what the other noteheads' length offsets do not already give (ADR-0027 N8).
 #[test]
 fn let_ring_shortest_length_and_shared_length_offsets() {
     let s = small();
@@ -845,7 +849,7 @@ proptest! {
             let doc = editor.document().clone();
             let heads = noteheads(&doc);
             let note = heads[usize::from(pick) % heads.len()];
-            // Mode 3 resizes instead of moving; mode 4 moves "anyway" (U5).
+            // Mode 3 resizes instead of moving; mode 4 moves "anyway" (ADR-0028 U5).
             let resizing = mode == 3;
             let mode = match mode {
                 0 => MoveMode::PerformanceOnly,
@@ -863,7 +867,7 @@ proptest! {
             };
             let event = doc.note(note).unwrap().0.event().id();
             // One draw in twelve deletes the note's event instead: its pass entries must go with
-            // it (T5), which the full validation checks (rule 12).
+            // it (ADR-0028 T5), which the full validation checks (rule 12).
             if pick % 12 == 0 {
                 if editor.execute(&Command::DeleteEvent(event)).is_ok() {
                     editor.document().validate().unwrap();
@@ -872,9 +876,9 @@ proptest! {
                 continue;
             }
             if resizing {
-                // U1–U3: the played length (written × scale + offsets) becomes exactly the old
-                // written length × scale plus the length offset asked for, with a staccato's
-                // scale half of the time.
+                // ADR-0028 U1–U3: the played length (written × scale + offsets) becomes
+                // exactly the old written length × scale plus the length offset asked for, with a
+                // staccato's scale half of the time.
                 let scale = if pick % 2 == 0 { Rational::ONE } else { Rational::new(1, 2).unwrap() };
                 let order = ResizePlayed {
                     note,

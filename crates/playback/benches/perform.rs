@@ -9,7 +9,7 @@
 //! - `update_note`: the update after one note of the first piano is changed (its articulations),
 //!   which recomputes the window of its cell: the path of a keystroke. Budget ≤ 1 ms (ADR-0027 §9).
 //! - `update_dynamic`: the update after one dynamic is added to the first piano, which rebuilds the
-//!   piano's timelines and reads the velocities of its notes again (H11).
+//!   piano's timelines and reads the velocities of its notes again (ADR-0027 H11).
 //!
 //! # The score
 //! The heavy plain score of `orchestra-test-scores` (ADR-0031; 1 000 bars, 30 staves, 41
@@ -51,12 +51,12 @@ use orchestra_core_model::{
 use orchestra_core_time::{BarIndex, Duration};
 use orchestra_playback::{Performance, Unrolled};
 
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // The heavy score with dynamics and hairpins, in an editor.
 fn editor() -> Editor {
-    let mut editor = Editor::new(plain(Size::Heavy, false));
+    let mut editor = Editor::new(plain(Size::Heavy, Instruments::Plain));
     let doc = editor.document();
     let bars: Vec<_> = doc.bars().ids().to_vec();
     let mut commands = Vec::new();
