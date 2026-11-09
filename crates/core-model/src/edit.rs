@@ -819,8 +819,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a slur of `instrument` (never from an event to itself) and indexes both its ends. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a slur of `instrument` (never from an event to itself) and indexes both its ends.
+    /// Part of [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list
+    /// (the sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -837,8 +838,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a dynamic of `instrument`, at most one of a scope at one point (ADR-0024 §8). Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a dynamic of `instrument`, at most one of a scope at one point (ADR-0024 §8). Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -857,18 +859,27 @@ impl Document {
             .instrument
             .dynamics;
         let at = point_key(bars, dynamic.at());
-        // At most one dynamic of a scope at one point (rule of the builder, ADR-0024 §8).
-        if list.iter().any(|d| {
-            point_key(bars, d.at()) == at && d.placement().scope == dynamic.placement().scope
-        }) {
+        // At most one dynamic of a scope at one point (rule of the builder, ADR-0024 §8). The list
+        // is sorted by point (`insert_sorted` below), so a binary search finds the dynamics at
+        // `at` and only those are compared: O(log n + d) for d dynamics at that point, instead of
+        // a scan of the whole list with a bar lookup per dynamic (the benchmark gate measured that
+        // scan as the largest cost of `add_dynamic`, second codebase review, 2026-11-09).
+        let first = list.partition_point(|d| point_key(bars, d.at()) < at);
+        if list
+            .iter()
+            .skip(first)
+            .take_while(|d| point_key(bars, d.at()) == at)
+            .any(|d| d.placement().scope == dynamic.placement().scope)
+        {
             return Err(DocumentError::DuplicateMark);
         }
         insert_sorted(list, dynamic, |d| (point_key(bars, d.at()), d.id()));
         Ok(())
     }
 
-    /// Places a hairpin of `instrument`, which must go forwards in score order. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a hairpin of `instrument`, which must go forwards in score order. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -894,8 +905,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a tempo mark; the start of the score holds the initial tempo, not a mark. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a tempo mark; the start of the score holds the initial tempo, not a mark. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -917,8 +929,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a clef change on `staff`; the start of the score holds the initial clef. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a clef change on `staff`; the start of the score holds the initial clef. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -942,8 +955,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a key change; the start of the score holds the initial key. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a key change; the start of the score holds the initial key. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -959,8 +973,8 @@ impl Document {
         Ok(())
     }
 
-    /// Places a key override of `instrument`. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a key override of `instrument`. Part of [`place_object`](Self::place_object). O(log
+    /// n) to O(n) in the objects of its list (the sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -981,8 +995,8 @@ impl Document {
         Ok(())
     }
 
-    /// Places a repeat start, at most one per bar. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a repeat start, at most one per bar. Part of [`place_object`](Self::place_object).
+    /// O(log n) to O(n) in the objects of its list (the sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -996,8 +1010,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a repeat end, at most one per bar, played 2 ..= [`MAX_PLAYS`] times. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a repeat end, at most one per bar, played 2 ..= [`MAX_PLAYS`] times. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1014,8 +1029,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a volta over a forward run of bars, for at least one pass. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a volta over a forward run of bars, for at least one pass. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1033,8 +1049,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a marker, at most one per bar and side (start or end). Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a marker, at most one per bar and side (start or end). Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1051,8 +1068,8 @@ impl Document {
         Ok(())
     }
 
-    /// Places a jump, at most one per bar. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a jump, at most one per bar. Part of [`place_object`](Self::place_object). O(log n)
+    /// to O(n) in the objects of its list (the sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1066,8 +1083,9 @@ impl Document {
         Ok(())
     }
 
-    /// Places a bar repeat on its staff: its count must be a whole number of its span. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// Places a bar repeat on its staff: its count must be a whole number of its span. Part of
+    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
+    /// sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1088,8 +1106,8 @@ impl Document {
     }
 
     /// Places a pass rule of `instrument` (forwards, for at least one play, on one of its own
-    /// voices when it names one). Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
-    /// objects of its list (the sorted insertion).
+    /// voices when it names one). Part of [`place_object`](Self::place_object). O(log n) to O(n) in
+    /// the objects of its list (the sorted insertion).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.

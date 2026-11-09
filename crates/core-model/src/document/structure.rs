@@ -309,6 +309,13 @@ impl BarList {
     ///
     /// The one place of this rule, used by the form, the edit layer, the marks and the builder,
     /// so they all order bars the same way.
+    ///
+    /// `#[inline]`, like [`index_of`](Self::index_of): it runs for every mark compared in the
+    /// sorted insertions and duplicate scans, and is one hash lookup. This file is its own
+    /// codegen unit, and across codegen units LLVM inlines a non-generic function only when it is
+    /// marked: without the hint, after `document.rs` was split, the editor benchmarks measured up
+    /// to 1.5% more instructions (`insert_bar`, `undo_paste`; second codebase review, 2026-11-09).
+    #[inline]
     pub(crate) fn key(&self, bar: BarId) -> u32 {
         self.index_of(bar).map_or(u32::MAX, BarIndex::get)
     }
@@ -325,6 +332,8 @@ impl BarList {
     }
 
     /// The index of this bar, if it belongs to the document. O(1) on average (one hash lookup).
+    /// `#[inline]`: see [`key`](Self::key).
+    #[inline]
     pub fn index_of(&self, id: BarId) -> Option<BarIndex> {
         self.index.get(&id).copied().map(BarIndex::new)
     }
