@@ -381,7 +381,10 @@ fn free_cadenza() {
     assert_eq!(map.display_number(bar(2)).unwrap(), Some(3));
     assert_eq!(map.display_number(bar(3)).unwrap(), Some(4));
     // ...unless marked uncounted.
-    assert!(!map.set_uncounted(bar(2), true));
+    assert_eq!(
+        map.set_numbering(bar(2), orchestra_core_time::BarCounting::Uncounted),
+        orchestra_core_time::BarCounting::Counted
+    );
     assert_eq!(map.display_number(bar(2)).unwrap(), None);
     assert_eq!(map.display_number(bar(3)).unwrap(), Some(3));
 }
@@ -497,7 +500,7 @@ fn grouping_on_a_pickup() {
 #[test]
 fn numbering_rules() {
     let mut map = map_of(&[4], 4);
-    map.set_uncounted(bar(3), true);
+    map.set_numbering(bar(3), orchestra_core_time::BarCounting::Uncounted);
     // Numbers: 1, 2, 3, —, 4, …
     assert_eq!(map.display_number(bar(2)).unwrap(), Some(3));
     assert_eq!(map.display_number(bar(3)).unwrap(), None);
@@ -508,13 +511,19 @@ fn numbering_rules() {
     assert_eq!(map.display_number(bar(6)).unwrap(), Some(1));
     assert_eq!(map.display_number(bar(8)).unwrap(), Some(3));
     // A restart on an uncounted bar numbers the first counted bar after it.
-    map.set_uncounted(bar(6), true);
+    map.set_numbering(bar(6), orchestra_core_time::BarCounting::Uncounted);
     assert_eq!(map.display_number(bar(6)).unwrap(), None);
     assert_eq!(map.display_number(bar(7)).unwrap(), Some(1));
     // Removing rules returns their previous state.
     assert_eq!(map.set_numbering_restart(bar(6), None), Some(1));
-    assert!(map.set_uncounted(bar(6), false));
-    assert!(!map.set_uncounted(bar(6), false));
+    assert_eq!(
+        map.set_numbering(bar(6), orchestra_core_time::BarCounting::Counted),
+        orchestra_core_time::BarCounting::Uncounted
+    );
+    assert_eq!(
+        map.set_numbering(bar(6), orchestra_core_time::BarCounting::Counted),
+        orchestra_core_time::BarCounting::Counted
+    );
     assert_eq!(map.uncounted_bars(), &[bar(3)]);
     assert_eq!(map.numbering_restarts(), &[]);
 }

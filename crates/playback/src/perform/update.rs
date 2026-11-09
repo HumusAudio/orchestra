@@ -5,17 +5,17 @@
 //!
 //! # What recomputes what
 //! - **The form or the bars changed** (`form_changed`, `meter_from`): the path itself was rebuilt
-//!   (F1.12, P7), so everything is recomputed.
+//!   (F1.12, ADR-0025 P7), so everything is recomputed.
 //! - **The tempo changed**: nothing. The played notes are in musical time (ADR-0027 §1) and their
-//!   attack profiles in seconds (H14): neither depends on the tempo map.
-//! - **The dynamics or hairpins of an instrument changed** (`dynamics_changed`, H11): the
+//!   attack profiles in seconds (ADR-0027 H14): neither depends on the tempo map.
+//! - **The dynamics or hairpins of an instrument changed** (`dynamics_changed`, ADR-0027 H11): the
 //!   timelines of its voices are rebuilt and the **velocities** of its notes recomputed from the
 //!   inputs every note keeps ([`Basis`](super::Basis)); starts, ends and pitches stay.
 //! - **A cell changed** (voice, written bar): every play of that bar on the path is a changed
 //!   **played bar** k, and a window of played bars around it is recomputed with the same code as
 //!   the full computation (`perform_range`), keeping the middle of the result.
 //!
-//! # The window of a changed played bar k (H12)
+//! # The window of a changed played bar k (ADR-0027 H12)
 //! The rules link a note to its neighbours in three ways only: a **tie chain** is one note made
 //! of noteheads in several bars; an **acciaccatura** takes its time from the previous note (which
 //! may be in the bar before) and is bounded by its length when it touches it; an **`After`
@@ -161,9 +161,9 @@ struct Window {
 struct PartChange {
     /// The part's index.
     index: usize,
-    /// The new timelines, if the dynamics changed (H11).
+    /// The new timelines, if the dynamics changed (ADR-0027 H11).
     timelines: Option<Vec<Timeline>>,
-    /// The stretch of the sorted lists replaced, if cells changed (H12).
+    /// The stretch of the sorted lists replaced, if cells changed (ADR-0027 H12).
     splice: Option<Splice>,
     /// The notes (by index in the new list) whose loudness must be read again, with it.
     relevel: Vec<(usize, Profile)>,
@@ -258,9 +258,10 @@ impl Summary {
 }
 
 impl Part {
-    /// What a change does to this part: new timelines if the dynamics changed (H11), the windows
-    /// of the changed played bars `ks` recomputed (H12), and the notes whose loudness must be read
-    /// again: those of the stretch where a voice's timeline really changed. `self` is only read.
+    /// What a change does to this part: new timelines if the dynamics changed (ADR-0027 H11), the
+    /// windows of the changed played bars `ks` recomputed (ADR-0027 H12), and the notes whose
+    /// loudness must be read again: those of the stretch where a voice's timeline really changed.
+    /// `self` is only read.
     ///
     /// # Errors
     /// As [`Performance::new`].
@@ -285,8 +286,8 @@ impl Part {
         };
         let mut relevel = Vec::new();
         if let Some(new) = &timelines {
-            // H11: only the notes read where a timeline differs, and only their velocities (the
-            // order of the list does not depend on them).
+            // ADR-0027 H11: only the notes read where a timeline differs, and only their velocities
+            // (the order of the list does not depend on them).
             let everything = Some(((0, orchestra_core_time::Duration::ZERO), None));
             let stretches: Vec<Option<(PathPoint, Option<PathPoint>)>> = new
                 .iter()

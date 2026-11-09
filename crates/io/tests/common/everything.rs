@@ -66,7 +66,10 @@ fn meters() -> MeterMap {
         },
     )
     .unwrap();
-    m.set_uncounted(BarIndex::new(0), true);
+    m.set_numbering(
+        BarIndex::new(0),
+        orchestra_core_time::BarCounting::Uncounted,
+    );
     m.set_numbering_restart(BarIndex::new(5), Some(20));
     m.set_meter_change(
         BarIndex::new(7),

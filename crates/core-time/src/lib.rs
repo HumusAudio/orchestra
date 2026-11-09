@@ -59,7 +59,7 @@
 /// # Why here?
 /// `macro_rules!` macros are visible, in textual order, to everything declared after them in the
 /// same crate: defining it once at the root, before the `mod` lines, makes it available to every
-/// module (it used to be copied into `rational`, `position` and `clock`, review point B1).
+/// module (`rational`, `position`, `clock` and the others) without a copy in each.
 macro_rules! const_try {
     ($result:expr) => {
         match $result {
@@ -150,8 +150,8 @@ pub mod tempo_map;
 pub use clock::{ClockError, FrameRate, SampleRate, Seconds};
 pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};
 pub use meter_map::{
-    BarIndex, BarKind, BarPosition, BarSpan, BeatPosition, IrregularBar, MeterChange, MeterMap,
-    MeterMapError,
+    BarCounting, BarIndex, BarKind, BarPosition, BarSpan, BeatPosition, IrregularBar, MeterChange,
+    MeterMap, MeterMapError,
 };
 pub use position::{Duration, Position};
 pub use rational::{ParseRationalError, Rational, RationalError};

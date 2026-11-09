@@ -231,7 +231,7 @@ pub(super) fn meter_map(movements: u32) -> MeterMap {
             },
         )
         .unwrap();
-        map.set_uncounted(at(0), true);
+        map.set_numbering(at(0), orchestra_core_time::BarCounting::Uncounted);
         map.set_meter_change(
             at(18),
             MeterChange::with_grouping(

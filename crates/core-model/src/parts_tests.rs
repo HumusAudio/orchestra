@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Hand-written cases of the saved-document description (`crate::parts`, ADR-0029 S4 and S8;
-//! owner's choices L4–L8 of 2026-11-06).
+//! owner's choices ADR-0029 L4–L8 of 2026-11-06).
 //!
 //! The property tests of the commands check the round trip after every command
 //! (`editor_tests::assert_round_trip`); these cases add what random commands never make (every
@@ -48,7 +48,10 @@ fn d(n: i64, den: i64) -> Duration {
 /// tolerance, an uncounted bar and a numbering restart, and a non-default numbering style.
 fn markings() -> Document {
     let mut meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
-    meters.set_uncounted(BarIndex::new(0), true);
+    meters.set_numbering(
+        BarIndex::new(0),
+        orchestra_core_time::BarCounting::Uncounted,
+    );
     meters.set_numbering_restart(BarIndex::new(2), Some(10));
     let tempo = Tempo::new(d(1, 4), Rational::from_integer(90).unwrap()).unwrap();
     let initial = TempoMark::immediate(None, Metronome::shown(tempo)).unwrap();

@@ -111,9 +111,8 @@ impl Action {
 /// The time of a profile's duration in units, rounded. O(1).
 ///
 /// # Errors
-/// [`RationalError::Overflow`] for a duration beyond `i64` units (about 300 years). It used to
-/// saturate silently to `i64::MAX`, unlike every other conversion of the encoder, which reports
-/// the overflow (review point B18).
+/// [`RationalError::Overflow`] for a duration beyond `i64` units (about 300 years), like every
+/// other conversion of the encoder: an overflow is reported, never saturated silently.
 fn units_of_seconds(seconds: Seconds) -> Result<i64, RationalError> {
     scaled_round(seconds.as_rational(), UNITS_PER_SECOND)
 }

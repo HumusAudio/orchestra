@@ -220,9 +220,9 @@ impl<I: Copy, T> Mark<I, T> {
     /// A mark with its ID at (bar, offset). O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(id: I, bar: BarId, offset: Duration, value: T) -> Self {
         Self {
             id,
@@ -235,8 +235,8 @@ impl<I: Copy, T> Mark<I, T> {
     /// This mark at another point, with a copy of its value. O(1) plus the copy of the value.
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every
+    /// other field copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) fn moved_to(&self, point: ScorePoint) -> Self
     where

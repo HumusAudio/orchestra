@@ -207,6 +207,18 @@ hash must be identical everywhere. Fonts, images, PDFs and audio files are marke
 `.gitignore` excludes `target/`, `dist/` (the generated PDFs are never committed), editor folders
 and `.env` files.
 
+### Comments: references to decisions
+
+Comments explain the code **as it is**: why it is written this way, never how it used to be (that
+history belongs to git and to the pull requests). When a comment points to a decision, it names
+the document that holds it. The ADRs label their decisions with short codes (`V2`, `T1`, `P3`), and
+the same code means different things in different ADRs (`T1` is an option of ADR-0024 and a
+decision of ADR-0028; `U1`–`U9` exist in both ADR-0026 and ADR-0028), so a bare code is written
+with its ADR: `(ADR-0026 V2)`. Inside a parenthesis that already names the ADR (`(ADR-0028 §10,
+T1)`) or under a heading that does (the lists of decisions at the top of `command.rs`,
+`mark_command.rs` and `meter_command.rs`), the code stays bare. Decisions of the work plan are
+written `SCALETTA D04`.
+
 ## The crates
 
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
@@ -635,8 +647,12 @@ through states the map refuses (a pickup briefly longer than a meter about to ch
 part 2a (ADR-0026 §11 Z1) `replace_span(at, &span)` replaces the source data of the `span.count()`
 bars from `at` on with the span's, all at once, and returns the data they had: putting that back is
 the exact inverse. The number of bars does not change. `BarSpan` gained the setters it lacked
-(`set_irregular_bar`, `set_bar_grouping`, `set_uncounted`, `set_numbering_restart`), so a command
-can build the new data of a run.
+(`set_irregular_bar`, `set_bar_grouping`, `set_numbering`, `set_numbering_restart`), so a command
+can build the new data of a run. `set_numbering(bar, BarCounting::Uncounted)` (on `BarSpan` and on
+`MeterMap`) takes and returns a `BarCounting` (`Counted` or `Uncounted`) rather than a `bool`, so
+that a call says what it does and the returned previous state cannot be read the wrong way round;
+`BarCounting::uncounted_if` and `is_uncounted` convert for the data that stores the flag as a
+`bool` (the edits, the project file).
 
 ```rust
 // 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
@@ -2843,10 +2859,10 @@ copy of their crate and would see different types.
 
 ```rust
 // In Cargo.toml: orchestra-test-scores.workspace = true, under [dev-dependencies] only.
-use orchestra_test_scores::{Size, plain};
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // 100 bars × 10 staves, without the empty editing instrument at the end.
-let document = plain(Size::Normal, false);
+let document = plain(Size::Normal, Instruments::Plain);
 assert_eq!(document.bars().len(), 100);
 ```
 

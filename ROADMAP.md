@@ -668,7 +668,14 @@ pull request per group, and asked for an ADR for P3.3 (public API policy). Progr
   `LoadError`, `SaveError` and `MidiError` keep the operating system's error code (`os_code`);
   `MigrationError` replaces the `String` of the migrations, as ADR-0029 S11 already said; `load`
   opens the file once and caps the read at the size limit.
-- **Still to do:** P3 (P3.3 waits for its ADR), P4.
+- **P3.1 and P3.4 (`refactor/review2-p3-clarity`, stacked on P2):** comments no longer cite the
+  first review's points or describe old code (49 places rewritten in the present tense); 651
+  decision codes qualified with their ADR (`(ADR-0026 V2)`), codes left bare inside a parenthesis
+  or under a heading that names the ADR; the rule is in DOCUMENTATION "Comments: references to
+  decisions". `MeterMap`/`BarSpan::set_uncounted(bar, bool) -> bool` became
+  `set_numbering(bar, BarCounting) -> BarCounting`; `test_scores::plain(size, bool)` takes
+  `Instruments::{Plain, WithEditing}`.
+- **Still to do:** P3.2 and P3.3 (after ADR-0034, PR #46), P4.
 
 | Step | What | Status |
 |---|---|---|

@@ -89,8 +89,7 @@ pub(crate) fn ticks_of(position: Position) -> Result<i64, RationalError> {
 /// exact value into whole ticks or time units that the encoder makes everywhere.
 ///
 /// The product is computed in `i128`: `|numerator| < 2⁶³` and `factor < 2³⁰` here, so it cannot
-/// overflow. Three functions wrote it out (`ticks_of`, `units_of`, `notes::units_of_seconds`,
-/// review point B18).
+/// overflow. Shared by `ticks_of`, `units_of` and `notes::units_of_seconds`.
 ///
 /// # Errors
 /// [`RationalError::Overflow`] if the rounded result does not fit an `i64`.

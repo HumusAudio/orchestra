@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Robustness and round-trip properties of the project file (ADR-0029 S8, S12; owner's choice
-//! I10 of 2026-11-06).
+//! ADR-0029 I10 of 2026-11-06).
 //!
 //! - **Truncations**: every prefix of the "everything" file is refused with a typed error; none
 //!   panics.

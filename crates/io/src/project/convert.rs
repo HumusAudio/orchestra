@@ -11,7 +11,7 @@
 //!   see once the values are built: a zero ID, a bar ID that names no bar of the meter map, an
 //!   event that is both a chord and a rest, two meter-map entries at one bar, a pass list out of
 //!   order. Everything musical is then checked by `Document::from_parts`, which replays the
-//!   description through the builder and runs `validate` (L4).
+//!   description through the builder and runs `validate` (ADR-0029 L4).
 //!
 //! The conversion errors name the object by its ID (`event 144`), which, with one record per
 //! line, finds the place in the file as surely as a line number.
@@ -170,7 +170,7 @@ pub(crate) fn to_file(parts: &DocumentParts) -> Result<FileV1, SaveError> {
     })
 }
 
-/// The meter map with bars by ID (I6). O(entries).
+/// The meter map with bars by ID (ADR-0029 I6). O(entries).
 fn meter_to_file(map: &MeterMap, bars: &[BarId]) -> Result<MeterMapV1, SaveError> {
     let bar = |index: BarIndex| -> Result<u64, SaveError> {
         usize::try_from(index.get())
@@ -516,7 +516,7 @@ fn voice_to_file(voice: &VoiceParts) -> VoiceV1 {
     }
 }
 
-/// One event (I3). O(noteheads).
+/// One event (ADR-0029 I3). O(noteheads).
 fn event_to_file(placed: &PlacedEvent) -> EventV1 {
     let event = placed.event();
     let mut v = EventV1 {
@@ -590,7 +590,7 @@ fn id<T>(raw: u64, from_raw: fn(u64) -> Option<T>) -> Result<T, LoadError> {
     ))
 }
 
-/// The bar IDs of the file and where each is, for the meter map's entries (I6).
+/// The bar IDs of the file and where each is, for the meter map's entries (ADR-0029 I6).
 struct Bars {
     /// Bar ID (raw) → index.
     index: IdMap<u64, u32>,
@@ -801,7 +801,11 @@ fn meter_from_file(meter: MeterMapV1, bars: &Bars) -> Result<MeterMap, LoadError
         }
     }
     for raw in meter.uncounted {
-        if map.set_uncounted(bars.of(raw)?, true) {
+        // Already uncounted before this entry: the file lists the bar twice.
+        if map
+            .set_numbering(bars.of(raw)?, orchestra_core_time::BarCounting::Uncounted)
+            .is_uncounted()
+        {
             return Err(twice("uncounted marks", raw));
         }
     }
@@ -1135,7 +1139,7 @@ fn voice_from_file(v: VoiceV1) -> Result<VoiceParts, LoadError> {
     })
 }
 
-/// One event: a chord or a rest, exactly one (I3). O(noteheads).
+/// One event: a chord or a rest, exactly one (ADR-0029 I3). O(noteheads).
 fn event_from_file(e: EventV1) -> Result<PlacedEvent, LoadError> {
     let event_id = id(e.id, EventId::from_raw)?;
     let staff = id(e.staff, StaffId::from_raw)?;

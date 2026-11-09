@@ -58,9 +58,9 @@ impl Slur {
     /// A slur with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(id: SlurId, start: EventId, end: EventId, placement: SlurPlacement) -> Self {
         Self {
             id,
@@ -73,8 +73,8 @@ impl Slur {
     /// This slur ending at another event, the rest unchanged. O(1).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every
+    /// other field copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) const fn with_end(&self, end: EventId) -> Self {
         Self { end, ..*self }

@@ -170,9 +170,9 @@ impl RepeatStart {
     /// A start repeat with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(id: RepeatId, bar: BarId) -> Self {
         Self { id, bar }
     }
@@ -180,8 +180,8 @@ impl RepeatStart {
     /// This repeat start at another bar. O(1).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) const fn with_bar(&self, bar: BarId) -> Self {
         Self { bar, ..*self }
@@ -220,9 +220,9 @@ impl RepeatEnd {
     /// An end repeat with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(id: RepeatId, bar: BarId, times: u8) -> Self {
         Self { id, bar, times }
     }
@@ -230,8 +230,8 @@ impl RepeatEnd {
     /// This repeat end at another bar, played as many times. O(1).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) const fn with_bar(&self, bar: BarId) -> Self {
         Self { bar, ..*self }
@@ -287,9 +287,9 @@ impl Volta {
     /// A volta with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(
         id: VoltaId,
         first: BarId,
@@ -311,8 +311,8 @@ impl Volta {
     /// This volta over other first and last bars, the rest unchanged. O(text length).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) fn with_bars(&self, first: BarId, last: BarId) -> Self {
         Self {
@@ -823,8 +823,7 @@ pub struct SectionVolta {
 
 /// The repeated sections of a document and the voltas attached to them: the structure of the
 /// form, read once. Both the validation (rules 10 and 11) and the player (`orchestra-playback`)
-/// use it, so they always agree on what a section is (review point A2: each used to compute it
-/// with its own algorithm).
+/// use it, so they always agree on what a section is.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FormSections {
     /// The sections in score order; they do not overlap in a valid document.

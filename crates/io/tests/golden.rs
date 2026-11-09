@@ -16,7 +16,7 @@
 //! golden -- --ignored`) writes the files of version 1 that do not exist yet and never touches an
 //! existing one. Each new file must then be reviewed by eye before it is committed.
 //!
-//! # Robustness (S12)
+//! # Robustness (ADR-0029 S12)
 //! Every truncation of every golden file is refused; random JSON values put anywhere in the
 //! "everything" file never panic.
 

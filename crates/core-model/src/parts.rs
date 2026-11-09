@@ -10,9 +10,9 @@
 //! slurs… with their IDs), in plain public containers. `io` maps it to and from its schema;
 //! `core-model` stays free of any serialisation dependency.
 //!
-//! - [`Document::to_parts`] copies a document's saved data out (L3);
+//! - [`Document::to_parts`] copies a document's saved data out (ADR-0029 L3);
 //! - [`Document::from_parts`] builds a document back from a description, checking it **exactly
-//!   as the builder checks what it creates** (L4), and fails as a whole.
+//!   as the builder checks what it creates** (ADR-0029 L4), and fails as a whole.
 //!
 //! # How `from_parts` checks: replaying through the builder
 //! Instead of a second set of rules written for loading (which could drift from the builder's and
@@ -27,8 +27,8 @@
 //! unchanged.
 //!
 //! What the builder does not see, the loader checks itself:
-//! - **IDs** (L4): every saved ID is unique across all kinds (one counter, ADR-0022 §1) and below
-//!   the saved next value of the counter, so no later object can receive it again;
+//! - **IDs** (ADR-0029 L4): every saved ID is unique across all kinds (one counter, ADR-0022 §1)
+//!   and below the saved next value of the counter, so no later object can receive it again;
 //! - **order** (L4, ADR-0029 S3, S8): the builder sorts what it inserts (events in a chunk,
 //!   noteheads in a chord, marks by point); the rebuilt document's description must equal the
 //!   given one, so a file whose lists are out of order is refused ([`DocumentError::NotCanonical`])

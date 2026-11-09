@@ -424,7 +424,10 @@ fn bar_numbers_add_up_over_groups() {
 fn bar_numbers_with_uncounted_bars_and_restarts() {
     // The second volta has an uncounted first bar: 7a 8a | – 7b | 9 (after the longest volta).
     let (mut b, bars) = builder_with(11, |m| {
-        m.set_uncounted(BarIndex::new(8), true);
+        m.set_numbering(
+            BarIndex::new(8),
+            orchestra_core_time::BarCounting::Uncounted,
+        );
     });
     b.add_volta(bars[6], bars[7], passes(1, 1), true, None)
         .unwrap();

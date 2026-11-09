@@ -218,9 +218,9 @@ impl Dynamic {
     /// A dynamic with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(
         id: DynamicId,
         at: ScorePoint,
@@ -238,8 +238,8 @@ impl Dynamic {
     /// This dynamic at another point, the rest unchanged. O(1) plus the copy of its mark.
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every
+    /// other field copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) fn with_point(&self, at: ScorePoint) -> Self {
         Self { at, ..self.clone() }
@@ -350,9 +350,9 @@ impl Hairpin {
     /// A hairpin with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(
         id: HairpinId,
         start: ScorePoint,
@@ -372,8 +372,8 @@ impl Hairpin {
     /// This hairpin with other start and end points, the rest unchanged. O(1).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every
+    /// other field copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) const fn with_points(&self, start: ScorePoint, end: ScorePoint) -> Self {
         Self {

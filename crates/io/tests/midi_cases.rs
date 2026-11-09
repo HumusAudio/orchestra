@@ -331,7 +331,7 @@ fn an_accent_fades_back_with_cc11() {
         .unwrap();
     let (_, out) = s.export();
     let decoded = decode(&out.bytes);
-    // mf 75 + 22 = 97 at the attack (H15, §15).
+    // mf 75 + 22 = 97 at the attack (ADR-0027 H15, §15).
     assert_eq!(decoded.notes(0), [(0, 1_920, 0, 60, 97)]);
     let cc = expressions(&decoded);
     // Decreasing to round(127 × 75/97) = 98, the last point at 0.25 s (0.25 quarters = 240

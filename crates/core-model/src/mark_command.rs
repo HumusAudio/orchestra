@@ -24,23 +24,24 @@
 //!   lacks; a repeated section's two barlines are added together
 //!   ([`Command::AddRepeat`](crate::Command::AddRepeat)). A volta alone is never valid, so adding
 //!   one at a time could never succeed.
-//! - **X2**: removing a mark removes it and then deletes in **cascade** the form markings it left
-//!   invalid (a jump whose segno is gone, the rest of a volta group), as deleting bars does (W5).
-//! - **X3**: adding, moving and changing never delete anything: a result that breaks a rule is
-//!   refused with the typed violation of the local check.
+//! - **X2**: removing a mark removes it and then deletes in **cascade** the form markings
+//!   it left invalid (a jump whose segno is gone, the rest of a volta group), as deleting bars does
+//!   (ADR-0026 W5).
+//! - **X3**: adding, moving and changing never delete anything: a result that breaks a
+//!   rule is refused with the typed violation of the local check.
 //! - **X4**: a bar repeat over bars that hold music is refused (the local check reports
 //!   [`Violation::BarRepeatNotEmpty`](crate::Violation::BarRepeatNotEmpty)).
-//! - **X5**: changing a mark is one command with its whole new description, keeping its ID and
-//!   its kind; a drag sends it inside a gesture, and the compaction keeps one old value.
+//! - **X5**: changing a mark is one command with its whole new description, keeping its ID
+//!   and its kind; a drag sends it inside a gesture, and the compaction keeps one old value.
 //! - **X6**: clefs and keys never change a pitch (pitches are stored as spelled at concert
 //!   pitch); respelling after a key change will be a command of its own.
-//! - **X7**: a tuplet is added empty, changed in place (look or ratio, its parent kept) and removed
-//!   **with the events it contains** and the tuplets nested in it.
+//! - **X7**: a tuplet is added empty, changed in place (look or ratio, its parent kept)
+//!   and removed **with the events it contains** and the tuplets nested in it.
 //! - **X8**: the values the document has once are set, never removed.
-//! - **X9**: the per-bar data that does not move a barline is here; irregular and free bars and
-//!   meter changes, which do, belong to the meter change of F1.11c.
-//! - **X10**: the local check of a mark command looks only at what the command touched (the slur,
-//!   the hairpins of its instrument, the tempo marks, the form): see
+//! - **X9**: the per-bar data that does not move a barline is here; irregular and free
+//!   bars and meter changes, which do, belong to the meter change of F1.11c.
+//! - **X10**: the local check of a mark command looks only at what the command touched
+//!   (the slur, the hairpins of its instrument, the tempo marks, the form): see
 //!   `Document::check_objects`.
 
 use std::num::NonZeroU64;
@@ -157,7 +158,7 @@ pub enum MarkSpec {
         times: u8,
     },
     /// A volta (ADR-0025 §3). Added a whole group at a time with
-    /// [`Command::AddVoltas`](crate::Command::AddVoltas) (X1); here for
+    /// [`Command::AddVoltas`](crate::Command::AddVoltas) (ADR-0026 X1); here for
     /// [`Command::ChangeMark`](crate::Command::ChangeMark), and for adding a volta to a group
     /// that stays valid with it.
     Volta(NewVolta),
@@ -180,7 +181,7 @@ pub enum MarkSpec {
         text: Option<Box<str>>,
     },
     /// Bars of one staff that repeat the bars before them (ADR-0025 §6). Refused over bars that
-    /// hold music (X4).
+    /// hold music (ADR-0026 X4).
     BarRepeat {
         /// The staff.
         staff: StaffId,
@@ -231,8 +232,7 @@ pub struct NewVolta {
 
 /// Refuses a free text that is empty or only white space. O(text length).
 ///
-/// Shared with the builder (`DocumentBuilder::add_volta` and the others), which used to repeat
-/// the test (review point B7).
+/// Shared with the builder (`DocumentBuilder::add_volta` and the others).
 ///
 /// # Errors
 /// [`DocumentError::EmptyText`].
@@ -249,7 +249,7 @@ pub(crate) fn check_text(text: Option<&str>) -> Result<(), DocumentError> {
 /// Only what the edits do not check is checked here: the texts, the markers a jump names, and
 /// the instrument of a slur (found from its first event). Everything structural (bars, staves,
 /// voices, offsets, duplicates) is checked by the edit, and the musical rules by the local check
-/// that follows the command (X10).
+/// that follows the command (ADR-0026 X10).
 ///
 /// # Complexity
 /// O(1), plus O(voices) to find a slur's instrument and O(markers) for a jump's markers.
@@ -415,8 +415,9 @@ fn mark_id(name: ObjectRef) -> Result<NonZeroU64, DocumentError> {
     NonZeroU64::new(raw).ok_or(DocumentError::UnknownObject(name))
 }
 
-/// Whether a description makes a mark of the kind `name` names (X5: a mark keeps its kind). The
-/// two kinds that share the key-change IDs are told apart by the variant of `name`. O(1).
+/// Whether a description makes a mark of the kind `name` names (ADR-0026 X5: a mark keeps its
+/// kind). The two kinds that share the key-change IDs are told apart by the variant of `name`.
+/// O(1).
 const fn same_kind(name: ObjectRef, spec: &MarkSpec) -> bool {
     matches!(
         (name, spec),
@@ -438,11 +439,12 @@ const fn same_kind(name: ObjectRef, spec: &MarkSpec) -> bool {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Marks and form markings (X1–X5)
+// Marks and form markings (ADR-0026 X1–X5)
 // ------------------------------------------------------------------------------------------------
 
 /// Executes [`Command::AddMark`](crate::Command::AddMark): a new ID from the counter, the object,
-/// one [`Edit::Insert`]. The local check that follows refuses a mark that breaks a rule (X3).
+/// one [`Edit::Insert`]. The local check that follows refuses a mark that breaks a rule
+/// (ADR-0026 X3).
 ///
 /// # Complexity
 /// [`object_of`], plus the insertion into its sorted list (O(n) for the n marks of the list).
@@ -459,8 +461,8 @@ pub(crate) fn add_mark(tx: &mut Transaction<'_>, spec: &MarkSpec) -> Result<(), 
 }
 
 /// Executes [`Command::ChangeMark`](crate::Command::ChangeMark): the same ID with the new
-/// description, one [`Edit::Replace`] (X5). The local check that follows refuses a change that
-/// breaks a rule (X3).
+/// description, one [`Edit::Replace`] (ADR-0026 X5). The local check that follows refuses a change
+/// that breaks a rule (ADR-0026 X3).
 ///
 /// # Complexity
 /// [`object_of`], plus the replacement (a removal and an insertion in the sorted list, O(n)).
@@ -482,7 +484,7 @@ pub(crate) fn change_mark(
 }
 
 /// Executes [`Command::RemoveMark`](crate::Command::RemoveMark): one [`Edit::Remove`], then the
-/// cascade of W5 for the form markings the removal left invalid (X2).
+/// cascade of ADR-0026 W5 for the form markings the removal left invalid (ADR-0026 X2).
 ///
 /// # Complexity
 /// O(n) for the removal from its list, plus the cascade (O(f) form checks per marking it deletes,
@@ -497,7 +499,7 @@ pub(crate) fn remove_mark(tx: &mut Transaction<'_>, name: ObjectRef) -> Result<(
 }
 
 /// Executes [`Command::AddRepeat`](crate::Command::AddRepeat): a start repeat at the start of
-/// `start` and an end repeat at the end of `end`, in one command (X1). O(form markings).
+/// `start` and an end repeat at the end of `end`, in one command (ADR-0026 X1). O(form markings).
 ///
 /// # Errors
 /// The edits' (an unknown bar, a barline already there, plays out of range); the local check
@@ -513,7 +515,7 @@ pub(crate) fn add_repeat(
 }
 
 /// Executes [`Command::AddVoltas`](crate::Command::AddVoltas): a whole group of voltas, with the
-/// end repeats it lacks (X1).
+/// end repeats it lacks (ADR-0026 X1).
 ///
 /// Every volta but the last needs an end repeat at its last bar (ADR-0025 §3). Where there is
 /// none, one is added with `times` = n, the number of plays of the group (its highest pass): the
@@ -563,7 +565,7 @@ pub(crate) fn add_voltas(
 }
 
 // ------------------------------------------------------------------------------------------------
-// Tuplets (X7)
+// Tuplets (ADR-0026 X7)
 // ------------------------------------------------------------------------------------------------
 
 /// Executes [`Command::AddTuplet`](crate::Command::AddTuplet): an empty tuplet of `voice`,
@@ -616,9 +618,9 @@ pub(crate) fn change_tuplet(
 
 /// Executes [`Command::RemoveTuplet`](crate::Command::RemoveTuplet): the events inside the tuplet
 /// (directly or through nested tuplets) are deleted as
-/// [`Command::DeleteEvent`](crate::Command::DeleteEvent) deletes them (V6, which also removes the
-/// tuplets left without members), then whatever of the tuplet is left (nested tuplets that held
-/// no event, deepest first, then the tuplet itself) (X7).
+/// [`Command::DeleteEvent`](crate::Command::DeleteEvent) deletes them (ADR-0026 V6, which also
+/// removes the tuplets left without members), then whatever of the tuplet is left (nested tuplets
+/// that held no event, deepest first, then the tuplet itself) (ADR-0026 X7).
 ///
 /// # Complexity
 /// O(events of the voice × depth) to find the members, at most [`MAX_TUPLET_DEPTH`] links per
@@ -690,11 +692,11 @@ fn depth(voice: &crate::document::Voice, id: TupletId) -> usize {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Values the document has once (X8) and per-bar data (X9)
+// Values the document has once (ADR-0026 X8) and per-bar data (ADR-0026 X9)
 // ------------------------------------------------------------------------------------------------
 
 /// Executes [`Command::SetInitial`](crate::Command::SetInitial): one [`Edit::SetInitial`]. A new
-/// initial clef or key changes no pitch (X6). O(1), or O(staves) for a clef.
+/// initial clef or key changes no pitch (ADR-0026 X6). O(1), or O(staves) for a clef.
 ///
 /// # Errors
 /// The edit's: [`DocumentError::InitialTempoNotImmediate`], an unknown staff.

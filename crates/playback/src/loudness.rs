@@ -9,13 +9,13 @@
 //! *pppp* = 10, … *mf* = 75, … *ffff* = 127, one level every 13), and computed there **exactly**,
 //! as a [`Rational`]: a note halfway through a crescendo from *p* (49) to *f* (88) is at 68.5, not
 //! 68 or 69. Only at the very end is the value up-scaled to the 16-bit scale of MIDI 2.0 that the
-//! played notes carry (H8): an integer by the bit replication `v << 9 | v << 2 | v >> 5` of
-//! ADR-0027 §4 (so the table's levels land exactly where §4 says), a fraction by linear
+//! played notes carry (ADR-0027 H8): an integer by the bit replication `v << 9 | v << 2 | v >> 5`
+//! of ADR-0027 §4 (so the table's levels land exactly where §4 says), a fraction by linear
 //! interpolation between the up-scaled values of its two neighbouring integers, rounded to the
 //! nearest step with halves going up. That keeps the result monotone (a louder rule never gives a
 //! softer velocity) and identical to §4 on every level of the table.
 //!
-//! # The timeline of a voice (H1, H2, H7, H9)
+//! # The timeline of a voice (ADR-0027 H1, ADR-0027 H2, ADR-0027 H7, ADR-0027 H9)
 //! The dynamic in force is followed **along the path**, the way a player remembers what they last
 //! played: after a repeat back to a bar with no dynamic, the dynamic of the end of the repeat
 //! stays. So the loudness of a voice is a [`Timeline`] over **path points** — (played bar, offset
@@ -24,26 +24,27 @@
 //! - **states**, sorted by path point: from each point on, the loudness is either a constant
 //!   level or a hairpin's ramp (a [`Plan`]);
 //! - **point accents**, sorted by path point: the *sf*-like and *fp*-like marks, which act only on
-//!   the notes starting exactly there (H3, H4).
+//!   the notes starting exactly there (ADR-0027 H3, ADR-0027 H4).
 //!
 //! Only the dynamics and hairpins that apply to the voice are read: those of the whole instrument
 //! and those of this voice. At one point the instrument's come first and the voice's after, so the
-//! voice's win (G5, H9).
+//! voice's win (G5, ADR-0027 H9).
 //!
-//! # Hairpins (H5–H9)
+//! # Hairpins (ADR-0027 H5–H9)
 //! A hairpin becomes active when the walk reaches its start, and stops when the walk reaches its
 //! end or leaves its written range in any other way (a repeat back, a jump): from then on its
-//! **target** stays in force (H7). While active, the level is interpolated linearly in the
-//! **written position** (H8) along its anchors: the level in force at its start, every dynamic
-//! inside it (H7: they split it into stretches), and the target at its end (H6: the first
-//! dynamic at or after the end, within the bar holding the end, if it goes the right way;
-//! otherwise the next level of the table up or down).
+//! **target** stays in force (ADR-0027 H7). While active, the level is interpolated linearly in the
+//! **written position** (ADR-0027 H8) along its anchors: the level in force at its start, every
+//! dynamic inside it (ADR-0027 H7: they split it into stretches), and the target at its end
+//! (ADR-0027 H6: the first dynamic at or after the end, within the bar holding the end, if it goes
+//! the right way; otherwise the next level of the table up or down).
 //!
 //! # Why not a single pass while the notes are made?
 //! The notes of a voice are made in path order too, so the levels could be read with a cursor.
-//! But the incremental update of SCALETTA F1.13c (H12) recomputes the notes of a few cells only,
-//! and then needs the level at an arbitrary point: a timeline answers that in O(log n) without
-//! walking the path again, and a change of the dynamics rebuilds only the timelines (H11).
+//! But the incremental update of SCALETTA F1.13c (ADR-0027 H12) recomputes the notes of a few cells
+//! only, and then needs the level at an arbitrary point: a timeline answers that in O(log n)
+//! without walking the path again, and a change of the dynamics rebuilds only the timelines
+//! (ADR-0027 H11).
 
 use orchestra_core_model::{
     ArticulationSet, Document, DocumentError, DynamicLevel, DynamicMark, DynamicScope, HairpinKind,
@@ -68,17 +69,17 @@ const LEVEL_STEP: i64 = 13;
 /// The loudest playable level, *ffff*: the top of the 0–127 scale (G4).
 const FFFF: i64 = 127;
 
-/// *p*, *mf*, *f* and *fff* on the 0–127 scale: the levels *fp*, *sfp*, *pf* go to and from (H16),
-/// and *mf*, the level in force before any dynamic (H1, N9).
+/// *p*, *mf*, *f* and *fff* on the 0–127 scale: the levels *fp*, *sfp*, *pf* go to and from
+/// (ADR-0027 H16), and *mf*, the level in force before any dynamic (ADR-0027 H1, ADR-0027 N9).
 const P: i64 = 49;
-/// *pp* on the 0–127 scale (the second level of *sfpp*, H16).
+/// *pp* on the 0–127 scale (the second level of *sfpp*, ADR-0027 H16).
 const PP: i64 = 36;
-/// *mf* on the 0–127 scale: in force before the first dynamic of a voice (H1).
+/// *mf* on the 0–127 scale: in force before the first dynamic of a voice (ADR-0027 H1).
 const MF: i64 = 75;
-/// *f* on the 0–127 scale (the attack of *fp*, the second level of *pf*, H16).
+/// *f* on the 0–127 scale (the attack of *fp*, the second level of *pf*, ADR-0027 H16).
 const F: i64 = 88;
 /// *fff* on the 0–127 scale (the attack of *sfp* and *sfpp*: §15, round 2, instead of the *ff*
-/// of H16).
+/// of ADR-0027 H16).
 const FFF: i64 = 114;
 
 /// The value on the 0–127 scale of a written level (G4): the ten levels from *pppp* to *ffff*
@@ -103,7 +104,7 @@ const fn level_value(level: DynamicLevel) -> i64 {
 }
 
 /// The next level of the table strictly above `level`, or *ffff* if there is none: the target of
-/// a crescendo without a fitting dynamic (H6). From *niente* (0) it is *pppp*. O(1).
+/// a crescendo without a fitting dynamic (ADR-0027 H6). From *niente* (0) it is *pppp*. O(1).
 fn level_above(level: Rational) -> Result<Rational, RationalError> {
     // The levels are 10 + 13 i; the first one strictly above `level` has i = ⌊(level − 10) / 13⌋
     // + 1, at least 0 (for levels under *pppp*) and at most 9.
@@ -117,7 +118,7 @@ fn level_above(level: Rational) -> Result<Rational, RationalError> {
 }
 
 /// The next level of the table strictly below `level`, or *pppp* if there is none: the target of
-/// a diminuendo without a fitting dynamic (H6). O(1).
+/// a diminuendo without a fitting dynamic (ADR-0027 H6). O(1).
 fn level_below(level: Rational) -> Result<Rational, RationalError> {
     // The first level strictly below has i = ⌈(level − 10) / 13⌉ − 1, between 0 and 9.
     let i = level
@@ -129,7 +130,7 @@ fn level_below(level: Rational) -> Result<Rational, RationalError> {
     Rational::from_integer(PPPP.saturating_add(LEVEL_STEP.saturating_mul(i)))
 }
 
-/// `n/d` seconds, for the constant times of H15 and H16. O(1).
+/// `n/d` seconds, for the constant times of ADR-0027 H15 and ADR-0027 H16. O(1).
 fn seconds(n: i64, d: i64) -> Result<Seconds, RationalError> {
     Ok(Seconds::from_rational(Rational::new(n, d)?))
 }
@@ -138,11 +139,12 @@ fn seconds(n: i64, d: i64) -> Result<Seconds, RationalError> {
 // What a dynamic mark does
 // ------------------------------------------------------------------------------------------------
 
-/// A dynamic accent: what a mark does to the notes that start exactly at its point (H3, H4, H16).
+/// A dynamic accent: what a mark does to the notes that start exactly at its point (ADR-0027 H3,
+/// ADR-0027 H4, ADR-0027 H16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PointAccent {
     /// *rf*, *rfz*, *sf*, *sfz*, *fz*, *sffz*: the attack `levels` levels above the level in
-    /// force (never above *ffff*), settling back to it in `settle_in` (H3, H16).
+    /// force (never above *ffff*), settling back to it in `settle_in` (ADR-0027 H3, ADR-0027 H16).
     Up {
         /// How many levels of the table the attack is louder: 1, 2 or 3.
         levels: i64,
@@ -150,7 +152,7 @@ pub(crate) enum PointAccent {
         settle_in: Seconds,
     },
     /// *fp*, *sfp*, *sfpp*, *pf*: a fixed attack, held for `hold`, then going to `then` in
-    /// `settle_in` (H16); `then` is also the level in force afterwards (H4).
+    /// `settle_in` (ADR-0027 H16); `then` is also the level in force afterwards (ADR-0027 H4).
     Shift {
         /// The level of the attack, on the 0–127 scale.
         attack: i64,
@@ -163,8 +165,8 @@ pub(crate) enum PointAccent {
     },
 }
 
-/// What a dynamic mark does (H3–H5, H16): the accent it gives the notes at its point, if any, and
-/// the level in force after it, if it sets one. O(1).
+/// What a dynamic mark does (ADR-0027 H3–H5, ADR-0027 H16): the accent it gives the notes
+/// at its point, if any, and the level in force after it, if it sets one. O(1).
 ///
 /// - a level: no accent, that level;
 /// - *rf*/*rfz* (+1 level, 0.4 s), *sf*/*sfz*/*fz* (+2, 0.6 s), *sffz* (+3, 0.8 s): an accent,
@@ -172,11 +174,11 @@ pub(crate) enum PointAccent {
 /// - *fp* (*f* held 0.6 s, then *p* in 0.1 s), *sfp*/*sfpp* (*fff* held 0.2 s, then *p*/*pp* in
 ///   0.2 s), *pf* (*p* held 0.6 s, then *f* in 0.1 s): an accent, and the second level
 ///   afterwards;
-/// - *n*: level 0 (velocity 1 once bounded, H5);
+/// - *n*: level 0 (velocity 1 once bounded, ADR-0027 H5);
 /// - free text: its level if it has one, else nothing.
 ///
-/// The levels are those of H3–H4, except the *fff* attack of *sfp*/*sfpp*; the times are those
-/// of the tuning by ear (§15, rounds 1–2, replacing those of H16).
+/// The levels are those of ADR-0027 H3–H4, except the *fff* attack of *sfp*/*sfpp*; the
+/// times are those of the tuning by ear (§15, rounds 1–2, replacing those of ADR-0027 H16).
 ///
 /// # Errors
 /// Only the arithmetic of the constants (never on these values).
@@ -228,7 +230,7 @@ enum State {
 
 /// One play of a hairpin: its anchors, (written position, level), ascending in position, at
 /// least two (its start and its end). Between two anchors the level is linear in the written
-/// position (H7, H8).
+/// position (ADR-0027 H7, ADR-0027 H8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Plan {
     /// The anchors: the start with the level in force there, every dynamic inside the hairpin,
@@ -263,7 +265,7 @@ impl Plan {
         l0.checked_add(l1.checked_sub(l0)?.checked_mul(t)?)
     }
 
-    /// The level at the end: the target (H6). O(1).
+    /// The level at the end: the target (ADR-0027 H6). O(1).
     fn target(&self) -> Rational {
         self.anchors.last().map_or(Rational::ZERO, |a| a.1)
     }
@@ -311,11 +313,11 @@ struct Pin {
     /// The written bar of its end, and the offset there.
     end_at: (u32, Duration),
     /// The start of the bar after the bar holding its end: the window of its target ends there
-    /// (H6).
+    /// (ADR-0027 H6).
     window: Position,
     /// Louder or softer.
     kind: HairpinKind,
-    /// *Al niente* / *dal niente* (H5).
+    /// *Al niente* / *dal niente* (ADR-0027 H5).
     niente: bool,
     /// Whether it is the voice's (else the instrument's).
     voice: bool,
@@ -503,7 +505,7 @@ impl Timeline {
             let k = u32::try_from(k).map_err(|_| UnrollError::Endless)?;
             let bar_start = played.written_start;
             // A hairpin whose range does not hold this bar's start stops here (a barline end, a
-            // repeat back, a jump): its target stays in force (H7).
+            // repeat back, a jump): its target stays in force (ADR-0027 H7).
             if timeline.stop_outside(&pins, &mut active, &mut level, bar_start) {
                 timeline.push_state((k, Duration::ZERO), effective(&active, level));
             }
@@ -530,7 +532,7 @@ impl Timeline {
                     Mark::Start(p) => {
                         let Some(pin) = pins.get(p) else { continue };
                         // The level it starts from: what is heard there now (another scope's
-                        // ramp, or the level in force), or nothing for *dal niente* (H5).
+                        // ramp, or the level in force), or nothing for *dal niente* (ADR-0027 H5).
                         let from = if pin.niente && pin.kind == HairpinKind::Crescendo {
                             Rational::ZERO
                         } else {
@@ -554,7 +556,7 @@ impl Timeline {
     }
 
     /// Stops every active hairpin whose written range does not hold `w`, setting the level in
-    /// force to its target (H7). Returns whether one stopped. O(1).
+    /// force to its target (ADR-0027 H7). Returns whether one stopped. O(1).
     fn stop_outside(
         &self,
         pins: &[Pin],
@@ -580,7 +582,7 @@ impl Timeline {
     }
 
     /// The level heard at written position `w` given the hairpins being played: the voice's ramp,
-    /// else the instrument's, else the level in force (H9). O(log a).
+    /// else the instrument's, else the level in force (ADR-0027 H9). O(log a).
     fn effective_level(
         &self,
         active: &[Option<Active>; 2],
@@ -619,7 +621,8 @@ impl Timeline {
 
     /// The stretch of path points `[lo, hi)` (`hi = None`: to the end of the path) outside which
     /// `self` and `other` give every note the same loudness, or `None` if they give the same
-    /// everywhere (H11: after a change of the dynamics only the notes inside are read again).
+    /// everywhere (ADR-0027 H11: after a change of the dynamics only the notes inside are read
+    /// again).
     ///
     /// # How
     /// The states and the accents are compared from the start and from the end: the equal prefix
@@ -646,8 +649,9 @@ impl Timeline {
         }
     }
 
-    /// The level in force at path point `at`, whose written position is `w` (H1, H2, H8): the
-    /// state of the last point at or before `at`, *mf* before the first. O(log s + log a).
+    /// The level in force at path point `at`, whose written position is `w` (ADR-0027 H1,
+    /// ADR-0027 H2, ADR-0027 H8): the state of the last point at or before `at`, *mf* before the
+    /// first. O(log s + log a).
     ///
     /// # Errors
     /// The arithmetic errors.
@@ -663,7 +667,8 @@ impl Timeline {
         }
     }
 
-    /// The dynamic accent written exactly at path point `at`, if any (H3, H4). O(log n).
+    /// The dynamic accent written exactly at path point `at`, if any (ADR-0027 H3, ADR-0027 H4).
+    /// O(log n).
     pub(crate) fn accent_at(&self, at: PathPoint) -> Option<PointAccent> {
         self.accents
             .binary_search_by(|(p, _)| p.cmp(&at))
@@ -725,7 +730,7 @@ const fn kind_rank(mark: Mark) -> u8 {
 }
 
 /// The state heard now: the voice's hairpin, else the instrument's, else the constant level
-/// (H9). O(1).
+/// (ADR-0027 H9). O(1).
 fn effective(active: &[Option<Active>; 2], level: Rational) -> State {
     match active {
         [_, Some(voice)] => State::Ramp(voice.plan),
@@ -734,8 +739,9 @@ fn effective(active: &[Option<Active>; 2], level: Rational) -> State {
     }
 }
 
-/// The plan of one play of a hairpin starting from level `from` (H6, H7): its start, every
-/// dynamic with a level strictly inside it, and the target at its end. O(log m + inner).
+/// The plan of one play of a hairpin starting from level `from` (ADR-0027 H6, ADR-0027 H7): its
+/// start, every dynamic with a level strictly inside it, and the target at its end. O(log m +
+/// inner).
 ///
 /// # Errors
 /// The arithmetic errors.
@@ -760,8 +766,8 @@ fn plan(dyns: &[Dyn], pin: &Pin, from: Rational) -> Result<Plan, RationalError> 
         }
     }
     let last = anchors.last().map_or(from, |a| a.1);
-    // H6: the first dynamic with a level at or after the end, within the bar holding the end (at
-    // one position the voice's, sorted after the instrument's), if it goes the right way.
+    // ADR-0027 H6: the first dynamic with a level at or after the end, within the bar holding the
+    // end (at one position the voice's, sorted after the instrument's), if it goes the right way.
     let at_end = dyns.partition_point(|d| d.pos < pin.end);
     let mut written: Option<(Position, i64)> = None;
     for d in dyns.get(at_end..).unwrap_or(&[]) {
@@ -780,7 +786,7 @@ fn plan(dyns: &[Dyn], pin: &Pin, from: Rational) -> Result<Plan, RationalError> 
         Some((_, t)) if right_way(Rational::from_integer(t)?) => Rational::from_integer(t)?,
         _ => match pin.kind {
             HairpinKind::Crescendo => level_above(last)?,
-            // *Al niente* goes to nothing (H5).
+            // *Al niente* goes to nothing (ADR-0027 H5).
             HairpinKind::Diminuendo if pin.niente => Rational::ZERO,
             HairpinKind::Diminuendo => level_below(last)?,
         },
@@ -790,11 +796,11 @@ fn plan(dyns: &[Dyn], pin: &Pin, from: Rational) -> Result<Plan, RationalError> 
 }
 
 // ------------------------------------------------------------------------------------------------
-// The attack profile of a note (H14–H17)
+// The attack profile of a note (ADR-0027 H14–H17)
 // ------------------------------------------------------------------------------------------------
 
 /// The loudness of one played note: its attack, how long that is held, how long the sound then
-/// takes to settle, and the level it settles to (H14), on the 16-bit scale, bounded.
+/// takes to settle, and the level it settles to (ADR-0027 H14), on the 16-bit scale, bounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Profile {
     /// The attack velocity, 1..=65 535.
@@ -807,10 +813,10 @@ pub(crate) struct Profile {
     pub(crate) settle_to: u16,
 }
 
-/// The step of an articulation accent on the 0–127 scale and the time to settle back (H15, times
-/// of the tuning by ear, rounds 1–2, §15): soft accent and stress +7 in 0.2 s, accent +22 in
-/// 0.25 s, marcato +30 in 0.3 s. Unstress is
-/// handled apart (−7 on the whole note, no profile). Steps add; the time is the longest. O(1).
+/// The step of an articulation accent on the 0–127 scale and the time to settle back (ADR-0027 H15,
+/// times of the tuning by ear, rounds 1–2, §15): soft accent and stress +7 in 0.2 s, accent +22 in
+/// 0.25 s, marcato +30 in 0.3 s. Unstress is handled apart (−7 on the whole note, no profile).
+/// Steps add; the time is the longest. O(1).
 ///
 /// # Errors
 /// Only the arithmetic of the constants.
@@ -832,20 +838,22 @@ fn articulation_step(set: ArticulationSet) -> Result<(i64, Seconds), RationalErr
     Ok((step, time))
 }
 
-/// The step of an unstress on the whole note, on the 0–127 scale (H15).
+/// The step of an unstress on the whole note, on the 0–127 scale (ADR-0027 H15).
 const UNSTRESS: i64 = -7;
 
-/// The attack profile of a note (H14–H17) from the level in force at its point (`base`, 0–127),
-/// the dynamic accent written there (`accent`; never for grace notes, H10), the articulations of
-/// its first notehead and its velocity offset (16-bit steps). O(1).
+/// The attack profile of a note (ADR-0027 H14–H17) from the level in force at its point
+/// (`base`, 0–127), the dynamic accent written there (`accent`; never for grace notes,
+/// ADR-0027 H10), the articulations of its first notehead and its velocity offset (16-bit steps).
+/// O(1).
 ///
 /// # The order
-/// 1. the dynamic accent sets the attack, the hold, the settling time and level (H16): by
+/// 1. the dynamic accent sets the attack, the hold, the settling time and level (ADR-0027 H16): by
 ///    default the attack and the settling level are the level in force, with no profile;
 /// 2. an articulation accent adds its step to the attack and lengthens the settling time to its
-///    own if longer (H15, H17); an unstress lowers both the attack and the settling level;
-/// 3. both levels are bounded to 0..=127 and up-scaled (H8), the velocity offset is added to both,
-///    and both are bounded to 1..=65 535 (§8);
+///    own if longer (ADR-0027 H15, ADR-0027 H17); an unstress lowers both the attack and the
+///    settling level;
+/// 3. both levels are bounded to 0..=127 and up-scaled (ADR-0027 H8), the velocity offset is added
+///    to both, and both are bounded to 1..=65 535 (§8);
 /// 4. if the attack and the settling level are then equal, the note has no profile (hold and
 ///    settling time zero), so equal sounds compare equal.
 ///
@@ -923,17 +931,17 @@ const fn replicate(v: u16) -> u16 {
     (v << 9) | (v << 2) | (v >> 5)
 }
 
-/// Up-scales a level on the 0–127 scale (0 ≤ `x` ≤ 127) to the 16-bit scale (H8): an integer by
-/// bit replication, a fraction linearly between its two neighbouring integers' values, rounded to
-/// the nearest with halves up. O(1).
+/// Up-scales a level on the 0–127 scale (0 ≤ `x` ≤ 127) to the 16-bit scale (ADR-0027 H8): an
+/// integer by bit replication, a fraction linearly between its two neighbouring integers' values,
+/// rounded to the nearest with halves up. O(1).
 ///
 /// # Why plain integers
-/// It runs for every note whenever velocities are read again (H11): with the checked rational
-/// operations (a gcd each) it was three quarters of that update on the heavy score. A level is
-/// `n/d` with `d > 0` in lowest terms, so the integer part is ⌊n/d⌋ and the rest `r = n − ⌊n/d⌋·d`
-/// is in `0..d`; the interpolated value lo + r·(hi − lo)/d, rounded half up, is
-/// ⌊(2·r·(hi − lo) + d) / (2·d)⌋ added to lo, all in `i128` (no overflow: `r < d < 2⁶³`,
-/// `hi − lo ≤ 517`). Integer levels, the common case, skip even that.
+/// It runs for every note whenever velocities are read again (ADR-0027 H11): with the checked
+/// rational operations (a gcd each) it was three quarters of that update on the heavy score. A
+/// level is `n/d` with `d > 0` in lowest terms, so the integer part is ⌊n/d⌋ and the rest `r = n −
+/// ⌊n/d⌋·d` is in `0..d`; the interpolated value lo + r·(hi − lo)/d, rounded half up, is ⌊(2·r·(hi
+/// − lo) + d) / (2·d)⌋ added to lo, all in `i128` (no overflow: `r < d < 2⁶³`, `hi − lo ≤ 517`).
+/// Integer levels, the common case, skip even that.
 pub(crate) fn upscale(x: Rational) -> u16 {
     let (n, d) = (i128::from(x.numerator()), i128::from(x.denominator()));
     let low = n.div_euclid(d).clamp(0, i128::from(FFFF));
@@ -952,5 +960,5 @@ pub(crate) fn upscale(x: Rational) -> u16 {
     convert_or(i128::from(lo).saturating_add(step), u16::MAX)
 }
 
-/// The velocity of *mf* on the 16-bit scale: the level in force before any dynamic (H1).
+/// The velocity of *mf* on the 16-bit scale: the level in force before any dynamic (ADR-0027 H1).
 pub const INITIAL_VELOCITY: u16 = replicate(75);

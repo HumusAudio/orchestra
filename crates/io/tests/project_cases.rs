@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The project file, version 1, end to end (ADR-0029 S3, S5, S8, S12, S13; owner's choices
-//! I1–I10 of 2026-11-06).
+//! ADR-0029 I1–I10 of 2026-11-06).
 //!
 //! - **Round trips**: the "everything" document, the normal and the heavy score: bytes → document
 //!   → bytes gives the same bytes, and the document has the same content, IDs and counter.
@@ -20,8 +20,8 @@
 
 #[path = "common/everything.rs"]
 mod everything;
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 use orchestra_core_model::Document;
 use orchestra_io::{FORMAT_VERSION, LoadError, from_bytes, load, save, to_bytes};
@@ -66,11 +66,12 @@ fn everything_round_trips() {
 
 #[test]
 fn the_scores_round_trip() {
-    round_trip(&plain(Size::Normal, true));
-    round_trip(&plain(Size::Heavy, false));
+    round_trip(&plain(Size::Normal, Instruments::WithEditing));
+    round_trip(&plain(Size::Heavy, Instruments::Plain));
 }
 
-/// The layout of S3 and I9: the version first, LF only, a final newline, one record per line.
+/// The layout of ADR-0029 S3 and ADR-0029 I9: the version first, LF only, a final newline, one
+/// record per line.
 #[test]
 fn the_layout_is_one_record_per_line() {
     let text = everything_text();
@@ -95,7 +96,7 @@ fn the_layout_is_one_record_per_line() {
         let line = line.trim().trim_end_matches(',');
         assert!(line.starts_with('{') && line.ends_with('}'), "{line}");
     }
-    // The values of S6 and I4: pitches, note values, rationals.
+    // The values of ADR-0029 S6 and ADR-0029 I4: pitches, note values, rationals.
     for needle in [
         "\"pitch\":\"E[-1/2]5\"",
         "\"value\":\"4\"",

@@ -7,13 +7,14 @@
 //! The DAW view knows where a note sounds on the unrolled timeline; the model knows where it is
 //! written. When the user drags a played note, the DAW side computes the **onset offset** the user
 //! wants, measured from the note's written start, with whatever the playback rules add (arpeggios,
-//! acciaccaturas) already taken out (Q1). Then [`MovePlayed`] decides:
+//! acciaccaturas) already taken out (ADR-0028 Q1). Then [`MovePlayed`] decides:
 //!
 //! - `|onset| ≤ threshold` of the note's track ([`crate::Tolerance`]): the onset offset of the
 //!   notehead becomes `onset`, and **the score does not change**;
 //! - beyond it, the **written position** moves to the grid point nearest to `written + onset`
-//!   (the grid counted from the start of the bar it falls in, Q4), and the rest becomes the new
-//!   onset offset. If the grid brings the note back to its own place, only the offset is stored.
+//!   (the grid counted from the start of the bar it falls in, ADR-0028 Q4), and the rest becomes
+//!   the new onset offset. If the grid brings the note back to its own place, only the offset is
+//!   stored.
 //!
 //! So the played start, `written + offset`, is always exactly where the user dropped the note;
 //! only *how it is written down* changes.
@@ -25,43 +26,44 @@
 //! - A move of **one pass** (`pass: Some(p)`): always performance-only (ADR-0028 §5), stored in
 //!   the instrument's pass-offset table (`crate::pass_offsets`) as the difference from the inline
 //!   offset, since playback adds the two.
-//! - A notehead of a chord with more than one notehead, anywhere along its written tie chain (Q5):
-//!   moving the event would drag the other noteheads along, and splitting a chord is an editorial
-//!   choice the command does not make.
+//! - A notehead of a chord with more than one notehead, anywhere along its written tie chain
+//!   (ADR-0028 Q5): moving the event would drag the other noteheads along, and splitting a chord is
+//!   an editorial choice the command does not make.
 //!
-//! # When a written move is refused (Q6, Q9, T1, T2)
+//! # When a written move is refused (ADR-0028 Q6, ADR-0028 Q9, ADR-0028 T1, ADR-0028 T2)
 //! Beyond the threshold the move is refused, changing nothing, for a grace note
 //! ([`DocumentError::MoveOfGraceNote`]), a notehead some tie leads into
 //! ([`DocumentError::MoveOfTiedNote`]), a tuplet note ([`DocumentError::MoveOfTupletNote`]), a
 //! piece that would cross a barline ([`DocumentError::MoveCrossesBarline`]) or go past the last bar
 //! ([`DocumentError::PastLastBar`]), and, through the local check that follows every command, a
-//! destination already taken by another event of the voice ([`crate::Violation::Overlap`], V2).
+//! destination already taken by another event of the voice ([`crate::Violation::Overlap`],
+//! ADR-0026 V2).
 //!
-//! # Tie chains (Q7)
+//! # Tie chains (ADR-0028 Q7)
 //! A written move takes the whole written chain **forward** from the dragged notehead (it is the
-//! first one: T1 refuses the others), every event by the same amount, each with its grace notes,
-//! as long as every piece still fits inside one bar.
+//! first one: ADR-0028 T1 refuses the others), every event by the same amount, each with its grace
+//! notes, as long as every piece still fits inside one bar.
 //!
 //! # Durations (ADR-0028 §6 and §11, U1–U9; SCALETTA F1.14c)
 //! [`ResizePlayed`] is the same rule for the end of a note: the DAW side gives the **length
 //! offset** it wants (from what the playback rules give) and the factor the rules scale the
-//! written length by (`scale`: ½ for a staccato, 1 without shortening articulations, U1). Within
-//! the threshold it is the chain's length offset; beyond it the written end goes to the nearest
-//! grid point (at least one grid step after the start, U2), the chain is **rewritten** with its new
-//! length, and the rest, `length − Δ × scale`, stays as the offset: the played end lands exactly
-//! where the user dropped it.
+//! written length by (`scale`: ½ for a staccato, 1 without shortening articulations, ADR-0028 U1).
+//! Within the threshold it is the chain's length offset; beyond it the written end goes to the
+//! nearest grid point (at least one grid step after the start, ADR-0028 U2), the chain is
+//! **rewritten** with its new length, and the rest, `length − Δ × scale`, stays as the offset: the
+//! played end lands exactly where the user dropped it.
 //!
-//! # Rewriting a tie chain (U3, U4, U9)
-//! A new length, or a move with [`MoveMode::SplitAtBarlines`] (the "move anyway" of U5), rewrites
-//! the written chain from a start with a total length: cut at every barline and written with the
-//! longest values first (ADR-0026 V3), the pieces tied. The existing pieces' IDs are **reused in
-//! order** (the first keeps its markings, offsets and the tie leading into it); only extra pieces
-//! get new IDs and surplus ones are deleted, so a drag back and forth creates no ID at every mouse
-//! movement. The other pieces are plain, with no offsets, so the residual on the first notehead is
-//! the whole length offset of the chain (N8). Slurs ending on the old last piece end on the new
-//! one; `After` grace notes follow the new end, `Before` ones the first piece; grace notes of the
-//! pieces in between are deleted. A length past a barline is allowed (U4); an occupied space is
-//! refused by the local check (V2).
+//! # Rewriting a tie chain (ADR-0028 U3, ADR-0028 U4, ADR-0028 U9)
+//! A new length, or a move with [`MoveMode::SplitAtBarlines`] (the "move anyway" of ADR-0028 U5),
+//! rewrites the written chain from a start with a total length: cut at every barline and written
+//! with the longest values first (ADR-0026 V3), the pieces tied. The existing pieces' IDs are
+//! **reused in order** (the first keeps its markings, offsets and the tie leading into it); only
+//! extra pieces get new IDs and surplus ones are deleted, so a drag back and forth creates no ID at
+//! every mouse movement. The other pieces are plain, with no offsets, so the residual on the first
+//! notehead is the whole length offset of the chain (ADR-0027 N8). Slurs ending on the old last
+//! piece end on the new one; `After` grace notes follow the new end, `Before` ones the first piece;
+//! grace notes of the pieces in between are deleted. A length past a barline is allowed
+//! (ADR-0028 U4); an occupied space is refused by the local check (ADR-0026 V2).
 //!
 //! # Inside a gesture
 //! A drag sends [`MovePlayed`] at every mouse movement inside a gesture (ADR-0026 §4): the
@@ -88,9 +90,10 @@ pub enum MoveMode {
     ByThreshold,
     /// The user's conscious choice: always an offset, whatever its size; the score never changes.
     PerformanceOnly,
-    /// "Move anyway" (U5): as [`ByThreshold`](Self::ByThreshold), but a written move whose piece
-    /// would cross a barline rewrites the chain as tied notes instead of being refused. For
-    /// [`ResizePlayed`] it is the same as `ByThreshold`, which always splits at barlines (U4).
+    /// "Move anyway" (ADR-0028 U5): as [`ByThreshold`](Self::ByThreshold), but a written move whose
+    /// piece would cross a barline rewrites the chain as tied notes instead of being refused. For
+    /// [`ResizePlayed`] it is the same as `ByThreshold`, which always splits at barlines
+    /// (ADR-0028 U4).
     SplitAtBarlines,
 }
 
@@ -103,10 +106,10 @@ pub struct MovePlayed {
     /// `Some(p)` to move it only in pass `p` (always performance-only); `None` for every pass.
     pub pass: Option<u32>,
     /// The onset offset the user wants, in whole notes from the written start of the note
-    /// (negative = earlier), with what the playback rules add already taken out (Q1).
+    /// (negative = earlier), with what the playback rules add already taken out (ADR-0028 Q1).
     pub onset: Duration,
     /// The step of the DAW's active grid, in whole notes, counted from the start of each bar; it
-    /// must be positive when the move may become a written one (Q4).
+    /// must be positive when the move may become a written one (ADR-0028 Q4).
     pub grid: Duration,
     /// The default rule or the performance-only choice.
     pub mode: MoveMode,
@@ -124,8 +127,8 @@ pub struct ResizePlayed {
     /// length minus what the playback rules give (negative = shorter).
     pub length: Duration,
     /// The factor the playback rules scale the written length by for this note (½ for a staccato,
-    /// 1 without shortening articulations, U1); strictly positive. A written change of Δ changes
-    /// the played length by Δ × `scale`.
+    /// 1 without shortening articulations, ADR-0028 U1); strictly positive. A written change of Δ
+    /// changes the played length by Δ × `scale`.
     pub scale: Rational,
     /// The step of the DAW's active grid, as in [`MovePlayed`].
     pub grid: Duration,
@@ -174,7 +177,7 @@ pub(crate) fn move_played(
     }
 
     let chain = written_chain(doc, order.note)?;
-    // Q5: a chord with other noteheads anywhere along the chain keeps its written place.
+    // ADR-0028 Q5: a chord with other noteheads anywhere along the chain keeps its written place.
     let lone_noteheads = lone_noteheads(doc, &chain);
     let performance_only = order.mode == MoveMode::PerformanceOnly || !lone_noteheads;
     let written = doc.event_position(event)?;
@@ -216,7 +219,7 @@ pub(crate) fn move_played(
         let length = doc.metric_duration(e)?;
         match place_in_bar(doc, to, length) {
             Ok((bar, offset)) => moves.push((e, bar, offset)),
-            // "Move anyway" (U5): the whole chain is rewritten as ties from the new start.
+            // "Move anyway" (ADR-0028 U5): the whole chain is rewritten as ties from the new start.
             Err(DocumentError::MoveCrossesBarline) if order.mode == MoveMode::SplitAtBarlines => {
                 crosses = true;
                 break;
@@ -246,8 +249,8 @@ pub(crate) fn move_played(
 /// # Errors
 /// [`DocumentError::UnknownNote`] and the other lookups; [`DocumentError::GridNotPositive`],
 /// [`DocumentError::ScaleNotPositive`]; [`DocumentError::MoveOfTupletNote`] beyond the threshold
-/// (U6); [`DocumentError::PastLastBar`]; [`DocumentError::NotWritable`] for a length no sum of
-/// written values expresses (a grid of triplets); an overlap through the local check.
+/// (ADR-0028 U6); [`DocumentError::PastLastBar`]; [`DocumentError::NotWritable`] for a length no
+/// sum of written values expresses (a grid of triplets); an overlap through the local check.
 pub(crate) fn resize_played(
     tx: &mut Transaction<'_>,
     order: &ResizePlayed,
@@ -261,8 +264,8 @@ pub(crate) fn resize_played(
         head,
     } = target(doc, order.note)?;
     let chain = written_chain(doc, order.note)?;
-    // The inline length offsets of the noteheads after the first: N8 adds them all, so the first
-    // notehead's share is what is left.
+    // The inline length offsets of the noteheads after the first: ADR-0027 N8 adds them all, so the
+    // first notehead's share is what is left.
     let mut others = Duration::ZERO;
     for &(_, n) in chain.iter().skip(1) {
         let (_, head) = doc.note(n).ok_or(DocumentError::UnknownNote(n))?;
@@ -314,7 +317,8 @@ pub(crate) fn resize_played(
     }) {
         return Err(DocumentError::MoveOfTupletNote.into());
     }
-    // The written change that would give the whole offset, then the grid (U1, U2).
+    // The written change that would give the whole offset, then the grid (ADR-0028 U1,
+    // ADR-0028 U2).
     let wanted = order.length.checked_div(order.scale)?;
     let mut new_end = quantise_end(doc, end, wanted, order.grid)?;
     let shortest = start.checked_add(order.grid)?;
@@ -327,7 +331,7 @@ pub(crate) fn resize_played(
     }
     rewrite_chain(tx, &chain, start, new_end.checked_duration_since(start)?)?;
     // The rewritten pieces after the first are plain: the first notehead carries the whole
-    // residual (U3).
+    // residual (ADR-0028 U3).
     let residual = order.length.checked_sub(delta.checked_mul(order.scale)?)?;
     set_length(tx, event, order.note, residual)
 }
@@ -349,7 +353,7 @@ struct Target {
 
 /// The notehead `note` and where it lives. O(event lookup) + O(voices).
 ///
-/// The preamble `move_played` and `resize_played` each wrote out (review point B13).
+/// The preamble shared by `move_played` and `resize_played`.
 ///
 /// # Errors
 /// [`DocumentError::UnknownNote`], or [`DocumentError::UnknownVoice`] for an inconsistent index.
@@ -416,8 +420,8 @@ fn written_chain(doc: &Document, note: NoteId) -> Result<Vec<(EventId, NoteId)>,
     }
 }
 
-/// Whether every event of a chain is a chord of one notehead (Q5: otherwise the score keeps it).
-/// O(chain).
+/// Whether every event of a chain is a chord of one notehead (ADR-0028 Q5: otherwise the score
+/// keeps it). O(chain).
 fn lone_noteheads(doc: &Document, chain: &[(EventId, NoteId)]) -> bool {
     chain.iter().all(|&(e, _)| {
         doc.event(e)
@@ -452,9 +456,9 @@ fn score_end(doc: &Document) -> Result<Position, DocumentError> {
         .checked_add(doc.meter_map().bar_length(last)?)?)
 }
 
-/// The grid point nearest to `end + wanted` for the **end** of a note (U2): as [`quantise`], except
-/// that the end of the score is a valid point (a note may end exactly on the last barline), and a
-/// point past it is taken at it.
+/// The grid point nearest to `end + wanted` for the **end** of a note (ADR-0028 U2): as
+/// [`quantise`], except that the end of the score is a valid point (a note may end exactly on the
+/// last barline), and a point past it is taken at it.
 ///
 /// # Errors
 /// The meter-map and arithmetic errors.
@@ -472,8 +476,9 @@ fn quantise_end(
     quantise(doc, end, wanted, grid)
 }
 
-/// The pieces of a chain written from `start` for `total` (U3, U4): cut at every barline, each part
-/// written with the longest values first (`command::split_values`, V3), as (bar, offset, value).
+/// The pieces of a chain written from `start` for `total` (ADR-0028 U3, ADR-0028 U4): cut at every
+/// barline, each part written with the longest values first (`command::split_values`, ADR-0026 V3),
+/// as (bar, offset, value).
 ///
 /// # Complexity
 /// O(bars crossed × values per part), each a meter-map lookup O(log m).
@@ -509,7 +514,7 @@ fn chain_parts(
 
 /// Rewrites a written tie chain (single-notehead chords, no tuplet, checked by the callers) so that
 /// it starts at `start` and lasts `total`, reusing its pieces' IDs in order (see the module
-/// documentation, U3, U4, U9).
+/// documentation, ADR-0028 U3, ADR-0028 U4, ADR-0028 U9).
 ///
 /// # How
 /// 1. The new pieces ([`chain_parts`]) and their IDs: the existing ones in order, new ones for
@@ -716,7 +721,7 @@ fn quantise(
 }
 
 /// The bar and offset where an event of `length` starting at `at` goes, if it fits inside one
-/// bar of the document (Q6: a DAW move never makes a bar overfull). O(log m).
+/// bar of the document (ADR-0028 Q6: a DAW move never makes a bar overfull). O(log m).
 ///
 /// # Errors
 /// [`DocumentError::PastLastBar`] past the last bar; [`DocumentError::MoveCrossesBarline`] if it
@@ -782,7 +787,7 @@ fn set_onset(
 /// says whether anything changed; the event is replaced only then, so an unchanged value leaves
 /// no history step. O(event lookup) + the replacement.
 ///
-/// The body that `set_length` and `set_onset` each wrote out (review point B13).
+/// The body shared by `set_length` and `set_onset`.
 ///
 /// # Errors
 /// [`DocumentError::UnknownNote`] if the event has no such notehead; the lookups' and the edit's.

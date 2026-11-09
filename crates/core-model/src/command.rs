@@ -17,11 +17,11 @@
 //! does it in one of two ways:
 //! - the **event commands** emit their edits and then pass the **local check**
 //!   (`Document::check_cells`): the rules of `validate` that a change of events can break,
-//!   checked only on the cells (voice, bar) the command touched (owner's decision V8 of
+//!   checked only on the cells (voice, bar) the command touched (owner's decision ADR-0026 V8 of
 //!   2026-11-04). A refusal is a typed [`DocumentError::Invalid`]: for example entering a note
-//!   where the voice already has one is a [`crate::Violation::Overlap`] (V2);
+//!   where the voice already has one is a [`crate::Violation::Overlap`] (ADR-0026 V2);
 //! - the **bar commands** keep the rules by construction (§6 of ADR-0026), and delete in cascade
-//!   the form markings made invalid (W5).
+//!   the form markings made invalid (ADR-0026 W5).
 //!
 //! The property tests check both with the full [`Document::validate`] after every command.
 //!
@@ -29,21 +29,23 @@
 //! A command that fails leaves the document exactly as before it, even inside a larger
 //! transaction: the editor reverts the edits the command had applied (`crate::editor`).
 //!
-//! # The decisions written down here (owner, 2026-11-04)
-//! - **V2**: an event is entered only into free space; entering over other events is refused.
-//! - **V3**: an event that crosses a barline becomes a **tie chain** (a rest: several rests): each
-//!   part is written with the longest values first, with at most two dots.
-//! - **V4** (lifted by **Z4**, F1.11c part 2a): a tuplet note that crosses a barline is split
-//!   into tied notes that stay in the same tuplet, written in its own values (Z3).
+//! # The decisions written down here (owner, 2026-11-04, ADR-0026)
+//! - **V2**: an event is entered only into free space; entering over other events is
+//!   refused.
+//! - **V3**: an event that crosses a barline becomes a **tie chain** (a rest: several
+//!   rests): each part is written with the longest values first, with at most two dots.
+//! - **V4** (lifted by **Z4**, F1.11c part 2a): a tuplet note that crosses a
+//!   barline is split into tied notes that stay in the same tuplet, written in its own values
+//!   (ADR-0026 Z3).
 //! - **V5**: an event entered past the end of a **free** bar lengthens the bar instead.
-//! - **V6**: deleting an event leaves a gap (no rest is added) and deletes with it the slurs on
-//!   it, the grace notes that ornament it and the tuplets left without members; the ties leading
-//!   into it are cleared.
-//! - **W1**: moving an event never splits it: past the barline the bar becomes overfull, a valid
-//!   state (ADR-0022 §4).
+//! - **V6**: deleting an event leaves a gap (no rest is added) and deletes with it the
+//!   slurs on it, the grace notes that ornament it and the tuplets left without members; the ties
+//!   leading into it are cleared.
+//! - **W1**: moving an event never splits it: past the barline the bar becomes overfull, a
+//!   valid state (ADR-0022 §4).
 //! - **W2**: changing the pitch of a tied note changes the whole tie chain.
 //! - **W3**: entering an event that would reach past the last bar is refused.
-//! - **W4–W6**: see [`Command::DeleteBars`] and [`Command::InsertBars`].
+//! - **ADR-0026 W4–W6**: see [`Command::DeleteBars`] and [`Command::InsertBars`].
 
 use orchestra_core_time::{
     BarIndex, BarKind, BarSpan, BeatGrouping, Duration, IrregularBar, MeterChange,
@@ -70,9 +72,10 @@ use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
 use crate::tolerance::Tolerance;
 use crate::validate::Violation;
 
-/// The most events one part of a tie chain may be written with (V3). A part of a bar is written
-/// with the longest values first; any length a bar can have needs a handful of them, so the bound
-/// only stops a pathological length (thousands of 1024ths) from producing thousands of events.
+/// The most events one part of a tie chain may be written with (ADR-0026 V3). A part of a bar is
+/// written with the longest values first; any length a bar can have needs a handful of them, so the
+/// bound only stops a pathological length (thousands of 1024ths) from producing thousands of
+/// events.
 const MAX_VALUES_PER_PART: usize = 16;
 
 // ------------------------------------------------------------------------------------------------
@@ -89,14 +92,15 @@ const MAX_VALUES_PER_PART: usize = 16;
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Command {
-    /// Enters a new event into free space (V2), as a tie chain if it crosses a barline (V3, and
-    /// inside its tuplet for a tuplet note: Z3, Z4), lengthening a free bar instead (V5).
+    /// Enters a new event into free space (ADR-0026 V2), as a tie chain if it crosses a barline
+    /// (ADR-0026 V3, and inside its tuplet for a tuplet note: ADR-0026 Z3, ADR-0026 Z4),
+    /// lengthening a free bar instead (ADR-0026 V5).
     EnterEvent(NewEvent),
-    /// Deletes an event, leaving a gap (V6), with the slurs on it, the grace notes ornamenting it
-    /// and the tuplets left without members; the ties leading into it are cleared.
+    /// Deletes an event, leaving a gap (ADR-0026 V6), with the slurs on it, the grace notes
+    /// ornamenting it and the tuplets left without members; the ties leading into it are cleared.
     DeleteEvent(EventId),
-    /// Changes one aspect of an existing event, keeping its ID (V7). This is also what a drag
-    /// sends, many times, inside a gesture (ADR-0026 §4).
+    /// Changes one aspect of an existing event, keeping its ID (ADR-0026 V7). This is also what a
+    /// drag sends, many times, inside a gesture (ADR-0026 §4).
     ChangeEvent {
         /// The event.
         event: EventId,
@@ -106,8 +110,9 @@ pub enum Command {
     /// Inserts `count` empty bars before the bar at `at` (`at` = the number of bars appends them)
     /// (ADR-0026 §6). The new bars take the meter, clef, key and tempo in force just before `at`
     /// (at `at` = 0, those of the first bar); what stood at the start of bar `at` moves on with
-    /// it. Ranges spanning the point grow, those ending exactly at it do not (Y8); between two
-    /// voltas of a group the new bars join the earlier one (X11). Refused between the source and the end of a bar repeat (W6).
+    /// it. Ranges spanning the point grow, those ending exactly at it do not (ADR-0026 Y8); between
+    /// two voltas of a group the new bars join the earlier one (ADR-0026 X11). Refused between the
+    /// source and the end of a bar repeat (ADR-0026 W6).
     InsertBars {
         /// Where the new bars go.
         at: BarIndex,
@@ -117,20 +122,22 @@ pub enum Command {
     /// Deletes the `count` bars from `at` on (ADR-0026 §6): their events (as
     /// [`DeleteEvent`](Self::DeleteEvent) does), their dynamics and the form markings on them;
     /// the meter, clef, key and tempo last in force inside them move to the first bar after them,
-    /// unless it has its own; ranges are clipped (gradual tempo changes too, W4) and deleted when
-    /// they become empty; the form markings made invalid are deleted in cascade (W5). At least one
-    /// bar remains.
+    /// unless it has its own; ranges are clipped (gradual tempo changes too, ADR-0026 W4) and
+    /// deleted when they become empty; the form markings made invalid are deleted in cascade
+    /// (ADR-0026 W5). At least one bar remains.
     DeleteBars {
         /// The first bar deleted.
         at: BarIndex,
         /// How many (0 does nothing).
         count: u32,
     },
-    /// Adds a mark or a form marking (X3: refused, never deleting anything, if the result breaks
-    /// a rule). A volta is normally added with its group, [`AddVoltas`](Self::AddVoltas) (X1).
+    /// Adds a mark or a form marking (ADR-0026 X3: refused, never deleting anything, if the result
+    /// breaks a rule). A volta is normally added with its group, [`AddVoltas`](Self::AddVoltas)
+    /// (ADR-0026 X1).
     AddMark(MarkSpec),
-    /// Gives an existing mark a new description, keeping its ID and its kind (X5): a move, a new
-    /// text, a new end… A drag sends it inside a gesture. Refused if the result breaks a rule (X3).
+    /// Gives an existing mark a new description, keeping its ID and its kind (ADR-0026 X5): a move,
+    /// a new text, a new end… A drag sends it inside a gesture. Refused if the result breaks a rule
+    /// (ADR-0026 X3).
     ChangeMark {
         /// The mark.
         mark: ObjectRef,
@@ -138,10 +145,10 @@ pub enum Command {
         to: MarkSpec,
     },
     /// Removes a mark or a form marking, and deletes in cascade the form markings it leaves
-    /// invalid (X2, as W5).
+    /// invalid (ADR-0026 X2, as ADR-0026 W5).
     RemoveMark(ObjectRef),
     /// Adds a repeated section: a start repeat at the start of `start` and an end repeat at the
-    /// end of `end` (X1).
+    /// end of `end` (ADR-0026 X1).
     AddRepeat {
         /// The first bar of the section.
         start: BarId,
@@ -150,10 +157,10 @@ pub enum Command {
         /// The total number of plays, 2 to [`MAX_PLAYS`](crate::MAX_PLAYS).
         times: u8,
     },
-    /// Adds a whole group of voltas, in order, with the end repeats it lacks (X1).
+    /// Adds a whole group of voltas, in order, with the end repeats it lacks (ADR-0026 X1).
     AddVoltas(Vec<NewVolta>),
-    /// Adds an empty tuplet to a voice, nested in `parent` if given (X7). Its notes are then
-    /// entered with [`EnterEvent`](Self::EnterEvent).
+    /// Adds an empty tuplet to a voice, nested in `parent` if given (ADR-0026 X7). Its notes are
+    /// then entered with [`EnterEvent`](Self::EnterEvent).
     AddTuplet {
         /// The voice.
         voice: VoiceId,
@@ -162,18 +169,18 @@ pub enum Command {
         /// The tuplet it is nested in, of the same voice.
         parent: Option<TupletId>,
     },
-    /// Changes a tuplet's ratio, unit and look, keeping its parent (X7). Refused if its events
-    /// would then overlap.
+    /// Changes a tuplet's ratio, unit and look, keeping its parent (ADR-0026 X7). Refused if its
+    /// events would then overlap.
     ChangeTuplet {
         /// The tuplet.
         tuplet: TupletId,
         /// The new ratio, unit and look (its parent field is ignored).
         to: Tuplet,
     },
-    /// Removes a tuplet with the events it contains and the tuplets nested in it (X7).
+    /// Removes a tuplet with the events it contains and the tuplets nested in it (ADR-0026 X7).
     RemoveTuplet(TupletId),
     /// Sets a value the document has once: the initial tempo (immediate), key, a staff's clef, the
-    /// numbering style (X8). No pitch changes (X6).
+    /// numbering style (ADR-0026 X8). No pitch changes (ADR-0026 X6).
     SetInitial(Initial),
     /// Sets the beat grouping of one bar, or `None` for its section's counting (X9, ADR-0019).
     SetBarGrouping {
@@ -182,14 +189,14 @@ pub enum Command {
         /// The grouping.
         grouping: Option<BeatGrouping>,
     },
-    /// Leaves a bar out of the displayed numbering, or counts it again (X9).
+    /// Leaves a bar out of the displayed numbering, or counts it again (ADR-0026 X9).
     SetUncounted {
         /// The bar.
         bar: BarId,
         /// `true` to leave it uncounted.
         uncounted: bool,
     },
-    /// Restarts the displayed numbering at a bar, or removes the restart with `None` (X9).
+    /// Restarts the displayed numbering at a bar, or removes the restart with `None` (ADR-0026 X9).
     SetNumberingRestart {
         /// The bar.
         bar: BarId,
@@ -207,7 +214,7 @@ pub enum Command {
         mode: MeterMode,
     },
     /// Makes a bar irregular (another length, a pickup, a free bar), or regular again with `None`,
-    /// in a mode as [`ChangeMeter`](Self::ChangeMeter) (Y1).
+    /// in a mode as [`ChangeMeter`](Self::ChangeMeter) (ADR-0026 Y1).
     SetIrregularBar {
         /// The bar.
         bar: BarId,
@@ -266,7 +273,7 @@ pub enum NewBody {
 #[non_exhaustive]
 pub enum EventChange {
     /// Moves the event to another bar and offset of its voice. The grace notes ornamenting it
-    /// move with it. It is never split (W1): past the barline the bar becomes overfull.
+    /// move with it. It is never split (ADR-0026 W1): past the barline the bar becomes overfull.
     Move {
         /// The new bar.
         bar: BarId,
@@ -276,7 +283,7 @@ pub enum EventChange {
     /// A new written value, for a chord or a rest. The `After` grace notes ornamenting the event
     /// follow its new end.
     Value(NoteValue),
-    /// A new pitch for one notehead, and for every notehead of its tie chain (W2).
+    /// A new pitch for one notehead, and for every notehead of its tie chain (ADR-0026 W2).
     Pitch {
         /// The notehead.
         note: NoteId,
@@ -286,7 +293,7 @@ pub enum EventChange {
     /// A new notehead in the chord.
     AddNote(Pitch),
     /// Removes a notehead from the chord, clearing the ties leading into it. Removing the last
-    /// notehead deletes the event (V6).
+    /// notehead deletes the event (ADR-0026 V6).
     RemoveNote(NoteId),
     /// A new tie from one notehead.
     Tie {
@@ -370,12 +377,12 @@ pub(crate) fn run(tx: &mut Transaction<'_>, command: &Command) -> Result<(), Com
     }
 }
 
-/// The local check that follows a command (V8, X10): the rules its edits may have broken,
-/// checked only where it touched the document. A refusal is reverted by the editor.
+/// The local check that follows a command (ADR-0026 V8, ADR-0026 X10): the rules its edits may have
+/// broken, checked only where it touched the document. A refusal is reverted by the editor.
 ///
 /// - The **bar commands** keep the rules by construction (see the module documentation), and
-///   **removing a mark** ends with the cascade, which leaves the form valid (X2): nothing to
-///   check.
+///   **removing a mark** ends with the cascade, which leaves the form valid (ADR-0026 X2): nothing
+///   to check.
 /// - Every other command passes `Document::check_cells` on the cells it touched (the event
 ///   commands, and the tuplet commands whose events change) and `Document::check_objects` on the
 ///   marks it inserted or replaced (a slur's ends, a hairpin's neighbours, the tempo marks, the
@@ -402,8 +409,8 @@ pub(crate) fn check(
 // ------------------------------------------------------------------------------------------------
 
 /// Every written value with at most two dots, longest first: the palette a tie chain is written
-/// with (V3). 14 base values × 3 = 42 entries. Built on each call (no lazy static, no allocation:
-/// an array), O(42).
+/// with (ADR-0026 V3). 14 base values × 3 = 42 entries. Built on each call (no lazy static, no
+/// allocation: an array), O(42).
 fn palette() -> Result<[(NoteValue, Duration); 42], DocumentError> {
     let mut out = [(NoteValue::plain(BaseValue::Whole), Duration::ZERO); 42];
     let mut i = 0;
@@ -422,9 +429,9 @@ fn palette() -> Result<[(NoteValue, Duration); 42], DocumentError> {
     Ok(out)
 }
 
-/// The written values that add up to `length`, longest first (V3): at each step the longest value
-/// with at most two dots that still fits. Five eighths are a half and an eighth; seven eighths a
-/// double-dotted half.
+/// The written values that add up to `length`, longest first (ADR-0026 V3): at each step the
+/// longest value with at most two dots that still fits. Five eighths are a half and an eighth;
+/// seven eighths a double-dotted half.
 ///
 /// # Complexity
 /// O(42 × values), at most [`MAX_VALUES_PER_PART`] values.
@@ -470,8 +477,8 @@ pub(crate) fn chord_from(
     for note in &notes {
         note.pitch().sounding()?;
     }
-    // Sorted in place, without a list of keys (review point A1: every event loaded goes through
-    // here, and the list cost an allocation per chord; a single notehead needs no sorting at all).
+    // Sorted in place, without a list of keys: every event loaded goes through here, and a list
+    // would cost an allocation per chord; a single notehead needs no sorting at all.
     // The keys cannot fail any more (checked above); `sort_by_key` is stable, so two noteheads
     // sounding the same with the same letter keep their order.
     if notes.len() > 1 {
@@ -558,7 +565,7 @@ pub(crate) fn replace_event(
 }
 
 // ------------------------------------------------------------------------------------------------
-// Entering an event (V2, V3, V4, V5, W3)
+// Entering an event (ADR-0026 V2, ADR-0026 V3, ADR-0026 V4, ADR-0026 V5, ADR-0026 W3)
 // ------------------------------------------------------------------------------------------------
 
 /// Executes [`Command::EnterEvent`].
@@ -568,13 +575,14 @@ pub(crate) fn replace_event(
 /// 2. A grace chord and a whole-bar rest are entered as they are: they last zero, or exactly
 ///    their bar, so they never cross a barline.
 /// 3. An event that ends inside its bar is entered with the value the user gave. One that ends
-///    past the end of a **free** bar lengthens the bar to its end (V5).
+///    past the end of a **free** bar lengthens the bar to its end (ADR-0026 V5).
 /// 4. Otherwise (it crosses a barline) it is cut at every barline, each part is written with
-///    [`split_values`], and a chord's parts are tied notehead by notehead (V3). Rests are not tied.
-///    Inside a tuplet every part stays in the same tuplet, written in its own values (Z3, Z4;
-///    ADR-0024 C4, Dorico's "spans barline"). Past the last bar it is refused (W3).
+///    [`split_values`], and a chord's parts are tied notehead by notehead (ADR-0026 V3). Rests are
+///    not tied. Inside a tuplet every part stays in the same tuplet, written in its own values
+///    (ADR-0026 Z3, ADR-0026 Z4; ADR-0024 C4, Dorico's "spans barline"). Past the last bar it is
+///    refused (ADR-0026 W3).
 ///
-/// Free space (V2) is not checked here: the local check that follows refuses an overlap.
+/// Free space (ADR-0026 V2) is not checked here: the local check that follows refuses an overlap.
 ///
 /// # Complexity
 /// O(voices + staves) to resolve, O(events × (k + noteheads)) to insert, k events per chunk.
@@ -650,7 +658,7 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         .offset
         .checked_add(voice.metric_duration(&probe, bar_length)?)?;
     // An event starts inside its bar; a free bar also accepts one at its very end, which it then
-    // grows to hold (V5).
+    // grows to hold (ADR-0026 V5).
     let starts_past = if free {
         at.offset > bar_length
     } else {
@@ -663,7 +671,7 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
     if end <= bar_length {
         return insert_chain(tx, &at, staff, kind, &single);
     }
-    // A free bar grows to hold it (V5).
+    // A free bar grows to hold it (ADR-0026 V5).
     if free {
         tx.apply(Edit::Meter(MeterEdit::IrregularBar {
             bar: at.bar,
@@ -675,9 +683,10 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         return insert_chain(tx, &at, staff, kind, &single);
     }
     // Cut at every barline: the first part fills its bar, the next ones fill whole bars, the last
-    // one what is left (V3). Past the last bar it is refused (W3). Inside a tuplet the parts stay
-    // in the tuplet and are written in its own values (Z3, Z4): how much a written value lasts in
-    // the bar is scaled by the tuplet chain's ratio, the same for every value of the chain.
+    // one what is left (ADR-0026 V3). Past the last bar it is refused (ADR-0026 W3). Inside a
+    // tuplet the parts stay in the tuplet and are written in its own values (ADR-0026 Z3,
+    // ADR-0026 Z4): how much a written value lasts in the bar is scaled by the tuplet chain's
+    // ratio, the same for every value of the chain.
     let ratio = tuplet_ratio(voice, &probe, value)?;
     let doc = tx.document();
     let mut chain: Vec<(BarId, Duration, NoteValue)> = Vec::new();
@@ -723,10 +732,11 @@ fn tuplet_ratio(
 }
 
 /// The written values of one part of a chain that lasts `length` in its bar, inside a tuplet
-/// chain whose ratio is `ratio` (Z3): the part is brought back to the tuplet's own written values
-/// (divided by the ratio) and written with the longest values first, as outside a tuplet (V3). A
-/// triplet quarter (1/6) with 1/12 left in the bar becomes two triplet eighths: 1/12 ÷ 2/3 = 1/8.
-/// Shared with the meter change that rewrites the music (F1.11c part 2, Z5).
+/// chain whose ratio is `ratio` (ADR-0026 Z3): the part is brought back to the tuplet's own written
+/// values (divided by the ratio) and written with the longest values first, as outside a tuplet
+/// (ADR-0026 V3). A triplet quarter (1/6) with 1/12 left in the bar becomes two triplet eighths:
+/// 1/12 ÷ 2/3 = 1/8. Shared with the meter change that rewrites the music (F1.11c part 2,
+/// ADR-0026 Z5).
 ///
 /// # Complexity
 /// As [`written_values`].
@@ -803,7 +813,7 @@ fn insert_chain(
 }
 
 // ------------------------------------------------------------------------------------------------
-// Deleting events (V6)
+// Deleting events (ADR-0026 V6)
 // ------------------------------------------------------------------------------------------------
 
 /// The grace notes that ornament the main event `id` (ADR-0024 §5): the `Before` graces at its
@@ -854,8 +864,8 @@ pub(crate) fn graces_of(doc: &Document, id: EventId) -> Result<Vec<EventId>, Doc
     Ok(graces)
 }
 
-/// Deletes events (V6): each one with the grace notes ornamenting it, the slurs starting or
-/// ending on any of them, the ties leading into them from events that stay (set to
+/// Deletes events (ADR-0026 V6): each one with the grace notes ornamenting it, the slurs starting
+/// or ending on any of them, the ties leading into them from events that stay (set to
 /// [`Tie::None`]), and the tuplets left without members (nested ones first, then their parents).
 ///
 /// Used by [`Command::DeleteEvent`], by removing the last notehead of a chord and by
@@ -953,7 +963,7 @@ pub(crate) fn delete_events(tx: &mut Transaction<'_>, ids: &[EventId]) -> Result
 }
 
 // ------------------------------------------------------------------------------------------------
-// Changing an event (V7, W1, W2)
+// Changing an event (ADR-0026 V7, ADR-0026 W1, ADR-0026 W2)
 // ------------------------------------------------------------------------------------------------
 
 /// Executes [`Command::ChangeEvent`]: builds the changed event and sends it back with
@@ -982,8 +992,8 @@ pub(crate) fn change_event(
                 return Err(DocumentError::NegativeOffset.into());
             }
             tx.document().bar_index(to)?;
-            // The grace notes move by the same amount (W1: nothing is split). Before graces sit
-            // at the event's offset, After graces at its end.
+            // The grace notes move by the same amount (ADR-0026 W1: nothing is split). Before
+            // graces sit at the event's offset, After graces at its end.
             let graces = graces_of(tx.document(), id)?;
             let shift = new_offset.checked_sub(placed.offset())?;
             replace_event(
@@ -1060,7 +1070,7 @@ pub(crate) fn change_event(
             if !chord.notes().any(|n| n.id() == note) {
                 return Err(DocumentError::UnknownNote(note).into());
             }
-            // The last notehead: the event goes, as a deletion (V6).
+            // The last notehead: the event goes, as a deletion (ADR-0026 V6).
             if chord.len() == 1 {
                 return delete_events(tx, &[id]);
             }
@@ -1127,8 +1137,7 @@ pub(crate) fn change_event(
 /// same value, tuplet, grace and markings (`chord_from` with the old chord as model), sorted
 /// again, same offset, staff and ID. O(noteheads log noteheads).
 ///
-/// The one copy of a step that adding a notehead, removing one and changing a pitch each wrote
-/// out (review point B12).
+/// The one copy of a step shared by adding a notehead, removing one and changing a pitch.
 ///
 /// # Errors
 /// [`DocumentError::NotAChord`] if `placed` is a rest (callers have checked it already); those of
@@ -1189,8 +1198,8 @@ fn set_tie(tx: &mut Transaction<'_>, note: NoteId, tie: Tie) -> Result<(), Comma
     replace_event(tx, voice, bar, placed)
 }
 
-/// Changes the pitch of a notehead and of every notehead of its tie chain (W2): the chain is
-/// followed forward through each [`Tie::To`] and backward through the tie index, so that it is
+/// Changes the pitch of a notehead and of every notehead of its tie chain (ADR-0026 W2): the chain
+/// is followed forward through each [`Tie::To`] and backward through the tie index, so that it is
 /// found from any of its noteheads. Each event of the chain is replaced once, its chord sorted
 /// again. O(chain × (voices + k + noteheads)).
 fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<(), CommandError> {
@@ -1262,12 +1271,12 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
 /// first bar keep the same meter, and the initial clef, key and tempo now apply to the new bars
 /// first. Ranges whose ends are on both sides of the point grow, because their ends are `BarId`s.
 ///
-/// # Ends at the insertion point (Y8)
+/// # Ends at the insertion point (ADR-0026 Y8)
 /// A hairpin, a pass rule or a gradual tempo change that ends exactly at the start of bar `at`
 /// (its end is exclusive) does not span the point: it keeps ending there, before the new bars,
 /// anchored to the start of the first new bar (owner's choice, 2026-11-05).
 ///
-/// # Between two voltas of a group (X11)
+/// # Between two voltas of a group (ADR-0026 X11)
 /// A point between two voltas of one group (the first one ending on the bar before `at`, the
 /// next one starting on bar `at`) is spanned by no range, so the new bars would fall between the
 /// voltas, outside both, and the group would no longer be valid. There they **join the earlier
@@ -1275,7 +1284,7 @@ fn change_pitch(tx: &mut Transaction<'_>, note: NoteId, pitch: Pitch) -> Result<
 /// that bar too (owner's choice, 2026-11-05): the new bars take what is in force just before them,
 /// as everywhere else, and the form stays valid.
 ///
-/// # Refused (W6)
+/// # Refused (ADR-0026 W6)
 /// Between the first bar of a bar repeat's source and the end of the bar repeat (exclusive at
 /// both ends): the new bars would either change what the repeat repeats or become repeated bars
 /// of a span they do not fit. [`DocumentError::InsideBarRepeat`].
@@ -1311,7 +1320,7 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
             .ok_or(DocumentError::inconsistent())?;
         meter.set_meter_change(BarIndex::FIRST, first);
     }
-    // X11: the volta ending just before the point, when the next volta of its group starts
+    // ADR-0026 X11: the volta ending just before the point, when the next volta of its group starts
     // right at it, and the end repeats at the end of its last bar. Read before the bars move.
     let mut grow: Vec<crate::form::Volta> = Vec::new();
     let mut repeat_ends: Vec<crate::form::RepeatEnd> = Vec::new();
@@ -1345,7 +1354,7 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
     }
     let last = *ids.last().ok_or(DocumentError::inconsistent())?;
     let first_new = *ids.first().ok_or(DocumentError::inconsistent())?;
-    // Y8: the exclusive ends exactly at the start of bar `at`, read before the bars move.
+    // ADR-0026 Y8: the exclusive ends exactly at the start of bar `at`, read before the bars move.
     let doc = tx.document();
     let ends = match doc.bars().id_at(at) {
         Some(next) => ends_at(
@@ -1372,9 +1381,9 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
 
 /// The edits that keep the exclusive ends lying exactly at `point` (the start of the bar before
 /// which bars are inserted) where they are, before the new bars, by anchoring them to `to` (the
-/// start of the first new bar) (Y8): hairpins, pass rules and gradual tempo changes "up to" that
-/// barline do not span the insertion point, so they must not grow over the new bars. Otherwise a
-/// pass rule could reach out of its repeated section.
+/// start of the first new bar) (ADR-0026 Y8): hairpins, pass rules and gradual tempo changes "up
+/// to" that barline do not span the insertion point, so they must not grow over the new bars.
+/// Otherwise a pass rule could reach out of its repeated section.
 ///
 /// # Complexity
 /// O(hairpins + pass rules + tempo marks).
@@ -1451,18 +1460,18 @@ impl Cut {
 /// Executes [`Command::DeleteBars`] (see its documentation for what it does). The steps, in
 /// order, each with ordinary edits, so that the final [`Edit::RemoveBars`] finds the bars empty:
 ///
-/// 1. the events of the run, as [`Command::DeleteEvent`] does (V6);
-/// 2. the dynamics on the run (U10); hairpins and pass rules clipped or deleted;
+/// 1. the events of the run, as [`Command::DeleteEvent`] does (ADR-0026 V6);
+/// 2. the dynamics on the run (ADR-0026 U10); hairpins and pass rules clipped or deleted;
 /// 3. voltas and bar repeats clipped or deleted (a bar repeat whose source loses a bar is
-///    deleted; one that loses repeated bars keeps a multiple of its span, W5);
+///    deleted; one that loses repeated bars keeps a multiple of its span, ADR-0026 W5);
 /// 4. the repeat barlines, markers and jumps on the run;
 /// 5. the state marks: the meter, the clef of each staff, the key, the key of each instrument and
 ///    the tempo last in force inside the run move to the start of the first bar after it, unless
-///    that bar has its own (U10); at the start of the score they become the initial values;
-///    gradual tempo changes are clipped (W4);
+///    that bar has its own (ADR-0026 U10); at the start of the score they become the initial
+///    values; gradual tempo changes are clipped (ADR-0026 W4);
 /// 6. the bars;
-/// 7. the cascade (W5): the form checks of `validate` run again, and each marking they report is
-///    deleted, until the form is valid.
+/// 7. the cascade (ADR-0026 W5): the form checks of `validate` run again, and each marking they
+///    report is deleted, until the form is valid.
 ///
 /// # Complexity
 /// O(events of the run) for step 1, O(marks + spanners + form markings of the score) for the
@@ -1524,7 +1533,7 @@ fn delete_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
     // 6. The bars, now empty.
     tx.apply(Edit::RemoveBars { at, count })?;
 
-    // 7. The cascade (W5).
+    // 7. The cascade (ADR-0026 W5).
     cascade(tx)
 }
 
@@ -1635,9 +1644,9 @@ fn clip_form(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// What happens to one bar repeat when bars are deleted (W5): deleted if its source loses a bar
-/// or nothing of it is left, shortened to a multiple of its span if it loses repeated bars, and
-/// moved to the first bar after the run if its first bar is deleted. `None` if it is untouched.
+/// What happens to one bar repeat when bars are deleted (ADR-0026 W5): deleted if its source loses
+/// a bar or nothing of it is left, shortened to a multiple of its span if it loses repeated bars,
+/// and moved to the first bar after the run if its first bar is deleted. `None` if it is untouched.
 /// O(1).
 fn clip_bar_repeat(doc: &Document, cut: &Cut, repeat: &BarRepeat) -> Option<Edit> {
     let span = repeat.span().bars();
@@ -1667,7 +1676,8 @@ fn clip_bar_repeat(doc: &Document, cut: &Cut, repeat: &BarRepeat) -> Option<Edit
     )))
 }
 
-/// Step 5 of [`delete_bars`] for the meter, the clefs, the key and the key overrides (U10).
+/// Step 5 of [`delete_bars`] for the meter, the clefs, the key and the key overrides
+/// (ADR-0026 U10).
 ///
 /// For each kind (and each staff or instrument): the marks on the run are deleted, except the
 /// last one, which moves to the start of the first bar after the run unless that bar already has
@@ -1824,7 +1834,7 @@ fn carry_marks<I: Copy, T: Clone>(
     }
 }
 
-/// Step 5 of [`delete_bars`] for the tempo marks (U10, W4).
+/// Step 5 of [`delete_bars`] for the tempo marks (ADR-0026 U10, ADR-0026 W4).
 ///
 /// - A gradual change that starts before the run and ends inside it is clipped: its end moves to
 ///   the cut point.
@@ -1832,7 +1842,7 @@ fn carry_marks<I: Copy, T: Clone>(
 ///   at the start of the first bar after the run (unless that bar has its own mark there):
 ///   - a gradual change that goes on past the run keeps its end and starts there (clipped);
 ///   - a gradual change that ends inside the run arrives as an **immediate** mark of its target
-///     tempo, without text (W4): the remaining music keeps the tempo it had;
+///     tempo, without text (ADR-0026 W4): the remaining music keeps the tempo it had;
 ///   - an immediate mark moves as it is.
 ///
 ///   At the start of the score it becomes the initial tempo mark instead (which must be
@@ -1914,7 +1924,7 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
             }
             // The next bar has its own mark at its start: it wins.
             (Some(_), _) if own.is_some() => edits.push(remove),
-            // An immediate mark, or a gradual change ending inside the run (W4).
+            // An immediate mark, or a gradual change ending inside the run (ADR-0026 W4).
             (Some(next), change) => {
                 let value = match change {
                     Some(TempoMarkChange::Gradual(g)) => {
@@ -1947,9 +1957,9 @@ fn carry_tempo(tx: &mut Transaction<'_>, cut: &Cut) -> Result<(), CommandError> 
     Ok(())
 }
 
-/// Step 7 of [`delete_bars`], the cascade (W5): runs the form checks of `validate` (rules 8–11)
-/// and deletes the marking each one reports, until the form is valid. Every marking deleted is in
-/// the change set, so the interface can say what went.
+/// Step 7 of [`delete_bars`], the cascade (ADR-0026 W5): runs the form checks of `validate` (rules
+/// 8–11) and deletes the marking each one reports, until the form is valid. Every marking deleted
+/// is in the change set, so the interface can say what went.
 ///
 /// # Complexity
 /// O(f) per check for the f form markings, once per marking deleted plus one; bounded by the

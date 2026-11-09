@@ -18,10 +18,10 @@
 //!
 //! ## How to use it
 //! ```
-//! use orchestra_test_scores::{Size, plain};
+//! use orchestra_test_scores::{Instruments, Size, plain};
 //!
 //! // The normal plain score, without the empty "editing" instrument at the end.
-//! let document = plain(Size::Normal, false);
+//! let document = plain(Size::Normal, Instruments::Plain);
 //! assert_eq!(document.bars().len(), 100);
 //! assert_eq!(document.tracks().len(), 9); // one piano (two staves) + 8 one-staff instruments
 //! ```
@@ -56,6 +56,8 @@ mod plain;
 
 /// The full preset (see the [module documentation](self) and [`full::score`]).
 pub use full::score as full;
+/// Which instruments the plain preset has (see [`plain::score`]).
+pub use plain::Instruments;
 /// The plain preset (see the [module documentation](self) and [`plain::score`]).
 pub use plain::score as plain;
 

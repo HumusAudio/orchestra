@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The text forms of the values a project file writes as strings (ADR-0029 S6; owner's choices
-//! I2, I4, I5 of 2026-11-06), each with a **strict** reader: one value, one spelling.
+//! ADR-0029 I2, ADR-0029 I4, ADR-0029 I5 of 2026-11-06), each with a **strict** reader: one value,
+//! one spelling.
 //!
 //! # Why strings for these, and objects for the rest?
-//! I2: compact strings only for what occurs **per note** (positions, note values, pitches,
+//! ADR-0029 I2: compact strings only for what occurs **per note** (positions, note values, pitches,
 //! ornaments), where size and reading time matter (the spike of `spikes/fileformat/` measured
 //! compact values reading twice as fast as structured ones); everything rare (marks, form,
 //! instruments) is written as objects with full field names, readable without a manual.
@@ -188,7 +189,7 @@ const fn letter_step(letter: u8) -> Option<Step> {
 /// The signs of the chromatic alterations other than the natural: `#x` (triple sharp), `x`
 /// (double sharp), `#`, `bbb`, `bb`, `b`, with their semitones.
 ///
-/// One table for both directions (review point B18: the decoder had a copy of it). The order
+/// One table for both directions, so the encoder and the decoder cannot disagree. The order
 /// matters for decoding, which takes the first sign that prefixes the text: `#x` before `#`, and
 /// `bbb` before `bb` before `b`, so the longest sign wins.
 const SIGNS: [(&str, i64); 6] = [
@@ -287,7 +288,7 @@ text!(
 // ------------------------------------------------------------------------------------------------
 
 /// The written name of each base value: its usual number (`"4"` a quarter) or, for the three
-/// longest, a word, as `LilyPond` writes them (I4). In `BaseValue::ALL` order.
+/// longest, a word, as `LilyPond` writes them (ADR-0029 I4). In `BaseValue::ALL` order.
 const BASE_NAMES: [(BaseValue, &str); 14] = [
     (BaseValue::Maxima, "maxima"),
     (BaseValue::Longa, "longa"),
@@ -343,7 +344,7 @@ fn decode_rest(text: &str) -> Option<RestValue> {
 }
 
 text!(
-    /// A note value: `"4"`, `"8."`, `"breve"` (I4).
+    /// A note value: `"4"`, `"8."`, `"breve"` (ADR-0029 I4).
     ValueText(NoteValue), "a note value such as \"8.\"", encode_value, decode_value
 );
 text!(
@@ -469,8 +470,8 @@ text!(
 // Ornaments
 // ------------------------------------------------------------------------------------------------
 
-/// The text of an ornament: a name, with a parameter in brackets where it has one (I5): the
-/// auxiliary note's alteration of a trill in semitones (`"trill[1]"`), the strokes of a tremolo
+/// The text of an ornament: a name, with a parameter in brackets where it has one (ADR-0029 I5):
+/// the auxiliary note's alteration of a trill in semitones (`"trill[1]"`), the strokes of a tremolo
 /// (`"tremolo[3]"`). O(digits).
 fn encode_ornament(ornament: Ornament) -> String {
     match ornament {
@@ -511,7 +512,7 @@ fn decode_ornament(text: &str) -> Option<Ornament> {
 }
 
 text!(
-    /// An ornament: `"turn"`, `"trill[1]"`, `"tremolo[3]"` (I5).
+    /// An ornament: `"turn"`, `"trill[1]"`, `"tremolo[3]"` (ADR-0029 I5).
     OrnamentText(Ornament), "an ornament such as \"turn\" or \"tremolo[3]\"", encode_ornament, decode_ornament
 );
 
