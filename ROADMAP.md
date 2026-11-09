@@ -685,7 +685,24 @@ pull request per group, and asked for an ADR for P3.3 (public API policy). Progr
   item, error and warning enums exhaustive (the review report had first suggested the opposite;
   the ADR explains why the exhaustive `match` of the interface's Fluent mapping matters more),
   `#[non_exhaustive]` only where a generic case is right.
-- **Still to do:** P3.2 and P3.3 (`refactor/review2-p3-api`), implementing ADR-0034.
+- **P3.3 and P3.2 (`refactor/review2-p3-api`, tag `pre-refactor-2026-11-09` before it):**
+  ADR-0034 implemented: the modules of `core-time`, `core-model`, `playback` and `io` are private,
+  their API is the root re-exports (the named namespaces `core-time::invariant` and `io::midi`
+  say why); `PerformError`, `UnrollError`, `MidiError` and `MidiWarning` are exhaustive again;
+  `MarkSpec` and `EventChange` state why they stay `#[non_exhaustive]`. `document.rs` became
+  `document/{mod, error, structure, builder}.rs`; `place_object`, `change_event`, `enter_event`,
+  `rewrite_chain` and `Unrolled::new` (now `Walk`) are split into their steps. The
+  `too_many_lines` allows left are flat lists (error `Display`s, schema mappings, `object_of`'s
+  constructors, test tables): not split, with the reason kept next to each.
+- **Benchmark gate of #49:** `add_dynamic` first measured +11% (the duplicate check scanned every
+  dynamic with a bar lookup that LLVM stopped inlining after the split): fixed with a binary
+  search, now 12.6% faster than before. `parts::to_parts` stays +6.1%/+6.2% (1.23 M → 1.31 M
+  instructions on the normal score, ≈ 0.3 ms): the code and the work are unchanged, only the
+  generated copy of a bar's events (`[PlacedEvent]::to_vec`) is slower, from the new layout of
+  codegen units after `document.rs` was split. **Accepted by the owner** (2026-11-09) with the
+  `Bench-regression: accepted` trailer of ADR-0017.
+- **Review 2 complete** once this PR is merged. Not done, with the reason: P4.3 (measured, the
+  clone is cheap and keeps a failed undo's step whole).
 
 | Step | What | Status |
 |---|---|---|

@@ -19,9 +19,9 @@
 //! - Do all of this incrementally: a change to one note re-derives only the affected passes.
 //!
 //! ## Modules
-//! - [`unroll`] (SCALETTA F1.12, ADR-0025 §5): the bars in the order they are played, with their
+//! - `unroll` (SCALETTA F1.12, ADR-0025 §5): the bars in the order they are played, with their
 //!   pass indices, section plays, times and bar-repeat sources ([`Unrolled`]).
-//! - [`perform`] (SCALETTA F1.13b–c, ADR-0027): the notes that sound along the path, with their
+//! - `perform` (SCALETTA F1.13b–c, ADR-0027): the notes that sound along the path, with their
 //!   exact start, end and pitch and their attack profile ([`Performance`]).
 //! - `loudness` (internal, SCALETTA F1.13c, ADR-0027 §4 and §14): the dynamics and hairpins along
 //!   the path of each voice, the dynamic and articulation accents, the attack profile.
@@ -37,8 +37,8 @@
 #![forbid(unsafe_code)]
 
 mod loudness;
-pub mod perform;
-pub mod unroll;
+mod perform;
+mod unroll;
 
 pub use loudness::INITIAL_VELOCITY;
 pub use perform::{PerformError, Performance, PlayedNote};

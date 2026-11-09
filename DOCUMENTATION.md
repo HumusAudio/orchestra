@@ -222,6 +222,38 @@ T1)`) or under a heading that does (the lists of decisions at the top of `comman
 `mark_command.rs` and `meter_command.rs`), the code stays bare. Decisions of the work plan are
 written `SCALETTA D04`.
 
+### The public API of the library crates (ADR-0034)
+
+The library crates (`core-time`, `core-model`, `playback`, `io`) keep their **modules private**:
+their API is what the crate root re-exports with `pub use`, one path per item
+(`orchestra_core_model::Pitch`, never `orchestra_core_model::pitch::Pitch`). So the files can be
+split or moved without breaking any caller, and an item that is `pub` only for a sibling module
+is reported by `unreachable_pub`. A module stays public only as a named namespace, with the
+reason next to its `pub mod`: `orchestra_core_time::invariant` (`convert_or` says nothing without
+it) and `orchestra_io::midi` (`midi::save` next to the project file's `save`).
+
+Error and warning enums are **exhaustive** (no `#[non_exhaustive]`): the interface will map every
+variant to a Fluent key, and a new variant must break that `match` until it has its key in six
+languages. `#[non_exhaustive]` stays only where a consumer should have a generic case, with the
+reason next to it: `ChangeSet` (ADR-0026), and the command enums that callers build rather than
+match (`Command`, `EventChange`, `MarkSpec`, `MeterMode`).
+
+Long functions are split into their natural steps, each with a name and a doc comment:
+`Document::place_object` dispatches to one `place_<kind>` per kind of object, `change_event` to
+`move_event`, `change_value`, `add_note` and `remove_note`, `enter_event` uses `entry_kind` and
+`barline_parts`, the unrolling walks with `Walk` (`skipped_volta`, `play`, `next_after`, the rules
+of ADR-0025 §5 in order). A `#[allow(clippy::too_many_lines)]` remains only where the length is a
+flat list that splitting would scatter: a `Display` with one line per error, the field-by-field
+mappings of the file schema, the constructors of `mark_command::object_of`, and test tables.
+
+The benchmark gate checked the split. It first measured `add_dynamic` 11% slower: once
+`place_dynamic` was a method of its own, LLVM no longer inlined the bar lookup of its duplicate
+check, which scanned every dynamic of the instrument. The check now binary-searches the sorted
+list for the point and compares only the dynamics there, O(log n + d) instead of O(n) lookups, and
+`add_dynamic` is 12.6% faster than before the split. `BarList::key` and `index_of` are
+`#[inline]`, since `structure.rs` is its own codegen unit (across codegen units LLVM inlines a
+non-generic function only when it is marked).
+
 ## The crates
 
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
@@ -971,8 +1003,11 @@ interval and quality ≈ 800, spelling a MIDI key ≈ 100.
 
 #### The document skeleton
 
-`src/id.rs` and `src/document.rs` (step F1.08, ADR-0022 §1–3) hold the **structure** of the
-document; the events inside the voices are described in the next section, the form arrives in
+`src/id.rs` and `src/document/` (step F1.08, ADR-0022 §1–3) hold the **structure** of the
+document. `document/` is one module split into files only to keep each readable: `mod.rs` holds
+`Document` itself, its derived indices and its tests, `error.rs` the `DocumentError`,
+`structure.rs` the tracks, instruments, staves, voices and the `BarList`, `builder.rs` the
+`DocumentBuilder`; `mod.rs` re-exports them, so the paths do not change; the events inside the voices are described in the next section, the form arrives in
 F1.10.
 
 **IDs.** Every object that something else can point to has an ID: `TrackId`, `InstrumentId`,
@@ -1058,7 +1093,7 @@ thousands (F1.09).
 **Tests.** `tests/document_cases.rs` has 12 hand-written cases (IDs in sequence across kinds, one
 voice per staff, extra voices, transposing instruments, bar starts after a pickup, the limits at 16
 and 256 with nothing consumed on refusal, unknown staves and bars, determinism, error texts);
-`src/id.rs` and `src/document.rs` test the exhaustion of the counter from the inside.
+`src/id.rs` and `src/document/` test the exhaustion of the counter from the inside.
 `tests/document_oracle.rs` applies random sequences of builder calls to the library and to a naive
 oracle written in the test (a plain counter and vectors of numbers), comparing the whole document
 after every call, and checks that every ID is distinct and the bar index is the exact inverse of the
@@ -2059,7 +2094,9 @@ editor.execute(&Command::MovePlayed(MovePlayed { mode: MoveMode::SplitAtBarlines
   order, new IDs only for extra pieces, surplus pieces deleted (their pass entries with them). The
   first piece keeps its markings and offsets, the others are plain. Slurs ending on the old last
   piece end on the new one, `After` grace notes follow the new end. A length past a barline is
-  allowed; an occupied space is refused by the local check.
+  allowed; an occupied space is refused by the local check. The function reads as the five steps
+  of its documentation, each a function of its own (`ChainShape::read`, `ChainGraces::read`,
+  `retarget_slurs`, `write_pieces`, `move_kept_graces`).
 - **"Move anyway"** (`MoveMode::SplitAtBarlines`, U5): a move beyond the threshold whose piece
   would cross a barline rewrites the chain at the new start instead of being refused.
 - **Never written** (U6): grace notes, chords with several noteheads, `PerformanceOnly`, one pass

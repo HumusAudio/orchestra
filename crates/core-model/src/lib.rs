@@ -21,48 +21,48 @@
 //!   which measures changed), so no consumer ever has to recompute the whole score.
 //!
 //! ## Implemented so far
-//! - [`pitch`] (SCALETTA F1.07, ADR-0023): [`Pitch`] with its spelling (step, rational alteration
+//! - `pitch` (SCALETTA F1.07, ADR-0023): [`Pitch`] with its spelling (step, rational alteration
 //!   in semitones, scientific octave), the exact sounding pitch and the [`MidiNote`] it maps to,
 //!   [`Interval`] with its derived [`Quality`], traditional key signatures ([`Key`],
 //!   [`TraditionalKey`], [`Mode`]), the spelling of a MIDI key in a key, and transposition.
-//! - [`id`] and [`document`] (SCALETTA F1.08, ADR-0022 §1–3): the typed IDs from one counter per
+//! - `id` and `document` (SCALETTA F1.08, ADR-0022 §1–3): the typed IDs from one counter per
 //!   document, and the skeleton of the [`Document`] — tracks, one [`Instrument`] per track with its
 //!   [`Staff`]s and [`Voice`]s (voices belong to the instrument and have a home staff), the
 //!   [`BarList`] of [`BarId`]s next to the shared meter and tempo maps — created with a
 //!   [`DocumentBuilder`].
-//! - [`event`], [`content`], [`marks`] and [`validate`] (SCALETTA F1.09b, ADR-0024 §1–§4 and §9):
+//! - `event`, `content`, `marks` and `validate` (SCALETTA F1.09b, ADR-0024 §1–§4 and §9):
 //!   the events of the voices ([`Chord`]s of [`Note`]s and [`Rest`]s, at an offset in their bar),
 //!   their written [`NoteValue`]s with the metric duration derived, [`Tuplet`]s, [`Tie`]s, the
 //!   [`Clef`]s of each staff and the key signatures of the document with the instruments'
 //!   overrides, and [`Document::validate`], which [`DocumentBuilder::build`] runs.
-//! - [`marking`] and [`slur`] (SCALETTA F1.09c, ADR-0024 §5–§7 and §10): grace chords
+//! - `marking` and `slur` (SCALETTA F1.09c, ADR-0024 §5–§7 and §10): grace chords
 //!   ([`Grace`]), [`ArticulationSet`]s, [`Ornament`]s, [`Fermata`]s and [`Arpeggio`]s on the
 //!   events, the [`PerformanceOffsets`] of every notehead, the [`Slur`]s of each instrument with
 //!   the derived index of the slurs at an event, and the score order of
 //!   [`Document::comes_before`] that ties and slurs follow.
-//! - [`dynamic`] and [`tempo_mark`] (SCALETTA F1.09c, ADR-0024 §8 and §11): the [`Dynamic`]s and
+//! - `dynamic` and `tempo_mark` (SCALETTA F1.09c, ADR-0024 §8 and §11): the [`Dynamic`]s and
 //!   [`Hairpin`]s of each instrument, with their [`DynamicScope`] (the whole instrument or one
 //!   voice), and the [`TempoMark`]s of the document, from which the tempo map is derived.
-//! - [`form`] (SCALETTA F1.10b, ADR-0025 §2–§3): the [`Form`] of the document — [`RepeatStart`]s
+//! - `form` (SCALETTA F1.10b, ADR-0025 §2–§3): the [`Form`] of the document — [`RepeatStart`]s
 //!   and [`RepeatEnd`]s, [`Volta`]s with their [`PassSet`]s — and the [`BarNumbering`] style with
 //!   the [`BarLabel`] of every bar.
-//! - [`jump`] and [`bar_repeat`] (SCALETTA F1.10b, ADR-0025 §4, §6–§7): [`Marker`]s and
+//! - `jump` and `bar_repeat` (SCALETTA F1.10b, ADR-0025 §4, §6–§7): [`Marker`]s and
 //!   [`Jump`]s ("go to / play until / continue at" by ID), the [`BarRepeat`]s (%) of each staff
 //!   and the [`PassRule`]s of each instrument.
-//! - [`edit`], [`change`] and [`editor`] (SCALETTA F1.11b part 1, ADR-0026 §1–§5): the primitive
+//! - `edit`, `change` and `editor` (SCALETTA F1.11b part 1, ADR-0026 §1–§5): the primitive
 //!   [`Edit`]s that return their inverse, the [`ChangeSet`] every change reports, and the
 //!   [`Editor`] with its transactions and its one undo history bounded by memory.
-//! - [`command`] (SCALETTA F1.11b part 2a, ADR-0026 §1, §4, §6): the [`Command`]s on events and
+//! - `command` (SCALETTA F1.11b part 2a, ADR-0026 §1, §4, §6): the [`Command`]s on events and
 //!   bars (enter, delete and change events; insert and delete bars), the **gestures** of the
 //!   editor (a drag as one step of undo), and the local check of the musical rules on the cells a
 //!   command touched.
-//! - [`mark_command`] (SCALETTA F1.11b part 2b, ADR-0026 §9 and §11 X1–X10): the commands on
+//! - `mark_command` (SCALETTA F1.11b part 2b, ADR-0026 §9 and §11 X1–X10): the commands on
 //!   marks and form markings (added from a [`MarkSpec`], changed keeping their ID, removed with
 //!   the cascade of the form), on tuplets, on the initial values and on the per-bar data that
 //!   does not move a barline.
-//! - [`meter_command`] (SCALETTA F1.11c, ADR-0026 §7 and §11 Y1–Y6): the changes of bar lengths,
+//! - `meter_command` (SCALETTA F1.11c, ADR-0026 §7 and §11 Y1–Y6): the changes of bar lengths,
 //!   meter changes and irregular, pickup and free bars, in a [`MeterMode`] (`KeepBars` for now).
-//! - [`tolerance`], [`pass_offsets`] and [`daw_command`] (SCALETTA F1.14b, ADR-0028): the
+//! - `tolerance`, `pass_offsets` and `daw_command` (SCALETTA F1.14b, ADR-0028): the
 //!   [`Tolerance`] threshold of the project and of each track, the [`PassOffsets`] of each
 //!   instrument (performance offsets of one pass of a repeat), and the DAW move
 //!   ([`MovePlayed`]) that keeps a small move as an offset and turns a larger one into a written
@@ -84,44 +84,44 @@
 // out of range, so use `get` and handle `None`, or iterate. Tests are exempt through clippy.toml.
 #![deny(clippy::indexing_slicing)]
 
-pub mod bar_repeat;
+mod bar_repeat;
 mod chain;
-pub mod change;
-pub mod command;
+mod change;
+mod command;
 #[cfg(test)]
 mod command_tests;
-pub mod content;
-pub mod daw_command;
+mod content;
+mod daw_command;
 #[cfg(test)]
 mod daw_command_tests;
-pub mod document;
-pub mod dynamic;
-pub mod edit;
-pub mod editor;
+mod document;
+mod dynamic;
+mod edit;
+mod editor;
 #[cfg(test)]
 mod editor_tests;
-pub mod event;
-pub mod form;
-pub mod id;
-pub mod jump;
-pub mod mark_command;
+mod event;
+mod form;
+mod id;
+mod jump;
+mod mark_command;
 #[cfg(test)]
 mod mark_command_tests;
-pub mod marking;
-pub mod marks;
-pub mod meter_command;
+mod marking;
+mod marks;
+mod meter_command;
 #[cfg(test)]
 mod meter_command_tests;
-pub mod parts;
+mod parts;
 #[cfg(test)]
 mod parts_tests;
-pub mod pass_offsets;
-pub mod pitch;
+mod pass_offsets;
+mod pitch;
 mod rewrite;
-pub mod slur;
-pub mod tempo_mark;
-pub mod tolerance;
-pub mod validate;
+mod slur;
+mod tempo_mark;
+mod tolerance;
+mod validate;
 
 pub use bar_repeat::{BarRepeat, BarRepeatSpan, PassRule};
 pub use change::ChangeSet;

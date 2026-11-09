@@ -269,6 +269,9 @@ pub enum NewBody {
 }
 
 /// One aspect of an event that [`Command::ChangeEvent`] changes.
+///
+/// `#[non_exhaustive]` (ADR-0034 D3), like [`Command`]: new aspects come with later steps, and
+/// callers build these values rather than match them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EventChange {
@@ -586,10 +589,6 @@ pub(crate) fn replace_event(
 ///
 /// # Complexity
 /// O(voices + staves) to resolve, O(events × (k + noteheads)) to insert, k events per chunk.
-#[allow(
-    clippy::too_many_lines,
-    reason = "the checks of the placement and the four cases of the How list, in order"
-)]
 fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandError> {
     let at = new.at;
     let doc = tx.document();
@@ -609,33 +608,7 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
     {
         return Err(DocumentError::UnknownTuplet(tuplet).into());
     }
-    let (kind, value) = match &new.body {
-        NewBody::Chord { pitches, .. } if pitches.is_empty() => {
-            return Err(DocumentError::EmptyChord.into());
-        }
-        NewBody::Chord { grace: Some(_), .. } if at.tuplet.is_some() => {
-            return Err(DocumentError::GraceInTuplet.into());
-        }
-        NewBody::Rest(RestValue::WholeBar) if at.tuplet.is_some() => {
-            return Err(DocumentError::WholeBarRestInTuplet.into());
-        }
-        NewBody::Chord {
-            value,
-            pitches,
-            grace,
-        } => (
-            PartKind::Chord {
-                pitches,
-                grace: *grace,
-            },
-            *value,
-        ),
-        NewBody::Rest(RestValue::Value(value)) => (PartKind::Rest, *value),
-        NewBody::Rest(RestValue::WholeBar) => {
-            // Its value is ignored: a whole-bar rest lasts whatever its bar lasts.
-            (PartKind::WholeBarRest, NoteValue::plain(BaseValue::Whole))
-        }
-    };
+    let (kind, value) = entry_kind(new)?;
     let single = [(at.bar, at.offset, value)];
     // Grace chords and whole-bar rests are never split.
     if matches!(
@@ -688,7 +661,65 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
     // ADR-0026 Z4): how much a written value lasts in the bar is scaled by the tuplet chain's
     // ratio, the same for every value of the chain.
     let ratio = tuplet_ratio(voice, &probe, value)?;
-    let doc = tx.document();
+    let chain = barline_parts(tx.document(), &at, index, bar_length, end, ratio)?;
+    insert_chain(tx, &at, staff, kind, &chain)
+}
+
+/// Step 1 of [`enter_event`], for the body: what kind of parts the entered event makes, and its
+/// value. Refuses an empty chord, a grace chord in a tuplet and a whole-bar rest in a tuplet.
+/// O(1).
+///
+/// # Errors
+/// [`DocumentError::EmptyChord`], [`DocumentError::GraceInTuplet`],
+/// [`DocumentError::WholeBarRestInTuplet`].
+fn entry_kind(new: &NewEvent) -> Result<(PartKind<'_>, NoteValue), DocumentError> {
+    let at = new.at;
+    Ok(match &new.body {
+        NewBody::Chord { pitches, .. } if pitches.is_empty() => {
+            return Err(DocumentError::EmptyChord);
+        }
+        NewBody::Chord { grace: Some(_), .. } if at.tuplet.is_some() => {
+            return Err(DocumentError::GraceInTuplet);
+        }
+        NewBody::Rest(RestValue::WholeBar) if at.tuplet.is_some() => {
+            return Err(DocumentError::WholeBarRestInTuplet);
+        }
+        NewBody::Chord {
+            value,
+            pitches,
+            grace,
+        } => (
+            PartKind::Chord {
+                pitches,
+                grace: *grace,
+            },
+            *value,
+        ),
+        NewBody::Rest(RestValue::Value(value)) => (PartKind::Rest, *value),
+        NewBody::Rest(RestValue::WholeBar) => {
+            // Its value is ignored: a whole-bar rest lasts whatever its bar lasts.
+            (PartKind::WholeBarRest, NoteValue::plain(BaseValue::Whole))
+        }
+    })
+}
+
+/// Step 4 of [`enter_event`]: the parts of an event from `at` to `end` (past the end of its bar
+/// `index`, of length `bar_length`), cut at every barline. The first part fills its bar, the next
+/// ones fill whole bars, the last one what is left (ADR-0026 V3); each is written in the values of
+/// [`push_parts`], scaled by the tuplet chain's `ratio` (ADR-0026 Z3, ADR-0026 Z4). O(bars
+/// crossed × values per part).
+///
+/// # Errors
+/// [`DocumentError::PastLastBar`] past the last bar (ADR-0026 W3); the arithmetic's and the
+/// values' errors.
+fn barline_parts(
+    doc: &Document,
+    at: &Placement,
+    index: BarIndex,
+    bar_length: Duration,
+    end: Duration,
+    ratio: orchestra_core_time::Rational,
+) -> Result<Vec<(BarId, Duration, NoteValue)>, CommandError> {
     let mut chain: Vec<(BarId, Duration, NoteValue)> = Vec::new();
     push_parts(
         &mut chain,
@@ -710,7 +741,7 @@ fn enter_event(tx: &mut Transaction<'_>, new: &NewEvent) -> Result<(), CommandEr
         push_parts(&mut chain, bar, Duration::ZERO, take, ratio)?;
         left = left.checked_sub(take)?;
     }
-    insert_chain(tx, &at, staff, kind, &chain)
+    Ok(chain)
 }
 
 /// How much longer (or shorter) a written value lasts in the bar inside the tuplet chain of
@@ -973,10 +1004,6 @@ pub(crate) fn delete_events(tx: &mut Transaction<'_>, ids: &[EventId]) -> Result
 /// # Complexity
 /// O(voices + k + noteheads) for most changes; a move or a new value also moves the grace notes
 /// ornamenting the event (O(k)); a new pitch walks the tie chain (O(chain)).
-#[allow(
-    clippy::too_many_lines,
-    reason = "one short arm per kind of change: splitting the match would only scatter it"
-)]
 pub(crate) fn change_event(
     tx: &mut Transaction<'_>,
     id: EventId,
@@ -987,105 +1014,11 @@ pub(crate) fn change_event(
         EventChange::Move {
             bar: to,
             offset: new_offset,
-        } => {
-            if new_offset.is_negative() {
-                return Err(DocumentError::NegativeOffset.into());
-            }
-            tx.document().bar_index(to)?;
-            // The grace notes move by the same amount (ADR-0026 W1: nothing is split). Before
-            // graces sit at the event's offset, After graces at its end.
-            let graces = graces_of(tx.document(), id)?;
-            let shift = new_offset.checked_sub(placed.offset())?;
-            replace_event(
-                tx,
-                voice,
-                to,
-                PlacedEvent::new(new_offset, placed.event().clone()),
-            )?;
-            for grace in graces {
-                let (v, _, g) = current(tx.document(), grace)?;
-                let offset = g.offset().checked_add(shift)?;
-                if offset.is_negative() {
-                    return Err(DocumentError::NegativeOffset.into());
-                }
-                replace_event(tx, v, to, PlacedEvent::new(offset, g.event().clone()))?;
-            }
-            Ok(())
-        }
-        EventChange::Value(value) => {
-            let graces = graces_of(tx.document(), id)?;
-            let old_end = placed
-                .offset()
-                .checked_add(tx.document().metric_duration(id)?)?;
-            let event = placed.event_mut();
-            let staff = event.staff();
-            let body = match event.body() {
-                EventBody::Chord(chord) => EventBody::Chord(chord_from(
-                    value,
-                    chord.tuplet(),
-                    chord.grace(),
-                    chord.notes().copied().collect(),
-                    Some(chord),
-                )?),
-                EventBody::Rest(rest) => {
-                    // A whole-bar rest becomes a rest of the value: never in a tuplet.
-                    let mut changed = Rest::new(RestValue::Value(value), rest.tuplet());
-                    changed.set_fermata(rest.fermata());
-                    EventBody::Rest(changed)
-                }
-            };
-            let changed = PlacedEvent::new(placed.offset(), Event::new(id, staff, body));
-            replace_event(tx, voice, bar, changed)?;
-            // The After graces follow the new end.
-            let new_end = placed
-                .offset()
-                .checked_add(tx.document().metric_duration(id)?)?;
-            let shift = new_end.checked_sub(old_end)?;
-            for grace in graces {
-                let (v, b, g) = current(tx.document(), grace)?;
-                if g.event()
-                    .grace()
-                    .is_some_and(|x| x.attach == GraceAttach::After)
-                {
-                    let offset = g.offset().checked_add(shift)?;
-                    replace_event(tx, v, b, PlacedEvent::new(offset, g.event().clone()))?;
-                }
-            }
-            Ok(())
-        }
+        } => move_event(tx, id, voice, &placed, to, new_offset),
+        EventChange::Value(value) => change_value(tx, id, voice, bar, placed, value),
         EventChange::Pitch { note, pitch } => change_pitch(tx, note, pitch),
-        EventChange::AddNote(pitch) => {
-            let new_note = NoteId::from_counter(tx.new_id()?);
-            let EventBody::Chord(chord) = placed.event().body() else {
-                return Err(DocumentError::NotAChord(id).into());
-            };
-            let mut notes: Vec<Note> = chord.notes().copied().collect();
-            notes.push(Note::new(new_note, pitch));
-            replace_noteheads(tx, voice, bar, &placed, notes)
-        }
-        EventChange::RemoveNote(note) => {
-            let EventBody::Chord(chord) = placed.event().body() else {
-                return Err(DocumentError::NotAChord(id).into());
-            };
-            if !chord.notes().any(|n| n.id() == note) {
-                return Err(DocumentError::UnknownNote(note).into());
-            }
-            // The last notehead: the event goes, as a deletion (ADR-0026 V6).
-            if chord.len() == 1 {
-                return delete_events(tx, &[id]);
-            }
-            // The ties leading into the notehead are cleared first (they would point at nothing).
-            let sources: Vec<NoteId> = tx.document().ties_into(note).to_vec();
-            for source in sources {
-                set_tie(tx, source, Tie::None)?;
-            }
-            let (voice, bar, placed) = current(tx.document(), id)?;
-            let EventBody::Chord(chord) = placed.event().body() else {
-                return Err(DocumentError::NotAChord(id).into());
-            };
-            let notes: Vec<Note> = chord.notes().filter(|n| n.id() != note).copied().collect();
-            replace_noteheads(tx, voice, bar, &placed, notes)
-        }
+        EventChange::AddNote(pitch) => add_note(tx, id, voice, bar, &placed, pitch),
+        EventChange::RemoveNote(note) => remove_note(tx, id, &placed, note),
         EventChange::Tie { note, tie } => {
             if tie == Tie::To(note) {
                 return Err(DocumentError::TieToItself.into());
@@ -1131,6 +1064,159 @@ pub(crate) fn change_event(
             replace_event(tx, voice, bar, PlacedEvent::new(placed.offset(), changed))
         }
     }
+}
+
+/// [`EventChange::Move`]: the event goes to `offset` in bar `to`, and the grace notes that
+/// ornament it move by the same amount (ADR-0026 W1: nothing is split; `Before` graces sit at the
+/// event's offset, `After` graces at its end). O(voices + k) for k grace notes.
+///
+/// # Errors
+/// [`DocumentError::NegativeOffset`] for an offset (of the event or of a grace) before the bar;
+/// the bar's and the edit layer's errors.
+fn move_event(
+    tx: &mut Transaction<'_>,
+    id: EventId,
+    voice: VoiceId,
+    placed: &PlacedEvent,
+    to: BarId,
+    new_offset: Duration,
+) -> Result<(), CommandError> {
+    if new_offset.is_negative() {
+        return Err(DocumentError::NegativeOffset.into());
+    }
+    tx.document().bar_index(to)?;
+    // The grace notes move by the same amount (ADR-0026 W1: nothing is split). Before
+    // graces sit at the event's offset, After graces at its end.
+    let graces = graces_of(tx.document(), id)?;
+    let shift = new_offset.checked_sub(placed.offset())?;
+    replace_event(
+        tx,
+        voice,
+        to,
+        PlacedEvent::new(new_offset, placed.event().clone()),
+    )?;
+    for grace in graces {
+        let (v, _, g) = current(tx.document(), grace)?;
+        let offset = g.offset().checked_add(shift)?;
+        if offset.is_negative() {
+            return Err(DocumentError::NegativeOffset.into());
+        }
+        replace_event(tx, v, to, PlacedEvent::new(offset, g.event().clone()))?;
+    }
+    Ok(())
+}
+
+/// [`EventChange::Value`]: the event takes the note value `value` (a whole-bar rest becomes a
+/// rest of that value, never in a tuplet), and its `After` grace notes follow its new end.
+/// O(voices + noteheads + k) for k grace notes.
+///
+/// # Errors
+/// The note value's and the edit layer's errors.
+fn change_value(
+    tx: &mut Transaction<'_>,
+    id: EventId,
+    voice: VoiceId,
+    bar: BarId,
+    mut placed: PlacedEvent,
+    value: NoteValue,
+) -> Result<(), CommandError> {
+    let graces = graces_of(tx.document(), id)?;
+    let old_end = placed
+        .offset()
+        .checked_add(tx.document().metric_duration(id)?)?;
+    let event = placed.event_mut();
+    let staff = event.staff();
+    let body = match event.body() {
+        EventBody::Chord(chord) => EventBody::Chord(chord_from(
+            value,
+            chord.tuplet(),
+            chord.grace(),
+            chord.notes().copied().collect(),
+            Some(chord),
+        )?),
+        EventBody::Rest(rest) => {
+            // A whole-bar rest becomes a rest of the value: never in a tuplet.
+            let mut changed = Rest::new(RestValue::Value(value), rest.tuplet());
+            changed.set_fermata(rest.fermata());
+            EventBody::Rest(changed)
+        }
+    };
+    let changed = PlacedEvent::new(placed.offset(), Event::new(id, staff, body));
+    replace_event(tx, voice, bar, changed)?;
+    // The After graces follow the new end.
+    let new_end = placed
+        .offset()
+        .checked_add(tx.document().metric_duration(id)?)?;
+    let shift = new_end.checked_sub(old_end)?;
+    for grace in graces {
+        let (v, b, g) = current(tx.document(), grace)?;
+        if g.event()
+            .grace()
+            .is_some_and(|x| x.attach == GraceAttach::After)
+        {
+            let offset = g.offset().checked_add(shift)?;
+            replace_event(tx, v, b, PlacedEvent::new(offset, g.event().clone()))?;
+        }
+    }
+    Ok(())
+}
+
+/// [`EventChange::AddNote`]: a new notehead of `pitch` in the chord, which is sorted again.
+/// O(noteheads log noteheads).
+///
+/// # Errors
+/// [`DocumentError::NotAChord`] for a rest; [`DocumentError::IdsExhausted`]; the edit layer's.
+fn add_note(
+    tx: &mut Transaction<'_>,
+    id: EventId,
+    voice: VoiceId,
+    bar: BarId,
+    placed: &PlacedEvent,
+    pitch: Pitch,
+) -> Result<(), CommandError> {
+    let new_note = NoteId::from_counter(tx.new_id()?);
+    let EventBody::Chord(chord) = placed.event().body() else {
+        return Err(DocumentError::NotAChord(id).into());
+    };
+    let mut notes: Vec<Note> = chord.notes().copied().collect();
+    notes.push(Note::new(new_note, pitch));
+    replace_noteheads(tx, voice, bar, placed, notes)
+}
+
+/// [`EventChange::RemoveNote`]: the notehead `note` leaves the chord, after the ties leading into
+/// it are cleared; removing the last notehead deletes the event (ADR-0026 V6).
+/// O(noteheads + ties into the note).
+///
+/// # Errors
+/// [`DocumentError::NotAChord`] for a rest, [`DocumentError::UnknownNote`] for a notehead of
+/// another event; the edit layer's.
+fn remove_note(
+    tx: &mut Transaction<'_>,
+    id: EventId,
+    placed: &PlacedEvent,
+    note: NoteId,
+) -> Result<(), CommandError> {
+    let EventBody::Chord(chord) = placed.event().body() else {
+        return Err(DocumentError::NotAChord(id).into());
+    };
+    if !chord.notes().any(|n| n.id() == note) {
+        return Err(DocumentError::UnknownNote(note).into());
+    }
+    // The last notehead: the event goes, as a deletion (ADR-0026 V6).
+    if chord.len() == 1 {
+        return delete_events(tx, &[id]);
+    }
+    // The ties leading into the notehead are cleared first (they would point at nothing).
+    let sources: Vec<NoteId> = tx.document().ties_into(note).to_vec();
+    for source in sources {
+        set_tie(tx, source, Tie::None)?;
+    }
+    let (voice, bar, placed) = current(tx.document(), id)?;
+    let EventBody::Chord(chord) = placed.event().body() else {
+        return Err(DocumentError::NotAChord(id).into());
+    };
+    let notes: Vec<Note> = chord.notes().filter(|n| n.id() != note).copied().collect();
+    replace_noteheads(tx, voice, bar, &placed, notes)
 }
 
 /// Replaces the chord `placed` (in `voice`, `bar`) by the same chord with the noteheads `notes`:

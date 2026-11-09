@@ -49,7 +49,6 @@
 //! Every jump is taken at most once and every section has at most `MAX_PLAYS` plays, so on a
 //! valid document the path is finite; it is at most `bars × MAX_PLAYS × (jumps + 1)` long.
 
-use orchestra_core_time::invariant::convert_or;
 use std::error::Error;
 use std::fmt;
 
@@ -57,6 +56,7 @@ use orchestra_core_model::{
     BarId, ChangeSet, Document, DocumentError, DynamicScope, JumpFires, JumpTarget,
     RepeatsAfterJump, StaffId, VoiceId,
 };
+use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{
     BarIndex, Duration, MeterMapError, Position, RationalError, Seconds, TempoMapError, TimeAt,
 };
@@ -71,7 +71,6 @@ use orchestra_core_time::{
 /// The `Display` texts are English and meant for developers; the interface maps each variant to a
 /// Fluent key (CLAUDE.md §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum UnrollError {
     /// The document answered with an error (an unknown bar: a bug of the model).
     Document(DocumentError),
@@ -358,6 +357,226 @@ fn sub_times(a: TimeAt, b: TimeAt) -> Result<TimeAt, RationalError> {
     })
 }
 
+/// The state of the walk along the form (ADR-0025 §5), one played bar at a time.
+///
+/// # Why a structure
+/// The walk is one loop over the written bars whose rules share a handful of variables (the
+/// current section and its play, the active jump, the jumps taken, whether repeats are skipped,
+/// the time shift where the path jumps). Kept as fields, each rule of ADR-0025 §5 becomes a method
+/// named after it, in the order the loop applies them: [`skipped_volta`](Self::skipped_volta)
+/// (rule 3), [`play`](Self::play) and [`next_after`](Self::next_after) (rule 4).
+struct Walk<'a> {
+    /// The document being unrolled.
+    doc: &'a Document,
+    /// Its form, read once ([`FormIndex::read`]).
+    form: &'a FormIndex,
+    /// The number of written bars.
+    total: u32,
+    /// The most bars a valid form can play (ADR-0025 P8): reaching it means the form is endless.
+    bound: u64,
+    /// The path so far.
+    played: Vec<PlayedBar>,
+    /// How many times each written bar was played so far (its next pass index).
+    counts: Vec<u32>,
+    /// Which jumps were taken (each fires at most once).
+    taken: Vec<bool>,
+    /// The jump being followed, until its "until" marker.
+    active: Option<usize>,
+    /// Whether the active jump skips the repeats (D.C./D.S. "senza ripetizioni").
+    skip_repeats: bool,
+    /// The current section and its play; `None` outside sections.
+    current: Option<(usize, u8)>,
+    /// Where the next played bar starts on the unrolled timeline.
+    start: Position,
+    /// The written end of the previous played bar (position and time), to find the shift where
+    /// the path jumps.
+    previous_end: Option<(Position, TimeAt)>,
+    /// The time shift of the current played bar: unrolled time minus written time.
+    shift: TimeAt,
+}
+
+impl<'a> Walk<'a> {
+    /// A walk from the first bar, with nothing played. O(bars + jumps) for the counters.
+    fn new(doc: &'a Document, form: &'a FormIndex, total: u32, bound: u64) -> Self {
+        Self {
+            doc,
+            form,
+            total,
+            bound,
+            played: Vec::new(),
+            counts: vec![0; convert_or(total, 0_usize)],
+            taken: vec![false; form.jumps.len()],
+            active: None,
+            skip_repeats: false,
+            current: None,
+            start: Position::ZERO,
+            previous_end: None,
+            shift: TimeAt::Exact(Seconds::ZERO),
+        }
+    }
+
+    /// Walks the whole form: returns the played bars and the end of the unrolled timeline.
+    /// O(1) amortised per played bar plus the tempo map's O(log t) lookups.
+    ///
+    /// # Errors
+    /// [`UnrollError::Endless`] past the bound; the arithmetic's and the maps' errors.
+    fn run(mut self) -> Result<(Vec<PlayedBar>, Position), UnrollError> {
+        let mut bar = 0_u32;
+        while bar < self.total {
+            // The section of this bar: entered from outside, it starts at play 1.
+            let section = self
+                .form
+                .section_of
+                .get(usize::try_from(bar).unwrap_or(usize::MAX))
+                .copied()
+                .flatten();
+            self.current = match (section, self.current) {
+                (Some(s), Some((c, play))) if s == c => Some((c, play)),
+                (Some(s), _) => Some((s, 1)),
+                (None, _) => None,
+            };
+            if let Some(next) = self.skipped_volta(bar) {
+                bar = next;
+                continue;
+            }
+            self.play(bar)?;
+            match self.next_after(bar) {
+                Some(next) => bar = next,
+                None => break,
+            }
+        }
+        Ok((self.played, self.start))
+    }
+
+    /// Rule 3: if `bar` starts a volta that this play does not enter, the bar after the volta;
+    /// otherwise `None`. O(1).
+    fn skipped_volta(&self, bar: u32) -> Option<u32> {
+        let volta = self
+            .form
+            .volta_at
+            .get(usize::try_from(bar).unwrap_or(usize::MAX))
+            .copied()
+            .flatten()?;
+        let play = self
+            .current
+            .filter(|(c, _)| *c == volta.section)
+            .map_or(1, |(_, p)| p);
+        let enter = if self.skip_repeats {
+            volta.is_last
+        } else {
+            volta.passes.contains(play)
+        };
+        (!enter).then(|| volta.last.saturating_add(1))
+    }
+
+    /// Plays the written bar `bar`: appends it to the path with its pass, its section's play,
+    /// its written and unrolled starts and its time shift. O(log t) for the tempo map.
+    ///
+    /// # Errors
+    /// [`UnrollError::Endless`] past the bound; the arithmetic's and the maps' errors.
+    fn play(&mut self, bar: u32) -> Result<(), UnrollError> {
+        if u64::try_from(self.played.len()).unwrap_or(u64::MAX) >= self.bound {
+            return Err(UnrollError::Endless);
+        }
+        let (meter, tempo) = (self.doc.meter_map(), self.doc.tempo_map());
+        let index = BarIndex::new(bar);
+        let id = self.doc.bars().id_at(index).ok_or(UnrollError::Endless)?;
+        let written_start = meter.bar_start(index)?;
+        let length = meter.bar_length(index)?;
+        let written_end = written_start.checked_add(length)?;
+        let start_time = tempo.time_at(written_start)?;
+        if let Some((end, end_time)) = self.previous_end
+            && end != written_start
+        {
+            // Where the path jumps, the shift takes the difference between the time the
+            // previous bar ended and the written time this bar starts at. Only there: between
+            // consecutive bars the difference is zero, and computing it inside a gradual change
+            // would turn an exact shift into an approximate one for nothing.
+            self.shift = add_times(self.shift, sub_times(end_time, start_time)?)?;
+        }
+        let count = self
+            .counts
+            .get_mut(usize::try_from(bar).unwrap_or(usize::MAX))
+            .ok_or(UnrollError::Endless)?;
+        self.played.push(PlayedBar {
+            bar: id,
+            index,
+            pass: *count,
+            section_play: self.current.map(|(_, p)| p),
+            written_start,
+            start: self.start,
+            shift: self.shift,
+        });
+        *count = count.saturating_add(1);
+        self.start = self.start.checked_add(length)?;
+        self.previous_end = Some((written_end, tempo.time_at(written_end)?));
+        Ok(())
+    }
+
+    /// Rule 4, at the end of the played bar `bar`: the next written bar to play, or `None` where
+    /// the music stops (a Fine reached by the active jump). In order: the active jump's "until"
+    /// marker, then a jump not taken yet that fires now, then an end repeat with plays left,
+    /// otherwise the next bar. O(1).
+    fn next_after(&mut self, bar: u32) -> Option<u32> {
+        // First the active jump's "until" marker.
+        if let Some(j) = self.active
+            && let Some(info) = self.form.jumps.get(j)
+            && let Some((until, then)) = info.until
+            && until == bar
+        {
+            let coda = then?;
+            self.active = None;
+            return Some(coda);
+        }
+        // Then a jump not taken yet that fires now.
+        if let Some(j) = self
+            .form
+            .jump_at
+            .get(usize::try_from(bar).unwrap_or(usize::MAX))
+            .copied()
+            .flatten()
+            && !self.taken.get(j).copied().unwrap_or(true)
+            && let Some(info) = self.form.jumps.get(j)
+        {
+            let fires = match (info.fires, self.current) {
+                (JumpFires::OnPass(n), Some((_, play))) => play == n,
+                // On the section's last play (once, after skipped repeats).
+                (JumpFires::AfterRepeats, Some((s, play))) => {
+                    self.skip_repeats
+                        || self
+                            .form
+                            .sections
+                            .get(s)
+                            .is_none_or(|sec| play >= sec.plays)
+                }
+                // Outside any repeated section, the first time it is reached.
+                (_, None) => true,
+            };
+            if fires {
+                if let Some(t) = self.taken.get_mut(j) {
+                    *t = true;
+                }
+                self.active = Some(j);
+                self.skip_repeats = info.skip_repeats;
+                // The target is entered from outside: its section starts at play 1.
+                self.current = None;
+                return Some(info.to);
+            }
+        }
+        // Then an end repeat with plays left.
+        if let Some((s, play)) = self.current
+            && !self.skip_repeats
+            && let Some(sec) = self.form.sections.get(s)
+            && sec.ends.contains(&bar)
+            && play < sec.plays
+        {
+            self.current = Some((s, play.saturating_add(1)));
+            return Some(sec.start);
+        }
+        Some(bar.saturating_add(1))
+    }
+}
+
 impl Unrolled {
     /// Unrolls the form of `doc` (see the module documentation).
     ///
@@ -368,15 +587,9 @@ impl Unrolled {
     ///
     /// # Errors
     /// [`UnrollError`]: arithmetic only on a valid document.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "the steps of the walk in the order of ADR-0025 §5: split, they would hide it"
-    )]
     pub fn new(doc: &Document) -> Result<Self, UnrollError> {
         let form = FormIndex::read(doc)?;
         let total = u32::try_from(doc.bars().len()).map_err(|_| UnrollError::Endless)?;
-        let meter = doc.meter_map();
-        let tempo = doc.tempo_map();
         // The bound of ADR-0025 P8: no valid form plays more than this.
         let bound = u64::from(total)
             .saturating_mul(u64::from(orchestra_core_model::MAX_PLAYS))
@@ -386,146 +599,7 @@ impl Unrolled {
                     .saturating_add(1),
             );
 
-        let mut played: Vec<PlayedBar> = Vec::new();
-        let mut counts: Vec<u32> = vec![0; convert_or(total, 0_usize)];
-        let mut taken = vec![false; form.jumps.len()];
-        let mut active: Option<usize> = None;
-        let mut skip_repeats = false;
-        // The current section and its play; `None` outside sections.
-        let mut current: Option<(usize, u8)> = None;
-        let mut start = Position::ZERO;
-        // The written end of the previous played bar (position and time), to find the shift where
-        // the path jumps.
-        let mut previous_end: Option<(Position, TimeAt)> = None;
-        let mut shift = TimeAt::Exact(Seconds::ZERO);
-        let mut bar = 0_u32;
-
-        while bar < total {
-            // The section of this bar: entered from outside, it starts at play 1.
-            let section = form
-                .section_of
-                .get(usize::try_from(bar).unwrap_or(usize::MAX))
-                .copied()
-                .flatten();
-            current = match (section, current) {
-                (Some(s), Some((c, play))) if s == c => Some((c, play)),
-                (Some(s), _) => Some((s, 1)),
-                (None, _) => None,
-            };
-            // Rule 3: voltas that this play does not enter are skipped.
-            if let Some(volta) = form
-                .volta_at
-                .get(usize::try_from(bar).unwrap_or(usize::MAX))
-                .copied()
-                .flatten()
-            {
-                let play = current
-                    .filter(|(c, _)| *c == volta.section)
-                    .map_or(1, |(_, p)| p);
-                let enter = if skip_repeats {
-                    volta.is_last
-                } else {
-                    volta.passes.contains(play)
-                };
-                if !enter {
-                    bar = volta.last.saturating_add(1);
-                    continue;
-                }
-            }
-
-            // Play the bar.
-            if u64::try_from(played.len()).unwrap_or(u64::MAX) >= bound {
-                return Err(UnrollError::Endless);
-            }
-            let index = BarIndex::new(bar);
-            let id = doc.bars().id_at(index).ok_or(UnrollError::Endless)?;
-            let written_start = meter.bar_start(index)?;
-            let length = meter.bar_length(index)?;
-            let written_end = written_start.checked_add(length)?;
-            let start_time = tempo.time_at(written_start)?;
-            if let Some((end, end_time)) = previous_end
-                && end != written_start
-            {
-                // Where the path jumps, the shift takes the difference between the time the
-                // previous bar ended and the written time this bar starts at. Only there: between
-                // consecutive bars the difference is zero, and computing it inside a gradual change
-                // would turn an exact shift into an approximate one for nothing.
-                shift = add_times(shift, sub_times(end_time, start_time)?)?;
-            }
-            let count = counts
-                .get_mut(usize::try_from(bar).unwrap_or(usize::MAX))
-                .ok_or(UnrollError::Endless)?;
-            played.push(PlayedBar {
-                bar: id,
-                index,
-                pass: *count,
-                section_play: current.map(|(_, p)| p),
-                written_start,
-                start,
-                shift,
-            });
-            *count = count.saturating_add(1);
-            start = start.checked_add(length)?;
-            previous_end = Some((written_end, tempo.time_at(written_end)?));
-
-            // Rule 4, at the end of the bar. First the active jump's "until" marker.
-            if let Some(j) = active
-                && let Some(info) = form.jumps.get(j)
-                && let Some((until, then)) = info.until
-                && until == bar
-            {
-                match then {
-                    None => break,
-                    Some(coda) => {
-                        active = None;
-                        bar = coda;
-                        continue;
-                    }
-                }
-            }
-            // Then a jump not taken yet that fires now.
-            if let Some(j) = form
-                .jump_at
-                .get(usize::try_from(bar).unwrap_or(usize::MAX))
-                .copied()
-                .flatten()
-                && !taken.get(j).copied().unwrap_or(true)
-                && let Some(info) = form.jumps.get(j)
-            {
-                let fires = match (info.fires, current) {
-                    (JumpFires::OnPass(n), Some((_, play))) => play == n,
-                    // On the section's last play (once, after skipped repeats).
-                    (JumpFires::AfterRepeats, Some((s, play))) => {
-                        skip_repeats || form.sections.get(s).is_none_or(|sec| play >= sec.plays)
-                    }
-                    // Outside any repeated section, the first time it is reached.
-                    (_, None) => true,
-                };
-                if fires {
-                    if let Some(t) = taken.get_mut(j) {
-                        *t = true;
-                    }
-                    active = Some(j);
-                    skip_repeats = info.skip_repeats;
-                    // The target is entered from outside: its section starts at play 1.
-                    current = None;
-                    bar = info.to;
-                    continue;
-                }
-            }
-            // Then an end repeat with plays left.
-            if let Some((s, play)) = current
-                && !skip_repeats
-                && let Some(sec) = form.sections.get(s)
-                && sec.ends.contains(&bar)
-                && play < sec.plays
-            {
-                current = Some((s, play.saturating_add(1)));
-                bar = sec.start;
-                continue;
-            }
-            bar = bar.saturating_add(1);
-        }
+        let (played, end) = Walk::new(doc, &form, total, bound).run()?;
 
         // ADR-0025 P5: where each written bar is played.
         let mut plays_of: Vec<Vec<u32>> = vec![Vec::new(); convert_or(total, 0_usize)];
@@ -541,7 +615,7 @@ impl Unrolled {
             played,
             plays_of,
             staves,
-            end: start,
+            end,
         })
     }
 

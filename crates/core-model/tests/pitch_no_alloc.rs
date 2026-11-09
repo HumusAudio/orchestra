@@ -17,7 +17,7 @@
 
 use std::hint::black_box;
 
-use orchestra_core_model::pitch::{Alteration, Interval, Key, Mode, Pitch, Quality, Step};
+use orchestra_core_model::{Alteration, Interval, Key, Mode, Pitch, Quality, Step};
 use orchestra_core_time::Rational;
 use orchestra_test_support::assert_no_allocations;
 

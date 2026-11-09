@@ -237,6 +237,40 @@ si scrive con il suo ADR: `(ADR-0026 V2)`. Dentro una parentesi che nomina già 
 `mark_command.rs` e `meter_command.rs`) la sigla resta nuda. Le decisioni del piano di lavoro si
 scrivono `SCALETTA D04`.
 
+### L'API pubblica dei crate di libreria (ADR-0034)
+
+I crate di libreria (`core-time`, `core-model`, `playback`, `io`) tengono i loro **moduli
+privati**: la loro API è ciò che la radice del crate riesporta con `pub use`, un solo percorso per
+elemento (`orchestra_core_model::Pitch`, mai `orchestra_core_model::pitch::Pitch`). Così i file
+si possono dividere o spostare senza rompere nessun chiamante, e un elemento `pub` solo per un
+modulo fratello viene segnalato da `unreachable_pub`. Un modulo resta pubblico solo come spazio
+dei nomi con un nome che serve, con il motivo accanto al suo `pub mod`:
+`orchestra_core_time::invariant` (`convert_or` senza di esso non dice niente) e `orchestra_io::midi`
+(`midi::save` accanto al `save` del file di progetto).
+
+Gli enum di errori e di avvisi sono **esaustivi** (niente `#[non_exhaustive]`): l'interfaccia
+assocerà ogni variante a una chiave Fluent, e una variante nuova deve rompere quel `match` finché
+non ha la sua chiave in sei lingue. `#[non_exhaustive]` resta solo dove chi usa il tipo deve avere
+un caso generico, con il motivo accanto: `ChangeSet` (ADR-0026), e gli enum dei comandi che i
+chiamanti costruiscono invece di confrontare (`Command`, `EventChange`, `MarkSpec`, `MeterMode`).
+
+Le funzioni lunghe sono divise nei loro passi naturali, ciascuno con un nome e un commento di
+documentazione: `Document::place_object` smista a un `place_<tipo>` per ogni tipo di oggetto,
+`change_event` a `move_event`, `change_value`, `add_note` e `remove_note`, `enter_event` usa
+`entry_kind` e `barline_parts`, lo srotolamento cammina con `Walk` (`skipped_volta`, `play`,
+`next_after`, le regole dell'ADR-0025 §5 nell'ordine). Un `#[allow(clippy::too_many_lines)]` resta
+solo dove la lunghezza è un elenco piatto che dividere sparpaglierebbe: un `Display` con una riga
+per errore, le mappature campo per campo dello schema del file, i costruttori di
+`mark_command::object_of`, e le tabelle dei test.
+
+Il controllo dei benchmark ha verificato la divisione. All'inizio ha misurato `add_dynamic` più
+lento dell'11%: da quando `place_dynamic` è un metodo a sé, LLVM non inlineava più la ricerca della
+battuta nel suo controllo dei duplicati, che scandiva tutte le dinamiche dello strumento. Ora il
+controllo cerca il punto con una ricerca binaria nella lista ordinata e confronta solo le dinamiche
+lì, O(log n + d) invece di O(n) ricerche, e `add_dynamic` è più veloce del 12,6% rispetto a prima
+della divisione. `BarList::key` e `index_of` sono `#[inline]`, perché `structure.rs` è un'unità di
+compilazione a sé (tra unità diverse LLVM inlinea una funzione non generica solo se è marcata).
+
 ## I crate
 
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
@@ -1025,8 +1059,11 @@ trasposizione ≈ 560, intervallo e qualità ≈ 800, grafia di un tasto MIDI �
 
 #### Lo scheletro del documento
 
-`src/id.rs` e `src/document.rs` (passo F1.08, ADR-0022 §1–3) contengono la **struttura** del
-documento; gli eventi dentro le voci sono descritti nella sezione seguente, la forma arriva in
+`src/id.rs` e `src/document/` (passo F1.08, ADR-0022 §1–3) contengono la **struttura** del
+documento. `document/` è un solo modulo diviso in file solo per tenerli leggibili: `mod.rs`
+contiene `Document` stesso, i suoi indici derivati e i suoi test, `error.rs` il `DocumentError`,
+`structure.rs` tracce, strumenti, righi, voci e la `BarList`, `builder.rs` il `DocumentBuilder`;
+`mod.rs` li riesporta, quindi i percorsi non cambiano; gli eventi dentro le voci sono descritti nella sezione seguente, la forma arriva in
 F1.10.
 
 **ID.** Ogni oggetto a cui qualcos'altro può fare riferimento ha un ID: `TrackId`, `InstrumentId`,
@@ -1117,7 +1154,7 @@ ADR-0022 §1 è per gli eventi, che sono centinaia di migliaia (F1.09).
 **Test.** `tests/document_cases.rs` ha 12 casi scritti a mano (ID in sequenza tra tipi diversi, una
 voce per rigo, voci aggiunte, strumenti traspositori, inizio delle battute dopo una levare, i limiti
 a 16 e 256 senza nulla consumato quando si rifiuta, righi e battute sconosciuti, determinismo, testi
-degli errori); `src/id.rs` e `src/document.rs` provano dall'interno l'esaurimento del contatore.
+degli errori); `src/id.rs` e `src/document/` provano dall'interno l'esaurimento del contatore.
 `tests/document_oracle.rs` applica sequenze casuali di chiamate al builder sia alla libreria sia a un
 oracolo ingenuo scritto nel test (un semplice contatore e vettori di numeri), confronta l'intero
 documento dopo ogni chiamata e controlla che ogni ID sia distinto e che l'indice delle battute sia
@@ -2200,7 +2237,9 @@ editor.execute(&Command::MovePlayed(MovePlayed { mode: MoveMode::SplitAtBarlines
   voci per passaggio). Il primo pezzo tiene segni e scostamenti, gli altri sono semplici. Le
   legature di portamento che finivano sul vecchio ultimo pezzo finiscono sul nuovo, gli
   abbellimenti `After` seguono la nuova fine. Una durata oltre la stanghetta è ammessa; uno spazio
-  occupato è rifiutato dalla verifica locale.
+  occupato è rifiutato dalla verifica locale. La funzione si legge come i cinque passi della sua
+  documentazione, ciascuno una funzione a sé (`ChainShape::read`, `ChainGraces::read`,
+  `retarget_slurs`, `write_pieces`, `move_kept_graces`).
 - **"Sposta comunque"** (`MoveMode::SplitAtBarlines`, U5): uno spostamento oltre la soglia il cui
   pezzo supererebbe la stanghetta riscrive la catena dal nuovo inizio invece di essere rifiutato.
 - **Mai scritte** (U6): abbellimenti, accordi con più teste, `PerformanceOnly`, un solo passaggio
