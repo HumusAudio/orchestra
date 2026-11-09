@@ -1,6 +1,7 @@
 # ADR-0035 — Release build profile: one codegen unit per crate
 
-- **Status:** Proposed (2026-11-09; the owner asked for this ADR after review 3, point C1).
+- **Status:** Accepted (owner, 2026-11-09, as written; the owner asked for this ADR after review 3,
+  point C1).
 - **Date:** 2026-11-09
 - **Amends:** nothing. It fills a gap: until now the workspace used Cargo's default `release`
   profile, never decided. ADR-0017 (the benchmark gate) is unchanged; how its first run after
@@ -84,7 +85,7 @@ Notes on the table:
 4. **Fat LTO plus one unit.** Fastest and smallest, but the slowest builds, and three benchmarks
    regress beyond the gate today.
 
-## Decision (proposed)
+## Decision
 
 **Option 2.** Add to the workspace `Cargo.toml`:
 

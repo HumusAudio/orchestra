@@ -725,11 +725,11 @@ per group. Progress:
   source-level fix short of chasing the inliner's heuristics; the robust lever, a release profile
   with `codegen-units = 1` or LTO for the whole project, changes build time and binary size
   (CLAUDE.md §5) and would need its own ADR. The regression stays accepted (#49).
-- **C1 follow-up, ADR-0035 (Proposed, `docs/adr-0035-release-profile`):** the release profile
+- **C1 follow-up, ADR-0035 (Accepted by the owner 2026-11-09, PR #53):** the release profile
   measured four ways (default, `codegen-units = 1`, thin LTO, fat LTO + one unit) on all 97
   benchmarks; proposed `codegen-units = 1` (`to_parts` back to 1 236 653, mean −2.6%, worst +2.0%,
   `m1` 30% smaller, benchmark builds no slower, a single release build about twice as long).
-  Waiting for the owner's decision; `Cargo.toml` is unchanged until then.
+  The profile itself lands in its own PR (`build/release-codegen-units`).
 - **Review 3 complete** (#50–#52 merged). Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
 
