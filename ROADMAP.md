@@ -711,8 +711,10 @@ per group. Progress:
   `ObjectRef::is_form_marking`, the one list of form markings, with the difference between the
   change set (bars and numbering included) and the local check written down; `mark_from_file` for
   the four kinds of marks of the file; the complexity notes of the `place_*` methods made exact.
-- **Still to do:** A4 (`IoFailure`, API of `io`'s errors), A6 (`d` in `core-model`'s tests), C1
-  (try to win back the +6% of `to_parts`). Not done, with the reason: P4.3 (measured, the
+- **A4 (`refactor/review3-io-failure`, stacked on the first):** `IoFailure`, one public type for
+  the `Io` variants of `LoadError`, `SaveError` and `MidiError` (`Io(IoFailure)`), with its own
+  `Display` and as their `source()`; it replaces `safe_write::WriteFailure` and `describe`.
+- **Still to do:** A6 (`d` in `core-model`'s tests), C1 (try to win back the +6% of `to_parts`). Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
 
 | Step | What | Status |

@@ -260,15 +260,16 @@ fn saving_replaces_the_file_safely() {
     // The operating system's own code is kept, so the message is the system's, not just a kind.
     assert!(
         matches!(
-            error,
-            LoadError::Io {
-                kind: std::io::ErrorKind::NotFound,
-                os_code: Some(_),
-                ..
-            }
+            &error,
+            LoadError::Io(failure)
+                if failure.kind() == std::io::ErrorKind::NotFound
+                    && failure.os_code().is_some()
+                    && failure.path() == missing
         ),
         "{error:?}"
     );
+    // The I/O failure is the source of the load error.
+    assert!(std::error::Error::source(&error).is_some());
     assert!(error.to_string().contains("missing.orchestra"), "{error}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
