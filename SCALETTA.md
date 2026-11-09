@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.48, approvata dal proprietario il 2026-11-08.**
+> **Stato di questo documento: v0.49, approvata dal proprietario il 2026-11-09.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -987,3 +987,4 @@ raccomandato.
 | 2026-11-08 | 0.46 | F1.18 fatto (PR #33): esportazione MIDI 1.0, profili d'attacco tarati a orecchio (ADR-0027 §15, giri 1–2); in F3.03 la revisione a orecchio di tutte le dinamiche | proprietario |
 | 2026-11-08 | 0.47 | F1.17 fatto (PR #35): Fase 1 chiusa, tappa M1 raggiunta (comando `m1`); D13 chiusa (F2.14 confermato); opzioni di riproduzione nelle Preferenze di F2.12; prossimo passo F2.01 | proprietario |
 | 2026-11-08 | 0.48 | Revisione del codice dopo M1 (PR #37–#42): duplicazioni e codice inutile rimossi, ADR-0033 (tasto inferiore a metà strada, emenda ADR-0032 E9), indice delle voci nel documento; in F2.23 la rimisura dei conteggi e un benchmark con abbellimenti e note lunghe (D5, D6); prossimo passo resta F2.01 | proprietario |
+| 2026-11-09 | 0.49 | Seconda revisione del codice (PR #44–#49): pratiche poco raccomandabili corrette (nomi temporanei unici nel salvataggio, conversioni "impossibili" controllate in debug, costanti razionali verificate in compilazione, errori con causa e posizione, `MigrationError` tipizzato, timeout della CI, permessi e link simbolici nel salvataggio); ADR-0034 (moduli privati, un solo percorso per elemento, errori esaustivi); nei commenti le sigle delle decisioni si scrivono con il loro ADR; funzioni lunghe divise nei loro passi; prossimo passo resta F2.01 | proprietario |
