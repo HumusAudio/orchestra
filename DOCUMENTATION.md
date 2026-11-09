@@ -246,6 +246,14 @@ of ADR-0025 §5 in order). A `#[allow(clippy::too_many_lines)]` remains only whe
 flat list that splitting would scatter: a `Display` with one line per error, the field-by-field
 mappings of the file schema, the constructors of `mark_command::object_of`, and test tables.
 
+The benchmark gate checked the split. It first measured `add_dynamic` 11% slower: once
+`place_dynamic` was a method of its own, LLVM no longer inlined the bar lookup of its duplicate
+check, which scanned every dynamic of the instrument. The check now binary-searches the sorted
+list for the point and compares only the dynamics there, O(log n + d) instead of O(n) lookups, and
+`add_dynamic` is 12.6% faster than before the split. `BarList::key` and `index_of` are
+`#[inline]`, since `structure.rs` is its own codegen unit (across codegen units LLVM inlines a
+non-generic function only when it is marked).
+
 ## The crates
 
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,

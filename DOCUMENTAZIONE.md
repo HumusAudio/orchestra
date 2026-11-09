@@ -263,6 +263,14 @@ solo dove la lunghezza è un elenco piatto che dividere sparpaglierebbe: un `Dis
 per errore, le mappature campo per campo dello schema del file, i costruttori di
 `mark_command::object_of`, e le tabelle dei test.
 
+Il controllo dei benchmark ha verificato la divisione. All'inizio ha misurato `add_dynamic` più
+lento dell'11%: da quando `place_dynamic` è un metodo a sé, LLVM non inlineava più la ricerca della
+battuta nel suo controllo dei duplicati, che scandiva tutte le dinamiche dello strumento. Ora il
+controllo cerca il punto con una ricerca binaria nella lista ordinata e confronta solo le dinamiche
+lì, O(log n + d) invece di O(n) ricerche, e `add_dynamic` è più veloce del 12,6% rispetto a prima
+della divisione. `BarList::key` e `index_of` sono `#[inline]`, perché `structure.rs` è un'unità di
+compilazione a sé (tra unità diverse LLVM inlinea una funzione non generica solo se è marcata).
+
 ## I crate
 
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
