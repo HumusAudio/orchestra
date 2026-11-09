@@ -34,12 +34,8 @@ use crate::marks::{Clef, ScorePoint};
 use crate::pitch::{Alteration, Key, Mode, Pitch, Step};
 use crate::slur::SlurPlacement;
 use crate::tempo_mark::{GradualMark, Metronome, TempoMark, TempoMarkChange};
+use crate::test_util::d;
 use crate::validate::Violation;
-
-/// Shorthand: a duration of `n/d` whole notes.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
 
 /// Shorthand: a tempo of `bpm` quarters per minute.
 fn tempo(bpm: i64) -> Tempo {

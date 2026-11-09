@@ -49,13 +49,13 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
+#[path = "../tests/common/duration.rs"]
+mod duration;
+use duration::d;
+
 const BATCH: usize = 64;
 const BARS: usize = 200;
 const INSTRUMENTS: usize = 10;
-
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
 
 // The document described in the module comment.
 fn score() -> Document {

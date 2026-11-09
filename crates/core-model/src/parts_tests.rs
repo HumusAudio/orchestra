@@ -34,13 +34,9 @@ use crate::marking::{
 use crate::marks::{Clef, KeyOverride, KeySignature};
 use crate::pitch::{Alteration, Interval, Key, Mode, Pitch, Step};
 use crate::tempo_mark::{Metronome, TempoMark};
+use crate::test_util::d;
 use crate::tolerance::Tolerance;
 use crate::validate::Violation;
-
-/// Shorthand: the duration `n/den` of a whole note.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
 
 /// A document with what the property tests' rich document lacks: every ornament, fermatas on a
 /// chord and on a rest, an arpeggio, articulations, a let-ring tie and a forward tie, performance

@@ -16,7 +16,7 @@
 
 use orchestra_core_time::{
     BarIndex, BarKind, BeatGrouping, Duration, IrregularBar, Meter, MeterChange, MeterMapError,
-    Position, Rational,
+    Position,
 };
 
 use crate::change::ChangeSet;
@@ -26,11 +26,7 @@ use crate::editor::{CommandError, Editor};
 use crate::editor_tests::{assert_consistent, rich};
 use crate::id::BarId;
 use crate::meter_command::MeterMode;
-
-/// Shorthand: a duration of `n/d` whole notes.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
+use crate::test_util::d;
 
 /// Shorthand: a meter change to `n/den`, counted by the default rule.
 fn meter(n: u8, den: u16) -> MeterChange {

@@ -22,10 +22,9 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
-/// The duration `n/d` of a whole note.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
+#[path = "common/duration.rs"]
+mod duration;
+use duration::d;
 
 /// An undotted value.
 fn v(base: BaseValue) -> NoteValue {

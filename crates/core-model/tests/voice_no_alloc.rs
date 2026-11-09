@@ -23,12 +23,11 @@ use orchestra_core_model::{
 use orchestra_core_time::{Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 use orchestra_test_support::assert_no_allocations;
 
-orchestra_test_support::install_counting_allocator!();
+#[path = "common/duration.rs"]
+mod duration;
+use duration::d;
 
-/// The duration `n/d` of a whole note.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
+orchestra_test_support::install_counting_allocator!();
 
 /// Eight bars for a B♭ clarinet and a piano: chords, triplets, ties, clef and key changes.
 fn document() -> (Document, Vec<EventId>, Vec<NoteId>) {

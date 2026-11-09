@@ -926,6 +926,11 @@ parts implemented are the pitch module, the skeleton of the document, the conten
 the voices (events, tuplets, ties, clefs and key signatures) and the markings on the events with
 the slurs.
 
+The tests share one shorthand, `d(n, den)` for a duration of `n/den` whole notes: the unit tests
+take it from `src/test_util.rs` (compiled only for tests), the integration tests and the
+benchmarks from `tests/common/duration.rs`, included with `#[path]` because each test target is
+a crate of its own. Helpers with the same name but another meaning in one file stay in that file.
+
 #### Pitch, intervals and keys
 
 `src/pitch.rs` (step F1.07, ADR-0023) holds the pure types every note's pitch is made of. A

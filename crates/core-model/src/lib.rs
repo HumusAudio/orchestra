@@ -120,6 +120,8 @@ mod pitch;
 mod rewrite;
 mod slur;
 mod tempo_mark;
+#[cfg(test)]
+mod test_util;
 mod tolerance;
 mod validate;
 

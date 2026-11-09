@@ -714,7 +714,18 @@ per group. Progress:
 - **A4 (`refactor/review3-io-failure`, stacked on the first):** `IoFailure`, one public type for
   the `Io` variants of `LoadError`, `SaveError` and `MidiError` (`Io(IoFailure)`), with its own
   `Display` and as their `source()`; it replaces `safe_write::WriteFailure` and `describe`.
-- **Still to do:** A6 (`d` in `core-model`'s tests), C1 (try to win back the +6% of `to_parts`). Not done, with the reason: P4.3 (measured, the
+- **A6 (`refactor/review3-test-helper`, stacked on A4):** the `d(n, den)` duration shorthand,
+  identical in 14 test and benchmark files of `core-model`, lives once in
+  `tests/common/duration.rs` (integration tests and benchmarks, by `#[path]`) and in
+  `src/test_util.rs` (unit tests, `#[cfg(test)]`); same-named helpers with another meaning stay.
+- **C1 (tried, not changed):** the +6% of `to_parts` (1 231 868 → 1 308 207 instructions on the
+  normal score) is entirely in `[PlacedEvent]::to_vec`, the copy of a bar's events: the same
+  derived `Clone` on unchanged code, compiled by LLVM into a different instruction sequence
+  (192 → 210 instructions in the function, a different loop) since `document.rs` was split. No
+  source-level fix short of chasing the inliner's heuristics; the robust lever, a release profile
+  with `codegen-units = 1` or LTO for the whole project, changes build time and binary size
+  (CLAUDE.md §5) and would need its own ADR. The regression stays accepted (#49).
+- **Review 3 complete** once #50–#52 are merged. Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
 
 | Step | What | Status |
