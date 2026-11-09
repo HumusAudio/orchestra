@@ -1,7 +1,7 @@
 # ADR-0034 — Public API of the library crates: one path per item, exhaustive errors
 
-- **Status:** Proposed (second codebase review, 2026-11-09, point P3.3; the owner asked for an
-  ADR before any change).
+- **Status:** Accepted (owner, 2026-11-09; second codebase review, point P3.3, the owner asked
+  for an ADR before any change and accepted it as written).
 - **Date:** 2026-11-09
 - **Amends:** nothing. It adds a rule next to CLAUDE.md §9 ("public APIs change deliberately").
   ADR-0026's `#[non_exhaustive]` `ChangeSet` stays as it is (see D3).
@@ -42,7 +42,7 @@ advice comes from published libraries and fits this workspace badly:
   `match` is the guarantee we want.
 - **Inside its own crate** `#[non_exhaustive]` changes nothing (matches stay exhaustive there).
 
-## Decision (proposed)
+## Decision
 
 ### D1 — One path per public item
 

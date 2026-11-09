@@ -5,14 +5,14 @@
 //!
 //! # Why a module of its own?
 //! Three commands write a duration as a chain of tied events: entering a note that crosses a
-//! barline (`command::enter_event`), rewriting the bars after a meter change (`rewrite`, Z3–Z5)
-//! and moving or resizing a note from the DAW side beyond the tolerance threshold
-//! (`daw_command::rewrite_chain`). Each used to cut the duration into written values, hand out
-//! the IDs of the new events and noteheads, and tie every notehead to the one of the next part,
-//! with its own copy of the same three loops (review point A3). They differ only in what they
-//! keep: a new note keeps nothing, a rewritten event keeps its own ID for the first part, a
-//! rewritten DAW chain keeps the IDs of the chain it replaces for as many parts as it had. The
-//! three steps are here, once:
+//! barline (`command::enter_event`), rewriting the bars after a meter change (`rewrite`,
+//! ADR-0026 Z3–Z5) and moving or resizing a note from the DAW side beyond the tolerance
+//! threshold (`daw_command::rewrite_chain`). Each cuts the duration into written values, hands out
+//! the IDs of the new events and noteheads, and ties every notehead to the one of the next part:
+//! the same three loops, which must not drift apart. They differ only in what they keep: a new note
+//! keeps nothing, a rewritten event keeps its own ID for the first part, a rewritten DAW chain
+//! keeps the IDs of the chain it replaces for as many parts as it had. The three steps are here,
+//! once:
 //!
 //! 1. [`push_parts`]: one stretch of a bar written with the longest values first, inside a tuplet
 //!    chain whose ratio scales every value;
@@ -36,7 +36,8 @@ pub(crate) type PartIds = (EventId, Vec<NoteId>);
 
 /// Appends to `out` the written values of a stretch of `length` starting at `start` in `bar`,
 /// inside a tuplet chain whose ratio is `ratio` (1 outside any tuplet): each value as
-/// `(bar, offset, value)`, the offsets advancing by the value's length times the ratio (Z3).
+/// `(bar, offset, value)`, the offsets advancing by the value's length times the ratio
+/// (ADR-0026 Z3).
 ///
 /// `bar` is whatever names a bar for the caller (a `BarId`, or an index into a grid being built);
 /// it is only copied into the output.

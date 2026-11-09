@@ -366,7 +366,10 @@ fn numbers(c: &Case) -> Vec<Option<(u32, Option<u8>)>> {
 fn build(c: &Case) -> (DocumentBuilder, Vec<BarId>) {
     let mut meters = MeterMap::new(MeterChange::new(Meter::new(&[3], 4).unwrap())).unwrap();
     for &u in &c.uncounted {
-        meters.set_uncounted(BarIndex::new(u32::try_from(u).unwrap()), true);
+        meters.set_numbering(
+            BarIndex::new(u32::try_from(u).unwrap()),
+            orchestra_core_time::BarCounting::Uncounted,
+        );
     }
     if let Some((at, n)) = c.restart {
         meters.set_numbering_restart(BarIndex::new(u32::try_from(at).unwrap()), Some(n));

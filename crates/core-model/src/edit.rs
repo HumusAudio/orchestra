@@ -133,8 +133,7 @@ impl ObjectRef {
     /// The raw ID of the object named, or `None` for the values a document has exactly once
     /// (the initial tempo, key and clefs, the numbering style), which have no ID. O(1).
     ///
-    /// The one table from names to IDs: `check_new` and `mark_command::mark_id` used to repeat
-    /// it (review point B5).
+    /// The one table from names to IDs, used by `check_new` and by `mark_command::mark_id`.
     pub(crate) const fn raw_id(self) -> Option<u64> {
         match self {
             Self::Bar(id) => Some(id.get()),
@@ -713,7 +712,7 @@ impl Document {
         let instrument = &self
             .tracks
             .get(t)
-            .ok_or(DocumentError::Inconsistent)?
+            .ok_or(DocumentError::inconsistent())?
             .instrument;
         if instrument.staff(placement.staff).is_none() {
             return Err(DocumentError::StaffOfAnotherInstrument(placement.staff));
@@ -745,7 +744,7 @@ impl Document {
     /// out and is not in use: for the builder, whose objects get IDs it has just taken from the
     /// counter, so they are new by construction (and the check would cost a scan of the
     /// object's list for every dynamic, hairpin or mark of a document being built). Every other
-    /// rule of the edit layer applies: the builder and the commands share them (review point A1).
+    /// rule of the edit layer applies: the builder and the commands share them.
     /// On error nothing changed.
     #[allow(
         clippy::too_many_lines,
@@ -1007,8 +1006,8 @@ impl Document {
         }
         // Every notehead needs an issued, unused ID, distinct from the chord's other noteheads.
         // Checked on the chord itself, without collecting the IDs: a chord has a handful of
-        // noteheads, and loading a document places every event through here (review point A1:
-        // the temporary lists cost an allocation per event).
+        // noteheads, and loading a document places every event through here, where a temporary
+        // list would cost an allocation per event.
         let id = placed.event().id();
         let chord = placed.event().chord();
         for (i, note) in chord.into_iter().flat_map(Chord::notes).enumerate() {
@@ -1054,7 +1053,7 @@ impl Document {
             // `fits_at` said yes and nothing changed the chunk since.
             Some(place) => {
                 if !chunk.insert_at(place, placed) {
-                    return Err(DocumentError::Inconsistent);
+                    return Err(DocumentError::inconsistent());
                 }
             }
         }
@@ -1369,11 +1368,11 @@ impl Document {
     /// ([`DocumentError::TupletInUse`]): a tuplet with events never changes voice or parent.
     ///
     /// # Why in place
-    /// A tuplet's ratio or look changes while its events stay in it (X7): removing it first
-    /// would be refused, since its events use it. The events themselves do not change, but their
-    /// durations do (the ratio scales them), so every cell (voice, bar) holding an event inside
-    /// the tuplet, directly or through nested tuplets, is recorded as changed: layout redraws
-    /// them, and the local check looks for overlaps there.
+    /// A tuplet's ratio or look changes while its events stay in it (ADR-0026 X7): removing it
+    /// first would be refused, since its events use it. The events themselves do not change, but
+    /// their durations do (the ratio scales them), so every cell (voice, bar) holding an event
+    /// inside the tuplet, directly or through nested tuplets, is recorded as changed: layout
+    /// redraws them, and the local check looks for overlaps there.
     ///
     /// # Complexity
     /// O(voices) to find the voice, plus O(events of the voice × depth) to find the cells (at most
@@ -1417,7 +1416,7 @@ impl Document {
                     .ids()
                     .get(index)
                     .copied()
-                    .ok_or(DocumentError::Inconsistent)?;
+                    .ok_or(DocumentError::inconsistent())?;
                 changes.cell(voice, bar);
             }
         }
@@ -1647,7 +1646,7 @@ impl Document {
                         .get(range.start.saturating_add(offset))
                         .copied();
                     return Err(
-                        bar.map_or(DocumentError::Inconsistent, DocumentError::BarsNotEmpty)
+                        bar.map_or(DocumentError::inconsistent(), DocumentError::BarsNotEmpty)
                     );
                 }
             }
@@ -1746,7 +1745,7 @@ impl Document {
         changes: &mut ChangeSet,
     ) -> Result<MeterEdit, DocumentError> {
         // Every kind names a bar: it is looked up once here, before the mutable borrow of the
-        // meter map (it used to be repeated in each arm, review point B19).
+        // meter map, instead of once per arm below.
         let index = self.bar_index(edit.bar())?;
         let map = &mut self.meter_map;
         let inverse = match edit {
@@ -1781,7 +1780,12 @@ impl Document {
                 }
             }
             MeterEdit::Uncounted { bar, uncounted } => {
-                let previous = map.set_uncounted(index, uncounted);
+                let previous = map
+                    .set_numbering(
+                        index,
+                        orchestra_core_time::BarCounting::uncounted_if(uncounted),
+                    )
+                    .is_uncounted();
                 MeterEdit::Uncounted {
                     bar,
                     uncounted: previous,
@@ -1814,8 +1818,8 @@ impl Document {
     /// Sets one entry of an instrument's pass-offset table and returns the previous offsets (see
     /// [`Edit::SetPassOffsets`]). The cell (voice, bar) of the note, if the note exists, is
     /// recorded as changed, so that playback recomputes its played notes with the cells it
-    /// already follows (T7); a note that is gone was recorded by its own removal. On error nothing
-    /// changed. O(tracks) + O(1) average for the note + O(log n + n) in the table.
+    /// already follows (ADR-0028 T7); a note that is gone was recorded by its own removal. On error
+    /// nothing changed. O(tracks) + O(1) average for the note + O(log n + n) in the table.
     fn set_pass_offsets(
         &mut self,
         instrument: InstrumentId,
@@ -1895,12 +1899,12 @@ impl Document {
 
     /// The track at a position. O(1).
     fn track_at(&self, t: usize) -> Result<&crate::document::Track, DocumentError> {
-        self.tracks.get(t).ok_or(DocumentError::Inconsistent)
+        self.tracks.get(t).ok_or(DocumentError::inconsistent())
     }
 
     /// The track at a position, mutably. O(1).
     fn track_at_mut(&mut self, t: usize) -> Result<&mut crate::document::Track, DocumentError> {
-        self.tracks.get_mut(t).ok_or(DocumentError::Inconsistent)
+        self.tracks.get_mut(t).ok_or(DocumentError::inconsistent())
     }
 
     /// The voice at these positions. O(1).
@@ -1909,7 +1913,7 @@ impl Document {
             .instrument
             .voices
             .get(v)
-            .ok_or(DocumentError::Inconsistent)
+            .ok_or(DocumentError::inconsistent())
     }
 
     /// The voice at these positions, mutably. O(1).
@@ -1922,7 +1926,7 @@ impl Document {
             .instrument
             .voices
             .get_mut(v)
-            .ok_or(DocumentError::Inconsistent)
+            .ok_or(DocumentError::inconsistent())
     }
 
     /// The chunk of the voice at these positions for the bar at `index` (named `bar` in the error).

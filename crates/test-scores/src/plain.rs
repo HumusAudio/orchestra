@@ -215,9 +215,21 @@ fn fill(b: &mut DocumentBuilder, bars: &[BarId], voice: VoiceId, secondary: bool
     }
 }
 
-/// The size of a generated score.
-/// The plain score of this size, built with the real builder, with the editing instrument last if
-/// `editing` (see the module documentation).
+/// Which instruments the plain score has: only the generated ones, or the **editing instrument**
+/// too (one staff, one voice, no events, added last; see the module documentation).
+///
+/// An enum rather than a `bool`, so that a call says what it builds:
+/// `plain(Size::Heavy, Instruments::WithEditing)` instead of `plain(Size::Heavy, Instruments::WithEditing)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Instruments {
+    /// The generated instruments only.
+    Plain,
+    /// The generated instruments, then the editing instrument.
+    WithEditing,
+}
+
+/// The plain score of this size, built with the real builder, with the editing instrument last
+/// for [`Instruments::WithEditing`] (see the module documentation).
 ///
 /// The same seed for both sizes, so the heavy score is exactly the one `core-model`'s
 /// `tests/memory.rs` measured when its ceiling was set. Re-exported at the crate root as
@@ -227,7 +239,7 @@ fn fill(b: &mut DocumentBuilder, bars: &[BarId], voice: VoiceId, secondary: bool
 /// Only if the generator itself is wrong: every input it gives the builder is valid by
 /// construction (ADR-0031 §5). A panic here is a bug in this file, never in the caller.
 #[must_use]
-pub fn score(size: Size, editing: bool) -> Document {
+pub fn score(size: Size, extra: Instruments) -> Document {
     let (bars, pianos, others) = match size {
         Size::Normal => (100, 1, 8),
         Size::Heavy => (1000, 2, 26),
@@ -248,7 +260,7 @@ pub fn score(size: Size, editing: bool) -> Document {
     for (voice, secondary) in instruments(&mut b, pianos, others) {
         fill(&mut b, &ids, voice, secondary, &mut rng);
     }
-    if editing {
+    if extra == Instruments::WithEditing {
         let unison = Interval::new(0, Rational::ZERO);
         b.add_instrument_track("Editing", unison, &[Clef::TREBLE])
             .unwrap();

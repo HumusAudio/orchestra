@@ -12,39 +12,43 @@
 //! its tie chain, its event, its voice and staff, the played bar where it starts and the pass of
 //! its notes.
 //!
-//! # The steps, voice by voice (N10)
+//! # The steps, voice by voice (ADR-0027 N10)
 //! 1. **The items**: the events the voice plays, bar by bar along the path. On a staff with bar
-//!    repeats the events come from the source bar the path names, with that source's pass (P3);
-//!    events the pass rules silence are left out (P4, N1).
+//!    repeats the events come from the source bar the path names, with that source's pass
+//!    (ADR-0025 P3); events the pass rules silence are left out (ADR-0025 P4, ADR-0027 N1).
 //! 2. **The chains** (ADR-0027 §2, N1, N2): every notehead is followed along its tie only if the
 //!    notehead it is tied to sounds right after it on the path (it starts where this one ends,
 //!    in the same or the next played bar); a chain is one played note.
-//! 3. **Articulations** (§3, N3, N4): the shortening ones on the **last** notehead of the chain,
-//!    the accents on the **first**; tenuto with staccato is a portato.
-//! 4. **Grace notes** (§5, N5, N6): appoggiaturas on the beat, taking time from their main note;
-//!    acciaccaturas **before** the beat, taking time from the previous note of the voice (the main
-//!    note starts when it is written); `After` graces at the end of the note they follow.
-//! 5. **Arpeggios** (§6, N7): the notes of the chord start one after the other, 1/64 apart.
-//! 6. **Offsets and bounds** (§8, N8): the performance offsets of the chain are added, with the
-//!    **pass-specific** offsets of the pass being played (ADR-0028 §5, T3: the onset and the
-//!    velocity of the first notehead in its pass, the lengths of every notehead in its own pass),
-//!    then a note lasts at least 1/1024 of a whole note.
-//! 7. **Loudness** (§4, §14, H1–H17; module `loudness`): the level in force at the note's written
-//!    point along the path (dynamics and hairpins), the dynamic accent written exactly there, the
-//!    articulation accents of its first notehead and its velocity offset give its **attack
-//!    profile**: the attack velocity, how long it is held, and how long the sound takes to settle
-//!    to which level (seconds, so that the speed is fixed and a tempo edit recomputes nothing).
+//! 3. **Articulations** (§3, ADR-0027 N3, ADR-0027 N4): the shortening ones on the **last**
+//!    notehead of the chain, the accents on the **first**; tenuto with staccato is a portato.
+//! 4. **Grace notes** (§5, ADR-0027 N5, ADR-0027 N6): appoggiaturas on the beat, taking time from
+//!    their main note; acciaccaturas **before** the beat, taking time from the previous note of the
+//!    voice (the main note starts when it is written); `After` graces at the end of the note they
+//!    follow.
+//! 5. **Arpeggios** (§6, ADR-0027 N7): the notes of the chord start one after the other, 1/64
+//!    apart.
+//! 6. **Offsets and bounds** (§8, ADR-0027 N8): the performance offsets of the chain are added,
+//!    with the **pass-specific** offsets of the pass being played (ADR-0028 §5, T3: the onset and
+//!    the velocity of the first notehead in its pass, the lengths of every notehead in its own
+//!    pass), then a note lasts at least 1/1024 of a whole note.
+//! 7. **Loudness** (§4, §14, ADR-0027 H1–H17; module `loudness`): the level in force at
+//!    the note's written point along the path (dynamics and hairpins), the dynamic accent written
+//!    exactly there, the articulation accents of its first notehead and its velocity offset give
+//!    its **attack profile**: the attack velocity, how long it is held, and how long the sound
+//!    takes to settle to which level (seconds, so that the speed is fixed and a tempo edit
+//!    recomputes nothing).
 //!
 //! # The incremental update
-//! [`Performance::update`] (module `perform::update`, H11 and H12) recomputes, after a transaction,
-//! only the velocities of an instrument whose dynamics changed and a window of played bars around
-//! every changed cell, with the same code as the full computation (`perform_range` on a range of
-//! played bars).
+//! [`Performance::update`] (module `perform::update`, ADR-0027 H11 and ADR-0027 H12) recomputes,
+//! after a transaction, only the velocities of an instrument whose dynamics changed and a window of
+//! played bars around every changed cell, with the same code as the full computation
+//! (`perform_range` on a range of played bars).
 //!
 //! # Complexity
 //! O(path × events of a bar) items per voice, O(1) average per tie followed (an index by notehead),
 //! O(n log n) to sort the n notes of an instrument.
 
+use orchestra_core_time::invariant::convert_or;
 use std::error::Error;
 use std::fmt;
 
@@ -64,29 +68,15 @@ mod update;
 // Constants of ADR-0027
 // ------------------------------------------------------------------------------------------------
 
-/// `1/den` of a whole note, as a constant.
-///
-/// `Rational::new` returns a `Result`, so a constant cannot use `?`; the `match` is evaluated at
-/// compile time, and for the positive denominators used below it always takes the `Ok` arm (the
-/// `Err` arm is unreachable: a failure would be a wrong constant, caught by the tests, never a
-/// run-time error). The constants used to be functions returning `Result`, re-evaluated at every
-/// call (review point C3).
-const fn whole_fraction(den: i64) -> Duration {
-    match Rational::new(1, den) {
-        Ok(r) => Duration::from_rational(r),
-        Err(_) => Duration::ZERO,
-    }
-}
-
 /// The duration of one acciaccatura and of one `After` grace note: 1/32 of a whole note, about
 /// 65 ms at ♩ = 120 (ADR-0027 §5, `MuseScore`'s duration).
-const GRACE_LENGTH: Duration = whole_fraction(32);
+const GRACE_LENGTH: Duration = Duration::from_rational(orchestra_core_time::rational!(1, 32));
 
 /// The distance between two notes of an arpeggio: 1/64 of a whole note (ADR-0027 §6).
-const ARPEGGIO_STEP: Duration = whole_fraction(64);
+const ARPEGGIO_STEP: Duration = Duration::from_rational(orchestra_core_time::rational!(1, 64));
 
 /// The shortest a played note lasts: 1/1024 of a whole note (ADR-0027 §8).
-const MIN_LENGTH: Duration = whole_fraction(1024);
+const MIN_LENGTH: Duration = Duration::from_rational(orchestra_core_time::rational!(1, 1024));
 
 // ------------------------------------------------------------------------------------------------
 // Errors
@@ -199,12 +189,12 @@ pub struct PlayedNote {
     pub pitch: Rational,
     /// The velocity of the attack on the 16-bit scale, 1..=65 535 (ADR-0027 §14, H14).
     pub velocity: u16,
-    /// How long the sound stays at the attack's level, in seconds (H14, H16: *fp* and *pf*);
-    /// zero for most notes.
+    /// How long the sound stays at the attack's level, in seconds (ADR-0027 H14, ADR-0027 H16: *fp*
+    /// and *pf*); zero for most notes.
     pub hold: Seconds,
-    /// How long the sound then takes to go, linearly, to `settle_to`, in seconds (H14–H16): the
-    /// fixed speed at which an accent fades back to the dynamic; zero without an accent. A note
-    /// that ends earlier simply ends.
+    /// How long the sound then takes to go, linearly, to `settle_to`, in seconds
+    /// (ADR-0027 H14–H16): the fixed speed at which an accent fades back to the dynamic;
+    /// zero without an accent. A note that ends earlier simply ends.
     pub settle_in: Seconds,
     /// The level the sound settles to and keeps, on the 16-bit scale, 1..=65 535: the dynamic in
     /// force for an accent, the second level of *fp* and the like; equal to `velocity` (with
@@ -223,11 +213,11 @@ pub struct Performance {
 /// The played notes of one instrument and what is kept to update them (internal).
 ///
 /// # Why the extras are kept
-/// A change of the dynamics recomputes only the velocities (H11), so every note keeps the inputs
-/// of its loudness ([`Basis`]); a change of a cell recomputes a window of played bars (H12), so
-/// every note keeps how far along the path it **reaches** (the last played bar it sounds in or is
-/// tied into), which says which bars depend on it. Both are derived data like the notes: thrown
-/// away and rebuilt with them.
+/// A change of the dynamics recomputes only the velocities (ADR-0027 H11), so every note keeps the
+/// inputs of its loudness ([`Basis`]); a change of a cell recomputes a window of played bars
+/// (ADR-0027 H12), so every note keeps how far along the path it **reaches** (the last played bar
+/// it sounds in or is tied into), which says which bars depend on it. Both are derived data like
+/// the notes: thrown away and rebuilt with them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Part {
     /// The instrument.
@@ -237,7 +227,8 @@ struct Part {
     notes: Vec<PlayedNote>,
     /// For each note (same index), its extras.
     extras: Vec<Extra>,
-    /// The loudness of each voice of the instrument along the path, by voice index (H1–H9).
+    /// The loudness of each voice of the instrument along the path, by voice index
+    /// (ADR-0027 H1–H9).
     timelines: Vec<Timeline>,
 }
 
@@ -251,7 +242,8 @@ struct Extra {
     basis: Basis,
 }
 
-/// The inputs of the loudness of one note (H2, H10, H17): where it is read, and what changes it.
+/// The inputs of the loudness of one note (ADR-0027 H2, ADR-0027 H10, ADR-0027 H17): where it is
+/// read, and what changes it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Basis {
     /// The voice, by index in the instrument.
@@ -261,7 +253,7 @@ struct Basis {
     /// The written position of that point (hairpins interpolate in it).
     written: Position,
     /// Whether a dynamic accent written at the point applies (main notes) or not (grace notes,
-    /// H10).
+    /// ADR-0027 H10).
     accent: bool,
     /// The articulations of its first notehead's chord.
     articulations: ArticulationSet,
@@ -270,8 +262,8 @@ struct Basis {
 }
 
 impl Basis {
-    /// The attack profile of a note with this basis, read on the voice's timeline (H14–H17).
-    /// O(log n).
+    /// The attack profile of a note with this basis, read on the voice's timeline
+    /// (ADR-0027 H14–H17). O(log n).
     ///
     /// # Errors
     /// The arithmetic errors; [`UnrollError::Endless`] for an unknown voice index (a bug).
@@ -327,7 +319,8 @@ impl Part {
 /// before `end`, 0 if none. O(log path).
 fn bar_of(path: &Unrolled, end: Position) -> u32 {
     let i = path.played().partition_point(|p| p.start < end);
-    u32::try_from(i.saturating_sub(1)).unwrap_or(u32::MAX)
+    // A path has at most `u32::MAX` played bars (the unroller's bound), so this always fits.
+    convert_or(i.saturating_sub(1), u32::MAX)
 }
 
 /// The index of the last played bar, or `None` for an empty path. O(1).
@@ -375,8 +368,7 @@ impl Performance {
 /// One event played by a voice at one place of the path.
 ///
 /// It borrows the event from the document (`'a`): an event is played once per pass of its bar, and
-/// copying it each time cost an allocation for every chord of two or more noteheads (review point
-/// D4).
+/// copying it each time would cost an allocation for every chord of two or more noteheads.
 #[derive(Debug, Clone, Copy)]
 struct Item<'a> {
     /// The played bar.
@@ -384,10 +376,10 @@ struct Item<'a> {
     /// The pass of its notes.
     pass: u32,
     /// Its offset inside the written bar of the played bar: with `played`, the path point at which
-    /// its loudness is read (H2).
+    /// its loudness is read (ADR-0027 H2).
     offset: Duration,
-    /// Its written position: the start of the played bar's written bar plus `offset` (H2, H8: the
-    /// coordinate hairpins are interpolated in).
+    /// Its written position: the start of the played bar's written bar plus `offset` (ADR-0027 H2,
+    /// ADR-0027 H8: the coordinate hairpins are interpolated in).
     written: Position,
     /// Where it starts on the unrolled timeline.
     start: Position,
@@ -428,7 +420,7 @@ fn items_of<'a>(
     for (k, played) in (from..).zip(played_bars) {
         // Where the played bar's own written bar starts: the loudness of every event played here
         // is read at this bar's points, also on a staff whose notes come from a bar repeat's
-        // source (H2: the dynamics written under the % bar count).
+        // source (ADR-0027 H2: the dynamics written under the % bar count).
         let bar_start = played.written_start;
         // The written bars the voice's events come from in this played bar, one per staff.
         let mut sources: Vec<(StaffId, orchestra_core_model::BarId, u32)> = Vec::new();
@@ -555,7 +547,8 @@ fn perform_range(
         )?;
         notes.push((chain, note));
     }
-    // The notes of the grace chords, and the time they take from their neighbours (§5, N5, N6).
+    // The notes of the grace chords, and the time they take from their neighbours (§5, ADR-0027 N5,
+    // ADR-0027 N6).
     let mut graces: Vec<Slot> = Vec::new();
     for (v, list) in items.iter().enumerate() {
         place_graces(
@@ -567,7 +560,7 @@ fn perform_range(
             &mut graces,
         )?;
     }
-    // Arpeggios (N7), then the bounds (§8), then how far each note reaches along the path.
+    // Arpeggios (ADR-0027 N7), then the bounds (§8), then how far each note reaches along the path.
     let mut all: Vec<Slot> = notes.into_iter().map(|(_, n)| n).collect();
     all.extend(graces);
     arpeggiate(&items, &mut all)?;
@@ -608,7 +601,8 @@ fn find_chains(items: &[Vec<Item<'_>>]) -> Result<Vec<Chain>, PerformError> {
         }
     }
 
-    // N1, N2: chains, followed notehead by notehead along the ties that sound next on the path.
+    // ADR-0027 N1, ADR-0027 N2: chains, followed notehead by notehead along the ties that sound
+    // next on the path.
     let mut continued: IdSet<(usize, usize, NoteId)> = IdSet::default();
     let mut chains: Vec<Chain> = Vec::new();
     for (v, list) in items.iter().enumerate() {
@@ -692,8 +686,8 @@ fn length_factor(set: ArticulationSet) -> Result<Rational, RationalError> {
 }
 
 /// The played note of a chain, before grace notes and arpeggios (ADR-0027 §2, §3, §8, §14, N3, N8,
-/// H2, H17): its loudness is read at the written point of its first notehead, with the accents of
-/// that notehead.
+/// ADR-0027 H2, ADR-0027 H17): its loudness is read at the written point of its first notehead,
+/// with the accents of that notehead.
 ///
 /// # Errors
 /// [`PerformError::Unroll`] for a link to nothing (a bug); the arithmetic and pitch errors.
@@ -723,13 +717,14 @@ fn chain_note(
     let (last, _) = link(chain.links.len().saturating_sub(1))?;
     let first_chord = first.event.chord().ok_or(UnrollError::Endless)?;
     let last_chord = last.event.chord().ok_or(UnrollError::Endless)?;
-    // N3: the shortening on the last notehead, of its own written length.
+    // ADR-0027 N3: the shortening on the last notehead, of its own written length.
     let last_length = last
         .length
         .checked_mul(length_factor(last_chord.articulations())?)?;
     let mut end = last.start.checked_add(last_length)?;
-    // N8: the onset and the velocity from the first notehead, the lengths of every notehead added;
-    // T3: each notehead's pass-specific offsets of its own pass added to its inline ones.
+    // ADR-0027 N8: the onset and the velocity from the first notehead, the lengths of every
+    // notehead added; ADR-0028 T3: each notehead's pass-specific offsets of its own pass added to
+    // its inline ones.
     let mut length_offset = Duration::ZERO;
     for k in 0..chain.links.len() {
         let (item, note) = link(k)?;
@@ -768,7 +763,7 @@ fn chain_note(
 /// the attack profile `loud`. O(1).
 ///
 /// The one place where a [`PlayedNote`] is assembled: tie chains (`chain_note`) and grace notes
-/// (`push_grace`) each filled in the fourteen fields (review point B17).
+/// (`push_grace`) both use it instead of filling in the fourteen fields themselves.
 ///
 /// # Errors
 /// The pitch error of an absurd alteration (see `Pitch::sounding`).
@@ -840,8 +835,9 @@ fn place_graces(
             let (at, limit) = previous_end(notes, v, item.start)?;
             let total = at_most_half_of(unit.checked_mul(n)?, limit)?;
             let each = total.checked_div(n)?;
-            // N6: acciaccaturas of the next note at the same point come after these graces, so
-            // these end where those begin (each acciaccatura lasts one unit, before the beat).
+            // ADR-0027 N6: acciaccaturas of the next note at the same point come after these
+            // graces, so these end where those begin (each acciaccatura lasts one unit, before the
+            // beat).
             let following = list
                 .get(j..)
                 .unwrap_or(&[])
@@ -867,7 +863,7 @@ fn place_graces(
         let (accs, apps): (Vec<usize>, Vec<usize>) =
             (i..j).partition(|&g| list.get(g).is_some_and(is_acciaccatura));
         let beat = item.start;
-        // Acciaccaturas before the beat, taking time from the previous note (N5).
+        // Acciaccaturas before the beat, taking time from the previous note (ADR-0027 N5).
         if !accs.is_empty() {
             let n = count(accs.len())?;
             let (prev_end, limit) = previous_end(notes, v, beat)?;
@@ -916,7 +912,7 @@ fn place_graces(
 /// itself is assumed to be one of them, so the result is at least `i + 1` when `i` is in range.
 /// O(run length).
 ///
-/// It was written out twice in `place_graces`, once per attachment (review point B17).
+/// Shared by both attachments in `place_graces`.
 fn grace_run_end(list: &[Item<'_>], i: usize, attach: GraceAttach) -> usize {
     let Some(first) = list.get(i) else {
         return i;
@@ -1045,7 +1041,7 @@ fn with_pass(
 /// Appends the notes of the grace chord of item `g`, from `start`, lasting `length`. Their loudness
 /// is the level in force at their written point (their main note's), hairpins included, with
 /// their own articulations but **without** the dynamic accent written there, which belongs to
-/// the main note (H10). O(noteheads).
+/// the main note (ADR-0027 H10). O(noteheads).
 fn push_grace(
     list: &[Item<'_>],
     g: usize,
@@ -1139,8 +1135,7 @@ fn arpeggiate(items: &[Vec<Item<'_>>], notes: &mut [Slot]) -> Result<(), Perform
         });
         for (k, index) in group.into_iter().enumerate() {
             if let Some(Slot { note, .. }) = notes.get_mut(index) {
-                let shift =
-                    step.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?;
+                let shift = step.checked_mul(Rational::from_integer(convert_or(k, 0_i64))?)?;
                 note.start = note.start.checked_add(shift)?;
             }
         }

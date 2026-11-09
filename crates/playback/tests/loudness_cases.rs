@@ -74,9 +74,9 @@ fn up(v: u16) -> u16 {
     (v << 9) | (v << 2) | (v >> 5)
 }
 
-/// The 16-bit velocity of the level `num/den` of the 0–127 scale (H8), computed here with plain
-/// floating point as an independent check: between the two neighbouring integers' values, rounded
-/// to the nearest. The levels of these tests are quarters and halves, exact in `f64`.
+/// The 16-bit velocity of the level `num/den` of the 0–127 scale (ADR-0027 H8), computed here with
+/// plain floating point as an independent check: between the two neighbouring integers' values,
+/// rounded to the nearest. The levels of these tests are quarters and halves, exact in `f64`.
 fn upf(num: i64, den: i64) -> u16 {
     #[allow(
         clippy::cast_precision_loss,
@@ -161,13 +161,14 @@ fn attacks(notes: &[PlayedNote]) -> Vec<u16> {
     notes.iter().map(|n| n.velocity).collect()
 }
 
-/// Whether a note has no attack profile (H14): settling level equal to the attack, no times.
+/// Whether a note has no attack profile (ADR-0027 H14): settling level equal to the attack, no
+/// times.
 fn flat(note: &PlayedNote) -> bool {
     note.settle_to == note.velocity && note.hold == Seconds::ZERO && note.settle_in == Seconds::ZERO
 }
 
 /// G4: the ten levels of the table; more *p*s or *f*s play as the extremes; before any dynamic
-/// *mf* (H1); a note without an accent has no profile.
+/// *mf* (ADR-0027 H1); a note without an accent has no profile.
 #[test]
 fn levels_play_the_table() {
     let mut s = score(1);
@@ -181,8 +182,8 @@ fn levels_play_the_table() {
     assert!(notes.iter().all(flat));
 }
 
-/// H1: the dynamic in force is followed along the path: after the repeat back to bar 0, which has
-/// no dynamic, the *f* written in bar 1 stays.
+/// ADR-0027 H1: the dynamic in force is followed along the path: after the repeat back to bar 0,
+/// which has no dynamic, the *f* written in bar 1 stays.
 #[test]
 fn the_dynamic_in_force_follows_the_path() {
     let mut s = score(2);
@@ -196,9 +197,9 @@ fn the_dynamic_in_force_follows_the_path() {
     assert_eq!(attacks(&notes), expected);
 }
 
-/// H3, H16, §15: an *sf* in *p* attacks two levels up (*f*) and settles back to *p* in 0.6 s, only on
-/// the note starting at its point; an *sf* where no note starts does nothing; in *fff* it stops at
-/// *ffff*; *rf* is one level (0.4 s), *sffz* three (0.8 s).
+/// ADR-0027 H3, ADR-0027 H16, §15: an *sf* in *p* attacks two levels up (*f*) and settles back to
+/// *p* in 0.6 s, only on the note starting at its point; an *sf* where no note starts does nothing;
+/// in *fff* it stops at *ffff*; *rf* is one level (0.4 s), *sffz* three (0.8 s).
 #[test]
 fn sforzato_and_the_like() {
     let mut s = score(2);
@@ -232,9 +233,9 @@ fn sforzato_and_the_like() {
     assert!(flat(&notes[2]) && flat(&notes[4]));
 }
 
-/// H4, H16, §15: *fp* is *f* held 0.6 s then *p* in 0.1 s, and *p* afterwards; *pf* the
-/// reverse; *sfpp* is *fff* held 0.2 s then *pp* in 0.2 s; without a note at its point the second
-/// level holds at once.
+/// ADR-0027 H4, ADR-0027 H16, §15: *fp* is *f* held 0.6 s then *p* in 0.1 s, and *p* afterwards;
+/// *pf* the reverse; *sfpp* is *fff* held 0.2 s then *pp* in 0.2 s; without a note at its point the
+/// second level holds at once.
 #[test]
 fn forte_piano_and_piano_forte() {
     let mut s = score(2);
@@ -266,7 +267,7 @@ fn forte_piano_and_piano_forte() {
     assert_eq!(attacks(&notes[6..]), [up(49), up(49)]);
 }
 
-/// H5: *niente* is velocity 1.
+/// ADR-0027 H5: *niente* is velocity 1.
 #[test]
 fn niente_is_velocity_one() {
     let mut s = score(1);
@@ -276,8 +277,8 @@ fn niente_is_velocity_one() {
     assert!(notes.iter().all(|n| n.velocity == 1 && flat(n)));
 }
 
-/// H6, H7, H8: a crescendo from *p* to the *f* at its end is linear in the written position; the
-/// *f* holds after it.
+/// ADR-0027 H6, ADR-0027 H7, ADR-0027 H8: a crescendo from *p* to the *f* at its end is linear in
+/// the written position; the *f* holds after it.
 #[test]
 fn a_crescendo_to_its_written_target() {
     let mut s = score(2);
@@ -302,9 +303,9 @@ fn a_crescendo_to_its_written_target() {
     );
 }
 
-/// H6, H7: without a dynamic at its end (the *pp* two bars later is outside the window, and a
-/// written *p* at the end of a crescendo from *p* goes the wrong way), a crescendo goes one level
-/// up and that level holds after it.
+/// ADR-0027 H6, ADR-0027 H7: without a dynamic at its end (the *pp* two bars later is outside the
+/// window, and a written *p* at the end of a crescendo from *p* goes the wrong way), a crescendo
+/// goes one level up and that level holds after it.
 #[test]
 fn a_crescendo_without_a_fitting_target() {
     let mut s = score(4);
@@ -340,7 +341,7 @@ fn a_crescendo_without_a_fitting_target() {
     );
 }
 
-/// H7: a dynamic inside a hairpin splits it: p → mf at bar 1, then mf → f at bar 2.
+/// ADR-0027 H7: a dynamic inside a hairpin splits it: p → mf at bar 1, then mf → f at bar 2.
 #[test]
 fn a_dynamic_inside_a_hairpin_splits_it() {
     let mut s = score(3);
@@ -357,7 +358,7 @@ fn a_dynamic_inside_a_hairpin_splits_it() {
     assert_eq!(notes[8].velocity, up(88));
 }
 
-/// H5: a diminuendo *al niente* without a target goes to velocity 1.
+/// ADR-0027 H5: a diminuendo *al niente* without a target goes to velocity 1.
 #[test]
 fn a_diminuendo_al_niente() {
     let mut s = score(2);
@@ -377,8 +378,8 @@ fn a_diminuendo_al_niente() {
     assert!(notes[4..].iter().all(|n| n.velocity == 1));
 }
 
-/// H8: a hairpin played twice starts each time from the level in force: mf → f the first time,
-/// f → ff the second.
+/// ADR-0027 H8: a hairpin played twice starts each time from the level in force: mf → f the first
+/// time, f → ff the second.
 #[test]
 fn a_hairpin_played_twice_starts_from_the_level_in_force() {
     let mut s = score(2);
@@ -392,8 +393,8 @@ fn a_hairpin_played_twice_starts_from_the_level_in_force() {
     assert_eq!(notes[12].velocity, up(101));
 }
 
-/// G5, H9: a voice's dynamic wins over the instrument's at the same point, a voice's hairpin over
-/// the instrument's on the same note; the other voice follows the instrument's.
+/// G5, ADR-0027 H9: a voice's dynamic wins over the instrument's at the same point, a voice's
+/// hairpin over the instrument's on the same note; the other voice follows the instrument's.
 #[test]
 fn the_voice_wins_over_the_instrument() {
     let mut s = score(3);
@@ -439,7 +440,8 @@ fn the_voice_wins_over_the_instrument() {
     assert_eq!(of(second), [up(49), upf(111, 2)]);
 }
 
-/// H10: a grace note takes the level in force at its main note, without the *sf* written there.
+/// ADR-0027 H10: a grace note takes the level in force at its main note, without the *sf* written
+/// there.
 #[test]
 fn grace_notes_take_the_level_without_the_accent() {
     let mut s = score(1);
@@ -462,10 +464,9 @@ fn grace_notes_take_the_level_without_the_accent() {
     assert!(flat(&notes[0]));
 }
 
-/// H15, H17, §15: articulation accents are fixed steps (accent +22 in 0.25 s, marcato +30 in
-/// 0.3 s);
-/// with an *sf* the attack adds both and the longer time wins; an unstress is −7 on the whole
-/// note; the velocity offset moves the attack and the settling level.
+/// ADR-0027 H15, ADR-0027 H17, §15: articulation accents are fixed steps (accent +22 in 0.25 s,
+/// marcato +30 in 0.3 s); with an *sf* the attack adds both and the longer time wins; an unstress
+/// is −7 on the whole note; the velocity offset moves the attack and the settling level.
 #[test]
 fn articulation_accents_are_fixed_steps() {
     let mut s = score(1);
@@ -519,9 +520,9 @@ fn articulation_accents_are_fixed_steps() {
     );
 }
 
-/// H8: the up-scaling of a fractional level rounds to the nearest, halves up: an eighth into a
-/// crescendo from *p* to *mp* (no target written) over a whole bar is at 49 + 13/8 = 50.625, which
-/// is 0.625 × 516 = 322.5 steps above 50's value, rounded up to 323.
+/// ADR-0027 H8: the up-scaling of a fractional level rounds to the nearest, halves up: an eighth
+/// into a crescendo from *p* to *mp* (no target written) over a whole bar is at 49 + 13/8 = 50.625,
+/// which is 0.625 × 516 = 322.5 steps above 50's value, rounded up to 323.
 #[test]
 fn fractional_levels_round_to_the_nearest() {
     let mut s = score(2);
@@ -539,9 +540,9 @@ fn fractional_levels_round_to_the_nearest() {
     assert_eq!(notes[0].velocity, upf(405, 8));
 }
 
-/// H6: the target is looked for only within the bar holding the end: the *f* at the start of the
-/// next bar is outside the window of a crescendo ending halfway through bar 0, which therefore
-/// goes one level up (*p* → *mp*), and the *f* comes only where it is written.
+/// ADR-0027 H6: the target is looked for only within the bar holding the end: the *f* at the start
+/// of the next bar is outside the window of a crescendo ending halfway through bar 0, which
+/// therefore goes one level up (*p* → *mp*), and the *f* comes only where it is written.
 #[test]
 fn the_target_is_looked_for_within_the_bar_of_the_end() {
     let mut s = score(2);

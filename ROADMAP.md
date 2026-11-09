@@ -651,11 +651,41 @@ metronome and the interface), `palette()` rebuilt per call (a documented choice)
 stacked and merged in order once their CI was green, each next one retargeted to `main` before
 its base branch was deleted. SCALETTA v0.48 records the review, ADR-0033 under F1.18, and in
 F2.23 the new measurements and a benchmark with many grace notes and long notes (D5, D6).
-**Second codebase review (2026-11-09):** see the entries of P1 and P2 on their branches. For
-point P3.3 Claude proposed **ADR-0034** (Proposed, `docs/adr-0034-public-api`): private modules
-with one root path per item, error and warning enums exhaustive (the review report had suggested
-the opposite; the ADR explains why the exhaustive `match` of the interface's Fluent mapping
-matters more), `#[non_exhaustive]` only where a generic case is right. Waiting for the owner.
+**Second codebase review (2026-11-09, not a SCALETTA step):** at the owner's request Claude
+analysed the codebase for practices that high-quality code avoids (points P1.1–P1.4 robustness,
+P2.1–P2.3 errors, P3.1–P3.4 maintainability, P4.1–P4.4 minor); the owner approved all of it, one
+pull request per group, and asked for an ADR for P3.3 (public API policy). Progress:
+- **P1 (robustness, `fix/review2-p1-robustness`):** unique temporary names in `safe_write`
+  (process id + atomic serial, a taken name skipped, at most 64 tries); the `commit-msg` hook
+  checks only the subject for exemptions, runs in strict mode and accepts an amend whose guide
+  edits are already in HEAD; `core-time::invariant::{convert_or, some_or}` replace the silent
+  `try_from(..).unwrap_or(..)` fallbacks where a failure is a bug (debug builds stop there,
+  release builds keep the fallback); the `rational!` macro writes rational constants checked at
+  compile time, replacing the `Err(_) => Rational::ZERO` fallbacks (5 sites).
+- **P2 (errors, `fix/review2-p2-errors`, stacked on P1):** `DocumentError::Inconsistent { at }`
+  records the source location of the failed check (`DocumentError::inconsistent()`,
+  `#[track_caller]`); `LoadError` gives its cause through `source()`; the `Io` variants of
+  `LoadError`, `SaveError` and `MidiError` keep the operating system's error code (`os_code`);
+  `MigrationError` replaces the `String` of the migrations, as ADR-0029 S11 already said; `load`
+  opens the file once and caps the read at the size limit.
+- **P3.1 and P3.4 (`refactor/review2-p3-clarity`, stacked on P2):** comments no longer cite the
+  first review's points or describe old code (49 places rewritten in the present tense); 651
+  decision codes qualified with their ADR (`(ADR-0026 V2)`), codes left bare inside a parenthesis
+  or under a heading that names the ADR; the rule is in DOCUMENTATION "Comments: references to
+  decisions". `MeterMap`/`BarSpan::set_uncounted(bar, bool) -> bool` became
+  `set_numbering(bar, BarCounting) -> BarCounting`; `test_scores::plain(size, bool)` takes
+  `Instruments::{Plain, WithEditing}`.
+- **P4 (minor, `chore/review2-p4-minor`, stacked on P3):** `timeout-minutes` on every CI job
+  (45/20/90); `#![deny(unsafe_code)]` in `io`, `audio-engine` and `plugin-host`; P4.3 measured and
+  **not changed** (the undo of a 200-note paste is ≈ 235 000 instructions in all; the clone keeps
+  a failed undo's step whole, documented next to it); `safe_write` saves through symbolic links
+  and keeps the Unix permission bits of the file it replaces (within ADR-0029 S13: the temporary
+  file still sits in the real file's directory).
+- **ADR-0034 (Accepted by the owner, 2026-11-09, PR #46):** private modules with one root path per
+  item, error and warning enums exhaustive (the review report had first suggested the opposite;
+  the ADR explains why the exhaustive `match` of the interface's Fluent mapping matters more),
+  `#[non_exhaustive]` only where a generic case is right.
+- **Still to do:** P3.2 and P3.3 (`refactor/review2-p3-api`), implementing ADR-0034.
 
 | Step | What | Status |
 |---|---|---|

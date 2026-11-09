@@ -59,7 +59,7 @@
 /// # Why here?
 /// `macro_rules!` macros are visible, in textual order, to everything declared after them in the
 /// same crate: defining it once at the root, before the `mod` lines, makes it available to every
-/// module (it used to be copied into `rational`, `position` and `clock`, review point B1).
+/// module (`rational`, `position`, `clock` and the others) without a copy in each.
 macro_rules! const_try {
     ($result:expr) => {
         match $result {
@@ -69,7 +69,77 @@ macro_rules! const_try {
     };
 }
 
+/// A rational constant written as a literal, checked **at compile time**: `rational!(1, 2)` is
+/// one half, `rational!(60)` the integer sixty.
+///
+/// # Why a macro
+/// `Rational::new` returns a `Result` (the denominator may be zero, the fraction may overflow),
+/// so a constant needs an answer for the error case. Library code may not panic at run time
+/// (CLAUDE.md §4), and a silent fallback such as `Err(_) => Rational::ZERO` would turn a typo in a
+/// literal (say `1, 0`) into a wrong constant nobody notices. The expansion is an inline `const`
+/// block, which the compiler always evaluates while compiling, even where the macro is used in
+/// ordinary code: an invalid literal makes the `panic!` below a **compile error**, and no panic
+/// can ever happen at run time.
+///
+/// Exported (`#[macro_export]`) because other crates write rational constants too (the MIDI
+/// export's grid, for example); it names the type by its full path, `$crate::Rational`, so it
+/// works without any import.
+///
+/// # Examples
+/// ```
+/// use orchestra_core_time::{Rational, rational};
+/// const HALF: Rational = rational!(1, 2);
+/// assert_eq!((HALF.numerator(), HALF.denominator()), (1, 2));
+/// assert_eq!(rational!(60).numerator(), 60);
+/// ```
+///
+/// A zero denominator does not compile:
+/// ```compile_fail
+/// const BAD: orchestra_core_time::Rational = orchestra_core_time::rational!(1, 0);
+/// ```
+///
+/// # Complexity
+/// None at run time: the value is computed by the compiler.
+#[macro_export]
+macro_rules! rational {
+    ($numerator:expr, $denominator:expr) => {
+        const {
+            match $crate::Rational::new($numerator, $denominator) {
+                Ok(value) => value,
+                Err(_) => {
+                    #[allow(
+                        clippy::panic,
+                        reason = "evaluated by the compiler: an invalid literal is a compile \
+                                  error, never a run-time panic"
+                    )]
+                    {
+                        panic!("an invalid rational literal")
+                    }
+                }
+            }
+        }
+    };
+    ($integer:expr) => {
+        const {
+            match $crate::Rational::from_integer($integer) {
+                Ok(value) => value,
+                Err(_) => {
+                    #[allow(
+                        clippy::panic,
+                        reason = "evaluated by the compiler: an invalid literal is a compile \
+                                  error, never a run-time panic"
+                    )]
+                    {
+                        panic!("an invalid rational literal")
+                    }
+                }
+            }
+        }
+    };
+}
+
 pub mod clock;
+pub mod invariant;
 pub mod meter;
 pub mod meter_map;
 pub mod position;
@@ -80,8 +150,8 @@ pub mod tempo_map;
 pub use clock::{ClockError, FrameRate, SampleRate, Seconds};
 pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};
 pub use meter_map::{
-    BarIndex, BarKind, BarPosition, BarSpan, BeatPosition, IrregularBar, MeterChange, MeterMap,
-    MeterMapError,
+    BarCounting, BarIndex, BarKind, BarPosition, BarSpan, BeatPosition, IrregularBar, MeterChange,
+    MeterMap, MeterMapError,
 };
 pub use position::{Duration, Position};
 pub use rational::{ParseRationalError, Rational, RationalError};

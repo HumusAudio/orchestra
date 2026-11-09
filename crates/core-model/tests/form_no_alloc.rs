@@ -32,7 +32,10 @@ orchestra_test_support::install_counting_allocator!();
 /// D.S. al Fine at the end of bar 12. Returns the document, its bars and the segno.
 fn document() -> (Document, Vec<BarId>, MarkerId) {
     let mut meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
-    meters.set_uncounted(BarIndex::new(19), true);
+    meters.set_numbering(
+        BarIndex::new(19),
+        orchestra_core_time::BarCounting::Uncounted,
+    );
     let tempo = Tempo::new(
         Duration::from_rational(Rational::new(1, 4).unwrap()),
         Rational::from_integer(100).unwrap(),

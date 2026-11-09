@@ -51,6 +51,7 @@ use std::error::Error;
 use std::fmt;
 use std::hash::Hash;
 use std::num::NonZeroU64;
+use std::panic::Location;
 
 use orchestra_core_time::{
     BarIndex, Duration, MeterMap, MeterMapError, Position, RationalError, TempoMap, TempoMapError,
@@ -238,8 +239,8 @@ pub enum DocumentError {
     /// Bars to be removed still hold an event or carry something anchored on them; the bar named
     /// is the first one found.
     BarsNotEmpty(BarId),
-    /// A command enters an event that would reach past the end of the last bar (W3): the bars
-    /// must be added first, in the same transaction if need be.
+    /// A command enters an event that would reach past the end of the last bar (ADR-0026 W3): the
+    /// bars must be added first, in the same transaction if need be.
     PastLastBar,
     /// A command enters an event starting at or after the end of its bar (at most at the end of
     /// a free bar, which it then lengthens).
@@ -248,7 +249,7 @@ pub enum DocumentError {
     /// beat, after a tuplet, for example): the tie chain of a note across a barline cannot be
     /// written.
     NotWritable,
-    /// A command inserts bars between the source and the end of this bar repeat (W6).
+    /// A command inserts bars between the source and the end of this bar repeat (ADR-0026 W6).
     InsideBarRepeat(BarRepeatId),
     /// A command would delete every bar: at least one bar remains (ADR-0026 §6).
     NoBarsLeft,
@@ -262,7 +263,7 @@ pub enum DocumentError {
     /// A DAW move with a grid step of zero or less (ADR-0028 §3, Q4): there is no "no grid".
     GridNotPositive,
     /// A DAW move beyond the threshold would make a piece of the note cross a barline (ADR-0028
-    /// §3, Q6): a DAW move never makes a bar overfull.
+    /// §3, ADR-0028 Q6): a DAW move never makes a bar overfull.
     MoveCrossesBarline,
     /// A DAW move beyond the threshold of a grace note (ADR-0028 §3, Q9): grace notes are moved
     /// only by offsets, their place belongs to their main event.
@@ -276,8 +277,32 @@ pub enum DocumentError {
     /// A DAW resize whose scale of the playback rules is zero or negative (ADR-0028 §11, U1).
     ScaleNotPositive,
     /// A position or a derived index disagreed with the content: a bug of the model, reported
-    /// instead of panicking. Never expected.
-    Inconsistent,
+    /// instead of panicking. Never expected. Build it with [`DocumentError::inconsistent`].
+    Inconsistent {
+        /// Where in the source code the inconsistency was detected (file, line and column), so
+        /// that a bug report names the broken check instead of a bare "inconsistent". Filled in
+        /// by the compiler through `#[track_caller]`: no allocation, a pointer to static data.
+        at: &'static Location<'static>,
+    },
+}
+
+impl DocumentError {
+    /// The [`DocumentError::Inconsistent`] error, located at the **caller's** line
+    /// (`#[track_caller]`): write `.ok_or(DocumentError::inconsistent())` at the check itself.
+    ///
+    /// Pass it as a value (`ok_or`), not as a function (`ok_or_else(DocumentError::inconsistent)`):
+    /// called through a function pointer, the location would be the standard library's, not the
+    /// check's. Building it eagerly costs nothing measurable: it is one pointer to static data.
+    ///
+    /// # Complexity
+    /// O(1).
+    #[track_caller]
+    #[must_use]
+    pub const fn inconsistent() -> Self {
+        Self::Inconsistent {
+            at: Location::caller(),
+        }
+    }
 }
 
 impl fmt::Display for DocumentError {
@@ -425,7 +450,12 @@ impl fmt::Display for DocumentError {
             Self::ScaleNotPositive => {
                 f.write_str("the scale of the playback rules must be strictly positive")
             }
-            Self::Inconsistent => f.write_str("the document is inconsistent (a bug of the model)"),
+            Self::Inconsistent { at } => write!(
+                f,
+                "the document is inconsistent (a bug of the model, detected at {}:{})",
+                at.file(),
+                at.line()
+            ),
         }
     }
 }
@@ -764,8 +794,8 @@ impl BarList {
     /// (which sorts after everything; the builder and the edits never let one in, so it only
     /// matters for half-built states). O(1) average.
     ///
-    /// The one place of this rule: it was written out in `form::index`, `edit::bar_key`,
-    /// `marks::point_key` and six closures of the builder (review point B4).
+    /// The one place of this rule, used by the form, the edit layer, the marks and the builder,
+    /// so they all order bars the same way.
     pub(crate) fn key(&self, bar: BarId) -> u32 {
         self.index_of(bar).map_or(u32::MAX, BarIndex::get)
     }
@@ -982,9 +1012,9 @@ pub struct Document {
     /// positions never move. Rebuilt at load, never saved.
     ///
     /// # Why an index?
-    /// Voices are few, and they used to be found by scanning every instrument; but every event
-    /// placed, looked up or edited needs its voice, and the benchmark gate measured the scan at
-    /// ≈ 70 M instructions for loading the heavy reference score (review points A1 and D7).
+    /// Voices are few, but every event placed, looked up or edited needs its voice: scanning every
+    /// instrument instead costs ≈ 70 M instructions for loading the heavy reference score
+    /// (measured with the benchmark gate, 2026-11-08).
     pub(crate) voice_index: IdMap<VoiceId, (usize, usize)>,
     /// The tolerance thresholds of the DAW move (ADR-0028 §1): the project value and the
     /// per-track overrides. Saved in the file (F1.15).
@@ -1297,8 +1327,7 @@ impl Document {
     /// the events there do). O(1) average for the bar + O(log m) in the meter map. Never
     /// allocates.
     ///
-    /// The model and `playback` turned points into positions in half a dozen places with the same
-    /// two lines (review point B15).
+    /// The one conversion from points to positions, for the model and for `playback`.
     ///
     /// # Errors
     /// [`DocumentError::UnknownBar`]; [`DocumentError::MeterMap`] or
@@ -1805,10 +1834,10 @@ impl DocumentBuilder {
     /// leaves the builder exactly as it was and never consumes an ID. Returns the raw ID.
     ///
     /// # Why through the edit layer?
-    /// The builder used to check and insert every kind of object with its own copy of the rules
-    /// (where a mark may go, which duplicates are refused, the order of each list); the edit layer
-    /// had a second copy and the commands a third for events (review point A1). One copy now
-    /// decides, so the documents a builder makes and the ones commands make cannot drift apart.
+    /// The rules for inserting each kind of object (where a mark may go, which duplicates are
+    /// refused, the order of each list) exist once, in the edit layer, and the builder and the
+    /// commands both go through it, so the documents a builder makes and the ones commands make
+    /// cannot drift apart.
     ///
     /// # Errors
     /// [`DocumentError::IdsExhausted`]; whatever `make` or the edit layer refuses.
@@ -1943,7 +1972,7 @@ impl DocumentBuilder {
             taken.push(raw);
         }
         let Some((&event_raw, note_raws)) = taken.split_first() else {
-            return Err(DocumentError::Inconsistent);
+            return Err(DocumentError::inconsistent());
         };
         let event = EventId::from_counter(event_raw);
         let notes: Vec<NoteId> = note_raws
@@ -1952,7 +1981,7 @@ impl DocumentBuilder {
             .map(NoteId::from_counter)
             .collect();
         // The noteheads in the order of `pitches`; `chord_from` sorts them by sounding pitch (the
-        // same rule as a command: one implementation, review point B10).
+        // same rule, and the same implementation, as a command).
         let made = notes
             .iter()
             .zip(pitches)
@@ -2669,7 +2698,7 @@ impl DocumentBuilder {
 /// The next raw ID of the document's counter, or [`DocumentError::IdsExhausted`] when the counter
 /// has handed out its last one. O(1).
 ///
-/// The builder takes an ID in two dozen places; this keeps the error in one (review point B6).
+/// The builder takes an ID in two dozen places; this keeps the error in one.
 fn issue(ids: &mut IdCounter) -> Result<NonZeroU64, DocumentError> {
     ids.next().ok_or(DocumentError::IdsExhausted)
 }
@@ -2677,9 +2706,8 @@ fn issue(ids: &mut IdCounter) -> Result<NonZeroU64, DocumentError> {
 /// Adds `value` to the small set stored under `key` in a derived index, creating the entry if
 /// needed. O(1) average (the sets hold one or two IDs inline).
 ///
-/// The one implementation behind the tie index and the slur index (review point B8: the slur
-/// index used to be updated with the same `entry`/`and_modify`/`or_insert_with` chain written out
-/// in three places).
+/// The one implementation behind the tie index and the slur index, so that both derived indices
+/// are updated by the same code.
 fn add_ref<K: Hash + Eq, T: Copy + Ord>(index: &mut IdMap<K, IdRefs<T>>, key: K, value: T) {
     index
         .entry(key)

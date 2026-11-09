@@ -40,17 +40,17 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::{Document, DocumentParts};
 
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // The document of this size.
 fn document(size: Size) -> Document {
-    plain(size, false)
+    plain(size, Instruments::Plain)
 }
 
 // The description of the document of this size.
 fn description(size: Size) -> DocumentParts {
-    plain(size, false).to_parts()
+    plain(size, Instruments::Plain).to_parts()
 }
 
 #[library_benchmark]

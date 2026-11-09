@@ -4,13 +4,13 @@
 //! bounds the history with (ADR-0026 §3 and §8; SCALETTA F1.11b, part 2b).
 //!
 //! # Why
-//! The history is bounded by memory (128 MB by default, U3), but by an **estimate**: each edit
-//! reports its own size plus the extra noteheads of a chord ([`orchestra_core_model::Edit`]'s
+//! The history is bounded by memory (128 MB by default, ADR-0026 U3), but by an **estimate**: each
+//! edit reports its own size plus the extra noteheads of a chord ([`orchestra_core_model::Edit`]'s
 //! `heap_bytes`). If the estimate were far below the real heap, the limit would let the history
-//! grow well past 128 MB on the 8 GB reference laptop. This test measures the real heap of one
-//! step for the typical actions and checks that the estimate is not too low. Its first run found
-//! the spare capacity of the steps' vectors (up to half of a large step), which the history now
-//! drops when it records a step.
+//! grow well past 128 MB on the 8 GB reference laptop. This test measures the real heap of one step
+//! for the typical actions and checks that the estimate is not too low. Its first run found the
+//! spare capacity of the steps' vectors (up to half of a large step), which the history now drops
+//! when it records a step.
 //!
 //! # How the heap of a step is measured
 //! An editor with a history limit of 0 keeps exactly the most recent step (the last one is
@@ -34,8 +34,8 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{BarIndex, Duration, Rational};
 
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 orchestra_test_support::install_counting_allocator!();
 
@@ -89,7 +89,7 @@ fn measure(doc: Document, action: impl FnOnce(&mut Editor)) -> (usize, i128) {
 /// The heap of one step of the typical actions, against the estimate.
 #[test]
 fn the_history_estimate_follows_the_heap() {
-    let normal = || plain(Size::Normal, true);
+    let normal = || plain(Size::Normal, Instruments::WithEditing);
     let mut rows: Vec<(&str, usize, i128)> = Vec::new();
 
     // The overhead: a step of one small edit (a bar left uncounted).
@@ -159,7 +159,7 @@ fn the_history_estimate_follows_the_heap() {
     });
     rows.push(("1 000-update gesture", estimate, freed));
 
-    let (estimate, freed) = measure(plain(Size::Heavy, true), |e| {
+    let (estimate, freed) = measure(plain(Size::Heavy, Instruments::WithEditing), |e| {
         let bar = e.document().bars().ids()[500];
         e.execute(&Command::ChangeMeter {
             bar,
@@ -176,7 +176,7 @@ fn the_history_estimate_follows_the_heap() {
         freed,
     ));
 
-    let (estimate, freed) = measure(plain(Size::Heavy, true), |e| {
+    let (estimate, freed) = measure(plain(Size::Heavy, Instruments::WithEditing), |e| {
         e.execute(&Command::DeleteBars {
             at: BarIndex::new(100),
             count: 100,

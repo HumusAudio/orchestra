@@ -70,9 +70,9 @@ impl Marker {
     /// A marker with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(id: MarkerId, bar: BarId, kind: MarkerKind, text: Option<Box<str>>) -> Self {
         Self {
             id,
@@ -85,8 +85,8 @@ impl Marker {
     /// This marker at another bar, the rest unchanged. O(text length).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) fn with_bar(&self, bar: BarId) -> Self {
         Self {
@@ -232,9 +232,9 @@ impl Jump {
     /// A jump with its ID. O(1).
     ///
     /// Public so that a saved document can be described for loading (ADR-0029 S4, owner's choice
-    /// L1 of 2026-11-06): the value only *describes* an object. It enters a document only through
-    /// [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as the builder
-    /// checks what it creates, so no invalid document can come from it.
+    /// ADR-0029 L1 of 2026-11-06): the value only *describes* an object. It enters a document only
+    /// through [`Document::from_parts`](crate::Document::from_parts), which checks it exactly as
+    /// the builder checks what it creates, so no invalid document can come from it.
     pub const fn new(id: JumpId, bar: BarId, spec: JumpSpec, text: Option<Box<str>>) -> Self {
         Self {
             id,
@@ -247,8 +247,8 @@ impl Jump {
     /// This jump at another bar, the rest unchanged. O(text length).
     ///
     /// For the commands that move or clip the object while keeping everything else (inserting,
-    /// deleting and rewriting bars): they used to call `new` with every field copied by hand
-    /// (review point B11).
+    /// deleting and rewriting bars): one method instead of calling `new` with every other field
+    /// copied by hand, so a field added later cannot be forgotten by one of them.
     #[must_use]
     pub(crate) fn with_bar(&self, bar: BarId) -> Self {
         Self {
@@ -290,8 +290,7 @@ impl Document {
     /// Refuses a jump whose target, "until" or "then" marker does not exist. O(m) per marker.
     ///
     /// Used by the builder and by the mark commands; an edit does not check it, because a later
-    /// edit of the same transaction could add or remove the markers (see `crate::edit`). It was
-    /// written out in both places (review point B7).
+    /// edit of the same transaction could add or remove the markers (see `crate::edit`).
     ///
     /// # Errors
     /// [`DocumentError::UnknownMarker`] with the first marker missing.

@@ -356,8 +356,8 @@ struct Segment {
     /// The written position where the segment starts.
     start: Position,
     /// The time where it starts: always a whole number of ticks of `1/TIME_GRID` s (ADR-0021 §1),
-    /// stored as `Seconds` for the binary search and the exact arithmetic of the lookups. (The
-    /// tick count itself was stored too, but nothing read it: review point C1.)
+    /// stored as `Seconds` for the binary search and the exact arithmetic of the lookups. The tick
+    /// count itself is not stored: nothing needs it.
     start_time: Seconds,
     /// How the speed behaves.
     shape: Shape,
@@ -537,7 +537,7 @@ fn grid_ticks(numerator: i128, denominator: i128) -> Result<i64, TempoMapError> 
         nearest(scaled, denominator)
     } else {
         // `0 ≤ rest < denominator`: reducing the fraction first (the same `reduce` as the exact
-        // comparisons below, review point B3) may bring `rest × GRID` back into range.
+        // comparisons below) may bring `rest × GRID` back into range.
         let (rest, denominator) = reduce(rest, denominator).ok_or(OVERFLOW)?;
         nearest(rest.checked_mul(GRID_WIDE).ok_or(OVERFLOW)?, denominator)
     }

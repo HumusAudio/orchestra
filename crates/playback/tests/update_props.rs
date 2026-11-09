@@ -199,7 +199,7 @@ fn command(doc: &Document, kind: u8, x: u8, y: u8) -> Option<Command> {
             change: EventChange::AddNote(Pitch::new(Step::G, Alteration::NATURAL, 5)),
         },
         // A DAW move of one pass (ADR-0028 §5): a pass-offset entry, recomputed through the cell
-        // of its note (T7).
+        // of its note (ADR-0028 T7).
         10 => Command::MovePlayed(MovePlayed {
             note: pick(x)?.2?,
             pass: Some(u32::from(y % 3)),
@@ -224,7 +224,7 @@ fn command(doc: &Document, kind: u8, x: u8, y: u8) -> Option<Command> {
             grid: d(1, 16),
             mode: MoveMode::ByThreshold,
         }),
-        // "Move anyway" (U5): split at the barlines.
+        // "Move anyway" (ADR-0028 U5): split at the barlines.
         13 => Command::MovePlayed(MovePlayed {
             note: pick(x)?.2?,
             pass: None,

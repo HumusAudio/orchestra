@@ -42,7 +42,8 @@
 //! 11. **Bar repeats and pass rules** (ADR-0025 §6–§7): see `crate::bar_repeat`.
 //! 12. **The DAW move's data** (ADR-0028 §1, §5): every entry of an instrument's pass-offset
 //!     table names a notehead of that instrument (the editor removes the entries of deleted notes,
-//!     T5), and every tolerance override names an existing track with a positive threshold.
+//!     ADR-0028 T5), and every tolerance override names an existing track with a positive
+//!     threshold.
 //! 13. **The meter map ends with the bars** (ADR-0029 S10): no meter change, irregular bar, beat
 //!     grouping, uncounted bar or numbering restart at a bar index the document does not have
 //!     (the initial meter at index 0 excepted).
@@ -633,10 +634,10 @@ impl Document {
                         // The index only names noteheads that exist (a removal unindexes their
                         // ties), so a missing source is a bug, reported rather than a panic.
                         let (from, from_note) =
-                            self.note(source).ok_or(DocumentError::Inconsistent)?;
+                            self.note(source).ok_or(DocumentError::inconsistent())?;
                         let owner = self
                             .instrument_of(from.voice())
-                            .ok_or(DocumentError::Inconsistent)?;
+                            .ok_or(DocumentError::inconsistent())?;
                         self.check_tie(self, owner, from.event().id(), from_note, note.id())?;
                     }
                 }
@@ -685,7 +686,7 @@ impl Document {
         Ok(())
     }
 
-    /// The local check of the marks a command inserted or replaced (X10): the rules of
+    /// The local check of the marks a command inserted or replaced (ADR-0026 X10): the rules of
     /// [`validate`](Self::validate) that adding, moving or changing a mark can break, checked only
     /// where the command acted. The other half of the local check, next to
     /// [`check_cells`](Self::check_cells).
@@ -696,11 +697,12 @@ impl Document {
     /// - **Tempo marks** (rule 7): the walk over the tempo marks, once, if any tempo mark (or the
     ///   initial one) was inserted or replaced.
     /// - **The form** (rules 8–11): the form checks, once, if any form marking was inserted or
-    ///   replaced (they also check the pass rules, and the bar repeats against the music: X4).
+    ///   replaced (they also check the pass rules, and the bar repeats against the music:
+    ///   ADR-0026 X4).
     ///
     /// Dynamics, clef and key changes and key overrides have no rule beyond what their edit
     /// checks (one per point and scope). Removed marks need no check: a removal ends with the
-    /// cascade of the form (X2), and no other rule can be broken by taking a mark away.
+    /// cascade of the form (ADR-0026 X2), and no other rule can be broken by taking a mark away.
     ///
     /// # Why the hairpins of a whole instrument
     /// The edit already looks the hairpin up linearly in its instrument's list (there is no

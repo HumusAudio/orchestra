@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Inserting, deleting and replacing runs of bars in the [`MeterMap`] (ADR-0022 §8, ADR-0026 §1
-//! and §11 Z1): hand-written cases and property tests against a naive oracle.
+//! and §11 ADR-0026 Z1): hand-written cases and property tests against a naive oracle.
 //!
 //! # The oracle
 //! The library splices sorted vectors and rebuilds its segments. The oracle keeps every source
@@ -60,7 +60,7 @@ fn sample() -> MeterMap {
         },
     )
     .unwrap();
-    map.set_uncounted(bar(6), true);
+    map.set_numbering(bar(6), orchestra_core_time::BarCounting::Uncounted);
     map.set_numbering_restart(bar(8), Some(10));
     map
 }
@@ -186,7 +186,7 @@ fn zero_bars_change_nothing() {
 
 /// Replacing bars 2–3 of the sample (4/4) with a span that makes bar 2 a 3/4 and bar 3 a bar of a
 /// half: the bars after them start earlier, bar 4 keeps its own 3/4, and the returned span puts
-/// the old data back exactly (Z1).
+/// the old data back exactly (ADR-0026 Z1).
 #[test]
 fn a_run_of_bars_is_replaced_at_once() {
     let original = sample();
@@ -217,7 +217,7 @@ fn a_replacement_that_breaks_the_map_is_refused() {
     let original = sample();
     let mut map = original.clone();
     let mut outside = BarSpan::empty(1);
-    outside.set_uncounted(bar(1), true);
+    outside.set_numbering(bar(1), orchestra_core_time::BarCounting::Uncounted);
     assert_eq!(
         map.replace_span(bar(2), &outside),
         Err(MeterMapError::IndexOutOfRange)
@@ -394,7 +394,7 @@ fn build(edits: &[(u8, u32, u8)]) -> MeterMap {
                 )
                 .map(|_| ()),
             2 => {
-                map.set_uncounted(bar(b), true);
+                map.set_numbering(bar(b), orchestra_core_time::BarCounting::Uncounted);
                 Ok(())
             }
             _ => {
@@ -459,7 +459,7 @@ proptest! {
 proptest! {
     /// Replacing a run of bars with the data of a run of another random map gives what the oracle
     /// gives, returns the run's old data, and replacing it back restores the very same map; a
-    /// refused replacement (the result is not a valid map) changes nothing (Z1).
+    /// refused replacement (the result is not a valid map) changes nothing (ADR-0026 Z1).
     #[test]
     fn replacement_matches_the_oracle(
         edits in edits(),

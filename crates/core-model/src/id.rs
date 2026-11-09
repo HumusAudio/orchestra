@@ -159,7 +159,7 @@ impl IdCounter {
     /// `taken` must be the **last** IDs handed out, with nothing handed out after them. The builder
     /// guarantees it: it takes the IDs of one object, tries to insert the object, and gives them
     /// back at once if the insertion is refused, so that a refused object never consumes an ID (the
-    /// rule the builder always had, now with the checks done by the edit layer, review point A1).
+    /// checks themselves are the edit layer's).
     pub(crate) fn give_back(&mut self, taken: &[NonZeroU64]) {
         match &mut self.script {
             // The script is a stack whose top is the next ID: push the last taken first.
@@ -349,7 +349,7 @@ define_id!(
 /// # Public, for the crates above
 /// `playback` and `io` key their own maps by IDs too (notes of a tie chain, events of an
 /// arpeggio, bar IDs of a file being loaded); they use these types instead of the standard
-/// `HashMap`, so every map keyed by IDs in the workspace hashes the same way (review point C4).
+/// `HashMap`, so every map keyed by IDs in the workspace hashes the same way.
 /// Keys that are not IDs (small integers, tuples of IDs and indices) work as well: integers other
 /// than `u64` go through [`write`](Hasher::write), which folds their bytes.
 #[derive(Debug, Default, Clone, Copy)]

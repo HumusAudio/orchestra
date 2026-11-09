@@ -429,6 +429,61 @@ impl Sources {
     }
 }
 
+/// Whether a bar takes a number in the displayed bar numbering (a pickup or the second half of a
+/// bar split by a volta usually does not). Positions never depend on it.
+///
+/// An enum rather than a `bool` so that a call reads as what it does
+/// (`set_numbering(bar, BarCounting::Uncounted)`), not as `set_uncounted(bar, true)`, whose `true`
+/// says nothing at the call site and whose returned `bool` meant something else again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BarCounting {
+    /// The bar is counted (the default).
+    Counted,
+    /// The bar is left out of the numbering.
+    Uncounted,
+}
+
+impl BarCounting {
+    /// `Uncounted` for `true`, `Counted` for `false`: for data that stores the flag as a `bool`
+    /// (the project file, the edits). O(1).
+    #[must_use]
+    pub const fn uncounted_if(uncounted: bool) -> Self {
+        if uncounted {
+            Self::Uncounted
+        } else {
+            Self::Counted
+        }
+    }
+
+    /// Whether this is [`BarCounting::Uncounted`]. O(1).
+    #[must_use]
+    pub const fn is_uncounted(self) -> bool {
+        matches!(self, Self::Uncounted)
+    }
+}
+
+/// Sets the numbering of `bar` in the sorted list of uncounted bars; returns how it was numbered
+/// before. Shared by [`BarSpan::set_numbering`] and [`MeterMap::set_numbering`]. O(n) for the
+/// insertion or removal in the sorted list, O(log n) to find the bar.
+fn set_numbering(
+    uncounted: &mut Vec<BarIndex>,
+    bar: BarIndex,
+    numbering: BarCounting,
+) -> BarCounting {
+    match (uncounted.binary_search(&bar), numbering) {
+        (Ok(_), BarCounting::Uncounted) => BarCounting::Uncounted,
+        (Ok(i), BarCounting::Counted) => {
+            uncounted.remove(i);
+            BarCounting::Uncounted
+        }
+        (Err(i), BarCounting::Uncounted) => {
+            uncounted.insert(i, bar);
+            BarCounting::Counted
+        }
+        (Err(_), BarCounting::Counted) => BarCounting::Counted,
+    }
+}
+
 /// The source data of a run of consecutive bars, outside any map: what
 /// [`MeterMap::remove_bars`] takes out and [`MeterMap::insert_bars`] puts in (ADR-0026 §1).
 ///
@@ -500,21 +555,9 @@ impl BarSpan {
     }
 
     /// Leaves the span's bar `bar` out of the displayed numbering, or counts it again; returns
-    /// whether it was uncounted. O(n).
-    pub fn set_uncounted(&mut self, bar: BarIndex, uncounted: bool) -> bool {
-        let list = &mut self.sources.uncounted;
-        match (list.binary_search(&bar), uncounted) {
-            (Ok(_), true) => true,
-            (Ok(i), false) => {
-                list.remove(i);
-                true
-            }
-            (Err(i), true) => {
-                list.insert(i, bar);
-                false
-            }
-            (Err(_), false) => false,
-        }
+    /// how it was numbered before. O(n).
+    pub fn set_numbering(&mut self, bar: BarIndex, numbering: BarCounting) -> BarCounting {
+        set_numbering(&mut self.sources.uncounted, bar, numbering)
     }
 
     /// Restarts the displayed numbering at the span's bar `bar`, or removes the restart with
@@ -533,7 +576,7 @@ impl BarSpan {
     }
 
     /// The meter change written exactly at `bar`, if any. O(log m) for m meter changes: a binary
-    /// search on the sorted list, where callers used to scan it (review point D3).
+    /// search on the sorted list, so callers never need to scan it.
     #[must_use]
     pub fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
         let changes = &self.sources.meter_changes;
@@ -976,22 +1019,10 @@ impl MeterMap {
         self.edit(|s| remove(&mut s.bar_groupings, bar))
     }
 
-    /// Marks `bar` as counted or not in the displayed numbering; returns the previous state
-    /// (`true` = it was uncounted). O(n), no rebuild: numbering does not affect positions.
-    pub fn set_uncounted(&mut self, bar: BarIndex, uncounted: bool) -> bool {
-        let list = &mut self.sources.uncounted;
-        match (list.binary_search(&bar), uncounted) {
-            (Ok(_), true) => true,
-            (Ok(i), false) => {
-                list.remove(i);
-                true
-            }
-            (Err(i), true) => {
-                list.insert(i, bar);
-                false
-            }
-            (Err(_), false) => false,
-        }
+    /// Marks `bar` as counted or not in the displayed numbering; returns how it was numbered
+    /// before. O(n), no rebuild: numbering does not affect positions.
+    pub fn set_numbering(&mut self, bar: BarIndex, numbering: BarCounting) -> BarCounting {
+        set_numbering(&mut self.sources.uncounted, bar, numbering)
     }
 
     /// Restarts the displayed numbering at `bar` with `number` (`None` removes the restart);
@@ -1201,7 +1232,7 @@ impl MeterMap {
     }
 
     /// The meter change written exactly at `bar`, if any. O(log m) for m meter changes: a binary
-    /// search on the sorted list, where callers used to scan it (review point D3).
+    /// search on the sorted list, so callers never need to scan it.
     #[must_use]
     pub fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
         let changes = &self.sources.meter_changes;

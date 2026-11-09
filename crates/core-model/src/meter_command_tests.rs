@@ -9,10 +9,10 @@
 //! whose helpers are crate-private.
 //!
 //! # What is checked
-//! One hand-written case per decision Y2–Y5 and Y7, each through `execute_checked` (valid and consistent
-//! after the command, undo gives back the document from before, redo the one after) or `refused`
-//! (nothing changed, no step recorded). The property test of `crate::command_tests` generates
-//! these commands too.
+//! One hand-written case per decision ADR-0026 Y2–Y5 and ADR-0026 Y7, each through
+//! `execute_checked` (valid and consistent after the command, undo gives back the document from
+//! before, redo the one after) or `refused` (nothing changed, no step recorded). The property test
+//! of `crate::command_tests` generates these commands too.
 
 use orchestra_core_time::{
     BarIndex, BarKind, BeatGrouping, Duration, IrregularBar, Meter, MeterChange, MeterMapError,
@@ -99,7 +99,7 @@ fn start(editor: &Editor, bar: u32) -> Position {
 }
 
 /// A 3/4 at bar 3 in `KeepBars`: the flute's whole note stays in bar 3 (now overfull), the bars
-/// after it start earlier, the tempo map changes from there; no event changes (Y2).
+/// after it start earlier, the tempo map changes from there; no event changes (ADR-0026 Y2).
 #[test]
 fn keep_bars_moves_the_music_after_the_change() {
     let mut editor = Editor::new(rich());
@@ -133,8 +133,8 @@ fn a_meter_change_is_removed() {
     );
 }
 
-/// The per-bar groupings of the section that no longer add up are removed (Y3); one outside the
-/// section, and one that still adds up, stay.
+/// The per-bar groupings of the section that no longer add up are removed (ADR-0026 Y3); one
+/// outside the section, and one that still adds up, stay.
 #[test]
 fn groupings_that_no_longer_fit_are_removed() {
     let mut editor = Editor::new(rich());
@@ -167,7 +167,7 @@ fn groupings_that_no_longer_fit_are_removed() {
 }
 
 /// A pickup longer than the new meter, and a section grouping that does not add up to it, are
-/// refused with the meter map's error (Y4).
+/// refused with the meter map's error (ADR-0026 Y4).
 #[test]
 fn contradictions_are_refused() {
     let mut editor = Editor::new(rich());
@@ -201,8 +201,8 @@ fn contradictions_are_refused() {
 }
 
 /// Inside the flute's bar repeat (bar 6 repeats bar 5) a meter change after its first source bar,
-/// and any change of one bar's length, are refused (Y5); a meter change at the first source bar
-/// changes every bar of the range alike and is accepted.
+/// and any change of one bar's length, are refused (ADR-0026 Y5); a meter change at the first
+/// source bar changes every bar of the range alike and is accepted.
 #[test]
 fn bar_repeats_keep_their_lengths() {
     let mut editor = Editor::new(rich());
@@ -229,8 +229,8 @@ fn bar_repeats_keep_their_lengths() {
     execute_checked(&mut editor, &change(bars[5], Some(meter(3, 4))));
 }
 
-/// A free bar loses its per-bar grouping (a free bar has no beats, Y3); a bar shortened under its
-/// music becomes overfull, a valid state (Y2); `None` makes it regular again.
+/// A free bar loses its per-bar grouping (a free bar has no beats, ADR-0026 Y3); a bar shortened
+/// under its music becomes overfull, a valid state (ADR-0026 Y2); `None` makes it regular again.
 #[test]
 fn irregular_and_free_bars() {
     let mut editor = Editor::new(rich());
@@ -277,8 +277,8 @@ fn irregular_and_free_bars() {
 
 /// A dotted half entered on the last beat of bar 4 of the flute becomes a quarter tied to a half
 /// in bar 5. Shortening bar 4 to 3/4 would leave the quarter past the barline, its tie going
-/// backwards in score order: refused (Y7). Without the tie (bar 7, a single quarter on beat 4) the
-/// same change is accepted and the bar is overfull.
+/// backwards in score order: refused (ADR-0026 Y7). Without the tie (bar 7, a single quarter on
+/// beat 4) the same change is accepted and the bar is overfull.
 #[test]
 fn a_tie_past_a_shortened_barline_is_refused() {
     use crate::command::{NewBody, NewEvent};
@@ -321,14 +321,14 @@ fn a_tie_past_a_shortened_barline_is_refused() {
 
 /// Bars inserted right where a hairpin, a pass rule or a gradual tempo change ends ("up to" that
 /// barline, an exclusive end) go after it: the end stays before the new bars, at the start of the
-/// first one (Y8). In the rich document the crescendo ends at bar 1, the piano's pass rule at bar
-/// 2, the accelerando at bar 6.
+/// first one (ADR-0026 Y8). In the rich document the crescendo ends at bar 1, the piano's pass rule
+/// at bar 2, the accelerando at bar 6.
 #[test]
 fn ends_at_the_insertion_point_stay_before_the_new_bars() {
     use crate::marks::ScorePoint;
     use crate::tempo_mark::TempoMarkChange;
     let mut editor = Editor::new(rich());
-    // The flute's bar repeat at bar 6 would refuse an insertion there (W6): it goes first.
+    // The flute's bar repeat at bar 6 would refuse an insertion there (ADR-0026 W6): it goes first.
     let repeat = editor
         .document()
         .instruments()
@@ -372,7 +372,7 @@ fn ends_at_the_insertion_point_stay_before_the_new_bars() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Rewrite (F1.11c part 2b, R1–R11)
+// Rewrite (F1.11c part 2b, ADR-0026 R1–R11)
 // ------------------------------------------------------------------------------------------------
 
 /// Shorthand: the `Rewrite` meter change at a bar.
@@ -385,7 +385,7 @@ fn rewrite(bar: BarId, change: Option<MeterChange>) -> Command {
 }
 
 /// The rich document without the flute's bar repeat (bar 6 repeating bar 5), which would refuse
-/// every rewrite that reaches it (R10).
+/// every rewrite that reaches it (ADR-0026 R10).
 fn rich_without_bar_repeat() -> Editor {
     let mut editor = Editor::new(rich());
     let repeat = editor
@@ -414,9 +414,10 @@ fn lengths(editor: &Editor, from: u32) -> Vec<Duration> {
 
 /// The reference case: a 3/4 at bar 3 of the rich document (8 bars of 4/4). Bars 3–7 last 20
 /// quarters. The Fine at the end of old bar 4 (8 quarters in) falls inside a bar of 3/4, which is
-/// split 2/4 + 1/4, the second part uncounted (R9); the D.S. at the end of the score ends the last
-/// bar there (2/4) instead of leaving an empty tail. The flute's whole note of bar 3 becomes a
-/// dotted half tied to a quarter (R5); the marks move to where they sound (R7).
+/// split 2/4 + 1/4, the second part uncounted (ADR-0026 R9); the D.S. at the end of the score ends
+/// the last bar there (2/4) instead of leaving an empty tail. The flute's whole note of bar 3
+/// becomes a dotted half tied to a quarter (ADR-0026 R5); the marks move to where they sound
+/// (ADR-0026 R7).
 #[test]
 fn rewrite_moves_the_barlines() {
     use crate::jump::MarkerKind;
@@ -484,9 +485,9 @@ fn rewrite_moves_the_barlines() {
     );
 }
 
-/// The rewrite stops at the next meter change (R1): with a 4/4 marked again at bar 5, a 3/4 at
-/// bar 3 rewrites bars 3–4 only (8 quarters: two bars of 3/4 and an irregular bar of 2/4 with what
-/// is left, R2), and old bar 5 starts where it did.
+/// The rewrite stops at the next meter change (ADR-0026 R1): with a 4/4 marked again at bar 5, a
+/// 3/4 at bar 3 rewrites bars 3–4 only (8 quarters: two bars of 3/4 and an irregular bar of 2/4
+/// with what is left, ADR-0026 R2), and old bar 5 starts where it did.
 #[test]
 fn rewrite_stops_at_the_next_meter_change() {
     let mut editor = rich_without_bar_repeat();
@@ -508,8 +509,8 @@ fn rewrite_stops_at_the_next_meter_change() {
     );
 }
 
-/// A whole-bar rest becomes rests of written values (R6), split at the new barline; the end
-/// repeat at the end of old bar 2 falls inside a bar and splits it (R9).
+/// A whole-bar rest becomes rests of written values (ADR-0026 R6), split at the new barline; the
+/// end repeat at the end of old bar 2 falls inside a bar and splits it (ADR-0026 R9).
 #[test]
 fn rewrite_turns_whole_bar_rests_into_values() {
     use crate::event::{BaseValue, EventBody, NoteValue, RestValue};
@@ -537,7 +538,7 @@ fn rewrite_turns_whole_bar_rests_into_values() {
     assert_eq!(lengths(&editor, 3)[0], d(1, 4));
 }
 
-/// A slur ending on a note that the rewrite splits ends on its last part (R5).
+/// A slur ending on a note that the rewrite splits ends on its last part (ADR-0026 R5).
 #[test]
 fn rewrite_moves_slur_ends_to_the_last_part() {
     let mut editor = rich_without_bar_repeat();
@@ -569,8 +570,8 @@ fn rewrite_moves_slur_ends_to_the_last_part() {
     assert_ne!(last, end);
 }
 
-/// Adding a quarter-note pickup to music already written shifts every barline by a quarter (R4);
-/// a later meter change at bar 0 keeps the pickup (R3).
+/// Adding a quarter-note pickup to music already written shifts every barline by a quarter
+/// (ADR-0026 R4); a later meter change at bar 0 keeps the pickup (ADR-0026 R3).
 #[test]
 fn rewrite_with_a_pickup() {
     let mut editor = rich_without_bar_repeat();
@@ -597,7 +598,7 @@ fn rewrite_with_a_pickup() {
     assert_eq!(lengths(&editor, 0)[..2], [d(1, 4), d(3, 4)]);
 }
 
-/// A rewrite that reaches a bar repeat is refused (R10).
+/// A rewrite that reaches a bar repeat is refused (ADR-0026 R10).
 #[test]
 fn rewrite_refuses_bar_repeats() {
     let mut editor = Editor::new(rich());
@@ -615,8 +616,8 @@ fn rewrite_refuses_bar_repeats() {
     );
 }
 
-/// A whole-bar rest becomes a written rest even when its new bar has the same length (R6): under a
-/// 2/2 from bar 2, the left hand's whole-bar rest of bar 2 is a whole rest.
+/// A whole-bar rest becomes a written rest even when its new bar has the same length (ADR-0026 R6):
+/// under a 2/2 from bar 2, the left hand's whole-bar rest of bar 2 is a whole rest.
 #[test]
 fn rewrite_writes_whole_bar_rests_even_when_aligned() {
     use crate::event::{BaseValue, EventBody, NoteValue, RestValue};
@@ -634,11 +635,11 @@ fn rewrite_writes_whole_bar_rests_even_when_aligned() {
     );
 }
 
-/// A split note's own tie goes on from its last part (R5), and an `After` grace note at the end of
-/// its main event stays in that bar when the end becomes a barline (R5). Under 3/4 from bar 0, the
-/// left hand's half note on beat 3, tied to a C3 at the start of bar 1, becomes a quarter tied to
-/// a quarter, the second tied to that C3; the right hand's `After` grace at the end of beat 3
-/// (offset 3/4) stays at the end of bar 0.
+/// A split note's own tie goes on from its last part (ADR-0026 R5), and an `After` grace note at
+/// the end of its main event stays in that bar when the end becomes a barline (ADR-0026 R5). Under
+/// 3/4 from bar 0, the left hand's half note on beat 3, tied to a C3 at the start of bar 1, becomes
+/// a quarter tied to a quarter, the second tied to that C3; the right hand's `After` grace at the
+/// end of beat 3 (offset 3/4) stays at the end of bar 0.
 #[test]
 fn rewrite_keeps_ties_and_after_graces() {
     use crate::command::{EventChange, NewBody, NewEvent};
@@ -724,13 +725,13 @@ fn rewrite_keeps_ties_and_after_graces() {
     assert_eq!(end_of_bar_0.offset(), d(3, 4));
 }
 
-/// R12 (owner's choice of 2026-11-06): a region that ends at a free bar is rewritten alone, and
-/// the old meter resumes after the free bar, so that nothing after it moves. The case the command
-/// property test found: a dotted whole in the right hand's triplet at bar 4, which becomes a tie
-/// chain into bar 5; bar 1 made a free bar of a quarter; then 5/8 at bar 0. Before R12 the bars
-/// after the free bar became 5/8 bars still holding their 4/4 music, and the tie of bar 4 pointed
-/// backwards. Now they keep their 4/4 (an explicit 4/4 is set after the free bar), and every event
-/// after the region sounds where it did.
+/// ADR-0026 R12 (owner's choice of 2026-11-06): a region that ends at a free bar is rewritten
+/// alone, and the old meter resumes after the free bar, so that nothing after it moves. The case
+/// the command property test found: a dotted whole in the right hand's triplet at bar 4, which
+/// becomes a tie chain into bar 5; bar 1 made a free bar of a quarter; then 5/8 at bar 0. Before
+/// ADR-0026 R12 the bars after the free bar became 5/8 bars still holding their 4/4 music, and the
+/// tie of bar 4 pointed backwards. Now they keep their 4/4 (an explicit 4/4 is set after the free
+/// bar), and every event after the region sounds where it did.
 #[test]
 fn rewrite_resumes_the_meter_after_a_free_bar() {
     use crate::command::{NewBody, NewEvent};
@@ -786,7 +787,7 @@ fn rewrite_resumes_the_meter_after_a_free_bar() {
     let before = after_region(&editor);
     execute_checked(&mut editor, &rewrite(bars[0], Some(meter(5, 8))));
     let doc = editor.document();
-    // Bar 0 became 5/8 + 3/8 (R2); the free bar follows; then the 4/4 bars, unchanged.
+    // Bar 0 became 5/8 + 3/8 (ADR-0026 R2); the free bar follows; then the 4/4 bars, unchanged.
     let two = doc.bars().index_of(bars[2]).unwrap();
     assert_eq!(two, BarIndex::new(3));
     assert_eq!(lengths(&editor, 0)[..3], [d(5, 8), d(3, 8), d(1, 4)]);
@@ -800,8 +801,8 @@ fn rewrite_resumes_the_meter_after_a_free_bar() {
     assert_eq!(after_region(&editor), before);
 }
 
-/// R12 adds nothing when the bar after the free bar already sets its own meter, nor when the
-/// region does not end at a free bar.
+/// ADR-0026 R12 adds nothing when the bar after the free bar already sets its own meter, nor when
+/// the region does not end at a free bar.
 #[test]
 fn rewrite_adds_no_meter_after_a_free_bar_that_needs_none() {
     let mut editor = Editor::new(rich());

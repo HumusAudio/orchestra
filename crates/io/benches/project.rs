@@ -39,17 +39,17 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_core_model::Document;
 
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // The document of this size.
 fn document(size: Size) -> Document {
-    plain(size, false)
+    plain(size, Instruments::Plain)
 }
 
 // The file bytes of the document of this size.
 fn bytes(size: Size) -> Vec<u8> {
-    orchestra_io::to_bytes(&plain(size, false)).unwrap()
+    orchestra_io::to_bytes(&plain(size, Instruments::Plain)).unwrap()
 }
 
 #[library_benchmark]

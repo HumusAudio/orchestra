@@ -11,9 +11,9 @@
 //!   at most 0.8 s (the times of §15, round 2);
 //! - every note names a notehead the document has, at the pitch it sounds;
 //! - without ties, grace notes, articulations, arpeggios and offsets, every written note is
-//!   played once per play of its bar, exactly where it is written on the path, and (H1) at the
-//!   level of the last dynamic **played** at or before it along the path, by an oracle that walks
-//!   the path backwards from the note (*mf* if there is none).
+//!   played once per play of its bar, exactly where it is written on the path, and (ADR-0027 H1) at
+//!   the level of the last dynamic **played** at or before it along the path, by an oracle that
+//!   walks the path backwards from the note (*mf* if there is none).
 
 #![allow(
     clippy::unwrap_used,
@@ -94,10 +94,10 @@ fn up(v: u16) -> u16 {
     (v << 9) | (v << 2) | (v >> 5)
 }
 
-/// The oracle of H1 for the plain scores (levels only): the level of the last dynamic played at or
-/// before the point `offset` of the played bar `k`, found by walking the path **backwards** from
-/// the note, bar by bar, and taking in each played bar the dynamic with the largest offset that is
-/// not after the note; *mf* (75) if there is none.
+/// The oracle of ADR-0027 H1 for the plain scores (levels only): the level of the last dynamic
+/// played at or before the point `offset` of the played bar `k`, found by walking the path
+/// **backwards** from the note, bar by bar, and taking in each played bar the dynamic with the
+/// largest offset that is not after the note; *mf* (75) if there is none.
 fn oracle_level(doc: &Document, path: &Unrolled, k: usize, offset: Duration) -> u16 {
     let dynamics = doc.tracks()[0].instrument().dynamics();
     for j in (0..=k).rev() {

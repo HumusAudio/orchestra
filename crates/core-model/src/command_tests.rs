@@ -10,8 +10,8 @@
 //! look at the backward tie index directly.
 //!
 //! # What is checked
-//! - One hand-written case per rule of the commands: the owner's decisions V2–V6 and W1–W6, and
-//!   the rules of ADR-0026 §6.
+//! - One hand-written case per rule of the commands: the owner's decisions ADR-0026 V2–V6
+//!   and ADR-0026 W1–W6, and the rules of ADR-0026 §6.
 //! - A property test: random sequences of random commands, with undos and redos. After **every**
 //!   command the full [`Document::validate`] passes and the derived indices agree with a rebuild
 //!   (ADR-0026 §8 (a), (d)); a refused command leaves the document as it was (e); undoing
@@ -163,7 +163,7 @@ fn refused(editor: &mut Editor, command: &Command) -> CommandError {
 // Entering events
 // ------------------------------------------------------------------------------------------------
 
-/// A note in free space is entered as it is; over another event it is refused (V2).
+/// A note in free space is entered as it is; over another event it is refused (ADR-0026 V2).
 #[test]
 fn entering_needs_free_space() {
     let mut editor = Editor::new(rich());
@@ -198,7 +198,7 @@ fn entering_needs_free_space() {
 }
 
 /// A note crossing a barline becomes a tie chain, noteheads tied pitch by pitch; the backward
-/// index knows the ties (V3).
+/// index knows the ties (ADR-0026 V3).
 #[test]
 fn a_chord_across_a_barline_becomes_a_tie_chain() {
     let mut editor = Editor::new(rich());
@@ -233,7 +233,7 @@ fn a_chord_across_a_barline_becomes_a_tie_chain() {
 }
 
 /// A part longer than one value is written with the longest values first: five eighths left in a
-/// bar are a half and an eighth, tied (V3).
+/// bar are a half and an eighth, tied (ADR-0026 V3).
 #[test]
 fn a_part_is_written_with_the_longest_values_first() {
     let mut editor = Editor::new(rich());
@@ -280,9 +280,9 @@ fn a_rest_across_a_barline_becomes_rests() {
     assert_eq!(events_of(doc, i.lh, i.bars[4]).len(), 1);
 }
 
-/// Past the last bar (W3), a tuplet note whose part before the barline no value can write (Z3), at
-/// the end of a regular bar, and a remainder no value can write: all refused with their typed
-/// errors.
+/// Past the last bar (ADR-0026 W3), a tuplet note whose part before the barline no value can write
+/// (ADR-0026 Z3), at the end of a regular bar, and a remainder no value can write: all refused with
+/// their typed errors.
 #[test]
 fn entering_refusals() {
     let mut editor = Editor::new(rich());
@@ -309,7 +309,8 @@ fn entering_refusals() {
             DocumentError::PastLastBar,
         ),
         (
-            // A triplet note with 1/36 left in the bar: 1/36 ÷ 2/3 = 1/24, no written value (Z3).
+            // A triplet note with 1/36 left in the bar: 1/36 ÷ 2/3 = 1/24, no written value
+            // (ADR-0026 Z3).
             Command::EnterEvent(NewEvent {
                 at: Placement::new(i.rh, i.bars[1], d(35, 36)).in_tuplet(triplet),
                 body: NewBody::Chord {
@@ -361,7 +362,8 @@ fn entering_refusals() {
 }
 
 /// A triplet eighth entered 1/24 before the end of bar 1 crosses the barline: it becomes two
-/// triplet sixteenths tied, both in the triplet (Z3, Z4; 1/24 ÷ 2/3 = 1/16 on each side).
+/// triplet sixteenths tied, both in the triplet (ADR-0026 Z3, ADR-0026 Z4; 1/24 ÷ 2/3 = 1/16 on
+/// each side).
 #[test]
 fn a_tuplet_note_across_a_barline_stays_in_its_tuplet() {
     let mut editor = Editor::new(rich());
@@ -405,7 +407,7 @@ fn a_tuplet_note_across_a_barline_stays_in_its_tuplet() {
 /// A triplet half (1/3) entered 5/24 before the end of bar 1: the part before the barline is 5/16
 /// in the triplet's written values, a quarter and a sixteenth, at offsets 19/24 and 23/24 (the
 /// quarter lasts 1/4 × 2/3 = 1/6 in the bar), ending exactly at the barline; the rest, 1/8 in the
-/// bar, is a dotted eighth of the triplet (Z3).
+/// bar, is a dotted eighth of the triplet (ADR-0026 Z3).
 #[test]
 fn a_tuplet_part_of_several_values_is_spaced_by_the_ratio() {
     let mut editor = Editor::new(rich());
@@ -441,7 +443,8 @@ fn a_tuplet_part_of_several_values_is_spaced_by_the_ratio() {
 }
 
 /// Inside a triplet nested in a quintuplet (ratio 2/3 × 4/5 = 8/15), a triplet eighth (1/15) 1/30
-/// before the barline becomes two sixteenths of the inner triplet, tied (Z3: 1/30 ÷ 8/15 = 1/16).
+/// before the barline becomes two sixteenths of the inner triplet, tied (ADR-0026 Z3: 1/30 ÷ 8/15 =
+/// 1/16).
 #[test]
 fn a_nested_tuplet_note_is_split_in_its_own_values() {
     let mut editor = Editor::new(rich());
@@ -492,7 +495,8 @@ fn a_nested_tuplet_note_is_split_in_its_own_values() {
     }
 }
 
-/// A note entered past the end of a free bar lengthens the bar instead of being split (V5).
+/// A note entered past the end of a free bar lengthens the bar instead of being split
+/// (ADR-0026 V5).
 #[test]
 fn a_free_bar_grows() {
     let mut meters = MeterMap::new(MeterChange::new(Meter::new(&[4], 4).unwrap())).unwrap();
@@ -546,7 +550,7 @@ fn a_free_bar_grows() {
 // ------------------------------------------------------------------------------------------------
 
 /// Deleting a note deletes the grace notes ornamenting it; deleting the first chord deletes the
-/// slur starting on it (V6). Both leave gaps.
+/// slur starting on it (ADR-0026 V6). Both leave gaps.
 #[test]
 fn deleting_takes_graces_and_slurs_along() {
     let mut editor = Editor::new(rich());
@@ -572,8 +576,8 @@ fn deleting_takes_graces_and_slurs_along() {
     assert!(editor.document().slur(slur).is_none());
 }
 
-/// Deleting the note a tie leads into clears the tie (V6); deleting every member of a tuplet
-/// deletes the tuplet.
+/// Deleting the note a tie leads into clears the tie (ADR-0026 V6); deleting every member of a
+/// tuplet deletes the tuplet.
 #[test]
 fn deleting_clears_ties_and_empty_tuplets() {
     let mut editor = Editor::new(rich());
@@ -618,7 +622,7 @@ fn deleting_clears_ties_and_empty_tuplets() {
 // Changing events
 // ------------------------------------------------------------------------------------------------
 
-/// A new pitch on a tied note changes the whole tie chain (W2).
+/// A new pitch on a tied note changes the whole tie chain (ADR-0026 W2).
 #[test]
 fn a_pitch_change_follows_the_tie_chain() {
     let mut editor = Editor::new(rich());
@@ -655,7 +659,7 @@ fn a_pitch_change_follows_the_tie_chain() {
 }
 
 /// Moving a note moves its grace notes with it; past the barline the bar becomes overfull, never
-/// split (W1); onto another note it is refused.
+/// split (ADR-0026 W1); onto another note it is refused.
 #[test]
 fn moving_keeps_graces_and_never_splits() {
     let mut editor = Editor::new(rich());
@@ -877,7 +881,7 @@ fn a_gesture_derives_the_tempo_map_live() {
 // ------------------------------------------------------------------------------------------------
 
 /// Inserting bars: at the start, in the middle, and refused between a bar repeat's source and its
-/// end (W6).
+/// end (ADR-0026 W6).
 #[test]
 fn inserting_bars() {
     let mut editor = Editor::new(rich());
@@ -928,7 +932,7 @@ fn inserting_bars() {
 }
 
 /// Deleting bar 2: its whole-bar rest goes, its clef change moves to bar 3, its end repeat goes,
-/// and in cascade the pass rule that needed the repeated section (W5).
+/// and in cascade the pass rule that needed the repeated section (ADR-0026 W5).
 #[test]
 fn deleting_a_bar_carries_the_clef_and_cascades() {
     let mut editor = Editor::new(rich());
@@ -955,8 +959,8 @@ fn deleting_a_bar_carries_the_clef_and_cascades() {
 }
 
 /// Deleting bar 5: the gradual tempo change on it (ending at the start of bar 6) arrives at bar 6
-/// as an immediate mark of its target tempo, without text (W4); the flute's key override moves to
-/// bar 6; the bar repeat that repeated bar 5 is deleted (W5).
+/// as an immediate mark of its target tempo, without text (ADR-0026 W4); the flute's key override
+/// moves to bar 6; the bar repeat that repeated bar 5 is deleted (ADR-0026 W5).
 #[test]
 fn deleting_a_bar_carries_the_tempo_and_key() {
     let mut editor = Editor::new(rich());
@@ -1063,7 +1067,8 @@ fn random_command(doc: &Document, op: u8, a: usize, b: usize) -> Option<Command>
     Some(match op % OPS {
         0 => note(voice, bar, offset, v, &[pitch(steps[b % 5])]),
         1 => {
-            // A note inside one of the voice's tuplets (if any), often across a barline (Z4).
+            // A note inside one of the voice's tuplets (if any), often across a barline
+            // (ADR-0026 Z4).
             let mut tuplets: Vec<TupletId> = doc
                 .voice(voice)?
                 .1
@@ -1508,7 +1513,9 @@ fn expected_refusal(error: CommandError) -> bool {
     !matches!(
         error,
         CommandError::Rollback { .. }
-            | CommandError::Document(DocumentError::Inconsistent | DocumentError::BarsNotEmpty(_))
+            | CommandError::Document(
+                DocumentError::Inconsistent { .. } | DocumentError::BarsNotEmpty(_)
+            )
     )
 }
 
@@ -1524,7 +1531,7 @@ proptest! {
     ) {
         let mut editor = Editor::new(rich());
         // Half the cases start without the flute's bar repeat, which refuses every rewrite that
-        // reaches it (R10), so that the rewrites are often carried out.
+        // reaches it (ADR-0026 R10), so that the rewrites are often carried out.
         if without_bar_repeat {
             let repeat = editor.document().instruments().nth(1).unwrap().bar_repeats()[0].id();
             let document = {
@@ -1603,7 +1610,7 @@ fn the_tie_index_survives_undo() {
 
 /// Deleting the first bars in the middle of a gradual tempo change: the change cannot start the
 /// score (ADR-0021), so the score starts at the tempo it **arrives at**, keeping the initial
-/// mark's text, and the change is deleted (W4, owner's choice of 2026-11-04).
+/// mark's text, and the change is deleted (ADR-0026 W4, owner's choice of 2026-11-04).
 #[test]
 fn deleting_the_start_of_a_gradual_change_starts_at_its_target() {
     let mut editor = Editor::new(rich());

@@ -171,7 +171,11 @@ conversioni segnalano già quelle pericolose).
 `unsafe_code` non è nella tabella del workspace. La radice di ogni crate comincia con
 `#![forbid(unsafe_code)]`, tranne `audio-engine`, `plugin-host` e `io`, i tre crate che parleranno
 con API in C. Un `forbid` a livello di workspace non si potrebbe allentare solo per quei tre, e
-l'attributo rende l'eccezione visibile proprio in cima al crate.
+l'attributo rende l'eccezione visibile proprio in cima al crate. Quei tre cominciano invece con
+`#![deny(unsafe_code)]`: anche lì `unsafe` resta un errore finché l'elemento che ne ha bisogno non
+dice `#[allow(unsafe_code, reason = "...")]` accanto al suo commento `// SAFETY:`, così non può
+entrare senza che nessuno se ne accorga e una ricerca di quell'`allow` elenca tutti i punti che lo
+usano.
 
 `xtask` non eredita questa tabella: è uno strumento per sviluppatori che stampa messaggi ed esce
 con codici di errore, quindi dichiara la sua (documentazione obbligatoria, pedantic attivo,
@@ -221,6 +225,18 @@ binari.
 `.gitignore` esclude `target/`, `dist/` (i PDF generati non si committano mai), le cartelle degli
 editor e i file `.env`.
 
+### Commenti: i riferimenti alle decisioni
+
+I commenti spiegano il codice **com'è adesso**: perché è scritto così, mai com'era prima (quella
+storia appartiene a git e alle pull request). Quando un commento rimanda a una decisione, nomina il
+documento che la contiene. Gli ADR etichettano le loro decisioni con sigle brevi (`V2`, `T1`, `P3`),
+e la stessa sigla vuol dire cose diverse in ADR diversi (`T1` è un'opzione dell'ADR-0024 e una
+decisione dell'ADR-0028; `U1`–`U9` esistono sia nell'ADR-0026 sia nell'ADR-0028), quindi una sigla
+si scrive con il suo ADR: `(ADR-0026 V2)`. Dentro una parentesi che nomina già l'ADR (`(ADR-0028
+§10, T1)`) o sotto un titolo che lo nomina (gli elenchi di decisioni in cima a `command.rs`,
+`mark_command.rs` e `meter_command.rs`) la sigla resta nuda. Le decisioni del piano di lavoro si
+scrivono `SCALETTA D04`.
+
 ## I crate
 
 Nella Fase 0 ogni crate conteneva solo la sua documentazione di crate (scopo, responsabilità,
@@ -240,6 +256,35 @@ i test). Per ora contiene il tipo razionale (passo F1.03), i tipi posizione e du
 mappa delle misure con le suddivisioni dei movimenti (F1.04b), le unità del tempo reale (F1.05:
 tempo, secondi, campioni, fotogrammi) e la mappa dei tempi con i cambi graduali e gli indici esatti
 di campione e di fotogramma (F1.05b).
+
+#### Invarianti e costanti razionali
+
+Due piccoli strumenti, usati da tutti i crate, per i valori che **non possono essere sbagliati**
+finché il programma è corretto. Il codice di libreria non va mai in panic (CLAUDE.md §4), quindi
+anche il caso "impossibile" ha bisogno di una risposta; il pericolo è darla *in silenzio*. Un
+`u32::try_from(index).unwrap_or(0)` trasforma un invariante rotto in un valore plausibile ma
+sbagliato (un'ottava 0, un tick 0) che prosegue senza che nessuno se ne accorga.
+
+- `invariant::convert_or(valore, ripiego)` (`src/invariant.rs`) converte con `TryFrom`; se
+  fallisce restituisce il ripiego nelle build di release e fa fallire un `debug_assert!` nelle
+  build di debug, così ogni esecuzione dei test si ferma sulla conversione rotta, con la riga del
+  chiamante (`#[track_caller]`). `invariant::some_or(opzione, ripiego)` fa lo stesso per un
+  `Option`. Dove un fallimento è un input legittimo (un suggerimento di capacità, un valore che
+  satura apposta, una ricerca che fallisce da sola con `None`) resta il semplice `unwrap_or`, con
+  un commento che spiega perché.
+- `rational!(n, d)` e `rational!(n)` (definite in `src/lib.rs`, esportate) scrivono una costante
+  razionale. L'espansione è un blocco `const` in linea, valutato sempre dal compilatore: un
+  letterale non valido come `rational!(1, 0)` è un **errore di compilazione** (lo verifica un
+  doctest `compile_fail`), mai un panic a run time, e mai un `Rational::ZERO` silenzioso.
+
+```rust
+// An index that always fits a `u32` while the program is correct: release builds fall back to
+// `u32::MAX`, debug builds (and every test) stop right here if it ever does not.
+let from = orchestra_core_time::invariant::convert_or(p, u32::MAX);
+
+// A constant checked by the compiler: `rational!(1, 0)` would not compile.
+const GRID: Rational = orchestra_core_time::rational!(1, 32);
+```
 
 #### Il tipo razionale
 
@@ -643,7 +688,12 @@ metro che sta per cambiare). Da F1.11c parte 2a (ADR-0026 §11 Z1) `replace_span
 in un colpo solo i dati di origine delle `span.count()` battute da `at` in poi con quelli dello span, e
 restituisce quelli che avevano: rimetterli è l'inversa esatta. Il numero di battute non cambia.
 `BarSpan` ha avuto i metodi che gli mancavano (`set_irregular_bar`, `set_bar_grouping`,
-`set_uncounted`, `set_numbering_restart`), così un comando può costruire i dati nuovi di un tratto.
+`set_numbering`, `set_numbering_restart`), così un comando può costruire i dati nuovi di un tratto.
+`set_numbering(bar, BarCounting::Uncounted)` (su `BarSpan` e su `MeterMap`) prende e restituisce un
+`BarCounting` (`Counted` o `Uncounted`) invece di un `bool`, così una chiamata dice cosa fa e lo
+stato precedente restituito non si può leggere al contrario; `BarCounting::uncounted_if` e
+`is_uncounted` convertono per i dati che tengono l'indicazione come `bool` (le modifiche, il file di
+progetto).
 
 ```rust
 // 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
@@ -2227,6 +2277,15 @@ Un metodo che vuole più ID trova il copione esaurito, uno che ne prende meno ne
 sono un bug del caricatore e danno `DocumentError::Inconsistent`. Fuori dal caricamento il copione
 è `None` e costa un ramo per ID.
 
+`DocumentError::Inconsistent` è l'errore "questo è un bug" del modello, usato al posto di un panic
+in una sessantina di controlli. Perché una segnalazione di bug serva a qualcosa, porta con sé
+**dove** è stato rilevato, `Inconsistent { at }` con `at: &'static std::panic::Location`, che il
+suo `Display` stampa come `file:riga`. Si costruisce sempre con `DocumentError::inconsistent()`,
+un costruttore `#[track_caller]`, così la posizione è la riga del controllo stesso: si scrive
+`.ok_or(DocumentError::inconsistent())`, non `.ok_or_else(DocumentError::inconsistent)`, perché
+attraverso un puntatore a funzione la posizione sarebbe quella della libreria standard.
+Costruirlo subito costa un puntatore a dati statici.
+
 ```rust
 // The loader's single entry to the builder: claim the saved IDs, script them, run the method,
 // check that it took them all.
@@ -2656,7 +2715,15 @@ ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con
   dimensione del file prima di leggerlo), `NotAProject`, `NewerFormat`, `Syntax` e `Schema` con
   riga e colonna date da `serde_json` (I8; `Schema` non ha riga per gli errori della conversione,
   che nominano invece l'oggetto), `Migration` per un file più vecchio che non si riesce a
-  migrare, e `Document` per i rifiuti del modello.
+  migrare, e `Document` per i rifiuti del modello. `Document` e `Migration` danno la loro causa
+  tramite `Error::source`, così la catena delle cause non si interrompe. Le varianti `Io` (qui e in
+  `SaveError` e `MidiError`) tengono l'errore come dati semplici, perché questi tipi sono
+  `Clone + Eq` e `io::Error` no: il `kind` e il codice del sistema operativo, `os_code` (`errno`,
+  `GetLastError`), che `Display` ritrasforma nel messaggio del sistema ("No space left on device
+  (os error 28)") tramite `safe_write::describe`. `load` apre il file **una volta sola**: la
+  dimensione viene dal file aperto e la lettura si ferma a un byte oltre il limite
+  (`Read::take`), così un file che cresce tra il controllo e la lettura viene comunque rifiutato
+  come `TooLarge`.
 
 **File golden e migrazioni** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/` contiene
 quindici file della versione 1, scritti **una volta sola** e mai rigenerati: un file piccolo per
@@ -2681,16 +2748,31 @@ versione `k + 1` alla `k + 2`, ognuna una funzione pura sull'albero; il meccanis
 `orchestra_format` dopo ogni passo), poi lo schema corrente. La catena è vuota finché la versione 1
 è l'unica; il meccanismo è provato con una catena di due passi solo per i test (un campo
 rinominato, uno aggiunto), e un passo che fallisce o che manca dà `LoadError::Migration { from,
-message }`. Il primo cambio di formato aggiungerà la sua funzione alla catena e una cartella
+reason }`, dove `reason` è un `MigrationError` tipizzato (`MissingStep`, `NotAnObject`,
+`MissingField(percorso)`, `WrongType(percorso)`, con percorsi `&'static str` scritti dalla
+migrazione), come prescrive l'ADR-0029 S11, così l'interfaccia può associare ogni caso a una
+chiave Fluent. Il primo cambio di formato aggiungerà la sua funzione alla catena e una cartella
 `tests/golden/v2/`; i file di `v1/` restano come sono e devono continuare a caricarsi negli stessi
 documenti.
 
-**Salvare in modo sicuro** (S13; i passi stanno in `src/safe_write.rs`, condiviso con l'esportazione MIDI). `save` scrive un file temporaneo `.<nome>.<id del processo>.tmp`
-nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi
+**Salvare in modo sicuro** (S13; i passi stanno in `src/safe_write.rs`, condiviso con l'esportazione MIDI). `save` scrive un file temporaneo
+`.<nome>.<id del processo>.<numero progressivo>.tmp` nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi
 sincronizza la cartella dove la piattaforma lo richiede; in caso d'errore il file temporaneo viene
 tolto e il file precedente resta intatto. La sincronizzazione della cartella è il primo codice
 specifico di piattaforma del crate, in `src/platform/` dietro il trait `FileSystem` (CLAUDE.md
 §2): su Unix la cartella si apre e si sincronizza, altrove (Windows) non c'è nulla da fare.
+Il file temporaneo si apre con `create_new` (mai il file di un altro), quindi il suo nome deve
+essere unico: l'id del processo separa i programmi, un numero progressivo atomico comune a tutto
+il processo separa i thread di uno stesso programma (un salvataggio automatico accanto a uno
+manuale), e un nome già occupato, per esempio un residuo di un processo andato in crash il cui id è
+tornato, si salta provando il numero successivo, al massimo 64 volte. Un residuo non si cancella
+mai: potrebbe essere il salvataggio in corso di un altro programma.
+Un link simbolico si salva **attraverso**: si sostituisce il file a cui punta, nella sua cartella, e
+il link resta un link (`resolve_link`; un link che non punta a niente crea il file che nomina). I
+bit dei permessi del file sostituito si copiano sul file temporaneo prima della rinomina
+(`platform::copy_permissions`: la modalità su Unix; niente su Windows, dove un file nuovo eredita le
+regole d'accesso della cartella e copiare l'attributo di sola lettura farebbe solo fallire il
+salvataggio successivo), così un progetto reso privato resta privato.
 
 **Test.** `tests/project_cases.rs`: andata e ritorno del documento di prova, della partitura
 normale e di quella pesante (stessi byte dopo un secondo salvataggio, stesso contenuto, stessi ID e
@@ -2976,10 +3058,10 @@ compilati come una seconda copia del loro crate e vedrebbero tipi diversi.
 
 ```rust
 // In Cargo.toml: orchestra-test-scores.workspace = true, under [dev-dependencies] only.
-use orchestra_test_scores::{Size, plain};
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // 100 bars × 10 staves, without the empty editing instrument at the end.
-let document = plain(Size::Normal, false);
+let document = plain(Size::Normal, Instruments::Plain);
 assert_eq!(document.bars().len(), 100);
 ```
 
@@ -3419,7 +3501,12 @@ FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$
 
 `.githooks/commit-msg` rifiuta ogni commit senza un trailer `User-visible: yes` o
 `User-visible: no`; con `yes` il commit deve cambiare anche i sorgenti di entrambe le guide
-(`docs/guide/it/` e `docs/guide/en/`). I commit di merge, revert e fixup sono esentati.
+(`docs/guide/it/` e `docs/guide/en/`). I commit di merge, revert e fixup sono esentati; lo
+decide solo la riga dell'**oggetto**, quindi una riga del corpo che inizia con "Merge" non spegne
+il controllo. Lo script gira in modalità rigorosa (`set -euo pipefail`). Un amend
+(`git commit --amend`) sostituisce HEAD, quindi le modifiche alle guide possono essere già in HEAD
+e non di nuovo nell'area di staging: git non dice all'hook che si tratta di un amend, quindi
+quando l'oggetto è uguale a quello di HEAD l'hook confronta l'indice anche con il genitore di HEAD.
 
 Git riconosce i trailer solo nell'**ultimo paragrafo** del messaggio, quindi `User-visible` deve
 stare nello stesso blocco degli altri trailer:
@@ -3468,6 +3555,12 @@ I job:
   dei peggioramenti di ADR-0017 (con tutta la cronologia git, `fetch-depth: 0`, perché serve la
   base comune); la pagina di riepilogo mostra allora solo il confronto. Su Windows e macOS anche il job **check** esegue `cargo xtask bench`, che lì si
   limita a compilare i benchmark.
+
+Ogni job ha un `timeout-minutes` (check 45, guides 20, bench 90): senza, GitHub aspetta sei ore
+prima di fermare un job bloccato (un test chiuso in un ciclo, un runner che non risponde più). I
+valori sono qualche volta la durata normale più lunga (circa 10 minuti per un check su Windows senza
+cache, 20 per il confronto dei benchmark), così un runner lento finisce comunque e uno bloccato si
+ferma presto.
 
 Usiamo solo i runner standard ospitati da GitHub: sono gratuiti per i repository pubblici, mentre
 quelli più grandi si pagano anche lì. Ogni action di terzi è fissata con l'hash completo del commit,

@@ -298,7 +298,7 @@ fn a_jump_inside_a_repeat() {
 }
 
 /// A two-bar repeat sign on the flute (bars 3–4 repeat bars 1–2): those bars take their notes from
-/// the source bars, with the pass of those notes (P3).
+/// the source bars, with the pass of those notes (ADR-0025 P3).
 #[test]
 fn bar_repeats_play_their_source() {
     let mut s = score(6);
@@ -317,7 +317,7 @@ fn bar_repeats_play_their_source() {
 }
 
 /// A two-bar repeat sign written twice (bars 3–6 repeat bars 1–2, then 1–2 again): the third and
-/// fourth repeated bars take their notes from bars 1 and 2 again, a pass later (P3).
+/// fourth repeated bars take their notes from bars 1 and 2 again, a pass later (ADR-0025 P3).
 #[test]
 fn a_bar_repeat_over_several_spans() {
     let mut s = score(8);
@@ -337,7 +337,7 @@ fn a_bar_repeat_over_several_spans() {
     );
 }
 
-/// "Tacet 1st time" on the flute over bars 1–2 of a repeated section (P4).
+/// "Tacet 1st time" on the flute over bars 1–2 of a repeated section (ADR-0025 P4).
 #[test]
 fn a_pass_rule_silences_the_first_time() {
     let mut s = score(4);
@@ -398,7 +398,7 @@ fn shifts_stay_exact_outside_gradual_changes() {
     ));
 }
 
-/// The path is rebuilt only when the form, the bars or the maps change (P7).
+/// The path is rebuilt only when the form, the bars or the maps change (ADR-0025 P7).
 #[test]
 fn update_rebuilds_only_when_needed() {
     let mut s = score(4);

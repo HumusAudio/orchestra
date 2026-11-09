@@ -31,6 +31,7 @@
 //!    are deterministic.
 
 use orchestra_core_model::{Document, MidiNote};
+use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{RationalError, Seconds};
 use orchestra_playback::{Performance, PlayedNote};
 
@@ -110,9 +111,8 @@ impl Action {
 /// The time of a profile's duration in units, rounded. O(1).
 ///
 /// # Errors
-/// [`RationalError::Overflow`] for a duration beyond `i64` units (about 300 years). It used to
-/// saturate silently to `i64::MAX`, unlike every other conversion of the encoder, which reports
-/// the overflow (review point B18).
+/// [`RationalError::Overflow`] for a duration beyond `i64` units (about 300 years), like every
+/// other conversion of the encoder: an overflow is reported, never saturated silently.
 fn units_of_seconds(seconds: Seconds) -> Result<i64, RationalError> {
     scaled_round(seconds.as_rational(), UNITS_PER_SECOND)
 }
@@ -332,7 +332,8 @@ fn prepare<'a>(
     warnings: &mut Vec<MidiWarning>,
 ) -> Result<Vec<Vec<Prepared<'a>>>, MidiError> {
     let tick = |p| -> Result<u64, MidiError> {
-        Ok(u64::try_from(ticks_of(p)?.saturating_add(lead)).unwrap_or(0))
+        // The lead-in makes every tick non-negative (see `lead`): a negative one is a bug.
+        Ok(convert_or(ticks_of(p)?.saturating_add(lead), 0_u64))
     };
     let mut by_channel: Vec<Vec<Prepared<'a>>> = vec![Vec::new(); 16];
     for (track, (_, notes)) in performance.instruments().enumerate() {
@@ -536,8 +537,7 @@ impl<'n, 'a> Channel<'n, 'a> {
             *slot = Some(key);
         }
         // max(v, s) >> 9 on the 7-bit scale, at least 1 (E8).
-        let velocity =
-            u8::try_from((p.note.velocity.max(p.note.settle_to) >> 9).max(1)).unwrap_or(127);
+        let velocity = convert_or((p.note.velocity.max(p.note.settle_to) >> 9).max(1), 127_u8);
         let slot = usize::from(key);
         let unison = self.sounding[slot] > 0;
         self.sounding[slot] = self.sounding[slot].saturating_add(1);
@@ -595,7 +595,8 @@ pub(crate) fn tracks(
     let (mut tracks, channel_of) = set_up(doc, performance, options, warnings);
     let by_channel = prepare(performance, &channel_of, lead, warnings)?;
     for (number, notes) in by_channel.iter().enumerate() {
-        let mut channel = Channel::new(u8::try_from(number).unwrap_or(0), notes);
+        // `by_channel` has 16 entries, so `number < 16` always fits a `u8`.
+        let mut channel = Channel::new(convert_or(number, 0_u8), notes);
         for (tick, action) in actions(notes, tempo)? {
             channel.play(tick, action, &mut tracks, warnings);
         }

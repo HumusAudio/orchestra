@@ -11,8 +11,8 @@
 //! # Compressed containers
 //! A later version may put the document in a zip or gzip container (ADR-0029 S2). The version-1
 //! reader already recognises their signatures and answers "made with a newer Orchestra" instead
-//! of "not a project" (owner's precision of S5, 2026-11-06). The check costs a comparison of four
-//! bytes.
+//! of "not a project" (owner's precision of ADR-0029 S5, 2026-11-06). The check costs a comparison
+//! of four bytes.
 
 use super::LoadError;
 
@@ -20,7 +20,7 @@ use super::LoadError;
 const ZIP: &[u8] = b"PK\x03\x04";
 /// The signature of a gzip stream.
 const GZIP: &[u8] = b"\x1F\x8B";
-/// The UTF-8 byte order mark, which some editors add and the reader ignores (S3).
+/// The UTF-8 byte order mark, which some editors add and the reader ignores (ADR-0029 S3).
 pub(crate) const BOM: &[u8] = b"\xEF\xBB\xBF";
 /// The key that must come first.
 const KEY: &[u8] = b"\"orchestra_format\"";

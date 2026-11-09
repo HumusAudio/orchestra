@@ -137,7 +137,7 @@ fn spans(notes: &[PlayedNote]) -> Vec<(Position, Position)> {
     notes.iter().map(|n| (n.start, n.end)).collect()
 }
 
-/// Four quarters: four notes, at their written places, at C4 = 60, *mf* (N9).
+/// Four quarters: four notes, at their written places, at C4 = 60, *mf* (ADR-0027 N9).
 #[test]
 fn plain_notes_play_as_written() {
     let mut s = score(1);
@@ -174,9 +174,9 @@ fn a_tie_chain_is_one_note() {
     assert_eq!(notes[0].note, first);
 }
 
-/// N1: a tie into the bar after a repeat is followed only on the pass that plays that bar next.
-/// Bars 0–1 repeated: on the first pass bar 1's last quarter is followed by bar 0 again, and ends
-/// at its barline; on the second pass it goes on into bar 2.
+/// ADR-0027 N1: a tie into the bar after a repeat is followed only on the pass that plays that bar
+/// next. Bars 0–1 repeated: on the first pass bar 1's last quarter is followed by bar 0 again, and
+/// ends at its barline; on the second pass it goes on into bar 2.
 #[test]
 fn a_tie_is_followed_only_where_its_target_sounds_next() {
     let mut s = score(3);
@@ -189,8 +189,8 @@ fn a_tie_is_followed_only_where_its_target_sounds_next() {
     assert_eq!(spans(&notes), [(p(7, 4), p(8, 4)), (p(15, 4), p(17, 4))]);
 }
 
-/// N3: a staccato on the last notehead of a chain shortens that notehead only (a quarter tied to a
-/// staccato quarter: a quarter and an eighth).
+/// ADR-0027 N3: a staccato on the last notehead of a chain shortens that notehead only (a quarter
+/// tied to a staccato quarter: a quarter and an eighth).
 #[test]
 fn staccato_shortens_the_last_note_of_a_chain() {
     let mut s = score(1);
@@ -202,8 +202,8 @@ fn staccato_shortens_the_last_note_of_a_chain() {
     assert_eq!(spans(&played(s)), [(p(0, 4), p(3, 8))]);
 }
 
-/// N4: tenuto with staccato is a portato (3/4); tenuto alone is never shortened; an accent makes
-/// the note 20% louder.
+/// ADR-0027 N4: tenuto with staccato is a portato (3/4); tenuto alone is never shortened; an accent
+/// makes the note 20% louder.
 #[test]
 fn tenuto_staccato_and_accent() {
     let mut s = score(1);
@@ -221,16 +221,16 @@ fn tenuto_staccato_and_accent() {
     let notes = played(s);
     assert_eq!(spans(&notes), [(p(0, 1), p(3, 8)), (p(1, 2), p(1, 1))]);
     assert_eq!(notes[0].velocity, INITIAL_VELOCITY);
-    // H15, §15: an accent is +22 on the 0–127 scale at the attack (mf 75 → 97), settling back to mf
-    // in 0.25 s (§15).
+    // ADR-0027 H15, §15: an accent is +22 on the 0–127 scale at the attack (mf 75 → 97), settling
+    // back to mf in 0.25 s (§15).
     assert_eq!(notes[1].velocity, up(97));
     assert_eq!(notes[1].settle_to, INITIAL_VELOCITY);
     assert_eq!(notes[1].settle_in, secs(1, 4));
     assert_eq!(notes[1].hold, Seconds::ZERO);
 }
 
-/// G7, N5: an acciaccatura sounds before the beat, taking 1/32 from the previous note; the main
-/// note starts on its beat.
+/// G7, ADR-0027 N5: an acciaccatura sounds before the beat, taking 1/32 from the previous note; the
+/// main note starts on its beat.
 #[test]
 fn an_acciaccatura_takes_time_from_the_previous_note() {
     let mut s = score(1);
@@ -247,8 +247,8 @@ fn an_acciaccatura_takes_time_from_the_previous_note() {
     );
 }
 
-/// N5: after a rest the acciaccatura sounds in the silence; before the very first note it starts
-/// before time 0.
+/// ADR-0027 N5: after a rest the acciaccatura sounds in the silence; before the very first note it
+/// starts before time 0.
 #[test]
 fn an_acciaccatura_after_a_rest_and_at_the_start() {
     let mut s = score(1);
@@ -297,7 +297,7 @@ fn an_appoggiatura_takes_time_from_its_main_note() {
     assert_eq!(spans(&played(s)), [(p(0, 1), p(1, 4)), (p(1, 4), p(3, 8))]);
 }
 
-/// N6: an `After` grace takes 1/32 from the end of the note it follows.
+/// ADR-0027 N6: an `After` grace takes 1/32 from the end of the note it follows.
 #[test]
 fn an_after_grace_ends_the_note_it_follows() {
     let mut s = score(1);
@@ -309,7 +309,7 @@ fn an_after_grace_ends_the_note_it_follows() {
     );
 }
 
-/// N7: a downward arpeggio starts from the highest note, 1/64 apart, all ending together.
+/// ADR-0027 N7: a downward arpeggio starts from the highest note, 1/64 apart, all ending together.
 #[test]
 fn a_downward_arpeggio() {
     let mut s = score(1);
@@ -333,8 +333,8 @@ fn a_downward_arpeggio() {
     );
 }
 
-/// N8 and §8: the offsets are added after the rules (an onset 1/64 early, a length 1/16 longer, a
-/// velocity 1 000 louder); a note never lasts less than 1/1024.
+/// ADR-0027 N8 and §8: the offsets are added after the rules (an onset 1/64 early, a length 1/16
+/// longer, a velocity 1 000 louder); a note never lasts less than 1/1024.
 #[test]
 fn offsets_and_bounds() {
     let mut s = score(1);
@@ -373,7 +373,8 @@ fn offsets_and_bounds() {
     assert_eq!(notes[1].velocity, 1);
 }
 
-/// P4: a "tacet 1st time" over bar 1 of a repeated section leaves out its notes on the first pass.
+/// ADR-0025 P4: a "tacet 1st time" over bar 1 of a repeated section leaves out its notes on the
+/// first pass.
 #[test]
 fn pass_rules_silence_notes() {
     let mut s = score(2);
@@ -392,7 +393,7 @@ fn pass_rules_silence_notes() {
     assert_eq!(spans(&played(s)), [(p(3, 1), p(4, 1))]);
 }
 
-/// P3: a bar repeat plays the notes of its source bar, with the pass of those notes.
+/// ADR-0025 P3: a bar repeat plays the notes of its source bar, with the pass of those notes.
 #[test]
 fn bar_repeats_play_the_source_notes() {
     let mut s = score(2);
@@ -405,8 +406,9 @@ fn bar_repeats_play_the_source_notes() {
     assert_eq!((notes[1].note, notes[1].pass), (note, 1));
 }
 
-/// N6: an `After` grace of one note and an acciaccatura of the next at the same point: the `After`
-/// grace first, then the acciaccatura, both taken from the first note; the second note on time.
+/// ADR-0027 N6: an `After` grace of one note and an acciaccatura of the next at the same point: the
+/// `After` grace first, then the acciaccatura, both taken from the first note; the second note on
+/// time.
 #[test]
 fn after_graces_come_before_the_next_acciaccatura() {
     let mut s = score(1);
@@ -463,8 +465,8 @@ fn a_pass_offset_changes_only_its_pass() {
     );
 }
 
-/// T4: on a staff with a bar repeat, the copy has its own pass, so an entry of pass 1 moves the
-/// copy and leaves the original alone.
+/// ADR-0028 T4: on a staff with a bar repeat, the copy has its own pass, so an entry of pass 1
+/// moves the copy and leaves the original alone.
 #[test]
 fn a_pass_offset_tells_a_bar_repeat_from_its_source() {
     let mut s = score(2);
@@ -487,10 +489,10 @@ fn a_pass_offset_tells_a_bar_repeat_from_its_source() {
     );
 }
 
-/// T3: along a tie chain, the onset comes from the first notehead's entry, the lengths from every
-/// notehead's entry in its own pass. A half tied to a half across the barline, pass 0: the first
-/// notehead's entry starts the note 1/32 later, the second notehead's entry makes it 1/16 longer
-/// and its onset is ignored.
+/// ADR-0028 T3: along a tie chain, the onset comes from the first notehead's entry, the lengths
+/// from every notehead's entry in its own pass. A half tied to a half across the barline, pass 0:
+/// the first notehead's entry starts the note 1/32 later, the second notehead's entry makes it 1/16
+/// longer and its onset is ignored.
 #[test]
 fn pass_offsets_along_a_tie_chain() {
     let mut s = score(2);

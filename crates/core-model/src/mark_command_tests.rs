@@ -10,10 +10,10 @@
 //! crate-private.
 //!
 //! # What is checked
-//! One hand-written case per decision X1–X10, each through `execute_checked` (the document is
-//! valid and consistent after the command, undo gives back the document from before and redo the
-//! one after) or `refused` (the refusal changed nothing and recorded no step). The property test
-//! of `crate::command_tests` generates these commands too.
+//! One hand-written case per decision ADR-0026 X1–X10, each through `execute_checked` (the
+//! document is valid and consistent after the command, undo gives back the document from before and
+//! redo the one after) or `refused` (the refusal changed nothing and recorded no step). The
+//! property test of `crate::command_tests` generates these commands too.
 
 use orchestra_core_time::{BarIndex, BeatGrouping, Duration, Rational, Tempo};
 
@@ -148,11 +148,11 @@ fn main_events(doc: &Document, i: &Ids) -> Vec<EventId> {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Dynamics, hairpins, slurs (X3, X5)
+// Dynamics, hairpins, slurs (ADR-0026 X3, ADR-0026 X5)
 // ------------------------------------------------------------------------------------------------
 
 /// A dynamic is added, moved keeping its ID, and removed; a second one of the same scope at the
-/// same point is refused (X3).
+/// same point is refused (ADR-0026 X3).
 #[test]
 fn dynamics_are_added_moved_and_removed() {
     let mut editor = Editor::new(rich());
@@ -199,7 +199,7 @@ fn dynamics_are_added_moved_and_removed() {
 }
 
 /// A hairpin overlapping another one of the same scope is refused, one touching it is accepted;
-/// stretching it into the other is refused too (X3).
+/// stretching it into the other is refused too (ADR-0026 X3).
 #[test]
 fn hairpins_never_overlap() {
     let mut editor = Editor::new(rich());
@@ -278,12 +278,12 @@ fn slurs_join_events_of_one_instrument_forwards() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Tempo, clefs, keys (X3, X6, X8)
+// Tempo, clefs, keys (ADR-0026 X3, ADR-0026 X6, ADR-0026 X8)
 // ------------------------------------------------------------------------------------------------
 
 /// A tempo mark inside the accelerando (bars 5–6) is refused; one at bar 7 is accepted and the
 /// change set says where the tempo map changes; the initial tempo can be set, but only to an
-/// immediate tempo (X8).
+/// immediate tempo (ADR-0026 X8).
 #[test]
 fn tempo_marks_respect_gradual_changes() {
     let mut editor = Editor::new(rich());
@@ -302,7 +302,7 @@ fn tempo_marks_respect_gradual_changes() {
     ));
     let changes = execute_checked(&mut editor, &mark(7, Duration::ZERO, 60));
     assert!(changes.tempo_from().is_some());
-    // The initial tempo is set, never removed (X8), and must be immediate.
+    // The initial tempo is set, never removed (ADR-0026 X8), and must be immediate.
     let gradual = TempoMark::new(
         None,
         Some(TempoMarkChange::Gradual(GradualMark {
@@ -327,7 +327,7 @@ fn tempo_marks_respect_gradual_changes() {
 
 /// Inside a larger transaction a refused tempo mark is reverted alone, by the local check, and
 /// the transaction goes on: without the check the rule would only fail when the transaction
-/// derives the tempo map at its end, taking the good commands down with it (X10).
+/// derives the tempo map at its end, taking the good commands down with it (ADR-0026 X10).
 #[test]
 fn a_refused_tempo_mark_leaves_the_transaction_open() {
     let mut editor = Editor::new(rich());
@@ -354,8 +354,8 @@ fn a_refused_tempo_mark_leaves_the_transaction_open() {
     editor.document().validate().unwrap();
 }
 
-/// A new key or clef changes no pitch (X6): every event of the score is the same before and
-/// after.
+/// A new key or clef changes no pitch (ADR-0026 X6): every event of the score is the same before
+/// and after.
 #[test]
 fn keys_and_clefs_change_no_pitch() {
     let mut editor = Editor::new(rich());
@@ -409,12 +409,12 @@ fn keys_and_clefs_change_no_pitch() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// The form (X1–X4)
+// The form (ADR-0026 X1–X4)
 // ------------------------------------------------------------------------------------------------
 
-/// A repeated section is added with its two barlines (X1); one overlapping the section of bars
-/// 1–2 is refused, and nothing of it stays (X3). (Bars 3–4: bar 5 is the source of the flute's
-/// bar repeat, and no form marking may lie between a bar repeat's source and its end.)
+/// A repeated section is added with its two barlines (ADR-0026 X1); one overlapping the section of
+/// bars 1–2 is refused, and nothing of it stays (ADR-0026 X3). (Bars 3–4: bar 5 is the source of
+/// the flute's bar repeat, and no form marking may lie between a bar repeat's source and its end.)
 #[test]
 fn repeats_are_added_in_pairs() {
     let mut editor = Editor::new(rich());
@@ -442,7 +442,7 @@ fn repeats_are_added_in_pairs() {
     ));
 }
 
-/// A group of voltas is added at once with the end repeat it lacks (X1); a single volta is
+/// A group of voltas is added at once with the end repeat it lacks (ADR-0026 X1); a single volta is
 /// refused.
 #[test]
 fn voltas_are_added_by_group() {
@@ -484,8 +484,8 @@ fn voltas_are_added_by_group() {
             .iter()
             .any(|r| r.bar() == i.bars[5] && r.times() == 2)
     );
-    // Removing the first volta leaves a group of one: the cascade deletes the other (X2), the
-    // end repeat stays.
+    // Removing the first volta leaves a group of one: the cascade deletes the other (ADR-0026 X2),
+    // the end repeat stays.
     let first = ObjectRef::Volta(form.voltas()[0].id());
     let changes = execute_checked(&mut editor, &Command::RemoveMark(first));
     assert_eq!(changes.removed().len(), 2);
@@ -493,7 +493,7 @@ fn voltas_are_added_by_group() {
 }
 
 /// Bars inserted between the first and the second volta of a group join the first one, and its
-/// end repeat moves to their end (X11): the group stays valid.
+/// end repeat moves to their end (ADR-0026 X11): the group stays valid.
 #[test]
 fn bars_inserted_between_voltas_join_the_first() {
     let mut editor = Editor::new(rich());
@@ -529,7 +529,7 @@ fn bars_inserted_between_voltas_join_the_first() {
     assert!(changes.form_changed());
 }
 
-/// Removing the segno deletes the D.S. jump that needed it, in the same step (X2).
+/// Removing the segno deletes the D.S. jump that needed it, in the same step (ADR-0026 X2).
 #[test]
 fn removing_a_marker_deletes_its_jump_in_cascade() {
     let mut editor = Editor::new(rich());
@@ -551,7 +551,7 @@ fn removing_a_marker_deletes_its_jump_in_cascade() {
     assert_eq!(editor.document().form().jumps().len(), 1);
 }
 
-/// A bar repeat over bars that hold music is refused (X4); over empty bars it is accepted.
+/// A bar repeat over bars that hold music is refused (ADR-0026 X4); over empty bars it is accepted.
 #[test]
 fn a_bar_repeat_needs_empty_bars() {
     let mut editor = Editor::new(rich());
@@ -604,7 +604,7 @@ fn form_markings_are_changed_in_place() {
         },
     );
     assert_eq!(changes.replaced(), &[ObjectRef::Marker(fine)]);
-    // At the end of bar 5 it would lie between the flute's bar repeat and its source (X3).
+    // At the end of bar 5 it would lie between the flute's bar repeat and its source (ADR-0026 X3).
     assert!(matches!(
         refused(
             &mut editor,
@@ -636,12 +636,12 @@ fn form_markings_are_changed_in_place() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Tuplets (X7)
+// Tuplets (ADR-0026 X7)
 // ------------------------------------------------------------------------------------------------
 
 /// A tuplet is added empty and filled with `EnterEvent`; a new ratio that makes its notes overlap
 /// is refused, one that keeps their durations is accepted and names their cell; removing it
-/// takes its notes along (X7).
+/// takes its notes along (ADR-0026 X7).
 #[test]
 fn tuplets_are_added_changed_and_removed() {
     let mut editor = Editor::new(rich());
@@ -757,7 +757,7 @@ fn removing_a_tuplet_removes_the_nested_ones() {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Per-bar data (X9) and gestures (X5)
+// Per-bar data (ADR-0026 X9) and gestures (ADR-0026 X5)
 // ------------------------------------------------------------------------------------------------
 
 /// The beat grouping, an uncounted bar and a numbering restart are set and undone; the displayed

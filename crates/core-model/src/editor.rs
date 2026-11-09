@@ -19,10 +19,10 @@
 //! discards the redo steps. Each step is the list of edits that undoes it; applying them returns
 //! the list that redoes it, and the other way round, so undo and redo are one mechanism.
 //!
-//! Bounded by **memory** (U3): every step records an estimate of the memory its edits hold, and
-//! when the total passes the limit ([`DEFAULT_HISTORY_LIMIT`], 128 MB, unless set otherwise) the
-//! oldest steps are dropped. The most recent step is always kept, however large. The history is
-//! not saved in the project file (U6).
+//! Bounded by **memory** (ADR-0026 U3): every step records an estimate of the memory its edits
+//! hold, and when the total passes the limit ([`DEFAULT_HISTORY_LIMIT`], 128 MB, unless set
+//! otherwise) the oldest steps are dropped. The most recent step is always kept, however large. The
+//! history is not saved in the project file (ADR-0026 U6).
 //!
 //! # Commands
 //! A [`Command`] (`crate::command`) runs inside a transaction with [`Transaction::execute`], or
@@ -497,7 +497,7 @@ impl Editor {
             self.document
                 .apply_edit(inverse.clone(), &mut changes)
                 .map_err(|rollback| CommandError::Rollback {
-                    cause: DocumentError::Inconsistent,
+                    cause: DocumentError::inconsistent(),
                     rollback,
                 })?;
         }
@@ -548,7 +548,7 @@ impl Editor {
         let open = self
             .open
             .as_mut()
-            .ok_or(CommandError::Document(DocumentError::Inconsistent))?;
+            .ok_or(CommandError::Document(DocumentError::inconsistent()))?;
         let mark = open.inverses.len();
         // The command records its changes into a set of its own, so that the local check looks
         // only at what this command touched (and a gesture can return exactly that).
@@ -569,7 +569,7 @@ impl Editor {
         let open = self
             .open
             .as_mut()
-            .ok_or(CommandError::Document(DocumentError::Inconsistent))?;
+            .ok_or(CommandError::Document(DocumentError::inconsistent()))?;
         let local = std::mem::replace(&mut open.changes, outer);
         match result {
             Ok(()) => Ok(local),
@@ -582,10 +582,10 @@ impl Editor {
     }
 
     /// Removes the pass-specific offsets of the noteheads that the running command took out of the
-    /// document (T5, see the module documentation): for every notehead listed as gone in the
-    /// command's own change set and really absent now (a notehead moved by a remove-and-insert is
-    /// listed too, but is back), one [`Edit::SetPassOffsets`] to `NONE` per entry, in the table of
-    /// whichever instrument holds it (the note is gone, so the tables are searched).
+    /// document (ADR-0028 T5, see the module documentation): for every notehead listed as gone in
+    /// the command's own change set and really absent now (a notehead moved by a remove-and-insert
+    /// is listed too, but is back), one [`Edit::SetPassOffsets`] to `NONE` per entry, in the table
+    /// of whichever instrument holds it (the note is gone, so the tables are searched).
     ///
     /// # Complexity
     /// O(1) when no instrument has pass offsets, which is the common case. Otherwise O(g ×
@@ -691,8 +691,8 @@ impl Editor {
     /// `None` means the one still in the document (edits never touch it, only this function
     /// replaces it). Does nothing when the tempo is clean.
     ///
-    /// The one copy of a step that `update_gesture`, `commit` and `run` each wrote out (review
-    /// point B16); each caller keeps its own way of undoing a failure.
+    /// The one copy of a step shared by `update_gesture`, `commit` and `run`; each caller keeps
+    /// its own way of undoing a failure.
     ///
     /// # Errors
     /// The tempo map's, as a [`DocumentError`]; the document's map is then left unchanged.
@@ -733,6 +733,12 @@ impl Editor {
         let mut changes = ChangeSet::default();
         let mut inverses = Vec::with_capacity(edits.len());
         for edit in edits {
+            // A clone, because `apply_edit` consumes its edit and the step must survive a failed
+            // run whole: `undo` and `redo` put it back in the history. Measured on 2026-11-09
+            // (second codebase review, `benches/editor.rs`): the undo of a 200-note paste costs
+            // ≈ 235 000 instructions in all, well under 0.1 ms on the reference laptop, so
+            // recovering the originals from the reverted inverses instead is not worth its
+            // complexity on the failure path.
             match self.document.apply_edit(edit.clone(), &mut changes) {
                 Ok(inverse) => inverses.push(inverse),
                 Err(cause) => {
@@ -742,8 +748,8 @@ impl Editor {
             }
         }
         // No gesture is open during an undo or a redo, and edits never touch the tempo map, so
-        // the document still holds the map from before the step: no copy of it is needed (it used
-        // to be cloned at every undo and redo, review point D1).
+        // the document still holds the map from before the step: no copy of it is needed, which
+        // spares a clone of the tempo map at every undo and redo.
         if let Err(cause) = self.rederive_tempo(&mut changes, None) {
             self.revert(&inverses, cause)?;
             return Err(CommandError::Document(cause));
@@ -772,7 +778,7 @@ const fn document_cause(error: CommandError) -> DocumentError {
     match error {
         CommandError::Document(e) | CommandError::Rollback { cause: e, .. } => e,
         CommandError::TransactionOpen | CommandError::GestureOpen | CommandError::NoGesture => {
-            DocumentError::Inconsistent
+            DocumentError::inconsistent()
         }
     }
 }

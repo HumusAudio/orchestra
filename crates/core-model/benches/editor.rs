@@ -16,8 +16,8 @@
 //! - `insert_bar` and `delete_bar`: one bar in the middle of the score (O(bars × voices) pointer
 //!   moves, the meter map, the tempo map; deletion also clips, carries and cascades).
 //! - `change_meter` and `irregular_bar` (F1.11c, `KeepBars`): a 3/4 at the middle bar (on the
-//!   heavy score its section lasts 60 bars, each now overfull, whose ties are checked: Y7), and
-//!   the middle bar made a bar of two quarters.
+//!   heavy score its section lasts 60 bars, each now overfull, whose ties are checked:
+//!   ADR-0026 Y7), and the middle bar made a bar of two quarters.
 //! - `rewrite_meter` (F1.11c part 2b): a 3/4 at the middle bar in `Rewrite` mode, which moves
 //!   every event and mark of its section (60 bars on the heavy score) into the new bars.
 //! - `gesture`: a drag of one note over 1 000 positions, from `begin_gesture` to `end_gesture`
@@ -30,7 +30,7 @@
 //!   note on the 1/16 grid and keep the residual.
 //! - `daw_resize` (F1.14c, ADR-0028 §11): the end of the same note dragged over 1 000 lengths,
 //!   from an eighth to two bars and a half: past each barline the tie chain is rewritten, reusing
-//!   its pieces' IDs (U3).
+//!   its pieces' IDs (ADR-0028 U3).
 //!
 //! # The scores
 //! The normal and heavy plain scores of `orchestra-test-scores` (ADR-0031; 100 bars × 10 staves, 1 000 bars × 30
@@ -71,8 +71,8 @@ use orchestra_core_time::{
     BarIndex, BarKind, Duration, IrregularBar, Meter, MeterChange, Rational,
 };
 
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 const BATCH: usize = 64;
 
@@ -86,7 +86,7 @@ fn bar_count(size: Size) -> u32 {
 
 // An editor on the score of this size, with the editing instrument.
 fn editor(size: Size) -> Editor {
-    Editor::new(plain(size, true))
+    Editor::new(plain(size, Instruments::WithEditing))
 }
 
 // The editing voice (the last instrument's only voice).

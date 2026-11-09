@@ -31,8 +31,8 @@
 use orchestra_core_model::{Document, EventBody};
 use orchestra_core_time::BarIndex;
 
-// The plain preset of the reference scores (ADR-0031): `plain(size, editing)`.
-use orchestra_test_scores::{Size, plain};
+// The plain preset of the reference scores (ADR-0031): `plain(size, instruments)`.
+use orchestra_test_scores::{Instruments, Size, plain};
 
 orchestra_test_support::install_counting_allocator!();
 
@@ -61,7 +61,8 @@ fn noteheads(document: &Document) -> usize {
 #[test]
 fn memory_per_note_on_the_heavy_score() {
     let (document, stats) =
-        orchestra_test_support::count_allocations(|| plain(Size::Heavy, false)).unwrap();
+        orchestra_test_support::count_allocations(|| plain(Size::Heavy, Instruments::Plain))
+            .unwrap();
     let notes = noteheads(&document);
     let per_note = stats.net_bytes() / i128::try_from(notes).unwrap();
     // Printed so that `cargo test -- --nocapture` shows the numbers the ceiling is based on.

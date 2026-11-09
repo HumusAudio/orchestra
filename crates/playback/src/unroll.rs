@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The unrolling of the form: the bars in the order they are played (ADR-0025 §5; SCALETTA
-//! F1.12, P1–P8).
+//! F1.12, ADR-0025 P1–P8).
 //!
 //! # What it produces
 //! A **path**: one [`PlayedBar`] per bar played, in playing order, each knowing the written bar it
 //! comes from, its **pass index** (how many times that written bar was played before, from 0),
 //! the play number of its repeated section (for the "tacet 1st time" rules), and where it starts
-//! on the unrolled timeline, in exact musical time and in seconds (P2). Around the path:
-//! - for every written bar, the places on the path where it is played (P5);
+//! on the unrolled timeline, in exact musical time and in seconds (ADR-0025 P2). Around the path:
+//! - for every written bar, the places on the path where it is played (ADR-0025 P5);
 //! - for every staff with bar repeats (%), which written bar each played bar takes its notes from
-//!   on that staff, with the pass index of those notes (P3);
-//! - a query telling whether the pass rules let a voice play at a point of a played bar (P4).
+//!   on that staff, with the pass index of those notes (ADR-0025 P3);
+//! - a query telling whether the pass rules let a voice play at a point of a played bar
+//!   (ADR-0025 P4).
 //!
 //! It is **derived data** (ADR-0003): a cache built from the document and thrown away or rebuilt
-//! at will, never a second editable copy of the music (P1).
+//! at will, never a second editable copy of the music (ADR-0025 P1).
 //!
 //! # The walk (ADR-0025 §5)
 //! 1. Start at bar 0 with no jump taken, and walk the bars in order.
@@ -32,22 +33,23 @@
 //! A section entered from outside starts at play 1; after a jump that skips the repeats every
 //! section is played once, as play 1 (ADR-0025 §8).
 //!
-//! # Seconds (P2)
+//! # Seconds (ADR-0025 P2)
 //! Inside a gradual tempo change the time of a barline is irrational (ADR-0021), so a played bar
 //! stores the **shift** between its time on the unrolled timeline and the time of its written
 //! start. The shift changes only where the path jumps (a repeat, a D.S.); the time of a point of a
 //! played bar is the tempo map's time of the written point plus the shift. It is exact wherever the
 //! tempo map is, and wherever a jump leaves and lands outside a gradual change.
 //!
-//! # Updating (P7)
+//! # Updating (ADR-0025 P7)
 //! The path depends on the form, the bars, the meter map (for the musical positions) and the tempo
 //! map (for the seconds), never on the events: [`Unrolled::update`] rebuilds it whole when a change
 //! set reports one of those, and does nothing otherwise. The rebuild is O(path).
 //!
-//! # Termination (P8)
+//! # Termination (ADR-0025 P8)
 //! Every jump is taken at most once and every section has at most `MAX_PLAYS` plays, so on a
 //! valid document the path is finite; it is at most `bars × MAX_PLAYS × (jumps + 1)` long.
 
+use orchestra_core_time::invariant::convert_or;
 use std::error::Error;
 use std::fmt;
 
@@ -141,7 +143,7 @@ impl From<RationalError> for UnrollError {
 // The path
 // ------------------------------------------------------------------------------------------------
 
-/// One bar of the path (P2).
+/// One bar of the path (ADR-0025 P2).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayedBar {
     /// The written bar it plays.
@@ -149,7 +151,8 @@ pub struct PlayedBar {
     /// Its index among the written bars.
     pub index: BarIndex,
     /// How many times this written bar was played before on the path, from 0 (ADR-0025 §5): the
-    /// key of the pass-specific performance offsets of ADR-0024 §10 (with the note's ID, P6).
+    /// key of the pass-specific performance offsets of ADR-0024 §10 (with the note's ID,
+    /// ADR-0025 P6).
     pub pass: u32,
     /// The play number of the repeated section holding the bar (1 for its first play), or `None`
     /// outside any repeated section: the pass numbers the pass rules name (ADR-0025 §7).
@@ -166,8 +169,8 @@ pub struct PlayedBar {
     pub shift: TimeAt,
 }
 
-/// The notes a staff plays in one played bar, when the staff has bar repeats (P3): the written bar
-/// they come from and how many times those notes were played before.
+/// The notes a staff plays in one played bar, when the staff has bar repeats (ADR-0025 P3): the
+/// written bar they come from and how many times those notes were played before.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StaffContent {
     /// The written bar whose notes the staff plays.
@@ -266,7 +269,7 @@ impl FormIndex {
 
         // Sections and voltas: the model's own reading of the form (`Document::form_sections`),
         // the same one validation uses, so the player and the rules cannot disagree on what a
-        // section is (review point A2: this used to be a second implementation). The player walks
+        // section is. The player walks
         // a section up to the end of its last volta (`last`).
         let structure = doc.form_sections()?;
         let sections: Vec<Section> = structure
@@ -374,7 +377,7 @@ impl Unrolled {
         let total = u32::try_from(doc.bars().len()).map_err(|_| UnrollError::Endless)?;
         let meter = doc.meter_map();
         let tempo = doc.tempo_map();
-        // The bound of P8: no valid form plays more than this.
+        // The bound of ADR-0025 P8: no valid form plays more than this.
         let bound = u64::from(total)
             .saturating_mul(u64::from(orchestra_core_model::MAX_PLAYS))
             .saturating_mul(
@@ -384,7 +387,7 @@ impl Unrolled {
             );
 
         let mut played: Vec<PlayedBar> = Vec::new();
-        let mut counts: Vec<u32> = vec![0; usize::try_from(total).unwrap_or(0)];
+        let mut counts: Vec<u32> = vec![0; convert_or(total, 0_usize)];
         let mut taken = vec![false; form.jumps.len()];
         let mut active: Option<usize> = None;
         let mut skip_repeats = false;
@@ -524,8 +527,8 @@ impl Unrolled {
             bar = bar.saturating_add(1);
         }
 
-        // P5: where each written bar is played.
-        let mut plays_of: Vec<Vec<u32>> = vec![Vec::new(); usize::try_from(total).unwrap_or(0)];
+        // ADR-0025 P5: where each written bar is played.
+        let mut plays_of: Vec<Vec<u32>> = vec![Vec::new(); convert_or(total, 0_usize)];
         for (k, p) in played.iter().enumerate() {
             if let Some(list) =
                 plays_of.get_mut(usize::try_from(p.index.get()).unwrap_or(usize::MAX))
@@ -543,8 +546,8 @@ impl Unrolled {
     }
 
     /// Rebuilds the path if a change set reports a change it depends on: the form (bars inserted
-    /// or removed included), the meter map or the tempo map (P7). Returns whether it rebuilt.
-    /// O(1) when nothing it depends on changed, O(path) otherwise.
+    /// or removed included), the meter map or the tempo map (ADR-0025 P7). Returns whether it
+    /// rebuilt. O(1) when nothing it depends on changed, O(path) otherwise.
     ///
     /// # Errors
     /// As [`new`](Self::new); on error `self` is unchanged.
@@ -565,8 +568,8 @@ impl Unrolled {
         &self.played
     }
 
-    /// The places on the path where the written bar at `index` is played, ascending (P5); empty
-    /// for a bar never played (a volta skipped, the bars after a Fine) or past the end. O(1).
+    /// The places on the path where the written bar at `index` is played, ascending (ADR-0025 P5);
+    /// empty for a bar never played (a volta skipped, the bars after a Fine) or past the end. O(1).
     #[must_use]
     pub fn plays_of(&self, index: BarIndex) -> &[u32] {
         usize::try_from(index.get())
@@ -582,9 +585,9 @@ impl Unrolled {
     }
 
     /// The written bar whose notes `staff` plays in the played bar at `played`, with the pass
-    /// index of those notes (P3): the bar itself and its pass, unless the staff has a bar repeat
-    /// there, in which case the source bar and the number of times its notes on that staff were
-    /// played before. `None` past the end of the path. O(staves with bar repeats).
+    /// index of those notes (ADR-0025 P3): the bar itself and its pass, unless the staff has a bar
+    /// repeat there, in which case the source bar and the number of times its notes on that staff
+    /// were played before. `None` past the end of the path. O(staves with bar repeats).
     #[must_use]
     pub fn content(&self, played: usize, staff: StaffId) -> Option<StaffContent> {
         if let Some((_, list)) = self.staves.iter().find(|(s, _)| *s == staff) {
@@ -614,10 +617,10 @@ impl Unrolled {
     }
 
     /// Whether the pass rules of the instrument holding `voice` let it play at the written point
-    /// `offset` of the played bar at `played` (P4): every rule of the instrument whose scope is
-    /// the whole instrument or this voice, and whose range holds the point, must name the play of
-    /// the bar's repeated section (ADR-0025 §7). Filtering the notes is F1.13's job; this is the
-    /// rule. O(r log m) for the r pass rules of the instrument.
+    /// `offset` of the played bar at `played` (ADR-0025 P4): every rule of the instrument whose
+    /// scope is the whole instrument or this voice, and whose range holds the point, must name the
+    /// play of the bar's repeated section (ADR-0025 §7). Filtering the notes is F1.13's job; this
+    /// is the rule. O(r log m) for the r pass rules of the instrument.
     ///
     /// # Errors
     /// [`UnrollError::Endless`] past the end of the path; [`UnrollError::Document`] for an unknown
@@ -652,7 +655,7 @@ impl Unrolled {
     }
 }
 
-/// P3: for every staff with bar repeats, its content in every played bar. The repeated bar
+/// ADR-0025 P3: for every staff with bar repeats, its content in every played bar. The repeated bar
 /// `first + j` of a bar repeat of span `s` plays the source bar `first − s + (j mod s)`; the pass
 /// of the notes is the number of times that source bar's notes on that staff were played before
 /// (by the bar itself or by a repeat of it).

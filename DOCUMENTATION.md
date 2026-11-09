@@ -160,7 +160,10 @@ the dangerous conversions).
 `unsafe_code` is not in the workspace table. Each crate's root starts with
 `#![forbid(unsafe_code)]`, except `audio-engine`, `plugin-host` and `io`, the three crates that will
 talk to C APIs. A workspace-level `forbid` could not be relaxed for just those three, and the
-attribute makes the exception visible right at the top of the crate.
+attribute makes the exception visible right at the top of the crate. Those three start with
+`#![deny(unsafe_code)]` instead: `unsafe` is still an error there until the item that needs it says
+`#[allow(unsafe_code, reason = "...")]` next to its `// SAFETY:` comment, so it cannot slip in
+unnoticed and a search for that `allow` lists every place that uses it.
 
 `xtask` does not inherit this table: it is a developer tool that prints and exits with error codes,
 so it declares its own (documentation required, pedantic on, `unreachable_pub` and
@@ -207,6 +210,18 @@ hash must be identical everywhere. Fonts, images, PDFs and audio files are marke
 `.gitignore` excludes `target/`, `dist/` (the generated PDFs are never committed), editor folders
 and `.env` files.
 
+### Comments: references to decisions
+
+Comments explain the code **as it is**: why it is written this way, never how it used to be (that
+history belongs to git and to the pull requests). When a comment points to a decision, it names
+the document that holds it. The ADRs label their decisions with short codes (`V2`, `T1`, `P3`), and
+the same code means different things in different ADRs (`T1` is an option of ADR-0024 and a
+decision of ADR-0028; `U1`–`U9` exist in both ADR-0026 and ADR-0028), so a bare code is written
+with its ADR: `(ADR-0026 V2)`. Inside a parenthesis that already names the ADR (`(ADR-0028 §10,
+T1)`) or under a heading that does (the lists of decisions at the top of `command.rs`,
+`mark_command.rs` and `meter_command.rs`), the code stays bare. Decisions of the work plan are
+written `SCALETTA D04`.
+
 ## The crates
 
 In Phase 0 every crate contained only its crate-level documentation (purpose, responsibilities,
@@ -225,6 +240,33 @@ called by the audio thread, so they must not allocate. No dependencies inside th
 contains the rational type (step F1.03), the position and duration types (F1.04) and the meter
 map with beat groupings (F1.04b), the units of real time (F1.05: tempo, seconds, samples,
 frames) and the tempo map with gradual changes and exact sample and frame indices (F1.05b).
+
+#### Invariants and rational constants
+
+Two small tools, used by every crate, for values that **cannot be wrong** while the program is
+correct. Library code never panics (CLAUDE.md §4), so the "impossible" case still needs an
+answer; the danger is answering it *silently*. A `u32::try_from(index).unwrap_or(0)` turns a
+broken invariant into a plausible wrong value (an octave 0, a tick 0) that flows on unnoticed.
+
+- `invariant::convert_or(value, fallback)` (`src/invariant.rs`) converts with `TryFrom`; on
+  failure it returns the fallback in release builds and fails a `debug_assert!` in debug builds,
+  so every test run stops at the broken conversion, with the caller's line (`#[track_caller]`).
+  `invariant::some_or(option, fallback)` is the same for an `Option`. Where a failure is a
+  legitimate input (a capacity hint, a value that saturates on purpose, a lookup that fails with
+  `None` on its own), the plain `unwrap_or` stays, with a comment saying why.
+- `rational!(n, d)` and `rational!(n)` (defined in `src/lib.rs`, exported) write a rational
+  constant. The expansion is an inline `const` block, always evaluated by the compiler: an invalid
+  literal such as `rational!(1, 0)` is a **compile error** (a `compile_fail` doctest checks it),
+  never a run-time panic, and never a silent `Rational::ZERO`.
+
+```rust
+// An index that always fits a `u32` while the program is correct: release builds fall back to
+// `u32::MAX`, debug builds (and every test) stop right here if it ever does not.
+let from = orchestra_core_time::invariant::convert_or(p, u32::MAX);
+
+// A constant checked by the compiler: `rational!(1, 0)` would not compile.
+const GRID: Rational = orchestra_core_time::rational!(1, 32);
+```
 
 #### The rational type
 
@@ -608,8 +650,12 @@ through states the map refuses (a pickup briefly longer than a meter about to ch
 part 2a (ADR-0026 §11 Z1) `replace_span(at, &span)` replaces the source data of the `span.count()`
 bars from `at` on with the span's, all at once, and returns the data they had: putting that back is
 the exact inverse. The number of bars does not change. `BarSpan` gained the setters it lacked
-(`set_irregular_bar`, `set_bar_grouping`, `set_uncounted`, `set_numbering_restart`), so a command
-can build the new data of a run.
+(`set_irregular_bar`, `set_bar_grouping`, `set_numbering`, `set_numbering_restart`), so a command
+can build the new data of a run. `set_numbering(bar, BarCounting::Uncounted)` (on `BarSpan` and on
+`MeterMap`) takes and returns a `BarCounting` (`Counted` or `Uncounted`) rather than a `bool`, so
+that a call says what it does and the returned previous state cannot be read the wrong way round;
+`BarCounting::uncounted_if` and `is_uncounted` convert for the data that stores the flag as a
+`bool` (the edits, the project file).
 
 ```rust
 // 60 bars from bar 100 rewritten at once: a 3/4 on the first, a bar of a half as the last.
@@ -2083,6 +2129,15 @@ its event, then its noteheads). A method that wants more IDs finds the script sp
 takes fewer leaves some behind; both are a bug of the loader and give `DocumentError::Inconsistent`.
 Outside loading the script is `None` and costs one branch per ID.
 
+`DocumentError::Inconsistent` is the model's "this is a bug" error, used instead of a panic in
+about sixty checks. To make a bug report useful it carries **where** it was detected,
+`Inconsistent { at }` with `at: &'static std::panic::Location`, which its `Display` prints as
+`file:line`. It is always built with `DocumentError::inconsistent()`, a `#[track_caller]`
+constructor, so the location is the line of the check itself: write
+`.ok_or(DocumentError::inconsistent())`, not `.ok_or_else(DocumentError::inconsistent)`, because
+through a function pointer the location would be the standard library's. Building it eagerly
+costs one pointer to static data.
+
 ```rust
 // The loader's single entry to the builder: claim the saved IDs, script them, run the method,
 // check that it took them all.
@@ -2488,7 +2543,14 @@ object with full names.
   file's size before reading it), `NotAProject`, `NewerFormat`, `Syntax` and `Schema` with the line
   and column from `serde_json` (I8; `Schema` has no line for the conversion's errors, which name
   the object instead), `Migration` for an older file that cannot be migrated, and `Document` for
-  the model's refusals.
+  the model's refusals. `Document` and `Migration` give their cause through `Error::source`, so the
+  chain of causes is not cut. The `Io` variants (here and in `SaveError` and `MidiError`) keep the
+  error as plain data, because these types are `Clone + Eq` and `io::Error` is not: the `kind`
+  and the operating system's own code, `os_code` (`errno`, `GetLastError`), which `Display` turns
+  back into the system's message ("No space left on device (os error 28)") through
+  `safe_write::describe`. `load` opens the file **once**: the size comes from the open handle and
+  the read is capped at one byte more than the limit (`Read::take`), so a file that grows between
+  the check and the read is still refused as `TooLarge`.
 
 **Golden files and migrations** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/`
 holds fifteen files of version 1, written **once** and never regenerated: one small file per kind
@@ -2511,15 +2573,29 @@ chain of migrations of `src/project/migrate.rs` (`MIGRATIONS[k]` migrates versio
 `k + 2`, each a pure function on the tree; the machinery sets `orchestra_format` after each step),
 then the current schema. The chain is empty while version 1 is the only one; the machinery is
 tested with a test-only chain of two steps (a renamed field, an added one), and a failing or
-missing step is `LoadError::Migration { from, message }`. The first format change adds its
+missing step is `LoadError::Migration { from, reason }`, with `reason` a typed `MigrationError`
+(`MissingStep`, `NotAnObject`, `MissingField(path)`, `WrongType(path)`, the paths being
+`&'static str` written by the migration), as ADR-0029 S11 prescribes, so that the interface can
+map each case to a Fluent key. The first format change adds its
 function to the chain and a `tests/golden/v2/` directory; the files of `v1/` stay as they are and
 must keep loading into the same documents.
 
-**Saving safely** (S13; the steps live in `src/safe_write.rs`, shared with the MIDI export). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
-directory, syncs it, renames it over the target, then syncs the directory where the platform needs
+**Saving safely** (S13; the steps live in `src/safe_write.rs`, shared with the MIDI export). `save` writes a temporary file `.<name>.<process id>.<serial>.tmp` in the
+target's directory, syncs it, renames it over the target, then syncs the directory where the platform needs
 it; on error the temporary file is removed and the previous file is intact. The directory sync is
 the crate's first platform-specific code, in `src/platform/` behind the `FileSystem` trait (CLAUDE.md
 §2): on Unix the directory is opened and synced, elsewhere (Windows) there is nothing to do.
+The temporary file is opened with `create_new` (never someone else's file), so its name must be
+unique: the process id separates programs, a process-wide atomic serial number separates the
+threads of one program (an automatic save next to a manual one), and a name already taken, for
+example a leftover of a crashed process whose id came back, is skipped by trying the next serial,
+at most 64 times. A leftover is never deleted: it might be another program's save in progress.
+A symbolic link is saved **through**: the file it points to is replaced, in its own directory, and
+the link stays a link (`resolve_link`; a dangling link creates the file it names). The permission
+bits of the file replaced are copied onto the temporary file before the rename
+(`platform::copy_permissions`: the mode on Unix; nothing on Windows, where a new file inherits the
+directory's access rules and copying the read-only flag would only make the next save fail), so a
+project made private stays private.
 
 **Tests.** `tests/project_cases.rs`: round trips of the test document, the normal and the heavy
 score (same bytes after a second save, same content, IDs and counter); the layout; a BOM and CRLF
@@ -2792,10 +2868,10 @@ copy of their crate and would see different types.
 
 ```rust
 // In Cargo.toml: orchestra-test-scores.workspace = true, under [dev-dependencies] only.
-use orchestra_test_scores::{Size, plain};
+use orchestra_test_scores::{Instruments, Size, plain};
 
 // 100 bars × 10 staves, without the empty editing instrument at the end.
-let document = plain(Size::Normal, false);
+let document = plain(Size::Normal, Instruments::Plain);
 assert_eq!(document.bars().len(), 100);
 ```
 
@@ -3221,7 +3297,11 @@ FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$
 
 `.githooks/commit-msg` refuses any commit without a `User-visible: yes` or `User-visible: no`
 trailer; with `yes` the commit must also change the sources of both guides (`docs/guide/it/` and
-`docs/guide/en/`). Merge, revert and fixup commits are exempt.
+`docs/guide/en/`). Merge, revert and fixup commits are exempt; only the **subject** line decides
+it, so a body line that starts with "Merge" does not switch the check off. The script runs in
+strict mode (`set -euo pipefail`). An amend (`git commit --amend`) replaces HEAD, so its guide
+edits may already be in HEAD and not staged again: git does not tell the hook it is amending, so
+when the subject is the same as HEAD's the hook also compares the index with HEAD's parent.
 
 Git only recognises trailers in the **last paragraph** of the message, so `User-visible` must be
 in the same block as any other trailer:
@@ -3270,6 +3350,11 @@ The jobs:
   gate of ADR-0017 (with the whole git history, `fetch-depth: 0`, because the merge base must be
   available); the summary page then shows only the comparison. On Windows and macOS the **check** job runs `cargo xtask bench` too, which there only compiles
   the benchmarks.
+
+Every job has a `timeout-minutes` (check 45, guides 20, bench 90): without one, GitHub waits six
+hours before stopping a job that hangs (a test stuck in a loop, a runner that stops answering). The
+values are a few times the longest normal run (about 10 minutes for a cold Windows check, 20 for
+the benchmark comparison), so a slow runner still finishes and a stuck one is stopped early.
 
 Only the standard GitHub-hosted runners are used: they are free for public repositories, while
 larger runners are billed even there. Every third-party action is pinned to a full commit hash,

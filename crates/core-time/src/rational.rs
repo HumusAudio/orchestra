@@ -139,7 +139,7 @@ pub struct Rational {
 }
 
 /// The body of the binary (Stein) GCD, for any unsigned integer type: `gcd_u64` and `gcd_u128`
-/// expand it on their own operands (review point B3: the two copies used to be written out).
+/// expand it on their own operands, so the algorithm is written once.
 ///
 /// A macro and not a generic function because both callers are `const fn`, and trait methods
 /// (`trailing_zeros`, `wrapping_shr`, … through a `num`-like trait) cannot be called in a `const
@@ -279,12 +279,10 @@ impl Rational {
     /// let r = Rational::new(6, -8)?;
     /// assert_eq!((r.numerator(), r.denominator()), (-3, 4));
     ///
-    /// // `new` is a `const fn`: a fixed value can be checked at compile time. A typo such as a
-    /// // zero denominator then stops the build instead of failing at run time.
-    /// const QUARTER: Rational = match Rational::new(1, 4) {
-    ///     Ok(r) => r,
-    ///     Err(_) => panic!("1/4 is a valid rational"),
-    /// };
+    /// // `new` is a `const fn`: a fixed value can be checked at compile time with the
+    /// // `rational!` macro. A typo such as a zero denominator then stops the build instead of
+    /// // failing at run time.
+    /// const QUARTER: Rational = orchestra_core_time::rational!(1, 4);
     /// assert_eq!(QUARTER.denominator(), 4);
     /// # Ok::<(), orchestra_core_time::RationalError>(())
     /// ```

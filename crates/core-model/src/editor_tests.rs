@@ -607,7 +607,7 @@ proptest! {
                         removed.push(*name);
                     }
                 }
-                if fail { Err(CommandError::Document(DocumentError::Inconsistent)) } else { Ok(()) }
+                if fail { Err(CommandError::Document(DocumentError::inconsistent())) } else { Ok(()) }
             });
             let before = snapshots[cursor].clone();
             match result {

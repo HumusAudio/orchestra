@@ -9,14 +9,14 @@
 //! is part of the project, saved in the file and changed by an undoable command, because two
 //! people opening the same project must see the same behaviour.
 //!
-//! # Two units (Q2)
+//! # Two units (ADR-0028 Q2)
 //! - [`Tolerance::Musical`]: a fraction of a whole note, the default (a 1/32 note, D09). The feel
 //!   follows tempo edits, as the offsets themselves do (ADR-0024 C8).
 //! - [`Tolerance::Millis`]: a number of milliseconds, for tempo-independent behaviour. It is
 //!   converted at the note's written start through the one tempo map (ADR-0005): it never changes
 //!   what is stored, only the comparison.
 //!
-//! # Where it lives (Q3)
+//! # Where it lives (ADR-0028 Q3)
 //! [`ToleranceSettings`]: one project value plus optional per-track overrides, kept sorted by
 //! track ID so that the list is a pure function of its entries (the same rule as the marks,
 //! `crate::edit`), and a lookup is a binary search.
@@ -73,7 +73,7 @@ impl Tolerance {
     /// Whether an onset offset of `onset` from the written start `at` stays within this threshold
     /// (inclusive: an offset exactly as wide as the threshold is still an offset, ADR-0028 §2).
     ///
-    /// # How the milliseconds compare (T6)
+    /// # How the milliseconds compare (ADR-0028 T6)
     /// The distance is the time between `at` and `at + onset` on the tempo map. In a constant
     /// segment both times are exact rationals, and the comparison with `ms / 1000` seconds is
     /// exact. Inside a gradual change the tempo map only gives an `f64` approximation of a time
