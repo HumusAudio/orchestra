@@ -79,6 +79,27 @@ who checked it and where it is justified.
 dependency resolution aware of `rust-version`, preferring versions that compile with our minimum
 toolchain.
 
+**Release profile (ADR-0035).** Optimised builds (`cargo build --release`, and the benchmarks,
+whose `bench` profile inherits from `release`) use **one codegen unit per crate** instead of
+Cargo's default 16:
+
+```toml
+[profile.release]
+codegen-units = 1
+```
+
+Why: with 16 units LLVM optimises each crate in 16 separate pieces, and a non-generic function is
+inlined into another piece only if it is marked `#[inline]`. Which function ends up in which piece
+depends on how the source files are split, so a pure refactoring can change the generated code:
+splitting `document.rs` into a directory made `to_parts` 6% slower without touching the code.
+With one unit the optimiser sees the whole crate and the file layout stops mattering. The
+measurements in ADR-0035 (all 97 benchmarks): 2.6% fewer instructions on average, no benchmark
+worse by more than 2.0%, a binary 30% smaller, benchmark builds no slower. The price is that a
+single release binary takes about twice as long to build. Thin and fat LTO were measured too and
+rejected: thin LTO triples the build time for a similar gain, and fat LTO makes three benchmarks
+slower by more than the 5% gate. Everyday builds (`dev`, `test`, `cargo xtask check`) are not
+affected.
+
 ### Lints: the rules the compiler enforces
 
 The `[workspace.lints]` tables turn the code-style rules of `CLAUDE.md` into compiler errors, so

@@ -84,6 +84,28 @@ commento che dice chi l'ha verificata e dove è giustificata.
 risoluzione delle dipendenze consapevole di `rust-version`, preferendo versioni che compilano con
 la nostra toolchain minima.
 
+**Profilo release (ADR-0035).** Le build ottimizzate (`cargo build --release`, e i benchmark, il
+cui profilo `bench` eredita da `release`) usano **una sola unità di generazione del codice
+(codegen unit) per crate** invece delle 16 predefinite di Cargo:
+
+```toml
+[profile.release]
+codegen-units = 1
+```
+
+Perché: con 16 unità LLVM ottimizza ogni crate in 16 pezzi separati, e una funzione non generica
+viene incorporata (inlining) in un altro pezzo solo se è marcata `#[inline]`. Quale funzione
+finisce in quale pezzo dipende da come sono divisi i file sorgente, quindi un semplice refactoring
+può cambiare il codice generato: dividere `document.rs` in una cartella ha reso `to_parts` più
+lento del 6% senza toccare il codice. Con una sola unità l'ottimizzatore vede tutto il crate e la
+disposizione dei file smette di contare. Le misure dell'ADR-0035 (tutti i 97 benchmark): in media
+il 2,6% di istruzioni in meno, nessun benchmark peggiore di più del 2,0%, un binario più piccolo
+del 30%, build dei benchmark non più lente. Il prezzo è che un singolo binario release richiede
+circa il doppio del tempo per essere compilato. Sono state misurate anche la LTO thin e la LTO fat,
+e scartate: la thin triplica i tempi di build per un guadagno simile, la fat rende tre benchmark
+più lenti di oltre la soglia del 5%. Le build di tutti i giorni (`dev`, `test`, `cargo xtask
+check`) non cambiano.
+
 ### I lint: le regole che fa rispettare il compilatore
 
 Le tabelle `[workspace.lints]` trasformano le regole di stile di `CLAUDE.md` in errori del

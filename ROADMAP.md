@@ -729,7 +729,7 @@ per group. Progress:
   measured four ways (default, `codegen-units = 1`, thin LTO, fat LTO + one unit) on all 97
   benchmarks; proposed `codegen-units = 1` (`to_parts` back to 1 236 653, mean −2.6%, worst +2.0%,
   `m1` 30% smaller, benchmark builds no slower, a single release build about twice as long).
-  The profile itself lands in its own PR (`build/release-codegen-units`).
+  The profile itself is in `Cargo.toml` (`build/release-codegen-units`).
 - **Review 3 complete** (#50–#52 merged). Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
 

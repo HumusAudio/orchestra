@@ -188,3 +188,16 @@ mem_forget = "warn"
 # Rejected: the `nursery` group (lints still in development, they change between Rust releases and
 # would break CI on toolchain bumps) and `as_conversions` (the pedantic `cast_*` lints already flag
 # the dangerous conversions).
+
+# ADR-0035: one codegen unit per crate in optimised builds. With Cargo's default (16 units) LLVM
+# optimises each crate in 16 independent pieces, and a non-generic function is inlined across two
+# pieces only when it is `#[inline]`. Which function lands in which piece depends on how the source
+# files are split, so a pure refactoring could move the benchmarks by several percent (splitting
+# `document.rs` made `to_parts` 6% slower with no change to the code). With one unit the optimiser
+# sees the whole crate. Measured on all 97 benchmarks: 2.6% fewer instructions on average, none
+# worse by more than 2.0%, a 30% smaller binary, benchmark builds no slower; a single release
+# binary takes about twice as long to build. LTO was measured too and rejected (ADR-0035).
+# `bench` inherits from `release`; `dev` and `test` (everyday work, `cargo xtask check`) are
+# untouched.
+[profile.release]
+codegen-units = 1
