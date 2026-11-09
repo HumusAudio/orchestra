@@ -50,14 +50,14 @@ use orchestra_core_model::{
 };
 use orchestra_core_time::{BarIndex, Duration, Meter, MeterChange, MeterMap, Rational, Tempo};
 
+#[path = "../tests/common/duration.rs"]
+mod duration;
+use duration::d;
+
 // Lookups per batch (ADR-0017 §4).
 const BATCH: usize = 64;
 
 // The duration `n/d` of a whole note.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
-
 // ♩ = `bpm`.
 fn quarter(bpm: i64) -> Tempo {
     Tempo::new(d(1, 4), Rational::from_integer(bpm).unwrap()).unwrap()

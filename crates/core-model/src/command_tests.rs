@@ -52,12 +52,8 @@ use crate::meter_command::MeterMode;
 use crate::pitch::{Alteration, Interval, Key, Mode, Pitch, Step};
 use crate::slur::SlurPlacement;
 use crate::tempo_mark::{Metronome, TempoMark, TempoMarkChange};
+use crate::test_util::d;
 use crate::validate::Violation;
-
-/// Shorthand: a duration of `n/d` whole notes.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
 
 /// Shorthand: a pitch in octave 4.
 const fn pitch(step: Step) -> Pitch {

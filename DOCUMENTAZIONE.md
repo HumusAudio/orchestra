@@ -978,6 +978,11 @@ stabili, eventi come scostamenti relativi alla battuta in blocchi per battuta, v
 documento, il contenuto delle voci (eventi, gruppi irregolari, legature di valore, chiavi e
 armature) e i segni sugli eventi con le legature di portamento.
 
+I test condividono una scorciatoia, `d(n, den)` per una durata di `n/den` di semibreve: i test
+unitari la prendono da `src/test_util.rs` (compilato solo per i test), i test di integrazione e i
+benchmark da `tests/common/duration.rs`, incluso con `#[path]` perché ogni target di test è un
+crate a sé. Gli helper con lo stesso nome ma un altro significato in un file restano in quel file.
+
 #### Altezze, intervalli e tonalità
 
 `src/pitch.rs` (passo F1.07, ADR-0023) contiene i tipi puri di cui è fatta l'altezza di ogni nota.

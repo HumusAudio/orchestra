@@ -714,7 +714,11 @@ per group. Progress:
 - **A4 (`refactor/review3-io-failure`, stacked on the first):** `IoFailure`, one public type for
   the `Io` variants of `LoadError`, `SaveError` and `MidiError` (`Io(IoFailure)`), with its own
   `Display` and as their `source()`; it replaces `safe_write::WriteFailure` and `describe`.
-- **Still to do:** A6 (`d` in `core-model`'s tests), C1 (try to win back the +6% of `to_parts`). Not done, with the reason: P4.3 (measured, the
+- **A6 (`refactor/review3-test-helper`, stacked on A4):** the `d(n, den)` duration shorthand,
+  identical in 14 test and benchmark files of `core-model`, lives once in
+  `tests/common/duration.rs` (integration tests and benchmarks, by `#[path]`) and in
+  `src/test_util.rs` (unit tests, `#[cfg(test)]`); same-named helpers with another meaning stay.
+- **Still to do:** C1 (try to win back the +6% of `to_parts`). Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
 
 | Step | What | Status |

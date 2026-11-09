@@ -53,11 +53,7 @@ use crate::marking::{Fermata, Grace, GraceAttach, GraceKind};
 use crate::marks::{Clef, KeyOverride, KeySignature, Mark, ScorePoint};
 use crate::pitch::{Alteration, Interval, Key, Mode, Pitch, Step};
 use crate::tempo_mark::{GradualMark, Metronome, TempoMark, TempoMarkChange};
-
-/// Shorthand: a duration of `n/d` whole notes.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
+use crate::test_util::d;
 
 /// Shorthand: a quarter-note tempo of `bpm`.
 fn tempo(bpm: i64) -> Tempo {

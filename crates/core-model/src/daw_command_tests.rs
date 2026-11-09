@@ -39,13 +39,9 @@ use crate::marking::{Grace, GraceAttach, GraceKind, PerformanceOffsets};
 use crate::marks::Clef;
 use crate::pitch::{Alteration, Interval, Key, Mode, Pitch, Step};
 use crate::tempo_mark::{Metronome, TempoMark};
+use crate::test_util::d;
 use crate::tolerance::Tolerance;
 use crate::validate::Violation;
-
-/// Shorthand: a duration of `n/d` whole notes.
-fn d(n: i64, den: i64) -> Duration {
-    Duration::from_rational(Rational::new(n, den).unwrap())
-}
 
 /// Shorthand: a pitch in octave 4.
 const fn pitch(step: Step) -> Pitch {
