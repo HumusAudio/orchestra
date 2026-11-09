@@ -2256,6 +2256,15 @@ Un metodo che vuole più ID trova il copione esaurito, uno che ne prende meno ne
 sono un bug del caricatore e danno `DocumentError::Inconsistent`. Fuori dal caricamento il copione
 è `None` e costa un ramo per ID.
 
+`DocumentError::Inconsistent` è l'errore "questo è un bug" del modello, usato al posto di un panic
+in una sessantina di controlli. Perché una segnalazione di bug serva a qualcosa, porta con sé
+**dove** è stato rilevato, `Inconsistent { at }` con `at: &'static std::panic::Location`, che il
+suo `Display` stampa come `file:riga`. Si costruisce sempre con `DocumentError::inconsistent()`,
+un costruttore `#[track_caller]`, così la posizione è la riga del controllo stesso: si scrive
+`.ok_or(DocumentError::inconsistent())`, non `.ok_or_else(DocumentError::inconsistent)`, perché
+attraverso un puntatore a funzione la posizione sarebbe quella della libreria standard.
+Costruirlo subito costa un puntatore a dati statici.
+
 ```rust
 // The loader's single entry to the builder: claim the saved IDs, script them, run the method,
 // check that it took them all.
@@ -2685,7 +2694,15 @@ ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con
   dimensione del file prima di leggerlo), `NotAProject`, `NewerFormat`, `Syntax` e `Schema` con
   riga e colonna date da `serde_json` (I8; `Schema` non ha riga per gli errori della conversione,
   che nominano invece l'oggetto), `Migration` per un file più vecchio che non si riesce a
-  migrare, e `Document` per i rifiuti del modello.
+  migrare, e `Document` per i rifiuti del modello. `Document` e `Migration` danno la loro causa
+  tramite `Error::source`, così la catena delle cause non si interrompe. Le varianti `Io` (qui e in
+  `SaveError` e `MidiError`) tengono l'errore come dati semplici, perché questi tipi sono
+  `Clone + Eq` e `io::Error` no: il `kind` e il codice del sistema operativo, `os_code` (`errno`,
+  `GetLastError`), che `Display` ritrasforma nel messaggio del sistema ("No space left on device
+  (os error 28)") tramite `safe_write::describe`. `load` apre il file **una volta sola**: la
+  dimensione viene dal file aperto e la lettura si ferma a un byte oltre il limite
+  (`Read::take`), così un file che cresce tra il controllo e la lettura viene comunque rifiutato
+  come `TooLarge`.
 
 **File golden e migrazioni** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/` contiene
 quindici file della versione 1, scritti **una volta sola** e mai rigenerati: un file piccolo per
@@ -2710,7 +2727,10 @@ versione `k + 1` alla `k + 2`, ognuna una funzione pura sull'albero; il meccanis
 `orchestra_format` dopo ogni passo), poi lo schema corrente. La catena è vuota finché la versione 1
 è l'unica; il meccanismo è provato con una catena di due passi solo per i test (un campo
 rinominato, uno aggiunto), e un passo che fallisce o che manca dà `LoadError::Migration { from,
-message }`. Il primo cambio di formato aggiungerà la sua funzione alla catena e una cartella
+reason }`, dove `reason` è un `MigrationError` tipizzato (`MissingStep`, `NotAnObject`,
+`MissingField(percorso)`, `WrongType(percorso)`, con percorsi `&'static str` scritti dalla
+migrazione), come prescrive l'ADR-0029 S11, così l'interfaccia può associare ogni caso a una
+chiave Fluent. Il primo cambio di formato aggiungerà la sua funzione alla catena e una cartella
 `tests/golden/v2/`; i file di `v1/` restano come sono e devono continuare a caricarsi negli stessi
 documenti.
 

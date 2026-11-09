@@ -389,7 +389,7 @@ fn threshold_of(doc: &Document, voice: VoiceId) -> Result<Tolerance, DocumentErr
     let (instrument, _) = doc.voice(voice).ok_or(DocumentError::UnknownVoice(voice))?;
     let track = doc
         .track_of(instrument.id())
-        .ok_or(DocumentError::Inconsistent)?;
+        .ok_or(DocumentError::inconsistent())?;
     Ok(doc.tolerance().for_track(track.id()))
 }
 
@@ -410,7 +410,7 @@ fn written_chain(doc: &Document, note: NoteId) -> Result<Vec<(EventId, NoteId)>,
         chain.push((found.event().id(), current));
         match head.tie() {
             Tie::To(next) if chain.len() <= doc.notes.len() => current = next,
-            Tie::To(_) => return Err(DocumentError::Inconsistent),
+            Tie::To(_) => return Err(DocumentError::inconsistent()),
             Tie::None | Tie::LetRing => return Ok(chain),
         }
     }
@@ -432,7 +432,7 @@ fn lone_noteheads(doc: &Document, chain: &[(EventId, NoteId)]) -> bool {
 /// [`DocumentError::Inconsistent`] for an empty chain (never: it holds at least the dragged
 /// note); the lookups' and the arithmetic errors.
 fn chain_end(doc: &Document, chain: &[(EventId, NoteId)]) -> Result<Position, DocumentError> {
-    let &(last, _) = chain.last().ok_or(DocumentError::Inconsistent)?;
+    let &(last, _) = chain.last().ok_or(DocumentError::inconsistent())?;
     Ok(doc
         .event_position(last)?
         .checked_add(doc.metric_duration(last)?)?)
@@ -539,8 +539,8 @@ fn rewrite_chain(
     total: Duration,
 ) -> Result<(), CommandError> {
     let doc = tx.document();
-    let &(first_event, first_note) = chain.first().ok_or(DocumentError::Inconsistent)?;
-    let &(last_event, last_note) = chain.last().ok_or(DocumentError::Inconsistent)?;
+    let &(first_event, first_note) = chain.first().ok_or(DocumentError::inconsistent())?;
+    let &(last_event, last_note) = chain.last().ok_or(DocumentError::inconsistent())?;
     let found = doc
         .event(first_event)
         .ok_or(DocumentError::UnknownEvent(first_event))?;
@@ -562,7 +562,7 @@ fn rewrite_chain(
         .tie();
     let parts = chain_parts(doc, start, total)?;
     if parts.is_empty() {
-        return Err(DocumentError::Inconsistent.into());
+        return Err(DocumentError::inconsistent().into());
     }
 
     // 2. The grace notes of the chain, sorted into kept and deleted.
@@ -588,7 +588,7 @@ fn rewrite_chain(
     let keep: Vec<PartIds> = chain.iter().map(|&(e, n)| (e, vec![n])).collect();
     let ids = chain_ids(tx, parts.len(), 1, &keep)?;
     let surplus: Vec<EventId> = chain.iter().skip(parts.len()).map(|&(e, _)| e).collect();
-    let new_last = ids.last().ok_or(DocumentError::Inconsistent)?.0;
+    let new_last = ids.last().ok_or(DocumentError::inconsistent())?.0;
 
     if !stray.is_empty() {
         command::delete_events(tx, &stray)?;
@@ -604,7 +604,7 @@ fn rewrite_chain(
                 continue;
             }
             touched.push(id);
-            let (instrument, slur) = doc.slur(id).ok_or(DocumentError::Inconsistent)?;
+            let (instrument, slur) = doc.slur(id).ok_or(DocumentError::inconsistent())?;
             let start_gone = surplus.contains(&slur.start());
             if slur.end() == last_event && !start_gone && slur.start() != new_last {
                 if new_last != last_event {
@@ -628,7 +628,7 @@ fn rewrite_chain(
     // 4. The pieces.
     for (j, (&(bar, offset, value), (event_id, notes))) in parts.iter().zip(&ids).enumerate() {
         let event_id = *event_id;
-        let &note_id = notes.first().ok_or(DocumentError::Inconsistent)?;
+        let &note_id = notes.first().ok_or(DocumentError::inconsistent())?;
         let mut note = if j == 0 {
             head
         } else {
@@ -653,8 +653,8 @@ fn rewrite_chain(
 
     // 5. The kept graces: `Before` ones at the new start, `After` ones at the new end (the end of
     // the last piece's bar if it ends on a barline).
-    let &(first_bar, first_offset, _) = parts.first().ok_or(DocumentError::Inconsistent)?;
-    let &(last_bar, last_offset, last_value) = parts.last().ok_or(DocumentError::Inconsistent)?;
+    let &(first_bar, first_offset, _) = parts.first().ok_or(DocumentError::inconsistent())?;
+    let &(last_bar, last_offset, last_value) = parts.last().ok_or(DocumentError::inconsistent())?;
     let end_offset = last_offset.checked_add(last_value.length()?)?;
     for (graces, bar, offset) in [
         (before, first_bar, first_offset),

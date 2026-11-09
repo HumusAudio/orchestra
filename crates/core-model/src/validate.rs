@@ -633,10 +633,10 @@ impl Document {
                         // The index only names noteheads that exist (a removal unindexes their
                         // ties), so a missing source is a bug, reported rather than a panic.
                         let (from, from_note) =
-                            self.note(source).ok_or(DocumentError::Inconsistent)?;
+                            self.note(source).ok_or(DocumentError::inconsistent())?;
                         let owner = self
                             .instrument_of(from.voice())
-                            .ok_or(DocumentError::Inconsistent)?;
+                            .ok_or(DocumentError::inconsistent())?;
                         self.check_tie(self, owner, from.event().id(), from_note, note.id())?;
                     }
                 }

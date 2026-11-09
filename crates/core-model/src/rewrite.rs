@@ -160,7 +160,7 @@ impl Grid {
                 self.irregular.get(k),
                 self.uncounted.get(k),
             ) else {
-                return Err(DocumentError::Inconsistent);
+                return Err(DocumentError::inconsistent());
             };
             let end = start.checked_add(length)?;
             let mut inside = Vec::new();
@@ -184,7 +184,7 @@ impl Grid {
             let pieces = edges.len().saturating_sub(1);
             for (j, pair) in edges.windows(2).enumerate() {
                 let [a, b] = pair else {
-                    return Err(DocumentError::Inconsistent);
+                    return Err(DocumentError::inconsistent());
                 };
                 let piece_kind = match kind {
                     BarKind::Free => BarKind::Free,
@@ -244,7 +244,10 @@ impl Region {
         let Some(k) = self.old_index(doc, point.bar) else {
             return Ok(None);
         };
-        let start = self.old_starts.get(k).ok_or(DocumentError::Inconsistent)?;
+        let start = self
+            .old_starts
+            .get(k)
+            .ok_or(DocumentError::inconsistent())?;
         Ok(Some(start.checked_add(point.offset)?))
     }
 
@@ -259,13 +262,16 @@ impl Region {
 
     /// The ID of the new bar `k`. O(1).
     fn bar(&self, k: usize) -> Result<BarId, DocumentError> {
-        self.ids.get(k).copied().ok_or(DocumentError::Inconsistent)
+        self.ids
+            .get(k)
+            .copied()
+            .ok_or(DocumentError::inconsistent())
     }
 
     /// The start and the end of an old bar, relative to the region's start. O(1).
     fn old_bar(&self, k: usize) -> Result<(Duration, Duration), DocumentError> {
         let (Some(&s), Some(&l)) = (self.old_starts.get(k), self.old_lengths.get(k)) else {
-            return Err(DocumentError::Inconsistent);
+            return Err(DocumentError::inconsistent());
         };
         Ok((s, s.checked_add(l)?))
     }
@@ -377,7 +383,10 @@ fn meter_after_free_bars(
         return Ok(None);
     }
     let index = BarIndex::new(r);
-    let bar = doc.bars().id_at(index).ok_or(DocumentError::Inconsistent)?;
+    let bar = doc
+        .bars()
+        .id_at(index)
+        .ok_or(DocumentError::inconsistent())?;
     Ok(meter_change_in_force(doc, index).map(|old| (bar, old)))
 }
 
@@ -431,7 +440,7 @@ fn plan(
     }
     let total = match (old_starts.last(), old_lengths.last()) {
         (Some(s), Some(l)) => s.checked_add(*l)?,
-        _ => return Err(DocumentError::Inconsistent),
+        _ => return Err(DocumentError::inconsistent()),
     };
     let at_score_end = end == bars;
 
@@ -559,7 +568,7 @@ fn move_events(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandE
                 .old_lengths
                 .get(k)
                 .copied()
-                .ok_or(DocumentError::Inconsistent)?;
+                .ok_or(DocumentError::inconsistent())?;
             for placed in voice.events_at(old_bar) {
                 let p = bar_start.checked_add(placed.offset())?;
                 all.push((voice.id(), placed.clone(), p, bar_length));
@@ -632,7 +641,7 @@ fn move_event(
     let mut parts: Vec<(usize, Duration, NoteValue)> = Vec::new();
     for pair in edges.windows(2) {
         let [from, to] = pair else {
-            return Err(DocumentError::Inconsistent.into());
+            return Err(DocumentError::inconsistent().into());
         };
         let (bar, offset) = grid.locate(*from, false)?;
         push_parts(&mut parts, bar, offset, to.checked_sub(*from)?, ratio)?;
@@ -717,7 +726,7 @@ fn write_parts(
         let doc = tx.document();
         let mut edits = Vec::new();
         for &slur in doc.slurs_at(event.id()) {
-            let (instrument, found) = doc.slur(slur).ok_or(DocumentError::Inconsistent)?;
+            let (instrument, found) = doc.slur(slur).ok_or(DocumentError::inconsistent())?;
             if found.end() == event.id() {
                 edits.push(Edit::Replace(Object::Slur {
                     instrument: instrument.id(),
@@ -839,7 +848,7 @@ fn move_form(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandErr
             return Ok(None);
         };
         let (s, _) = region.old_bar(k)?;
-        let new = grid.starting_at(s).ok_or(DocumentError::Inconsistent)?;
+        let new = grid.starting_at(s).ok_or(DocumentError::inconsistent())?;
         Ok(Some(region.bar(new)?))
     };
     let ending = |bar: BarId| -> Result<Option<BarId>, DocumentError> {
@@ -847,7 +856,7 @@ fn move_form(tx: &mut Transaction<'_>, region: &Region) -> Result<(), CommandErr
             return Ok(None);
         };
         let (_, e) = region.old_bar(k)?;
-        let new = grid.ending_at(e)?.ok_or(DocumentError::Inconsistent)?;
+        let new = grid.ending_at(e)?.ok_or(DocumentError::inconsistent())?;
         Ok(Some(region.bar(new)?))
     };
     let form = doc.form();

@@ -1508,7 +1508,9 @@ fn expected_refusal(error: CommandError) -> bool {
     !matches!(
         error,
         CommandError::Rollback { .. }
-            | CommandError::Document(DocumentError::Inconsistent | DocumentError::BarsNotEmpty(_))
+            | CommandError::Document(
+                DocumentError::Inconsistent { .. } | DocumentError::BarsNotEmpty(_)
+            )
     )
 }
 

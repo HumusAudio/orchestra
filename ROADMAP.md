@@ -662,7 +662,13 @@ pull request per group, and asked for an ADR for P3.3 (public API policy). Progr
   `try_from(..).unwrap_or(..)` fallbacks where a failure is a bug (debug builds stop there,
   release builds keep the fallback); the `rational!` macro writes rational constants checked at
   compile time, replacing the `Err(_) => Rational::ZERO` fallbacks (5 sites).
-- **Still to do:** P2, P3 (P3.3 waits for its ADR), P4.
+- **P2 (errors, `fix/review2-p2-errors`, stacked on P1):** `DocumentError::Inconsistent { at }`
+  records the source location of the failed check (`DocumentError::inconsistent()`,
+  `#[track_caller]`); `LoadError` gives its cause through `source()`; the `Io` variants of
+  `LoadError`, `SaveError` and `MidiError` keep the operating system's error code (`os_code`);
+  `MigrationError` replaces the `String` of the migrations, as ADR-0029 S11 already said; `load`
+  opens the file once and caps the read at the size limit.
+- **Still to do:** P3 (P3.3 waits for its ADR), P4.
 
 | Step | What | Status |
 |---|---|---|

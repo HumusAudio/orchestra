@@ -826,7 +826,7 @@ pub(crate) fn graces_of(doc: &Document, id: EventId) -> Result<Vec<EventId>, Doc
     let place = events
         .iter()
         .position(|p| p.event().id() == id)
-        .ok_or(DocumentError::Inconsistent)?;
+        .ok_or(DocumentError::inconsistent())?;
     let mut graces = Vec::new();
     // The `Before` graces at its offset sort just before it (same offset, earlier slot).
     for placed in events.get(..place).unwrap_or(&[]).iter().rev() {
@@ -894,7 +894,7 @@ pub(crate) fn delete_events(tx: &mut Transaction<'_>, ids: &[EventId]) -> Result
         }
         for note in found.event().chord().into_iter().flat_map(Chord::notes) {
             for &source in doc.ties_into(note.id()) {
-                let (from, _) = doc.note(source).ok_or(DocumentError::Inconsistent)?;
+                let (from, _) = doc.note(source).ok_or(DocumentError::inconsistent())?;
                 let owner = from.event().id();
                 if !seen.contains(&owner) {
                     untie
@@ -1308,7 +1308,7 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
             .meter_map()
             .meter_changes()
             .first()
-            .ok_or(DocumentError::Inconsistent)?;
+            .ok_or(DocumentError::inconsistent())?;
         meter.set_meter_change(BarIndex::FIRST, first);
     }
     // X11: the volta ending just before the point, when the next volta of its group starts
@@ -1343,8 +1343,8 @@ fn insert_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
     for _ in 0..count {
         ids.push(BarId::from_counter(tx.new_id()?));
     }
-    let last = *ids.last().ok_or(DocumentError::Inconsistent)?;
-    let first_new = *ids.first().ok_or(DocumentError::Inconsistent)?;
+    let last = *ids.last().ok_or(DocumentError::inconsistent())?;
+    let first_new = *ids.first().ok_or(DocumentError::inconsistent())?;
     // Y8: the exclusive ends exactly at the start of bar `at`, read before the bars move.
     let doc = tx.document();
     let ends = match doc.bars().id_at(at) {
@@ -1488,7 +1488,7 @@ fn delete_bars(tx: &mut Transaction<'_>, at: BarIndex, count: u32) -> Result<(),
     } else {
         // The run is the end of the score: a point in it goes to the end of the bar before.
         let last = first.checked_sub(1).ok_or(DocumentError::NoBarsLeft)?;
-        let bar = *ids.get(last).ok_or(DocumentError::Inconsistent)?;
+        let bar = *ids.get(last).ok_or(DocumentError::inconsistent())?;
         let index = doc.bar_index(bar)?;
         ScorePoint::new(bar, doc.meter_map().bar_length(index)?)
     };

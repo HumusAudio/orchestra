@@ -51,6 +51,7 @@ use std::error::Error;
 use std::fmt;
 use std::hash::Hash;
 use std::num::NonZeroU64;
+use std::panic::Location;
 
 use orchestra_core_time::{
     BarIndex, Duration, MeterMap, MeterMapError, Position, RationalError, TempoMap, TempoMapError,
@@ -276,8 +277,32 @@ pub enum DocumentError {
     /// A DAW resize whose scale of the playback rules is zero or negative (ADR-0028 §11, U1).
     ScaleNotPositive,
     /// A position or a derived index disagreed with the content: a bug of the model, reported
-    /// instead of panicking. Never expected.
-    Inconsistent,
+    /// instead of panicking. Never expected. Build it with [`DocumentError::inconsistent`].
+    Inconsistent {
+        /// Where in the source code the inconsistency was detected (file, line and column), so
+        /// that a bug report names the broken check instead of a bare "inconsistent". Filled in
+        /// by the compiler through `#[track_caller]`: no allocation, a pointer to static data.
+        at: &'static Location<'static>,
+    },
+}
+
+impl DocumentError {
+    /// The [`DocumentError::Inconsistent`] error, located at the **caller's** line
+    /// (`#[track_caller]`): write `.ok_or(DocumentError::inconsistent())` at the check itself.
+    ///
+    /// Pass it as a value (`ok_or`), not as a function (`ok_or_else(DocumentError::inconsistent)`):
+    /// called through a function pointer, the location would be the standard library's, not the
+    /// check's. Building it eagerly costs nothing measurable: it is one pointer to static data.
+    ///
+    /// # Complexity
+    /// O(1).
+    #[track_caller]
+    #[must_use]
+    pub const fn inconsistent() -> Self {
+        Self::Inconsistent {
+            at: Location::caller(),
+        }
+    }
 }
 
 impl fmt::Display for DocumentError {
@@ -425,7 +450,12 @@ impl fmt::Display for DocumentError {
             Self::ScaleNotPositive => {
                 f.write_str("the scale of the playback rules must be strictly positive")
             }
-            Self::Inconsistent => f.write_str("the document is inconsistent (a bug of the model)"),
+            Self::Inconsistent { at } => write!(
+                f,
+                "the document is inconsistent (a bug of the model, detected at {}:{})",
+                at.file(),
+                at.line()
+            ),
         }
     }
 }
@@ -1943,7 +1973,7 @@ impl DocumentBuilder {
             taken.push(raw);
         }
         let Some((&event_raw, note_raws)) = taken.split_first() else {
-            return Err(DocumentError::Inconsistent);
+            return Err(DocumentError::inconsistent());
         };
         let event = EventId::from_counter(event_raw);
         let notes: Vec<NoteId> = note_raws

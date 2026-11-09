@@ -41,10 +41,46 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Why a safe write failed: the kind of the operating system's error and the path it concerns
-/// (the temporary file, the target or the directory). Each caller wraps it into its own error
-/// type, which is why this is a plain pair rather than an error type of its own.
-pub(crate) type WriteFailure = (io::ErrorKind, PathBuf);
+/// Why a safe write failed: the operating system's error, reduced to plain data, and the path it
+/// concerns (the temporary file, the target or the directory). Each caller wraps it into its own
+/// error type (`SaveError::Io`, `MidiError::Io`), which is why it is not an error type itself.
+///
+/// # Why not keep the `io::Error`
+/// The callers' error types are `Clone + PartialEq + Eq` (tests compare them, the interface will
+/// keep them), which `io::Error` is not. Its kind alone, though, loses what the user most needs
+/// in a bug report ("No space left on device" and "Disk quota exceeded" are both `Other` on some
+/// platforms), so the operating system's own error code is kept too: `io::Error::from_raw_os_error`
+/// rebuilds the full message from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WriteFailure {
+    /// The kind of the error.
+    pub(crate) kind: io::ErrorKind,
+    /// The operating system's error code (`errno` on Unix, `GetLastError` on Windows), if the
+    /// error came from the operating system.
+    pub(crate) os_code: Option<i32>,
+    /// The path the error concerns.
+    pub(crate) path: PathBuf,
+}
+
+impl WriteFailure {
+    /// The failure of `error` on `path`. O(path length), for the copy of the path.
+    fn new(error: &io::Error, path: &Path) -> Self {
+        Self {
+            kind: error.kind(),
+            os_code: error.raw_os_error(),
+            path: path.to_path_buf(),
+        }
+    }
+
+    /// A failure that did not come from the operating system (no error code). O(path length).
+    fn of_kind(kind: io::ErrorKind, path: &Path) -> Self {
+        Self {
+            kind,
+            os_code: None,
+            path: path.to_path_buf(),
+        }
+    }
+}
 
 /// The process-wide serial number of the next temporary file (see "Unique temporary names" in
 /// the module documentation). `Relaxed` ordering is enough: we only need every `fetch_add` to
@@ -57,6 +93,26 @@ static SERIAL: AtomicU64 = AtomicU64::new(0);
 /// takes a crash leftover per attempt: 64 is far more than any real directory holds, and still
 /// bounds the loop (no unbounded waits, CLAUDE.md §5).
 const MAX_ATTEMPTS: u32 = 64;
+
+/// Writes the description of an I/O error kept as plain data (the `Io` variants of the crate's
+/// errors): the operating system's own message when there is a code (for example "No space left
+/// on device (os error 28)"), the kind otherwise. Shared by every `Display` of those variants.
+///
+/// # Errors
+/// Only the formatter's.
+///
+/// # Complexity
+/// O(1) plus the message; `from_raw_os_error` asks the operating system for the text.
+pub(crate) fn describe(
+    f: &mut std::fmt::Formatter<'_>,
+    kind: io::ErrorKind,
+    os_code: Option<i32>,
+) -> std::fmt::Result {
+    match os_code {
+        Some(code) => write!(f, "{}", io::Error::from_raw_os_error(code)),
+        None => write!(f, "{kind}"),
+    }
+}
 
 /// Writes `bytes` to `path` safely (see the module documentation).
 ///
@@ -88,11 +144,11 @@ fn write_with(
     // reports a different path and `map_err` takes a closure by value.
     let failure = |p: &Path| {
         let p = p.to_path_buf();
-        move |e: io::Error| (e.kind(), p)
+        move |e: io::Error| WriteFailure::new(&e, &p)
     };
     let name = path
         .file_name()
-        .ok_or_else(|| (io::ErrorKind::InvalidInput, path.to_path_buf()))?;
+        .ok_or_else(|| WriteFailure::of_kind(io::ErrorKind::InvalidInput, path))?;
     // A bare file name has an empty parent: the current directory is meant.
     let directory = match path.parent() {
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
@@ -153,10 +209,10 @@ fn create_temp(
             Ok(file) => return Ok((temp, file)),
             // Taken by a leftover or by another writer: try the next name.
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = temp,
-            Err(e) => return Err((e.kind(), temp)),
+            Err(e) => return Err(WriteFailure::new(&e, &temp)),
         }
     }
-    Err((io::ErrorKind::AlreadyExists, last))
+    Err(WriteFailure::of_kind(io::ErrorKind::AlreadyExists, &last))
 }
 
 #[cfg(test)]
@@ -218,7 +274,10 @@ mod tests {
         fs::write(&leftover, b"leftover").unwrap();
         // Always the same serial: every attempt meets the leftover.
         let error = write_with(&dir.join("a.mid"), b"new", || 7).unwrap_err();
-        assert_eq!(error, (io::ErrorKind::AlreadyExists, leftover));
+        assert_eq!(
+            error,
+            WriteFailure::of_kind(io::ErrorKind::AlreadyExists, &leftover)
+        );
         assert!(!dir.join("a.mid").exists());
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -241,8 +300,11 @@ mod tests {
                     for _ in 0..25 {
                         match write(path, &[t; 4096]) {
                             Ok(()) => {}
-                            Err((io::ErrorKind::PermissionDenied, p))
-                                if cfg!(windows) && p == *path => {}
+                            Err(WriteFailure {
+                                kind: io::ErrorKind::PermissionDenied,
+                                path: p,
+                                ..
+                            }) if cfg!(windows) && p == *path => {}
                             Err(e) => panic!("save failed: {e:?}"),
                         }
                     }

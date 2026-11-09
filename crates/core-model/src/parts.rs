@@ -359,11 +359,11 @@ impl Loader {
             .collect::<Result<Vec<_>, _>>()?;
         self.builder.doc.ids.set_script(&ids);
         let result = method(&mut self.builder).map_err(|e| match e {
-            DocumentError::IdsExhausted => DocumentError::Inconsistent,
+            DocumentError::IdsExhausted => DocumentError::inconsistent(),
             other => other,
         })?;
         if !self.builder.doc.ids.script_is_spent() {
-            return Err(DocumentError::Inconsistent);
+            return Err(DocumentError::inconsistent());
         }
         Ok(result)
     }

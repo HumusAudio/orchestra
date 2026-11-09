@@ -713,7 +713,7 @@ impl Document {
         let instrument = &self
             .tracks
             .get(t)
-            .ok_or(DocumentError::Inconsistent)?
+            .ok_or(DocumentError::inconsistent())?
             .instrument;
         if instrument.staff(placement.staff).is_none() {
             return Err(DocumentError::StaffOfAnotherInstrument(placement.staff));
@@ -1054,7 +1054,7 @@ impl Document {
             // `fits_at` said yes and nothing changed the chunk since.
             Some(place) => {
                 if !chunk.insert_at(place, placed) {
-                    return Err(DocumentError::Inconsistent);
+                    return Err(DocumentError::inconsistent());
                 }
             }
         }
@@ -1417,7 +1417,7 @@ impl Document {
                     .ids()
                     .get(index)
                     .copied()
-                    .ok_or(DocumentError::Inconsistent)?;
+                    .ok_or(DocumentError::inconsistent())?;
                 changes.cell(voice, bar);
             }
         }
@@ -1647,7 +1647,7 @@ impl Document {
                         .get(range.start.saturating_add(offset))
                         .copied();
                     return Err(
-                        bar.map_or(DocumentError::Inconsistent, DocumentError::BarsNotEmpty)
+                        bar.map_or(DocumentError::inconsistent(), DocumentError::BarsNotEmpty)
                     );
                 }
             }
@@ -1895,12 +1895,12 @@ impl Document {
 
     /// The track at a position. O(1).
     fn track_at(&self, t: usize) -> Result<&crate::document::Track, DocumentError> {
-        self.tracks.get(t).ok_or(DocumentError::Inconsistent)
+        self.tracks.get(t).ok_or(DocumentError::inconsistent())
     }
 
     /// The track at a position, mutably. O(1).
     fn track_at_mut(&mut self, t: usize) -> Result<&mut crate::document::Track, DocumentError> {
-        self.tracks.get_mut(t).ok_or(DocumentError::Inconsistent)
+        self.tracks.get_mut(t).ok_or(DocumentError::inconsistent())
     }
 
     /// The voice at these positions. O(1).
@@ -1909,7 +1909,7 @@ impl Document {
             .instrument
             .voices
             .get(v)
-            .ok_or(DocumentError::Inconsistent)
+            .ok_or(DocumentError::inconsistent())
     }
 
     /// The voice at these positions, mutably. O(1).
@@ -1922,7 +1922,7 @@ impl Document {
             .instrument
             .voices
             .get_mut(v)
-            .ok_or(DocumentError::Inconsistent)
+            .ok_or(DocumentError::inconsistent())
     }
 
     /// The chunk of the voice at these positions for the bar at `index` (named `bar` in the error).

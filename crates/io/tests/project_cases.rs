@@ -235,6 +235,8 @@ fn an_invalid_document_is_refused() {
         "\"at\":\"1/8\",\"staff\"",
     ));
     assert!(matches!(error, LoadError::Document(_)), "{error:?}");
+    // The document's error is the source of the load error: the chain is not cut.
+    assert!(std::error::Error::source(&error).is_some());
 }
 
 /// Saving over an existing file replaces it, leaves no temporary file, and loads back.
@@ -253,6 +255,19 @@ fn saving_replaces_the_file_safely() {
         .collect();
     assert_eq!(names.len(), 1, "a temporary file was left: {names:?}");
     let missing = dir.join("missing.orchestra");
-    assert!(matches!(load(&missing), Err(LoadError::Io { .. })));
+    let error = load(&missing).unwrap_err();
+    // The operating system's own code is kept, so the message is the system's, not just a kind.
+    assert!(
+        matches!(
+            error,
+            LoadError::Io {
+                kind: std::io::ErrorKind::NotFound,
+                os_code: Some(_),
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert!(error.to_string().contains("missing.orchestra"), "{error}");
     std::fs::remove_dir_all(&dir).unwrap();
 }

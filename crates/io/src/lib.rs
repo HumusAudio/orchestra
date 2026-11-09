@@ -38,5 +38,6 @@ pub mod project;
 mod safe_write;
 
 pub use project::{
-    FORMAT_VERSION, LoadError, MAX_FILE_BYTES, SaveError, from_bytes, load, save, to_bytes,
+    FORMAT_VERSION, LoadError, MAX_FILE_BYTES, MigrationError, SaveError, from_bytes, load, save,
+    to_bytes,
 };
