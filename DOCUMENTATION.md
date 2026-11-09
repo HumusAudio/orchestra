@@ -2589,11 +2589,12 @@ object with full names.
   and column from `serde_json` (I8; `Schema` has no line for the conversion's errors, which name
   the object instead), `Migration` for an older file that cannot be migrated, and `Document` for
   the model's refusals. `Document` and `Migration` give their cause through `Error::source`, so the
-  chain of causes is not cut. The `Io` variants (here and in `SaveError` and `MidiError`) keep the
-  error as plain data, because these types are `Clone + Eq` and `io::Error` is not: the `kind`
-  and the operating system's own code, `os_code` (`errno`, `GetLastError`), which `Display` turns
-  back into the system's message ("No space left on device (os error 28)") through
-  `safe_write::describe`. `load` opens the file **once**: the size comes from the open handle and
+  chain of causes is not cut. The `Io` variants (here and in `SaveError` and `MidiError`) all hold
+  one public type, `IoFailure`, which keeps the error as plain data because these types are
+  `Clone + Eq` and `io::Error` is not: the `kind`, the operating system's own code, `os_code`
+  (`errno`, `GetLastError`), and the `path`. Its `Display` turns the code back into the system's
+  message (`<path>: No space left on device (os error 28)`), and it is the `source()` of the
+  error that holds it; `safe_write` builds it for every failure of a save. `load` opens the file **once**: the size comes from the open handle and
   the read is capped at one byte more than the limit (`Read::take`), so a file that grows between
   the check and the read is still refused as `TooLarge`.
 

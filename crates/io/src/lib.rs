@@ -46,6 +46,10 @@ mod platform;
 mod project;
 mod safe_write;
 
+/// The shape of every I/O error of the crate (the `Io` variants of [`LoadError`], [`SaveError`]
+/// and [`midi::MidiError`]).
+pub use safe_write::IoFailure;
+
 pub use project::{
     FORMAT_VERSION, LoadError, MAX_FILE_BYTES, MigrationError, SaveError, from_bytes, load, save,
     to_bytes,

@@ -2766,10 +2766,12 @@ ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con
   che nominano invece l'oggetto), `Migration` per un file più vecchio che non si riesce a
   migrare, e `Document` per i rifiuti del modello. `Document` e `Migration` danno la loro causa
   tramite `Error::source`, così la catena delle cause non si interrompe. Le varianti `Io` (qui e in
-  `SaveError` e `MidiError`) tengono l'errore come dati semplici, perché questi tipi sono
-  `Clone + Eq` e `io::Error` no: il `kind` e il codice del sistema operativo, `os_code` (`errno`,
-  `GetLastError`), che `Display` ritrasforma nel messaggio del sistema ("No space left on device
-  (os error 28)") tramite `safe_write::describe`. `load` apre il file **una volta sola**: la
+  `SaveError` e `MidiError`) contengono tutte un solo tipo pubblico, `IoFailure`, che tiene
+  l'errore come dati semplici perché questi tipi sono `Clone + Eq` e `io::Error` no: il `kind`, il
+  codice del sistema operativo, `os_code` (`errno`, `GetLastError`), e il `path`. Il suo `Display`
+  ritrasforma il codice nel messaggio del sistema (`<percorso>: No space left on device (os error
+  28)`), ed è la `source()` dell'errore che lo contiene; `safe_write` lo costruisce per ogni
+  fallimento di un salvataggio. `load` apre il file **una volta sola**: la
   dimensione viene dal file aperto e la lettura si ferma a un byte oltre il limite
   (`Read::take`), così un file che cresce tra il controllo e la lettura viene comunque rifiutato
   come `TooLarge`.

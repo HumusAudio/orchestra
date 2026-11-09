@@ -39,10 +39,12 @@ mod writer;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use orchestra_core_model::{Document, DocumentError};
 use serde::Serialize;
+
+use crate::safe_write::IoFailure;
 
 pub use migrate::MigrationError;
 
@@ -60,16 +62,7 @@ pub const MAX_FILE_BYTES: u64 = 1 << 30;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoadError {
     /// The file could not be read.
-    Io {
-        /// What went wrong.
-        kind: io::ErrorKind,
-        /// The operating system's error code, if the error came from it (`errno` on Unix,
-        /// `GetLastError` on Windows): `io::Error::from_raw_os_error` turns it back into the
-        /// system's own message, which the kind alone loses.
-        os_code: Option<i32>,
-        /// The file.
-        path: PathBuf,
-    },
+    Io(IoFailure),
     /// The file is larger than [`MAX_FILE_BYTES`].
     TooLarge {
         /// Its size in bytes.
@@ -118,14 +111,7 @@ impl fmt::Display for LoadError {
     /// A short English description, for developers (see the type's docs).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io {
-                kind,
-                os_code,
-                path,
-            } => {
-                write!(f, "cannot read {}: ", path.display())?;
-                crate::safe_write::describe(f, *kind, *os_code)
-            }
+            Self::Io(failure) => write!(f, "cannot read {failure}"),
             Self::TooLarge { bytes } => write!(f, "the file has {bytes} bytes, more than allowed"),
             Self::NotAProject => f.write_str("not an Orchestra project file"),
             Self::NewerFormat {
@@ -166,6 +152,7 @@ impl std::error::Error for LoadError {
     /// `os_code`).
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Io(e) => Some(e),
             Self::Document(e) => Some(e),
             Self::Migration { reason, .. } => Some(reason),
             _ => None,
@@ -177,16 +164,7 @@ impl std::error::Error for LoadError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveError {
     /// The file could not be written; the previous file, if any, is intact.
-    Io {
-        /// What went wrong.
-        kind: io::ErrorKind,
-        /// The operating system's error code, if the error came from it (`errno` on Unix,
-        /// `GetLastError` on Windows): `io::Error::from_raw_os_error` turns it back into the
-        /// system's own message, which the kind alone loses.
-        os_code: Option<i32>,
-        /// The file.
-        path: PathBuf,
-    },
+    Io(IoFailure),
     /// The document could not be encoded. A valid document always can; this reports, instead of
     /// a panic, the impossible case of a broken model invariant.
     Encode(String),
@@ -196,20 +174,21 @@ impl fmt::Display for SaveError {
     /// A short English description, for developers.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io {
-                kind,
-                os_code,
-                path,
-            } => {
-                write!(f, "cannot write {}: ", path.display())?;
-                crate::safe_write::describe(f, *kind, *os_code)
-            }
+            Self::Io(failure) => write!(f, "cannot write {failure}"),
             Self::Encode(message) => write!(f, "cannot encode the document: {message}"),
         }
     }
 }
 
-impl std::error::Error for SaveError {}
+impl std::error::Error for SaveError {
+    /// The I/O failure, if that is the cause.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(e) => Some(e),
+            Self::Encode(_) => None,
+        }
+    }
+}
 
 /// The bytes of a document's project file (ADR-0029 S3): deterministic, LF line endings, no BOM,
 /// a final newline.
@@ -310,11 +289,7 @@ fn json_error(e: serde_json::Error) -> LoadError {
 /// O(size of the file) to read, plus [`from_bytes`].
 pub fn load(path: &Path) -> Result<Document, LoadError> {
     use std::io::Read;
-    let io_error = |e: io::Error| LoadError::Io {
-        kind: e.kind(),
-        os_code: e.raw_os_error(),
-        path: path.to_path_buf(),
-    };
+    let io_error = |e: io::Error| LoadError::Io(IoFailure::new(&e, path));
     let file = fs::File::open(path).map_err(io_error)?;
     let size = file.metadata().map_err(io_error)?.len();
     if size > MAX_FILE_BYTES {
@@ -341,9 +316,5 @@ pub fn load(path: &Path) -> Result<Document, LoadError> {
 /// [`SaveError::Io`] with the failing path; [`SaveError::Encode`] as [`to_bytes`].
 pub fn save(doc: &Document, path: &Path) -> Result<(), SaveError> {
     let bytes = to_bytes(doc)?;
-    crate::safe_write::write(path, &bytes).map_err(|w| SaveError::Io {
-        kind: w.kind,
-        os_code: w.os_code,
-        path: w.path,
-    })
+    crate::safe_write::write(path, &bytes).map_err(SaveError::Io)
 }

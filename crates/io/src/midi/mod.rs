@@ -40,8 +40,7 @@ mod timing;
 
 use std::error::Error;
 use std::fmt;
-use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use orchestra_core_model::{Document, InstrumentId, NoteId};
 use orchestra_core_time::{Position, Rational, RationalError};
@@ -191,16 +190,7 @@ pub enum MidiError {
     /// A General MIDI program above 127.
     InvalidProgram(u8),
     /// The file could not be written; the previous file, if any, is intact.
-    Io {
-        /// What went wrong.
-        kind: io::ErrorKind,
-        /// The operating system's error code, if the error came from it (`errno` on Unix,
-        /// `GetLastError` on Windows): `io::Error::from_raw_os_error` turns it back into the
-        /// system's own message, which the kind alone loses.
-        os_code: Option<i32>,
-        /// The file (or its temporary file, or its directory).
-        path: PathBuf,
-    },
+    Io(crate::IoFailure),
 }
 
 impl fmt::Display for MidiError {
@@ -212,14 +202,7 @@ impl fmt::Display for MidiError {
             Self::TooLong => f.write_str("the music is too long for a MIDI file"),
             Self::TooManyTracks => f.write_str("too many instruments for a MIDI file"),
             Self::InvalidProgram(p) => write!(f, "invalid General MIDI program {p}"),
-            Self::Io {
-                kind,
-                os_code,
-                path,
-            } => {
-                write!(f, "cannot write {}: ", path.display())?;
-                crate::safe_write::describe(f, *kind, *os_code)
-            }
+            Self::Io(failure) => write!(f, "cannot write {failure}"),
         }
     }
 }
@@ -230,6 +213,7 @@ impl Error for MidiError {
         match self {
             Self::Path(e) => Some(e),
             Self::Arithmetic(e) => Some(e),
+            Self::Io(e) => Some(e),
             _ => None,
         }
     }
@@ -372,9 +356,5 @@ pub fn export(
 /// # Errors
 /// [`MidiError::Io`] with the failing path.
 pub fn save(export: &MidiExport, path: &Path) -> Result<(), MidiError> {
-    crate::safe_write::write(path, &export.bytes).map_err(|w| MidiError::Io {
-        kind: w.kind,
-        os_code: w.os_code,
-        path: w.path,
-    })
+    crate::safe_write::write(path, &export.bytes).map_err(MidiError::Io)
 }
