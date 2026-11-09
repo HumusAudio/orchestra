@@ -11,7 +11,78 @@ portability, even though they cannot be "replaced".
 
 ## Registry
 
-*No entries yet.*
+The entries below were recorded with ADR-0036 (F2.01), before the crates that load them enter the
+workspace. Each crate arrives in its own SCALETTA step (ADR-0036 B1).
+
+### X11 client libraries (via `winit` and `softbuffer`)
+
+- **Used by:** `orchestra-ui` (window, input and presentation on an X11 session).
+- **What for:** opening windows, receiving keyboard, mouse and IME input, setting the cursor,
+  presenting pixels on X11. `winit` opens `libX11`, `libX11-xcb`, `libXcursor`, `libXi`,
+  `libxcb` and `libxkbcommon-x11`; `softbuffer` opens `libX11`/`libxcb` for presentation.
+- **Why no Rust alternative:** these libraries are the X11 system's own client interface.
+  `x11rb` speaks the protocol in Rust, but winit 0.30 still uses Xlib for input and IME.
+- **License:** MIT/X11 (X.Org libraries), MIT (libxkbcommon). Compatible with GPL-3.0-or-later:
+  permissive licenses, and they are only loaded at run time, never shipped by us.
+- **Platforms:** Linux only, loaded at run time with dlopen (`x11-dl`, `xkbcommon-dl`,
+  `x11rb/dl-libxcb`, `tiny-xlib/dlopen`), only on an X11 session. Windows · macOS: not used.
+- **Build requirements:** none (no headers, no pkg-config: dlopen).
+- **Binary size / compile time impact:** none from the libraries; the Rust side is measured with
+  the whole interface in `spikes/gui-blocks/RESULTS.md`.
+- **Replacement plan:** none needed while X11 exists; a Wayland-only session never loads them.
+- **Added:** 2026-11-09, ADR-0036.
+
+### Wayland client library and libxkbcommon (via `winit` and `softbuffer`)
+
+- **Used by:** `orchestra-ui` (window, input and presentation on a Wayland session).
+- **What for:** `libwayland-client` is the connection to the compositor (winit's
+  `smithay-client-toolkit`, softbuffer's shared-memory buffers). `libxkbcommon` turns key codes
+  into characters with the user's keyboard layout, on both X11 and Wayland.
+- **Why no Rust alternative:** `wayland-backend` has a pure-Rust implementation of the protocol,
+  but softbuffer's Wayland support depends on `wayland-sys`, the binding to the system library,
+  so the pure-Rust backend cannot be used with it. Keyboard layouts are only available through
+  `libxkbcommon` and its database.
+- **License:** MIT (both). Compatible with GPL-3.0-or-later.
+- **Platforms:** Linux only, loaded at run time with dlopen (`wayland-sys/dlopen`,
+  `xkbcommon-dl`). Windows · macOS: not used.
+- **Build requirements:** none.
+- **Binary size / compile time impact:** none from the libraries.
+- **Replacement plan:** re-evaluate the pure-Rust Wayland backend when winit 0.31 arrives.
+- **Added:** 2026-11-09, ADR-0036.
+
+### libdbus-1 (via `rfd`)
+
+- **Used by:** `orchestra-ui` (native file dialogs on Linux, from F2.12).
+- **What for:** `rfd` 0.17 sends the "open file"/"save file" request to the XDG desktop portal,
+  a D-Bus service, through `libdbus-1`.
+- **Why no Rust alternative:** there is one, `zbus` (through `ashpd`, used by `rfd` ≤ 0.16), and
+  it was measured. It costs +0.9 MB and +29 crates more than `rfd` 0.17 (ADR-0036 B4).
+  `libdbus-1` is present on every desktop that has a portal.
+- **License:** AFL-2.1 OR GPL-2.0-or-later. Compatible with GPL-3.0-or-later through the
+  GPL-2.0-or-later option. Only loaded at run time, never shipped by us.
+- **Platforms:** Linux only, loaded with dlopen (`libdbus-1.so.3`). If it is missing, rfd tries
+  `zenity`, otherwise the dialog does not open; Orchestra must then show its own error (F2.12).
+  Windows · macOS: not used (system dialogs).
+- **Build requirements:** none.
+- **Binary size / compile time impact:** none from the library.
+- **Replacement plan:** back to a pure-Rust D-Bus if `rfd` offers it again at a reasonable cost,
+  or if we write the portal call ourselves on the `zbus` that AccessKit already brings.
+- **Added:** 2026-11-09, ADR-0036.
+
+### Windowing, graphics and accessibility system APIs (Windows and macOS)
+
+- **Used by:** `orchestra-ui`, through `winit`, `softbuffer`, `accesskit_windows`/
+  `accesskit_macos`, `rfd`, `muda`.
+- **What for:** on Windows, Win32 windows and input, GDI presentation, UI Automation, the common
+  file dialog (`windows-sys`, `windows`). On macOS, AppKit windows, menus and dialogs, Core
+  Graphics/Quartz Core presentation, NSAccessibility (`objc2` bindings).
+- **Why no Rust alternative:** they are the operating systems' own interfaces.
+- **License:** system components, not distributed by us.
+- **Platforms:** Windows and macOS respectively, linked as system libraries/frameworks.
+- **Build requirements:** none beyond the standard Rust targets.
+- **Binary size / compile time impact:** measured by CI from F2.04.
+- **Replacement plan:** none (platform APIs).
+- **Added:** 2026-11-09, ADR-0036.
 
 ## Development tools (never linked into the program)
 
