@@ -681,7 +681,11 @@ pull request per group, and asked for an ADR for P3.3 (public API policy). Progr
   a failed undo's step whole, documented next to it); `safe_write` saves through symbolic links
   and keeps the Unix permission bits of the file it replaces (within ADR-0029 S13: the temporary
   file still sits in the real file's directory).
-- **Still to do:** P3.2 and P3.3, after the owner decides on ADR-0034 (PR #46).
+- **ADR-0034 (Accepted by the owner, 2026-11-09, PR #46):** private modules with one root path per
+  item, error and warning enums exhaustive (the review report had first suggested the opposite;
+  the ADR explains why the exhaustive `match` of the interface's Fluent mapping matters more),
+  `#[non_exhaustive]` only where a generic case is right.
+- **Still to do:** P3.2 and P3.3 (`refactor/review2-p3-api`), implementing ADR-0034.
 
 | Step | What | Status |
 |---|---|---|
