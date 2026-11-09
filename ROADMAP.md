@@ -651,6 +651,11 @@ metronome and the interface), `palette()` rebuilt per call (a documented choice)
 stacked and merged in order once their CI was green, each next one retargeted to `main` before
 its base branch was deleted. SCALETTA v0.48 records the review, ADR-0033 under F1.18, and in
 F2.23 the new measurements and a benchmark with many grace notes and long notes (D5, D6).
+**Second codebase review (2026-11-09):** see the entries of P1 and P2 on their branches. For
+point P3.3 Claude proposed **ADR-0034** (Proposed, `docs/adr-0034-public-api`): private modules
+with one root path per item, error and warning enums exhaustive (the review report had suggested
+the opposite; the ADR explains why the exhaustive `match` of the interface's Fluent mapping
+matters more), `#[non_exhaustive]` only where a generic case is right. Waiting for the owner.
 
 | Step | What | Status |
 |---|---|---|
