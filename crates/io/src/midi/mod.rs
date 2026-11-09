@@ -196,6 +196,10 @@ pub enum MidiError {
     Io {
         /// What went wrong.
         kind: io::ErrorKind,
+        /// The operating system's error code, if the error came from it (`errno` on Unix,
+        /// `GetLastError` on Windows): `io::Error::from_raw_os_error` turns it back into the
+        /// system's own message, which the kind alone loses.
+        os_code: Option<i32>,
         /// The file (or its temporary file, or its directory).
         path: PathBuf,
     },
@@ -210,7 +214,14 @@ impl fmt::Display for MidiError {
             Self::TooLong => f.write_str("the music is too long for a MIDI file"),
             Self::TooManyTracks => f.write_str("too many instruments for a MIDI file"),
             Self::InvalidProgram(p) => write!(f, "invalid General MIDI program {p}"),
-            Self::Io { kind, path } => write!(f, "cannot write {}: {kind}", path.display()),
+            Self::Io {
+                kind,
+                os_code,
+                path,
+            } => {
+                write!(f, "cannot write {}: ", path.display())?;
+                crate::safe_write::describe(f, *kind, *os_code)
+            }
         }
     }
 }
@@ -363,6 +374,9 @@ pub fn export(
 /// # Errors
 /// [`MidiError::Io`] with the failing path.
 pub fn save(export: &MidiExport, path: &Path) -> Result<(), MidiError> {
-    crate::safe_write::write(path, &export.bytes)
-        .map_err(|(kind, path)| MidiError::Io { kind, path })
+    crate::safe_write::write(path, &export.bytes).map_err(|w| MidiError::Io {
+        kind: w.kind,
+        os_code: w.os_code,
+        path: w.path,
+    })
 }

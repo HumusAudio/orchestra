@@ -2110,6 +2110,15 @@ its event, then its noteheads). A method that wants more IDs finds the script sp
 takes fewer leaves some behind; both are a bug of the loader and give `DocumentError::Inconsistent`.
 Outside loading the script is `None` and costs one branch per ID.
 
+`DocumentError::Inconsistent` is the model's "this is a bug" error, used instead of a panic in
+about sixty checks. To make a bug report useful it carries **where** it was detected,
+`Inconsistent { at }` with `at: &'static std::panic::Location`, which its `Display` prints as
+`file:line`. It is always built with `DocumentError::inconsistent()`, a `#[track_caller]`
+constructor, so the location is the line of the check itself: write
+`.ok_or(DocumentError::inconsistent())`, not `.ok_or_else(DocumentError::inconsistent)`, because
+through a function pointer the location would be the standard library's. Building it eagerly
+costs one pointer to static data.
+
 ```rust
 // The loader's single entry to the builder: claim the saved IDs, script them, run the method,
 // check that it took them all.
@@ -2515,7 +2524,14 @@ object with full names.
   file's size before reading it), `NotAProject`, `NewerFormat`, `Syntax` and `Schema` with the line
   and column from `serde_json` (I8; `Schema` has no line for the conversion's errors, which name
   the object instead), `Migration` for an older file that cannot be migrated, and `Document` for
-  the model's refusals.
+  the model's refusals. `Document` and `Migration` give their cause through `Error::source`, so the
+  chain of causes is not cut. The `Io` variants (here and in `SaveError` and `MidiError`) keep the
+  error as plain data, because these types are `Clone + Eq` and `io::Error` is not: the `kind`
+  and the operating system's own code, `os_code` (`errno`, `GetLastError`), which `Display` turns
+  back into the system's message ("No space left on device (os error 28)") through
+  `safe_write::describe`. `load` opens the file **once**: the size comes from the open handle and
+  the read is capped at one byte more than the limit (`Read::take`), so a file that grows between
+  the check and the read is still refused as `TooLarge`.
 
 **Golden files and migrations** (F1.15c, ADR-0010 §3, ADR-0029 S11–S12). `tests/golden/v1/`
 holds fifteen files of version 1, written **once** and never regenerated: one small file per kind
@@ -2538,7 +2554,10 @@ chain of migrations of `src/project/migrate.rs` (`MIGRATIONS[k]` migrates versio
 `k + 2`, each a pure function on the tree; the machinery sets `orchestra_format` after each step),
 then the current schema. The chain is empty while version 1 is the only one; the machinery is
 tested with a test-only chain of two steps (a renamed field, an added one), and a failing or
-missing step is `LoadError::Migration { from, message }`. The first format change adds its
+missing step is `LoadError::Migration { from, reason }`, with `reason` a typed `MigrationError`
+(`MissingStep`, `NotAnObject`, `MissingField(path)`, `WrongType(path)`, the paths being
+`&'static str` written by the migration), as ADR-0029 S11 prescribes, so that the interface can
+map each case to a Fluent key. The first format change adds its
 function to the chain and a `tests/golden/v2/` directory; the files of `v1/` stay as they are and
 must keep loading into the same documents.
 

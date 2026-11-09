@@ -62,7 +62,7 @@ pub enum MeterMode {
 fn change_in_force(doc: &Document, at: BarIndex) -> Result<MeterChange, DocumentError> {
     doc.meter_map()
         .meter_change_in_force(at)
-        .ok_or(DocumentError::Inconsistent)
+        .ok_or(DocumentError::inconsistent())
 }
 
 /// Refuses a change of bar lengths inside a bar repeat (Y5).
@@ -165,7 +165,7 @@ pub(crate) fn change_meter(
     let mut stale = Vec::new();
     for &(b, grouping) in map.bar_groupings() {
         if (at.get()..next).contains(&b.get()) && grouping.total()? != nominal {
-            stale.push(doc.bars().id_at(b).ok_or(DocumentError::Inconsistent)?);
+            stale.push(doc.bars().id_at(b).ok_or(DocumentError::inconsistent())?);
         }
     }
     for stale_bar in stale {
@@ -251,7 +251,7 @@ fn check_overfull(doc: &Document, from: u32, to: u32) -> Result<(), DocumentErro
     for index in from..end {
         let at = BarIndex::new(index);
         let length = doc.meter_map().bar_length(at)?;
-        let bar = doc.bars().id_at(at).ok_or(DocumentError::Inconsistent)?;
+        let bar = doc.bars().id_at(at).ok_or(DocumentError::inconsistent())?;
         for voice in doc
             .instruments()
             .flat_map(crate::document::Instrument::voices)

@@ -497,7 +497,7 @@ impl Editor {
             self.document
                 .apply_edit(inverse.clone(), &mut changes)
                 .map_err(|rollback| CommandError::Rollback {
-                    cause: DocumentError::Inconsistent,
+                    cause: DocumentError::inconsistent(),
                     rollback,
                 })?;
         }
@@ -548,7 +548,7 @@ impl Editor {
         let open = self
             .open
             .as_mut()
-            .ok_or(CommandError::Document(DocumentError::Inconsistent))?;
+            .ok_or(CommandError::Document(DocumentError::inconsistent()))?;
         let mark = open.inverses.len();
         // The command records its changes into a set of its own, so that the local check looks
         // only at what this command touched (and a gesture can return exactly that).
@@ -569,7 +569,7 @@ impl Editor {
         let open = self
             .open
             .as_mut()
-            .ok_or(CommandError::Document(DocumentError::Inconsistent))?;
+            .ok_or(CommandError::Document(DocumentError::inconsistent()))?;
         let local = std::mem::replace(&mut open.changes, outer);
         match result {
             Ok(()) => Ok(local),
@@ -772,7 +772,7 @@ const fn document_cause(error: CommandError) -> DocumentError {
     match error {
         CommandError::Document(e) | CommandError::Rollback { cause: e, .. } => e,
         CommandError::TransactionOpen | CommandError::GestureOpen | CommandError::NoGesture => {
-            DocumentError::Inconsistent
+            DocumentError::inconsistent()
         }
     }
 }
