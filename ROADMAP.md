@@ -651,6 +651,18 @@ metronome and the interface), `palette()` rebuilt per call (a documented choice)
 stacked and merged in order once their CI was green, each next one retargeted to `main` before
 its base branch was deleted. SCALETTA v0.48 records the review, ADR-0033 under F1.18, and in
 F2.23 the new measurements and a benchmark with many grace notes and long notes (D5, D6).
+**Second codebase review (2026-11-09, not a SCALETTA step):** at the owner's request Claude
+analysed the codebase for practices that high-quality code avoids (points P1.1–P1.4 robustness,
+P2.1–P2.3 errors, P3.1–P3.4 maintainability, P4.1–P4.4 minor); the owner approved all of it, one
+pull request per group, and asked for an ADR for P3.3 (public API policy). Progress:
+- **P1 (robustness, `fix/review2-p1-robustness`):** unique temporary names in `safe_write`
+  (process id + atomic serial, a taken name skipped, at most 64 tries); the `commit-msg` hook
+  checks only the subject for exemptions, runs in strict mode and accepts an amend whose guide
+  edits are already in HEAD; `core-time::invariant::{convert_or, some_or}` replace the silent
+  `try_from(..).unwrap_or(..)` fallbacks where a failure is a bug (debug builds stop there,
+  release builds keep the fallback); the `rational!` macro writes rational constants checked at
+  compile time, replacing the `Err(_) => Rational::ZERO` fallbacks (5 sites).
+- **Still to do:** P2, P3 (P3.3 waits for its ADR), P4.
 
 | Step | What | Status |
 |---|---|---|

@@ -28,13 +28,8 @@ use std::num::NonZeroU32;
 
 use crate::rational::{Rational, RationalError};
 
-/// One half, used by the nearest-sample rounding.
-const HALF: Rational = match Rational::new(1, 2) {
-    Ok(half) => half,
-    // Unreachable: 1/2 is a valid rational. Evaluated at compile time, so a failure here would be
-    // a compile error, never a run-time panic.
-    Err(_) => Rational::ZERO,
-};
+/// One half, used by the nearest-sample rounding (checked at compile time, see `rational!`).
+const HALF: Rational = crate::rational!(1, 2);
 
 /// Why a sample rate or a frame rate could not be built.
 ///

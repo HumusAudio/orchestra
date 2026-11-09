@@ -49,6 +49,7 @@ use orchestra_core_model::{
     ArticulationSet, Document, DocumentError, DynamicLevel, DynamicMark, DynamicScope, HairpinKind,
     Instrument, VoiceId,
 };
+use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{BarIndex, Duration, Position, Rational, RationalError, Seconds};
 
 use crate::perform::PerformError;
@@ -896,7 +897,8 @@ pub(crate) fn profile(
         let v = i64::from(up)
             .saturating_add(i64::from(offset))
             .clamp(1, 65_535);
-        Ok(u16::try_from(v).unwrap_or(u16::MAX))
+        // Clamped to 1 ..= 65 535 just above: always a `u16`.
+        Ok(convert_or(v, u16::MAX))
     };
     let (velocity, settle_to) = (bounded(attack)?, bounded(settle_to)?);
     if velocity == settle_to {
@@ -935,11 +937,11 @@ const fn replicate(v: u16) -> u16 {
 pub(crate) fn upscale(x: Rational) -> u16 {
     let (n, d) = (i128::from(x.numerator()), i128::from(x.denominator()));
     let low = n.div_euclid(d).clamp(0, i128::from(FFFF));
-    let lo = replicate(u16::try_from(low).unwrap_or(0));
+    let lo = replicate(convert_or(low, 0_u16));
     if x.is_integer() || low >= i128::from(FFFF) {
         return lo;
     }
-    let hi = replicate(u16::try_from(low.saturating_add(1)).unwrap_or(127));
+    let hi = replicate(convert_or(low.saturating_add(1), 127_u16));
     let r = n.saturating_sub(low.saturating_mul(d));
     let span = i128::from(hi.saturating_sub(lo));
     let step = r
@@ -947,7 +949,7 @@ pub(crate) fn upscale(x: Rational) -> u16 {
         .saturating_mul(2)
         .saturating_add(d)
         .div_euclid(d.saturating_mul(2));
-    u16::try_from(i128::from(lo).saturating_add(step)).unwrap_or(u16::MAX)
+    convert_or(i128::from(lo).saturating_add(step), u16::MAX)
 }
 
 /// The velocity of *mf* on the 16-bit scale: the level in force before any dynamic (H1).

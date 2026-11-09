@@ -241,6 +241,35 @@ mappa delle misure con le suddivisioni dei movimenti (F1.04b), le unità del tem
 tempo, secondi, campioni, fotogrammi) e la mappa dei tempi con i cambi graduali e gli indici esatti
 di campione e di fotogramma (F1.05b).
 
+#### Invarianti e costanti razionali
+
+Due piccoli strumenti, usati da tutti i crate, per i valori che **non possono essere sbagliati**
+finché il programma è corretto. Il codice di libreria non va mai in panic (CLAUDE.md §4), quindi
+anche il caso "impossibile" ha bisogno di una risposta; il pericolo è darla *in silenzio*. Un
+`u32::try_from(index).unwrap_or(0)` trasforma un invariante rotto in un valore plausibile ma
+sbagliato (un'ottava 0, un tick 0) che prosegue senza che nessuno se ne accorga.
+
+- `invariant::convert_or(valore, ripiego)` (`src/invariant.rs`) converte con `TryFrom`; se
+  fallisce restituisce il ripiego nelle build di release e fa fallire un `debug_assert!` nelle
+  build di debug, così ogni esecuzione dei test si ferma sulla conversione rotta, con la riga del
+  chiamante (`#[track_caller]`). `invariant::some_or(opzione, ripiego)` fa lo stesso per un
+  `Option`. Dove un fallimento è un input legittimo (un suggerimento di capacità, un valore che
+  satura apposta, una ricerca che fallisce da sola con `None`) resta il semplice `unwrap_or`, con
+  un commento che spiega perché.
+- `rational!(n, d)` e `rational!(n)` (definite in `src/lib.rs`, esportate) scrivono una costante
+  razionale. L'espansione è un blocco `const` in linea, valutato sempre dal compilatore: un
+  letterale non valido come `rational!(1, 0)` è un **errore di compilazione** (lo verifica un
+  doctest `compile_fail`), mai un panic a run time, e mai un `Rational::ZERO` silenzioso.
+
+```rust
+// An index that always fits a `u32` while the program is correct: release builds fall back to
+// `u32::MAX`, debug builds (and every test) stop right here if it ever does not.
+let from = orchestra_core_time::invariant::convert_or(p, u32::MAX);
+
+// A constant checked by the compiler: `rational!(1, 0)` would not compile.
+const GRID: Rational = orchestra_core_time::rational!(1, 32);
+```
+
 #### Il tipo razionale
 
 `Rational` (in `src/rational.rs`, riesportato alla radice del crate insieme a `RationalError`) è
@@ -2685,12 +2714,18 @@ message }`. Il primo cambio di formato aggiungerà la sua funzione alla catena e
 `tests/golden/v2/`; i file di `v1/` restano come sono e devono continuare a caricarsi negli stessi
 documenti.
 
-**Salvare in modo sicuro** (S13; i passi stanno in `src/safe_write.rs`, condiviso con l'esportazione MIDI). `save` scrive un file temporaneo `.<nome>.<id del processo>.tmp`
-nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi
+**Salvare in modo sicuro** (S13; i passi stanno in `src/safe_write.rs`, condiviso con l'esportazione MIDI). `save` scrive un file temporaneo
+`.<nome>.<id del processo>.<numero progressivo>.tmp` nella cartella di destinazione, lo sincronizza, lo rinomina sopra il file di destinazione, poi
 sincronizza la cartella dove la piattaforma lo richiede; in caso d'errore il file temporaneo viene
 tolto e il file precedente resta intatto. La sincronizzazione della cartella è il primo codice
 specifico di piattaforma del crate, in `src/platform/` dietro il trait `FileSystem` (CLAUDE.md
 §2): su Unix la cartella si apre e si sincronizza, altrove (Windows) non c'è nulla da fare.
+Il file temporaneo si apre con `create_new` (mai il file di un altro), quindi il suo nome deve
+essere unico: l'id del processo separa i programmi, un numero progressivo atomico comune a tutto
+il processo separa i thread di uno stesso programma (un salvataggio automatico accanto a uno
+manuale), e un nome già occupato, per esempio un residuo di un processo andato in crash il cui id è
+tornato, si salta provando il numero successivo, al massimo 64 volte. Un residuo non si cancella
+mai: potrebbe essere il salvataggio in corso di un altro programma.
 
 **Test.** `tests/project_cases.rs`: andata e ritorno del documento di prova, della partitura
 normale e di quella pesante (stessi byte dopo un secondo salvataggio, stesso contenuto, stessi ID e
@@ -3419,7 +3454,12 @@ FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$
 
 `.githooks/commit-msg` rifiuta ogni commit senza un trailer `User-visible: yes` o
 `User-visible: no`; con `yes` il commit deve cambiare anche i sorgenti di entrambe le guide
-(`docs/guide/it/` e `docs/guide/en/`). I commit di merge, revert e fixup sono esentati.
+(`docs/guide/it/` e `docs/guide/en/`). I commit di merge, revert e fixup sono esentati; lo
+decide solo la riga dell'**oggetto**, quindi una riga del corpo che inizia con "Merge" non spegne
+il controllo. Lo script gira in modalità rigorosa (`set -euo pipefail`). Un amend
+(`git commit --amend`) sostituisce HEAD, quindi le modifiche alle guide possono essere già in HEAD
+e non di nuovo nell'area di staging: git non dice all'hook che si tratta di un amend, quindi
+quando l'oggetto è uguale a quello di HEAD l'hook confronta l'indice anche con il genitore di HEAD.
 
 Git riconosce i trailer solo nell'**ultimo paragrafo** del messaggio, quindi `User-visible` deve
 stare nello stesso blocco degli altri trailer:

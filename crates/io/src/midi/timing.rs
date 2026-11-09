@@ -39,6 +39,7 @@
 //! **output**: nothing flows back into the model (ADR-0015 §8).
 
 use orchestra_core_model::Document;
+use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{Duration, Position, Rational, RationalError, TempoChange, TimeAt};
 use orchestra_playback::{PlayedNote, UnrollError, Unrolled};
 
@@ -58,12 +59,9 @@ const MIN_TEMPO: i64 = 1;
 /// quarter notes per minute).
 const MAX_TEMPO: i64 = 16_777_215;
 
-/// The step of the grid inside gradual changes: one 32nd note, in whole notes.
-const GRID: Rational = match Rational::new(1, 32) {
-    Ok(r) => r,
-    // `1/32` is a valid fraction; this arm only satisfies the `const` evaluation.
-    Err(_) => Rational::ZERO,
-};
+/// The step of the grid inside gradual changes: one 32nd note, in whole notes (checked at compile
+/// time, see `orchestra_core_time::rational!`).
+const GRID: Rational = orchestra_core_time::rational!(1, 32);
 
 /// `num / den` rounded to the nearest integer, halves away from zero; `den` must be positive.
 /// O(1).
@@ -349,7 +347,8 @@ impl TempoTrack {
         let mut marks: Vec<(u64, i64)> = Vec::with_capacity(points.len());
         let mut base = None;
         for p in points {
-            let tick = u64::try_from(ticks_of(*p)?.saturating_add(lead)).unwrap_or(0);
+            // The lead-in makes every tick non-negative (see `lead`): a negative one is a bug.
+            let tick = convert_or(ticks_of(*p)?.saturating_add(lead), 0_u64);
             let time = time_of(doc, path, *p)?;
             let base_time = *base.get_or_insert(time);
             if marks.last().is_some_and(|(t, _)| *t == tick) {
@@ -417,7 +416,7 @@ impl TempoTrack {
         let mut out: Vec<(u64, u32)> = Vec::new();
         for s in &self.segments {
             // `tempo` is within 1 ..= 2²⁴ − 1 by construction.
-            let tempo = u32::try_from(s.tempo).unwrap_or(u32::MAX);
+            let tempo = convert_or(s.tempo, u32::MAX);
             if out.last().is_none_or(|(_, t)| *t != tempo) {
                 out.push((s.tick, tempo));
             }
