@@ -575,7 +575,9 @@ So every lookup is a binary search (`partition_point`) followed by one or two ex
 `None` in a free bar), `beat_position` (the inverse), `beat_range` (the beats that start inside a
 bar, for the metronome), `display_number`, and on the source data `meter_change_at` (the entry
 written at a bar) and `meter_change_in_force` (the last one at or before it), which the model's
-commands used to find by scanning the list. None of them allocates (`tests/meter_map_no_alloc.rs`).
+commands used to find by scanning the list. `BarSpan` answers the same two questions on its own
+data; both go through one implementation on the source data they share (`Sources`). None of them
+allocates (`tests/meter_map_no_alloc.rs`).
 The last segment continues forever: where the score ends is the model's business.
 
 Some rules worth knowing:
@@ -1117,7 +1119,8 @@ the slurs are in the next section, dynamics, hairpins and tempo marks in the one
 start of the bar (events at the same offset keep the order they were entered in). The `Arc` is for
 snapshots (ADR-0022 §7): a background reader shares the chunks, and an edit copies only the chunk
 it touches. An event is a `Chord` or a `Rest`, with its own `EventId` and the staff it is drawn on
-(by default the voice's home staff, any staff of the same instrument for cross-staff notes). A
+(by default the voice's home staff, any staff of the same instrument for cross-staff notes; the
+builder resolves it in one place, `DocumentBuilder::staff_of`). A
 chord has one or more `Note`s, each with its own `NoteId`, its spelled pitch at concert pitch and
 its tie; the noteheads are kept sorted by sound (F♯4 before G♭4 by letter), and a single note
 costs no allocation of its own.
@@ -1560,7 +1563,10 @@ ADR-0026): the document, its one undo history and the transaction in progress. F
   from which the meter map may answer differently, the first position from which the tempo map
   differs, whether the form changed, and (since F1.13c, ADR-0027 §14 H11) the instruments whose
   dynamics or hairpins changed. Each edit records its own entries, so no notification can be
-  forgotten; the lists are sorted and deduplicated once at the end.
+  forgotten; the lists are sorted and deduplicated once at the end. "The form changed" means
+  that the unrolled path must be recomputed: a form marking (`ObjectRef::is_form_marking`, the
+  one list of them, which the local check reads too) or a bar or the numbering style, which
+  change the played bars without being markings whose rules the local check looks at.
 - `editor`: `Editor::transact` runs a closure as **one transaction = one step of undo**; if the
   closure returns an error, every edit it applied is reverted. The tempo map is derived again once,
   at the end, and only if a tempo mark or a bar start changed; if it fails, the transaction is
@@ -2569,6 +2575,8 @@ object with full names.
   meter-map entries at one bar, articulations or passes out of order, offsets written as zero);
   everything musical is then checked by `Document::from_parts`. Its errors name the object by its
   ID (`event 144: …`): with one record per line, that finds the place as surely as a line number.
+  The four kinds of marks (tempo marks, key changes, clef changes, key overrides) are read by one
+  helper, `mark_from_file`, which checks both IDs before converting the value.
 - `writer.rs`: the `serde_json` formatter of the layout. An object inside a list is a record,
   written compact, unless the list is structural (`tracks`, `staves`, `voices`, `cells`); everything
   else is indented by two spaces. The formatter copies each key as it is written, so that a list

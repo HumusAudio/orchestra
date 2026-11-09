@@ -606,7 +606,9 @@ esatte: `locate` (posizione → battuta e scostamento), `bar_start`, `position_o
 → movimento, oppure `None` in una battuta libera), `beat_position` (l'inversa), `beat_range` (i
 movimenti che iniziano dentro una battuta, per il metronomo), `display_number`, e sui dati di
 partenza `meter_change_at` (la voce scritta in una battuta) e `meter_change_in_force` (l'ultima in
-quella battuta o prima), che i comandi del modello cercavano scorrendo la lista. Nessuna alloca
+quella battuta o prima), che i comandi del modello cercavano scorrendo la lista. `BarSpan` risponde
+alle stesse due domande sui suoi dati; entrambi passano da un'unica implementazione sui dati di
+partenza che hanno in comune (`Sources`). Nessuna alloca
 (`tests/meter_map_no_alloc.rs`). L'ultimo segmento continua per sempre: dove finisce la partitura
 è affare del modello.
 
@@ -1180,7 +1182,8 @@ vuoto (`None`, nessuna memoria usata) oppure un `Arc` di un vettore di eventi or
 stati inseriti). L'`Arc` serve alle istantanee (ADR-0022 §7): chi legge in background condivide i
 blocchi, e una modifica copia solo il blocco che tocca. Un evento è un `Chord` (accordo) o un `Rest`
 (pausa), con il suo `EventId` e il rigo su cui è disegnato (di norma il rigo di riferimento della
-voce, qualunque rigo dello stesso strumento per le note che passano all'altro rigo). Un accordo ha
+voce, qualunque rigo dello stesso strumento per le note che passano all'altro rigo; il builder lo
+ricava in un solo punto, `DocumentBuilder::staff_of`). Un accordo ha
 una o più `Note`, ognuna con il suo `NoteId`, la sua altezza con grafia in suoni reali e la sua
 legatura di valore; le teste di nota restano ordinate per suono (Fa♯4 prima di Sol♭4, per lettera),
 e una nota singola non costa nessuna allocazione propria.
@@ -1661,7 +1664,11 @@ Quattro moduli nuovi:
   diversamente, la prima posizione da cui la mappa dei tempi è diversa, se la forma è cambiata e (da
   F1.13c, ADR-0027 §14 H11) gli strumenti le cui dinamiche o forcelle sono cambiate. Ogni modifica
   registra le proprie voci, quindi nessuna notifica può essere dimenticata; gli elenchi
-  si ordinano e si ripuliscono dai doppioni una volta sola alla fine.
+  si ordinano e si ripuliscono dai doppioni una volta sola alla fine. "La forma è cambiata" vuol
+  dire che lo srotolamento va ricalcolato: un segno della forma (`ObjectRef::is_form_marking`,
+  l'unico elenco di quei segni, letto anche dalla verifica locale) oppure una battuta o lo stile di
+  numerazione, che cambiano le battute suonate senza essere segni di cui la verifica locale
+  controlla le regole.
 - `editor`: `Editor::transact` esegue una chiusura come **una transazione = un passo di undo**; se
   la chiusura restituisce un errore, ogni modifica che ha applicato viene annullata. La mappa dei
   tempi si ricava di nuovo una volta sola, alla fine, e solo se è cambiata un'indicazione di tempo o
@@ -2743,6 +2750,9 @@ ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con
   passaggi fuori ordine, scostamenti scritti a zero); tutto ciò che è musicale lo verifica poi
   `Document::from_parts`. I suoi errori nominano l'oggetto con il suo ID (`event 144: …`): con un
   record per riga, questo trova il punto con la stessa sicurezza di un numero di riga.
+  I quattro tipi di segni (segni di tempo, cambi di tonalità, cambi di chiave, eccezioni di
+  tonalità) li legge un solo helper, `mark_from_file`, che controlla entrambi gli ID prima di
+  convertire il valore.
 - `writer.rs`: il formattatore `serde_json` dell'impaginazione. Un oggetto dentro un elenco è un
   record, scritto compatto, a meno che l'elenco sia strutturale (`tracks`, `staves`, `voices`,
   `cells`); tutto il resto è indentato di due spazi. Il formattatore copia ogni chiave mentre la

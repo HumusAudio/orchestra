@@ -130,6 +130,23 @@ pub enum ObjectRef {
 }
 
 impl ObjectRef {
+    /// Whether this names a **marking of the form**: a repeat sign, a volta, a marker, a jump, a
+    /// bar repeat or a pass rule. The one list of them, read by the change set (the unrolled path
+    /// must be recomputed) and by the local check (the rules of the form must be checked again).
+    /// O(1).
+    pub(crate) const fn is_form_marking(self) -> bool {
+        matches!(
+            self,
+            Self::RepeatStart(_)
+                | Self::RepeatEnd(_)
+                | Self::Volta(_)
+                | Self::Marker(_)
+                | Self::Jump(_)
+                | Self::BarRepeat(_)
+                | Self::PassRule(_)
+        )
+    }
+
     /// The raw ID of the object named, or `None` for the values a document has exactly once
     /// (the initial tempo, key and clefs, the numbering style), which have no ID. O(1).
     ///
@@ -820,8 +837,8 @@ impl Document {
     }
 
     /// Places a slur of `instrument` (never from an event to itself) and indexes both its ends.
-    /// Part of [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list
-    /// (the sorted insertion).
+    /// Part of [`place_object`](Self::place_object). O(log n) to find the place in the n slurs of
+    /// the instrument, O(n) to shift the later ones; O(1) average for the index of its two ends.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -839,8 +856,9 @@ impl Document {
     }
 
     /// Places a dynamic of `instrument`, at most one of a scope at one point (ADR-0024 §8). Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(log n + d) for the duplicate check (a binary search,
+    /// then the d dynamics at that point), O(n) to shift the later ones in the n dynamics of the
+    /// instrument.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -878,8 +896,8 @@ impl Document {
     }
 
     /// Places a hairpin of `instrument`, which must go forwards in score order. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(log n) to find the place in the n hairpins of the
+    /// instrument, O(n) to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -906,8 +924,8 @@ impl Document {
     }
 
     /// Places a tempo mark; the start of the score holds the initial tempo, not a mark. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(log n) to find the place in the n tempo marks, O(n)
+    /// to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -930,8 +948,8 @@ impl Document {
     }
 
     /// Places a clef change on `staff`; the start of the score holds the initial clef. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(staves) to find the staff, O(log n) to find the
+    /// place in its n clef changes, O(n) to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -956,8 +974,8 @@ impl Document {
     }
 
     /// Places a key change; the start of the score holds the initial key. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(log n) to find the place in the n key changes, O(n)
+    /// to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -974,7 +992,7 @@ impl Document {
     }
 
     /// Places a key override of `instrument`. Part of [`place_object`](Self::place_object). O(log
-    /// n) to O(n) in the objects of its list (the sorted insertion).
+    /// n) to find the place in the n key overrides of the instrument, O(n) to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -996,7 +1014,7 @@ impl Document {
     }
 
     /// Places a repeat start, at most one per bar. Part of [`place_object`](Self::place_object).
-    /// O(log n) to O(n) in the objects of its list (the sorted insertion).
+    /// O(f) for the duplicate scan and the insertion in the f repeat starts (a handful).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1011,8 +1029,8 @@ impl Document {
     }
 
     /// Places a repeat end, at most one per bar, played 2 ..= [`MAX_PLAYS`] times. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(f) for the duplicate scan and the insertion in the f
+    /// repeat ends (a handful).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1030,8 +1048,8 @@ impl Document {
     }
 
     /// Places a volta over a forward run of bars, for at least one pass. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(log v) to find the place in the v voltas, O(v) to
+    /// shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1050,8 +1068,8 @@ impl Document {
     }
 
     /// Places a marker, at most one per bar and side (start or end). Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(f) for the duplicate scan and the insertion in the f
+    /// markers (a handful).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1068,8 +1086,8 @@ impl Document {
         Ok(())
     }
 
-    /// Places a jump, at most one per bar. Part of [`place_object`](Self::place_object). O(log n)
-    /// to O(n) in the objects of its list (the sorted insertion).
+    /// Places a jump, at most one per bar. Part of [`place_object`](Self::place_object). O(f) for
+    /// the duplicate scan and the insertion in the f jumps (a handful).
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1084,8 +1102,8 @@ impl Document {
     }
 
     /// Places a bar repeat on its staff: its count must be a whole number of its span. Part of
-    /// [`place_object`](Self::place_object). O(log n) to O(n) in the objects of its list (the
-    /// sorted insertion).
+    /// [`place_object`](Self::place_object). O(staves) to find the staff, O(log n) to find the
+    /// place in the n bar repeats of the instrument, O(n) to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.
@@ -1106,8 +1124,8 @@ impl Document {
     }
 
     /// Places a pass rule of `instrument` (forwards, for at least one play, on one of its own
-    /// voices when it names one). Part of [`place_object`](Self::place_object). O(log n) to O(n) in
-    /// the objects of its list (the sorted insertion).
+    /// voices when it names one). Part of [`place_object`](Self::place_object). O(log n) to find
+    /// the place in the n pass rules of the instrument, O(n) to shift the later ones.
     ///
     /// # Errors
     /// As [`place_object`](Self::place_object); on error nothing changed.

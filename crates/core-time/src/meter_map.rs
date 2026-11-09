@@ -427,6 +427,29 @@ impl Sources {
         .flatten()
         .max()
     }
+
+    /// The meter change written exactly at `bar`, if any: the one implementation behind
+    /// [`BarSpan::meter_change_at`] and [`MeterMap::meter_change_at`]. O(log m) for m meter
+    /// changes (a binary search on the sorted list).
+    fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
+        let changes = &self.meter_changes;
+        changes
+            .binary_search_by_key(&bar, |&(at, _)| at)
+            .ok()
+            .and_then(|i| changes.get(i))
+            .map(|&(_, change)| change)
+    }
+
+    /// The meter change in force at `bar`: the last one at or before it. The one implementation
+    /// behind [`BarSpan::meter_change_in_force`] and [`MeterMap::meter_change_in_force`].
+    /// O(log m).
+    fn meter_change_in_force(&self, bar: BarIndex) -> Option<MeterChange> {
+        let changes = &self.meter_changes;
+        let after = changes.partition_point(|&(at, _)| at <= bar);
+        changes
+            .get(after.checked_sub(1)?)
+            .map(|&(_, change)| change)
+    }
 }
 
 /// Whether a bar takes a number in the displayed bar numbering (a pickup or the second half of a
@@ -579,12 +602,7 @@ impl BarSpan {
     /// search on the sorted list, so callers never need to scan it.
     #[must_use]
     pub fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
-        let changes = &self.sources.meter_changes;
-        changes
-            .binary_search_by_key(&bar, |&(at, _)| at)
-            .ok()
-            .and_then(|i| changes.get(i))
-            .map(|&(_, change)| change)
+        self.sources.meter_change_at(bar)
     }
 
     /// The meter change in force at `bar`: the last one at or before it, with its beat grouping.
@@ -592,11 +610,7 @@ impl BarSpan {
     /// a missing one would mean). O(log m).
     #[must_use]
     pub fn meter_change_in_force(&self, bar: BarIndex) -> Option<MeterChange> {
-        let changes = &self.sources.meter_changes;
-        let after = changes.partition_point(|&(at, _)| at <= bar);
-        changes
-            .get(after.checked_sub(1)?)
-            .map(|&(_, change)| change)
+        self.sources.meter_change_in_force(bar)
     }
 
     /// The irregular bars of the span, relative to it, sorted. O(1).
@@ -1235,12 +1249,7 @@ impl MeterMap {
     /// search on the sorted list, so callers never need to scan it.
     #[must_use]
     pub fn meter_change_at(&self, bar: BarIndex) -> Option<MeterChange> {
-        let changes = &self.sources.meter_changes;
-        changes
-            .binary_search_by_key(&bar, |&(at, _)| at)
-            .ok()
-            .and_then(|i| changes.get(i))
-            .map(|&(_, change)| change)
+        self.sources.meter_change_at(bar)
     }
 
     /// The meter change in force at `bar`: the last one at or before it, with its beat grouping.
@@ -1248,11 +1257,7 @@ impl MeterMap {
     /// a missing one would mean). O(log m).
     #[must_use]
     pub fn meter_change_in_force(&self, bar: BarIndex) -> Option<MeterChange> {
-        let changes = &self.sources.meter_changes;
-        let after = changes.partition_point(|&(at, _)| at <= bar);
-        changes
-            .get(after.checked_sub(1)?)
-            .map(|&(_, change)| change)
+        self.sources.meter_change_in_force(bar)
     }
 
     /// The irregular bars, sorted by bar.
