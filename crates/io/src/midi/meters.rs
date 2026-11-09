@@ -21,6 +21,7 @@
 //! marker), so a score in one meter has one time signature.
 
 use orchestra_core_model::Document;
+use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{Duration, Meter, Rational};
 use orchestra_playback::Unrolled;
 
@@ -111,11 +112,11 @@ pub(crate) fn signs(doc: &Document, path: &Unrolled, lead: i64) -> Result<Signs,
             |(n, e)| BarSign::Signature(n, e),
         );
         if matches!(sign, BarSign::Marker(_)) {
-            out.unwritable
-                .push(u32::try_from(index).unwrap_or(u32::MAX));
+            out.unwritable.push(convert_or(index, u32::MAX));
         }
         if out.signs.last().is_none_or(|(_, s)| *s != sign) {
-            let tick = u64::try_from(ticks_of(bar.start)?.saturating_add(lead)).unwrap_or(0);
+            // The lead-in makes every tick non-negative (see `lead`): a negative one is a bug.
+            let tick = convert_or(ticks_of(bar.start)?.saturating_add(lead), 0_u64);
             out.signs.push((tick, sign));
         }
     }

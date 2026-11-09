@@ -3,12 +3,23 @@
 # commit-msg hook: every commit must declare whether it changes anything visible to the user.
 # With "User-visible: yes" the sources of BOTH user guides must be part of the same commit.
 
+# Strict mode: stop at the first failing command (-e), treat unset variables as errors (-u), and
+# let a pipeline fail when any of its commands fails (pipefail). Commands whose "failure" is an
+# expected answer (grep finding nothing) are guarded explicitly with `|| true` or an `if`.
+set -euo pipefail
+
 msg_file="$1"
 
-# Merge, revert and fixup commits are exempt.
-if grep -qE '^(Merge|Revert|fixup!|squash!)' "$msg_file"; then exit 0; fi
+# The subject: the first line that is neither empty nor a comment (git strips `#` lines later,
+# but the hook may still see them, e.g. with `--cleanup=verbatim` off).
+subject=$(grep -vE '^[[:space:]]*(#|$)' "$msg_file" | head -n 1 || true)
 
-value=$(git interpret-trailers --parse "$msg_file" | grep -E '^User-visible:' | tail -1 | sed 's/^User-visible:[[:space:]]*//')
+# Merge, revert and fixup commits are exempt. Only the SUBJECT is checked: a body line that
+# happens to start with "Merge" must not switch the check off.
+if printf '%s\n' "$subject" | grep -qE '^(Merge|Revert|fixup!|squash!)'; then exit 0; fi
+
+value=$(git interpret-trailers --parse "$msg_file" | grep -E '^User-visible:' | tail -n 1 \
+  | sed 's/^User-visible:[[:space:]]*//' || true)
 
 case "$value" in
   yes|no) ;;
@@ -17,13 +28,30 @@ case "$value" in
     exit 1 ;;
 esac
 
-if [ "$value" = "yes" ]; then
-  staged=$(git diff --cached --name-only)
+# True if the files listed in "$1" (one per line) include both guide directories.
+touches_both_guides() {
+  local dir
   for dir in docs/guide/it/ docs/guide/en/; do
-    echo "$staged" | grep -q "^$dir" || {
-      echo "ERROR: 'User-visible: yes' requires updated guide sources in $dir (both languages)." >&2
-      exit 1
-    }
+    printf '%s\n' "$1" | grep -q "^$dir" || return 1
   done
+}
+
+if [ "$value" = "yes" ]; then
+  # A normal commit: what it changes is the index compared with HEAD.
+  staged=$(git diff --cached --name-only)
+  if touches_both_guides "$staged"; then exit 0; fi
+  # An amend (`git commit --amend`): the new commit replaces HEAD, so what it changes is the index
+  # compared with HEAD's parent; the guide edits may already be in HEAD and not staged again.
+  # git does not tell a commit-msg hook whether it is amending, so we recognise an amend by the
+  # subject being the same as HEAD's (an amend keeps it unless it is retyped). A new commit with
+  # the very subject of the previous one is rare, and accepting it only means trusting guide edits
+  # made by that previous commit for the same change.
+  if head_subject=$(git log -1 --format=%s HEAD 2>/dev/null) && [ "$head_subject" = "$subject" ] \
+    && git rev-parse --verify --quiet HEAD^ >/dev/null; then
+    amended=$(git diff --cached --name-only HEAD^)
+    if touches_both_guides "$amended"; then exit 0; fi
+  fi
+  echo "ERROR: 'User-visible: yes' requires updated guide sources in docs/guide/it/ and docs/guide/en/ (both languages)." >&2
+  exit 1
 fi
 exit 0

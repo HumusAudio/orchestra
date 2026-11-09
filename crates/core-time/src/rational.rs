@@ -279,12 +279,10 @@ impl Rational {
     /// let r = Rational::new(6, -8)?;
     /// assert_eq!((r.numerator(), r.denominator()), (-3, 4));
     ///
-    /// // `new` is a `const fn`: a fixed value can be checked at compile time. A typo such as a
-    /// // zero denominator then stops the build instead of failing at run time.
-    /// const QUARTER: Rational = match Rational::new(1, 4) {
-    ///     Ok(r) => r,
-    ///     Err(_) => panic!("1/4 is a valid rational"),
-    /// };
+    /// // `new` is a `const fn`: a fixed value can be checked at compile time with the
+    /// // `rational!` macro. A typo such as a zero denominator then stops the build instead of
+    /// // failing at run time.
+    /// const QUARTER: Rational = orchestra_core_time::rational!(1, 4);
     /// assert_eq!(QUARTER.denominator(), 4);
     /// # Ok::<(), orchestra_core_time::RationalError>(())
     /// ```

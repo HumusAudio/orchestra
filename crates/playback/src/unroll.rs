@@ -48,6 +48,7 @@
 //! Every jump is taken at most once and every section has at most `MAX_PLAYS` plays, so on a
 //! valid document the path is finite; it is at most `bars × MAX_PLAYS × (jumps + 1)` long.
 
+use orchestra_core_time::invariant::convert_or;
 use std::error::Error;
 use std::fmt;
 
@@ -384,7 +385,7 @@ impl Unrolled {
             );
 
         let mut played: Vec<PlayedBar> = Vec::new();
-        let mut counts: Vec<u32> = vec![0; usize::try_from(total).unwrap_or(0)];
+        let mut counts: Vec<u32> = vec![0; convert_or(total, 0_usize)];
         let mut taken = vec![false; form.jumps.len()];
         let mut active: Option<usize> = None;
         let mut skip_repeats = false;
@@ -525,7 +526,7 @@ impl Unrolled {
         }
 
         // P5: where each written bar is played.
-        let mut plays_of: Vec<Vec<u32>> = vec![Vec::new(); usize::try_from(total).unwrap_or(0)];
+        let mut plays_of: Vec<Vec<u32>> = vec![Vec::new(); convert_or(total, 0_usize)];
         for (k, p) in played.iter().enumerate() {
             if let Some(list) =
                 plays_of.get_mut(usize::try_from(p.index.get()).unwrap_or(usize::MAX))

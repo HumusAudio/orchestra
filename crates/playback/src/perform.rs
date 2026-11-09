@@ -45,6 +45,7 @@
 //! O(path × events of a bar) items per voice, O(1) average per tie followed (an index by notehead),
 //! O(n log n) to sort the n notes of an instrument.
 
+use orchestra_core_time::invariant::convert_or;
 use std::error::Error;
 use std::fmt;
 
@@ -64,29 +65,15 @@ mod update;
 // Constants of ADR-0027
 // ------------------------------------------------------------------------------------------------
 
-/// `1/den` of a whole note, as a constant.
-///
-/// `Rational::new` returns a `Result`, so a constant cannot use `?`; the `match` is evaluated at
-/// compile time, and for the positive denominators used below it always takes the `Ok` arm (the
-/// `Err` arm is unreachable: a failure would be a wrong constant, caught by the tests, never a
-/// run-time error). The constants used to be functions returning `Result`, re-evaluated at every
-/// call (review point C3).
-const fn whole_fraction(den: i64) -> Duration {
-    match Rational::new(1, den) {
-        Ok(r) => Duration::from_rational(r),
-        Err(_) => Duration::ZERO,
-    }
-}
-
 /// The duration of one acciaccatura and of one `After` grace note: 1/32 of a whole note, about
 /// 65 ms at ♩ = 120 (ADR-0027 §5, `MuseScore`'s duration).
-const GRACE_LENGTH: Duration = whole_fraction(32);
+const GRACE_LENGTH: Duration = Duration::from_rational(orchestra_core_time::rational!(1, 32));
 
 /// The distance between two notes of an arpeggio: 1/64 of a whole note (ADR-0027 §6).
-const ARPEGGIO_STEP: Duration = whole_fraction(64);
+const ARPEGGIO_STEP: Duration = Duration::from_rational(orchestra_core_time::rational!(1, 64));
 
 /// The shortest a played note lasts: 1/1024 of a whole note (ADR-0027 §8).
-const MIN_LENGTH: Duration = whole_fraction(1024);
+const MIN_LENGTH: Duration = Duration::from_rational(orchestra_core_time::rational!(1, 1024));
 
 // ------------------------------------------------------------------------------------------------
 // Errors
@@ -327,7 +314,8 @@ impl Part {
 /// before `end`, 0 if none. O(log path).
 fn bar_of(path: &Unrolled, end: Position) -> u32 {
     let i = path.played().partition_point(|p| p.start < end);
-    u32::try_from(i.saturating_sub(1)).unwrap_or(u32::MAX)
+    // A path has at most `u32::MAX` played bars (the unroller's bound), so this always fits.
+    convert_or(i.saturating_sub(1), u32::MAX)
 }
 
 /// The index of the last played bar, or `None` for an empty path. O(1).
@@ -1139,8 +1127,7 @@ fn arpeggiate(items: &[Vec<Item<'_>>], notes: &mut [Slot]) -> Result<(), Perform
         });
         for (k, index) in group.into_iter().enumerate() {
             if let Some(Slot { note, .. }) = notes.get_mut(index) {
-                let shift =
-                    step.checked_mul(Rational::from_integer(i64::try_from(k).unwrap_or(0))?)?;
+                let shift = step.checked_mul(Rational::from_integer(convert_or(k, 0_i64))?)?;
                 note.start = note.start.checked_add(shift)?;
             }
         }

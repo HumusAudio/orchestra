@@ -75,12 +75,8 @@ pub struct Tempo {
     bpm: Rational,
 }
 
-/// Sixty, the number of seconds in a minute.
-const SIXTY: Rational = match Rational::from_integer(60) {
-    Ok(sixty) => sixty,
-    // Unreachable: 60 is a valid rational. Evaluated at compile time.
-    Err(_) => Rational::ONE,
-};
+/// Sixty, the number of seconds in a minute (checked at compile time, see `rational!`).
+const SIXTY: Rational = crate::rational!(60);
 
 impl Tempo {
     /// Builds a tempo from its beat unit and its beats per minute.

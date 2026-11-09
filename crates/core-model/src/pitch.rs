@@ -29,6 +29,7 @@
 //! is done in `i64`, where it cannot overflow; arithmetic on unbounded values (the numerators of
 //! rationals) uses the checked operations of `core-time`.
 
+use orchestra_core_time::invariant::{convert_or, some_or};
 use std::error::Error;
 use std::fmt;
 
@@ -265,12 +266,9 @@ impl Alteration {
     /// A sharp: +1 semitone.
     pub const SHARP: Self = Self(Rational::ONE);
 
-    /// A flat: −1 semitone. Built with a `const` match because `Neg` is not `const`;
-    /// `Rational::new(-1, 1)` cannot fail, so the fallback arm is never taken.
-    pub const FLAT: Self = Self(match Rational::new(-1, 1) {
-        Ok(r) => r,
-        Err(_) => Rational::ZERO,
-    });
+    /// A flat: −1 semitone. Written with `rational!` because `Neg` is not `const`; the literal
+    /// is checked at compile time.
+    pub const FLAT: Self = Self(orchestra_core_time::rational!(-1));
 
     /// An alteration of `semitones`.
     ///
@@ -564,10 +562,11 @@ impl Pitch {
         // `key − natural − alteration` is a multiple of 12 by construction (the spelling sounds
         // like the pitch class); the octave is that multiple minus one (MIDI 0 is C−1).
         let octave = (key - step.natural_semitones() - alteration).div_euclid(12) - 1;
-        // |alteration| ≤ 3 (see above) and octave ∈ −2..=10: both conversions always succeed;
-        // the fallbacks only keep the code free of panics.
-        let alteration = Alteration::chromatic(alteration).unwrap_or(Alteration::NATURAL);
-        let octave = i8::try_from(octave).unwrap_or(0);
+        // |alteration| ≤ 3 (see above) and octave ∈ −2..=10: both conversions always succeed.
+        // The fallbacks only keep release builds free of panics; debug builds (and the tests)
+        // stop at a broken invariant instead of carrying a wrong pitch on (`invariant`).
+        let alteration = some_or(Alteration::chromatic(alteration).ok(), Alteration::NATURAL);
+        let octave = convert_or(octave, 0_i8);
         Self::new(step, alteration, octave)
     }
 }

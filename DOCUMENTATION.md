@@ -226,6 +226,33 @@ contains the rational type (step F1.03), the position and duration types (F1.04)
 map with beat groupings (F1.04b), the units of real time (F1.05: tempo, seconds, samples,
 frames) and the tempo map with gradual changes and exact sample and frame indices (F1.05b).
 
+#### Invariants and rational constants
+
+Two small tools, used by every crate, for values that **cannot be wrong** while the program is
+correct. Library code never panics (CLAUDE.md §4), so the "impossible" case still needs an
+answer; the danger is answering it *silently*. A `u32::try_from(index).unwrap_or(0)` turns a
+broken invariant into a plausible wrong value (an octave 0, a tick 0) that flows on unnoticed.
+
+- `invariant::convert_or(value, fallback)` (`src/invariant.rs`) converts with `TryFrom`; on
+  failure it returns the fallback in release builds and fails a `debug_assert!` in debug builds,
+  so every test run stops at the broken conversion, with the caller's line (`#[track_caller]`).
+  `invariant::some_or(option, fallback)` is the same for an `Option`. Where a failure is a
+  legitimate input (a capacity hint, a value that saturates on purpose, a lookup that fails with
+  `None` on its own), the plain `unwrap_or` stays, with a comment saying why.
+- `rational!(n, d)` and `rational!(n)` (defined in `src/lib.rs`, exported) write a rational
+  constant. The expansion is an inline `const` block, always evaluated by the compiler: an invalid
+  literal such as `rational!(1, 0)` is a **compile error** (a `compile_fail` doctest checks it),
+  never a run-time panic, and never a silent `Rational::ZERO`.
+
+```rust
+// An index that always fits a `u32` while the program is correct: release builds fall back to
+// `u32::MAX`, debug builds (and every test) stop right here if it ever does not.
+let from = orchestra_core_time::invariant::convert_or(p, u32::MAX);
+
+// A constant checked by the compiler: `rational!(1, 0)` would not compile.
+const GRID: Rational = orchestra_core_time::rational!(1, 32);
+```
+
 #### The rational type
 
 `Rational` (in `src/rational.rs`, re-exported at the crate root together with `RationalError`)
@@ -2515,11 +2542,16 @@ missing step is `LoadError::Migration { from, message }`. The first format chang
 function to the chain and a `tests/golden/v2/` directory; the files of `v1/` stay as they are and
 must keep loading into the same documents.
 
-**Saving safely** (S13; the steps live in `src/safe_write.rs`, shared with the MIDI export). `save` writes a temporary file `.<name>.<process id>.tmp` in the target's
-directory, syncs it, renames it over the target, then syncs the directory where the platform needs
+**Saving safely** (S13; the steps live in `src/safe_write.rs`, shared with the MIDI export). `save` writes a temporary file `.<name>.<process id>.<serial>.tmp` in the
+target's directory, syncs it, renames it over the target, then syncs the directory where the platform needs
 it; on error the temporary file is removed and the previous file is intact. The directory sync is
 the crate's first platform-specific code, in `src/platform/` behind the `FileSystem` trait (CLAUDE.md
 §2): on Unix the directory is opened and synced, elsewhere (Windows) there is nothing to do.
+The temporary file is opened with `create_new` (never someone else's file), so its name must be
+unique: the process id separates programs, a process-wide atomic serial number separates the
+threads of one program (an automatic save next to a manual one), and a name already taken, for
+example a leftover of a crashed process whose id came back, is skipped by trying the next serial,
+at most 64 times. A leftover is never deleted: it might be another program's save in progress.
 
 **Tests.** `tests/project_cases.rs`: round trips of the test document, the normal and the heavy
 score (same bytes after a second save, same content, IDs and counter); the layout; a BOM and CRLF
@@ -3221,7 +3253,11 @@ FILE=$(jq -r '.tool_input.file_path // empty'); case "$FILE" in *.rs) rustfmt "$
 
 `.githooks/commit-msg` refuses any commit without a `User-visible: yes` or `User-visible: no`
 trailer; with `yes` the commit must also change the sources of both guides (`docs/guide/it/` and
-`docs/guide/en/`). Merge, revert and fixup commits are exempt.
+`docs/guide/en/`). Merge, revert and fixup commits are exempt; only the **subject** line decides
+it, so a body line that starts with "Merge" does not switch the check off. The script runs in
+strict mode (`set -euo pipefail`). An amend (`git commit --amend`) replaces HEAD, so its guide
+edits may already be in HEAD and not staged again: git does not tell the hook it is amending, so
+when the subject is the same as HEAD's the hook also compares the index with HEAD's parent.
 
 Git only recognises trailers in the **last paragraph** of the message, so `User-visible` must be
 in the same block as any other trailer:

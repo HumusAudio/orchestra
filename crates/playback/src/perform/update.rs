@@ -49,6 +49,7 @@
 
 use orchestra_core_model::{ChangeSet, Document, DocumentError, Instrument};
 use orchestra_core_time::Position;
+use orchestra_core_time::invariant::convert_or;
 
 use super::{Extra, Part, PerformError, Performance, PlayedNote, last_played, order_key};
 use crate::loudness::{PathPoint, Profile, Timeline};
@@ -201,7 +202,7 @@ struct Summary {
 impl Summary {
     /// The summary of a part's notes on a path of `len` played bars. O(n + len + spans).
     fn new(part: &Part, len: usize) -> Self {
-        let mut reach: Vec<u32> = (0..u32::try_from(len).unwrap_or(u32::MAX)).collect();
+        let mut reach: Vec<u32> = (0..convert_or(len, u32::MAX)).collect();
         let mut earliest: Vec<Option<Position>> = vec![None; len];
         let mut latest: Vec<Option<Position>> = vec![None; len];
         for (note, extra) in part.notes.iter().zip(&part.extras) {
@@ -223,9 +224,9 @@ impl Summary {
             }
         }
         // cover[j]: the first bar of the notes reaching j, swept bar by bar.
-        let mut cover: Vec<u32> = (0..u32::try_from(len).unwrap_or(u32::MAX)).collect();
+        let mut cover: Vec<u32> = (0..convert_or(len, u32::MAX)).collect();
         for (p, &r) in reach.iter().enumerate() {
-            let from = u32::try_from(p).unwrap_or(u32::MAX);
+            let from = convert_or(p, u32::MAX);
             for j in from.saturating_add(1)..=r {
                 if let Some(c) = usize::try_from(j).ok().and_then(|j| cover.get_mut(j)) {
                     *c = (*c).min(from);
@@ -603,5 +604,6 @@ fn bar_start(path: &Unrolled, k: u32) -> Position {
 /// before it, 0 if none. O(log path).
 fn bar_at(path: &Unrolled, at: Position) -> u32 {
     let i = path.played().partition_point(|p| p.start <= at);
-    u32::try_from(i.saturating_sub(1)).unwrap_or(0)
+    // A path has at most `u32::MAX` played bars (the unroller's bound), so this always fits.
+    convert_or(i.saturating_sub(1), 0_u32)
 }
