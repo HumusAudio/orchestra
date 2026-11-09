@@ -746,10 +746,6 @@ impl Document {
     /// object's list for every dynamic, hairpin or mark of a document being built). Every other
     /// rule of the edit layer applies: the builder and the commands share them.
     /// On error nothing changed.
-    #[allow(
-        clippy::too_many_lines,
-        reason = "one short arm per kind of object: splitting the match would only scatter it"
-    )]
     pub(crate) fn place_object(
         &mut self,
         object: Object,
@@ -766,213 +762,364 @@ impl Document {
                 placed,
                 place,
             } => self.insert_event(voice, bar, placed, place, changes)?,
-            Object::Tuplet { voice, id, tuplet } => {
-                let (t, v) = self.position_of_voice(voice)?;
-                let content = &self.voice_at(t, v)?.content;
-                if let Some(parent) = tuplet.parent() {
-                    if !content.tuplets.contains_key(&parent) {
-                        return Err(DocumentError::UnknownTuplet(parent));
-                    }
-                    if content.depth_of(parent) >= MAX_TUPLET_DEPTH {
-                        return Err(DocumentError::TupletTooDeep);
-                    }
-                }
-                self.voice_at_mut(t, v)?.content.tuplets.insert(id, tuplet);
-            }
-            Object::Slur { instrument, slur } => {
-                if slur.start() == slur.end() {
-                    return Err(DocumentError::SlurToItself);
-                }
-                let t = self.track_of_instrument(instrument)?;
-                let slurs = &mut self.track_at_mut(t)?.instrument.slurs;
-                insert_sorted(slurs, slur, Slur::id);
-                for end in [slur.start(), slur.end()] {
-                    index_slur(&mut self.slur_index, end, slur.id());
-                }
-            }
+            Object::Tuplet { voice, id, tuplet } => self.place_tuplet(voice, id, tuplet)?,
+            Object::Slur { instrument, slur } => self.place_slur(instrument, slur)?,
             Object::Dynamic {
                 instrument,
                 dynamic,
-            } => {
-                self.check_point(dynamic.at())?;
-                let t = self.track_of_instrument(instrument)?;
-                self.check_placement(t, dynamic.placement())?;
-                let Self { bars, tracks, .. } = self;
-                let list = &mut tracks
-                    .get_mut(t)
-                    .ok_or(DocumentError::UnknownInstrument(instrument))?
-                    .instrument
-                    .dynamics;
-                let at = point_key(bars, dynamic.at());
-                // At most one dynamic of a scope at one point (rule of the builder, ADR-0024 §8).
-                if list.iter().any(|d| {
-                    point_key(bars, d.at()) == at
-                        && d.placement().scope == dynamic.placement().scope
-                }) {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                insert_sorted(list, dynamic, |d| (point_key(bars, d.at()), d.id()));
-            }
+            } => self.place_dynamic(instrument, dynamic)?,
             Object::Hairpin {
                 instrument,
                 hairpin,
-            } => {
-                self.check_point(hairpin.start())?;
-                self.check_point(hairpin.end())?;
-                if point_key(&self.bars, hairpin.end()) <= point_key(&self.bars, hairpin.start()) {
-                    return Err(DocumentError::HairpinNotForward);
-                }
-                let t = self.track_of_instrument(instrument)?;
-                self.check_placement(t, hairpin.placement())?;
-                let Self { bars, tracks, .. } = self;
-                let list = &mut tracks
-                    .get_mut(t)
-                    .ok_or(DocumentError::UnknownInstrument(instrument))?
-                    .instrument
-                    .hairpins;
-                insert_sorted(list, hairpin, |h| (point_key(bars, h.start()), h.id()));
-            }
-            Object::TempoMark(mark) => {
-                let index = self.check_point(mark.point())?;
-                if let Some(TempoMarkChange::Gradual(gradual)) = mark.value().change() {
-                    self.check_point(gradual.end)?;
-                }
-                if index == BarIndex::FIRST && mark.offset().is_zero() {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                let Self {
-                    bars, tempo_marks, ..
-                } = self;
-                tempo_marks.insert(mark, bars)?;
-            }
-            Object::ClefChange { staff, mark } => {
-                let index = self.check_point(mark.point())?;
-                if index == BarIndex::FIRST && mark.offset().is_zero() {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                let (t, s) = self.position_of_staff(staff)?;
-                let Self { bars, tracks, .. } = self;
-                tracks
-                    .get_mut(t)
-                    .and_then(|track| track.instrument.staves.get_mut(s))
-                    .ok_or(DocumentError::UnknownStaff(staff))?
-                    .clef_changes
-                    .insert(mark, bars)?;
-            }
-            Object::KeyChange(mark) => {
-                let index = self.check_point(mark.point())?;
-                if index == BarIndex::FIRST && mark.offset().is_zero() {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                let Self {
-                    bars, key_changes, ..
-                } = self;
-                key_changes.insert(mark, bars)?;
-            }
+            } => self.place_hairpin(instrument, hairpin)?,
+            Object::TempoMark(mark) => self.place_tempo_mark(mark)?,
+            Object::ClefChange { staff, mark } => self.place_clef_change(staff, mark)?,
+            Object::KeyChange(mark) => self.place_key_change(mark)?,
             Object::KeyOverride { instrument, mark } => {
-                self.check_point(mark.point())?;
-                let t = self.track_of_instrument(instrument)?;
-                let Self { bars, tracks, .. } = self;
-                tracks
-                    .get_mut(t)
-                    .ok_or(DocumentError::UnknownInstrument(instrument))?
-                    .instrument
-                    .key_overrides
-                    .insert(mark, bars)?;
+                self.place_key_override(instrument, mark)?;
             }
-            Object::RepeatStart(repeat) => {
-                let at = self.bar_index(repeat.bar())?.get();
-                let Self { bars, form, .. } = self;
-                if form.repeat_starts.iter().any(|r| bars.key(r.bar()) == at) {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                insert_sorted(&mut form.repeat_starts, repeat, |r| bars.key(r.bar()));
-            }
-            Object::RepeatEnd(repeat) => {
-                if !(2..=MAX_PLAYS).contains(&repeat.times()) {
-                    return Err(DocumentError::PlaysOutOfRange(repeat.times()));
-                }
-                let at = self.bar_index(repeat.bar())?.get();
-                let Self { bars, form, .. } = self;
-                if form.repeat_ends.iter().any(|r| bars.key(r.bar()) == at) {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                insert_sorted(&mut form.repeat_ends, repeat, |r| bars.key(r.bar()));
-            }
-            Object::Volta(volta) => {
-                let first = self.bar_index(volta.first())?;
-                let last = self.bar_index(volta.last())?;
-                if last < first {
-                    return Err(DocumentError::VoltaNotForward);
-                }
-                if volta.passes().is_empty() {
-                    return Err(DocumentError::EmptyPassSet);
-                }
-                let Self { bars, form, .. } = self;
-                insert_sorted(&mut form.voltas, volta, |v| (bars.key(v.first()), v.id()));
-            }
-            Object::Marker(marker) => {
-                let at = self.bar_index(marker.bar())?.get();
-                let Self { bars, form, .. } = self;
-                // Score order of markers: bar, then the start side before the end side.
-                let key = |m: &Marker| (bars.key(m.bar()), u8::from(!m.kind().at_start()));
-                let own = (at, u8::from(!marker.kind().at_start()));
-                if form.markers.iter().any(|m| key(m) == own) {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                insert_sorted(&mut form.markers, marker, key);
-            }
-            Object::Jump(jump) => {
-                let at = self.bar_index(jump.bar())?.get();
-                let Self { bars, form, .. } = self;
-                if form.jumps.iter().any(|j| bars.key(j.bar()) == at) {
-                    return Err(DocumentError::DuplicateMark);
-                }
-                insert_sorted(&mut form.jumps, jump, |j| bars.key(j.bar()));
-            }
-            Object::BarRepeat(repeat) => {
-                self.bar_index(repeat.first())?;
-                if repeat.count() == 0 || !repeat.count().is_multiple_of(repeat.span().bars()) {
-                    return Err(DocumentError::BarRepeatCount);
-                }
-                let (t, _) = self.position_of_staff(repeat.staff())?;
-                let Self { bars, tracks, .. } = self;
-                let list = &mut tracks
-                    .get_mut(t)
-                    .ok_or(DocumentError::UnknownStaff(repeat.staff()))?
-                    .instrument
-                    .bar_repeats;
-                insert_sorted(list, repeat, |r| (bars.key(r.first()), r.id()));
-            }
-            Object::PassRule { instrument, rule } => {
-                self.check_point(rule.start())?;
-                self.check_point(rule.end())?;
-                if point_key(&self.bars, rule.end()) <= point_key(&self.bars, rule.start()) {
-                    return Err(DocumentError::PassRuleNotForward);
-                }
-                if rule.plays().is_empty() {
-                    return Err(DocumentError::EmptyPassSet);
-                }
-                let t = self.track_of_instrument(instrument)?;
-                let Self { bars, tracks, .. } = self;
-                let target = &mut tracks
-                    .get_mut(t)
-                    .ok_or(DocumentError::UnknownInstrument(instrument))?
-                    .instrument;
-                if let DynamicScope::Voice(voice) = rule.scope()
-                    && target.voice(voice).is_none()
-                {
-                    return Err(DocumentError::VoiceOfAnotherInstrument(voice));
-                }
-                insert_sorted(&mut target.pass_rules, rule, |r| {
-                    (point_key(bars, r.start()), r.id())
-                });
-            }
+            Object::RepeatStart(repeat) => self.place_repeat_start(repeat)?,
+            Object::RepeatEnd(repeat) => self.place_repeat_end(repeat)?,
+            Object::Volta(volta) => self.place_volta(volta)?,
+            Object::Marker(marker) => self.place_marker(marker)?,
+            Object::Jump(jump) => self.place_jump(jump)?,
+            Object::BarRepeat(repeat) => self.place_bar_repeat(repeat)?,
+            Object::PassRule { instrument, rule } => self.place_pass_rule(instrument, rule)?,
         }
         if let Some(instrument) = loudness {
             changes.dynamics(instrument);
         }
         changes.insert(name);
+        Ok(())
+    }
+
+    /// Places a tuplet in `voice`: its parent, if any, must exist and the nesting stay within
+    /// [`MAX_TUPLET_DEPTH`]. Part of [`place_object`](Self::place_object). O(voices) to find the
+    /// voice, O(depth) for the nesting, O(1) average for the insertion in the tuplet table.
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_tuplet(
+        &mut self,
+        voice: VoiceId,
+        id: TupletId,
+        tuplet: Tuplet,
+    ) -> Result<(), DocumentError> {
+        let (t, v) = self.position_of_voice(voice)?;
+        let content = &self.voice_at(t, v)?.content;
+        if let Some(parent) = tuplet.parent() {
+            if !content.tuplets.contains_key(&parent) {
+                return Err(DocumentError::UnknownTuplet(parent));
+            }
+            if content.depth_of(parent) >= MAX_TUPLET_DEPTH {
+                return Err(DocumentError::TupletTooDeep);
+            }
+        }
+        self.voice_at_mut(t, v)?.content.tuplets.insert(id, tuplet);
+        Ok(())
+    }
+
+    /// Places a slur of `instrument` (never from an event to itself) and indexes both its ends. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_slur(&mut self, instrument: InstrumentId, slur: Slur) -> Result<(), DocumentError> {
+        if slur.start() == slur.end() {
+            return Err(DocumentError::SlurToItself);
+        }
+        let t = self.track_of_instrument(instrument)?;
+        let slurs = &mut self.track_at_mut(t)?.instrument.slurs;
+        insert_sorted(slurs, slur, Slur::id);
+        for end in [slur.start(), slur.end()] {
+            index_slur(&mut self.slur_index, end, slur.id());
+        }
+        Ok(())
+    }
+
+    /// Places a dynamic of `instrument`, at most one of a scope at one point (ADR-0024 §8). Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_dynamic(
+        &mut self,
+        instrument: InstrumentId,
+        dynamic: Dynamic,
+    ) -> Result<(), DocumentError> {
+        self.check_point(dynamic.at())?;
+        let t = self.track_of_instrument(instrument)?;
+        self.check_placement(t, dynamic.placement())?;
+        let Self { bars, tracks, .. } = self;
+        let list = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .instrument
+            .dynamics;
+        let at = point_key(bars, dynamic.at());
+        // At most one dynamic of a scope at one point (rule of the builder, ADR-0024 §8).
+        if list.iter().any(|d| {
+            point_key(bars, d.at()) == at && d.placement().scope == dynamic.placement().scope
+        }) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        insert_sorted(list, dynamic, |d| (point_key(bars, d.at()), d.id()));
+        Ok(())
+    }
+
+    /// Places a hairpin of `instrument`, which must go forwards in score order. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_hairpin(
+        &mut self,
+        instrument: InstrumentId,
+        hairpin: Hairpin,
+    ) -> Result<(), DocumentError> {
+        self.check_point(hairpin.start())?;
+        self.check_point(hairpin.end())?;
+        if point_key(&self.bars, hairpin.end()) <= point_key(&self.bars, hairpin.start()) {
+            return Err(DocumentError::HairpinNotForward);
+        }
+        let t = self.track_of_instrument(instrument)?;
+        self.check_placement(t, hairpin.placement())?;
+        let Self { bars, tracks, .. } = self;
+        let list = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .instrument
+            .hairpins;
+        insert_sorted(list, hairpin, |h| (point_key(bars, h.start()), h.id()));
+        Ok(())
+    }
+
+    /// Places a tempo mark; the start of the score holds the initial tempo, not a mark. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_tempo_mark(
+        &mut self,
+        mark: Mark<TempoMarkId, TempoMark>,
+    ) -> Result<(), DocumentError> {
+        let index = self.check_point(mark.point())?;
+        if let Some(TempoMarkChange::Gradual(gradual)) = mark.value().change() {
+            self.check_point(gradual.end)?;
+        }
+        if index == BarIndex::FIRST && mark.offset().is_zero() {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let Self {
+            bars, tempo_marks, ..
+        } = self;
+        tempo_marks.insert(mark, bars)?;
+        Ok(())
+    }
+
+    /// Places a clef change on `staff`; the start of the score holds the initial clef. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_clef_change(
+        &mut self,
+        staff: StaffId,
+        mark: Mark<ClefId, Clef>,
+    ) -> Result<(), DocumentError> {
+        let index = self.check_point(mark.point())?;
+        if index == BarIndex::FIRST && mark.offset().is_zero() {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let (t, s) = self.position_of_staff(staff)?;
+        let Self { bars, tracks, .. } = self;
+        tracks
+            .get_mut(t)
+            .and_then(|track| track.instrument.staves.get_mut(s))
+            .ok_or(DocumentError::UnknownStaff(staff))?
+            .clef_changes
+            .insert(mark, bars)?;
+        Ok(())
+    }
+
+    /// Places a key change; the start of the score holds the initial key. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_key_change(&mut self, mark: Mark<KeyChangeId, Key>) -> Result<(), DocumentError> {
+        let index = self.check_point(mark.point())?;
+        if index == BarIndex::FIRST && mark.offset().is_zero() {
+            return Err(DocumentError::DuplicateMark);
+        }
+        let Self {
+            bars, key_changes, ..
+        } = self;
+        key_changes.insert(mark, bars)?;
+        Ok(())
+    }
+
+    /// Places a key override of `instrument`. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_key_override(
+        &mut self,
+        instrument: InstrumentId,
+        mark: Mark<KeyChangeId, KeyOverride>,
+    ) -> Result<(), DocumentError> {
+        self.check_point(mark.point())?;
+        let t = self.track_of_instrument(instrument)?;
+        let Self { bars, tracks, .. } = self;
+        tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .instrument
+            .key_overrides
+            .insert(mark, bars)?;
+        Ok(())
+    }
+
+    /// Places a repeat start, at most one per bar. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_repeat_start(&mut self, repeat: RepeatStart) -> Result<(), DocumentError> {
+        let at = self.bar_index(repeat.bar())?.get();
+        let Self { bars, form, .. } = self;
+        if form.repeat_starts.iter().any(|r| bars.key(r.bar()) == at) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        insert_sorted(&mut form.repeat_starts, repeat, |r| bars.key(r.bar()));
+        Ok(())
+    }
+
+    /// Places a repeat end, at most one per bar, played 2 ..= [`MAX_PLAYS`] times. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_repeat_end(&mut self, repeat: RepeatEnd) -> Result<(), DocumentError> {
+        if !(2..=MAX_PLAYS).contains(&repeat.times()) {
+            return Err(DocumentError::PlaysOutOfRange(repeat.times()));
+        }
+        let at = self.bar_index(repeat.bar())?.get();
+        let Self { bars, form, .. } = self;
+        if form.repeat_ends.iter().any(|r| bars.key(r.bar()) == at) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        insert_sorted(&mut form.repeat_ends, repeat, |r| bars.key(r.bar()));
+        Ok(())
+    }
+
+    /// Places a volta over a forward run of bars, for at least one pass. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_volta(&mut self, volta: Volta) -> Result<(), DocumentError> {
+        let first = self.bar_index(volta.first())?;
+        let last = self.bar_index(volta.last())?;
+        if last < first {
+            return Err(DocumentError::VoltaNotForward);
+        }
+        if volta.passes().is_empty() {
+            return Err(DocumentError::EmptyPassSet);
+        }
+        let Self { bars, form, .. } = self;
+        insert_sorted(&mut form.voltas, volta, |v| (bars.key(v.first()), v.id()));
+        Ok(())
+    }
+
+    /// Places a marker, at most one per bar and side (start or end). Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_marker(&mut self, marker: Marker) -> Result<(), DocumentError> {
+        let at = self.bar_index(marker.bar())?.get();
+        let Self { bars, form, .. } = self;
+        // Score order of markers: bar, then the start side before the end side.
+        let key = |m: &Marker| (bars.key(m.bar()), u8::from(!m.kind().at_start()));
+        let own = (at, u8::from(!marker.kind().at_start()));
+        if form.markers.iter().any(|m| key(m) == own) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        insert_sorted(&mut form.markers, marker, key);
+        Ok(())
+    }
+
+    /// Places a jump, at most one per bar. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_jump(&mut self, jump: Jump) -> Result<(), DocumentError> {
+        let at = self.bar_index(jump.bar())?.get();
+        let Self { bars, form, .. } = self;
+        if form.jumps.iter().any(|j| bars.key(j.bar()) == at) {
+            return Err(DocumentError::DuplicateMark);
+        }
+        insert_sorted(&mut form.jumps, jump, |j| bars.key(j.bar()));
+        Ok(())
+    }
+
+    /// Places a bar repeat on its staff: its count must be a whole number of its span. Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_bar_repeat(&mut self, repeat: BarRepeat) -> Result<(), DocumentError> {
+        self.bar_index(repeat.first())?;
+        if repeat.count() == 0 || !repeat.count().is_multiple_of(repeat.span().bars()) {
+            return Err(DocumentError::BarRepeatCount);
+        }
+        let (t, _) = self.position_of_staff(repeat.staff())?;
+        let Self { bars, tracks, .. } = self;
+        let list = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownStaff(repeat.staff()))?
+            .instrument
+            .bar_repeats;
+        insert_sorted(list, repeat, |r| (bars.key(r.first()), r.id()));
+        Ok(())
+    }
+
+    /// Places a pass rule of `instrument` (forwards, for at least one play, on one of its own
+    /// voices when it names one). Part of [`place_object`](Self::place_object). O(log n) to O(n) in the
+    /// objects of its list (the sorted insertion).
+    ///
+    /// # Errors
+    /// As [`place_object`](Self::place_object); on error nothing changed.
+    fn place_pass_rule(
+        &mut self,
+        instrument: InstrumentId,
+        rule: PassRule,
+    ) -> Result<(), DocumentError> {
+        self.check_point(rule.start())?;
+        self.check_point(rule.end())?;
+        if point_key(&self.bars, rule.end()) <= point_key(&self.bars, rule.start()) {
+            return Err(DocumentError::PassRuleNotForward);
+        }
+        if rule.plays().is_empty() {
+            return Err(DocumentError::EmptyPassSet);
+        }
+        let t = self.track_of_instrument(instrument)?;
+        let Self { bars, tracks, .. } = self;
+        let target = &mut tracks
+            .get_mut(t)
+            .ok_or(DocumentError::UnknownInstrument(instrument))?
+            .instrument;
+        if let DynamicScope::Voice(voice) = rule.scope()
+            && target.voice(voice).is_none()
+        {
+            return Err(DocumentError::VoiceOfAnotherInstrument(voice));
+        }
+        insert_sorted(&mut target.pass_rules, rule, |r| {
+            (point_key(bars, r.start()), r.id())
+        });
         Ok(())
     }
 

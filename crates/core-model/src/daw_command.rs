@@ -78,8 +78,8 @@ use crate::command::{self, EventChange};
 use crate::document::{Document, DocumentError};
 use crate::edit::{Edit, Object, ObjectRef};
 use crate::editor::{CommandError, Transaction};
-use crate::event::{Event, EventBody, Note, NoteValue, PlacedEvent, Tie};
-use crate::id::{BarId, EventId, InstrumentId, NoteId, TrackId, VoiceId};
+use crate::event::{Chord, Event, EventBody, Note, NoteValue, PlacedEvent, Tie};
+use crate::id::{BarId, EventId, InstrumentId, NoteId, StaffId, TrackId, VoiceId};
 use crate::marking::{GraceAttach, PerformanceOffsets};
 use crate::tolerance::Tolerance;
 
@@ -533,10 +533,6 @@ fn chain_parts(
 ///
 /// # Errors
 /// As [`chain_parts`]; the lookups' and the edits'.
-#[allow(
-    clippy::too_many_lines,
-    reason = "the five steps of the How list, in order: splitting them would scatter one rewrite"
-)]
 fn rewrite_chain(
     tx: &mut Transaction<'_>,
     chain: &[(EventId, NoteId)],
@@ -544,49 +540,15 @@ fn rewrite_chain(
     total: Duration,
 ) -> Result<(), CommandError> {
     let doc = tx.document();
-    let &(first_event, first_note) = chain.first().ok_or(DocumentError::inconsistent())?;
-    let &(last_event, last_note) = chain.last().ok_or(DocumentError::inconsistent())?;
-    let found = doc
-        .event(first_event)
-        .ok_or(DocumentError::UnknownEvent(first_event))?;
-    let voice: VoiceId = found.voice();
-    let staff = found.event().staff();
-    let first_chord = found
-        .event()
-        .chord()
-        .ok_or(DocumentError::NotAChord(first_event))?
-        .clone();
-    let head = *doc
-        .note(first_note)
-        .ok_or(DocumentError::UnknownNote(first_note))?
-        .1;
-    let last_tie = doc
-        .note(last_note)
-        .ok_or(DocumentError::UnknownNote(last_note))?
-        .1
-        .tie();
+    let &(last_event, _) = chain.last().ok_or(DocumentError::inconsistent())?;
+    let shape = ChainShape::read(doc, chain)?;
     let parts = chain_parts(doc, start, total)?;
     if parts.is_empty() {
         return Err(DocumentError::inconsistent().into());
     }
-
-    // 2. The grace notes of the chain, sorted into kept and deleted.
-    let mut before = Vec::new();
-    let mut after = Vec::new();
-    let mut stray = Vec::new();
-    for (k, &(e, _)) in chain.iter().enumerate() {
-        for g in command::graces_of(doc, e)? {
-            let attach = doc
-                .event(g)
-                .and_then(|x| x.event().grace())
-                .map(|x| x.attach);
-            match attach {
-                Some(GraceAttach::Before) if k == 0 => before.push(g),
-                Some(GraceAttach::After) if k.saturating_add(1) == chain.len() => after.push(g),
-                _ => stray.push(g),
-            }
-        }
-    }
+    // 2. The grace notes of the chain, sorted into kept and deleted (read before step 1 hands
+    // out IDs, while the document is still the one the chain was read from).
+    let graces = ChainGraces::read(doc, chain)?;
 
     // 1. The IDs of the new pieces: the chain's own for as many parts as it had (one notehead
     // each: a DAW move only rewrites chains of lone noteheads), new ones after.
@@ -594,12 +556,120 @@ fn rewrite_chain(
     let ids = chain_ids(tx, parts.len(), 1, &keep)?;
     let surplus: Vec<EventId> = chain.iter().skip(parts.len()).map(|&(e, _)| e).collect();
     let new_last = ids.last().ok_or(DocumentError::inconsistent())?.0;
-
-    if !stray.is_empty() {
-        command::delete_events(tx, &stray)?;
+    if !graces.stray.is_empty() {
+        command::delete_events(tx, &graces.stray)?;
     }
 
-    // 3. The slurs on the old last piece and on the surplus pieces.
+    // 3. The slurs on the old last piece and on the surplus pieces, then the surplus pieces.
+    retarget_slurs(tx, &surplus, last_event, new_last)?;
+    for &e in &surplus {
+        tx.apply(Edit::Remove(ObjectRef::Event(e)))?;
+    }
+    // 4. The pieces.
+    write_pieces(tx, &shape, &parts, &ids, chain.len())?;
+    // 5. The kept graces.
+    move_kept_graces(tx, graces, &parts)
+}
+
+/// What a rewritten chain keeps from the chain it replaces (step 4 of [`rewrite_chain`]).
+struct ChainShape {
+    /// The voice of the chain.
+    voice: VoiceId,
+    /// The staff of its first piece, kept by every piece.
+    staff: StaffId,
+    /// The first piece's chord: its markings go to the new first piece.
+    first_chord: Chord,
+    /// The first piece's notehead (pitch, performance offsets), kept by the new first piece.
+    head: Note,
+    /// The tie the chain ended with (none, or "let ring"), taken by the new last piece.
+    last_tie: Tie,
+}
+
+impl ChainShape {
+    /// Reads the shape of `chain` (at least one piece). O(event lookups).
+    ///
+    /// # Errors
+    /// [`DocumentError::Inconsistent`] for an empty chain; the lookups' errors.
+    fn read(doc: &Document, chain: &[(EventId, NoteId)]) -> Result<Self, DocumentError> {
+        let &(first_event, first_note) = chain.first().ok_or(DocumentError::inconsistent())?;
+        let &(_, last_note) = chain.last().ok_or(DocumentError::inconsistent())?;
+        let found = doc
+            .event(first_event)
+            .ok_or(DocumentError::UnknownEvent(first_event))?;
+        Ok(Self {
+            voice: found.voice(),
+            staff: found.event().staff(),
+            first_chord: found
+                .event()
+                .chord()
+                .ok_or(DocumentError::NotAChord(first_event))?
+                .clone(),
+            head: *doc
+                .note(first_note)
+                .ok_or(DocumentError::UnknownNote(first_note))?
+                .1,
+            last_tie: doc
+                .note(last_note)
+                .ok_or(DocumentError::UnknownNote(last_note))?
+                .1
+                .tie(),
+        })
+    }
+}
+
+/// The grace notes of a chain, sorted by what the rewrite does with them (step 2 of
+/// [`rewrite_chain`]).
+struct ChainGraces {
+    /// The first piece's `Before` graces: kept, moved to the new start.
+    before: Vec<EventId>,
+    /// The last piece's `After` graces: kept, moved to the new end.
+    after: Vec<EventId>,
+    /// Every other grace of the chain: deleted, with its slurs.
+    stray: Vec<EventId>,
+}
+
+impl ChainGraces {
+    /// Sorts the grace notes of `chain`. O(pieces + graces).
+    ///
+    /// # Errors
+    /// The lookups' errors.
+    fn read(doc: &Document, chain: &[(EventId, NoteId)]) -> Result<Self, CommandError> {
+        let mut graces = Self {
+            before: Vec::new(),
+            after: Vec::new(),
+            stray: Vec::new(),
+        };
+        for (k, &(e, _)) in chain.iter().enumerate() {
+            for g in command::graces_of(doc, e)? {
+                let attach = doc
+                    .event(g)
+                    .and_then(|x| x.event().grace())
+                    .map(|x| x.attach);
+                match attach {
+                    Some(GraceAttach::Before) if k == 0 => graces.before.push(g),
+                    Some(GraceAttach::After) if k.saturating_add(1) == chain.len() => {
+                        graces.after.push(g);
+                    }
+                    _ => graces.stray.push(g),
+                }
+            }
+        }
+        Ok(graces)
+    }
+}
+
+/// Step 3 of [`rewrite_chain`]: the slurs ending on the old last piece `last_event` end on the new
+/// last piece `new_last`; the other slurs touching a `surplus` piece (or now starting on the new
+/// last piece) are removed. O(slurs of those pieces × surplus).
+///
+/// # Errors
+/// The lookups' and the edits' errors.
+fn retarget_slurs(
+    tx: &mut Transaction<'_>,
+    surplus: &[EventId],
+    last_event: EventId,
+    new_last: EventId,
+) -> Result<(), CommandError> {
     let doc = tx.document();
     let mut slur_edits = Vec::new();
     let mut touched: Vec<crate::id::SlurId> = Vec::new();
@@ -626,46 +696,69 @@ fn rewrite_chain(
     for edit in slur_edits {
         tx.apply(edit)?;
     }
-    for &e in &surplus {
-        tx.apply(Edit::Remove(ObjectRef::Event(e)))?;
-    }
+    Ok(())
+}
 
-    // 4. The pieces.
-    for (j, (&(bar, offset, value), (event_id, notes))) in parts.iter().zip(&ids).enumerate() {
+/// Step 4 of [`rewrite_chain`]: every piece written in its place. The first keeps the chain's
+/// notehead and its chord's markings, the others are plain; each is tied to the next, the last
+/// takes the chain's last tie. The first `old_len` pieces replace the chain's own events, the
+/// others are inserted. O(pieces) edits.
+///
+/// # Errors
+/// The note values' and the edits' errors.
+fn write_pieces(
+    tx: &mut Transaction<'_>,
+    shape: &ChainShape,
+    parts: &[(BarId, Duration, NoteValue)],
+    ids: &[PartIds],
+    old_len: usize,
+) -> Result<(), CommandError> {
+    for (j, (&(bar, offset, value), (event_id, notes))) in parts.iter().zip(ids).enumerate() {
         let event_id = *event_id;
         let &note_id = notes.first().ok_or(DocumentError::inconsistent())?;
         let mut note = if j == 0 {
-            head
+            shape.head
         } else {
-            Note::new(note_id, head.pitch())
+            Note::new(note_id, shape.head.pitch())
         };
         // To the next piece; the last piece keeps the tie the chain ended with.
-        note.set_tie(tie_to_next(&ids, j, 0, last_tie));
-        let like = (j == 0).then_some(&first_chord);
+        note.set_tie(tie_to_next(ids, j, 0, shape.last_tie));
+        let like = (j == 0).then_some(&shape.first_chord);
         let chord = command::chord_from(value, None, None, vec![note], like)?;
-        let made = Event::new(event_id, staff, EventBody::Chord(chord));
-        if j < chain.len() {
-            command::replace_event_at(tx, voice, bar, offset, made)?;
+        let made = Event::new(event_id, shape.staff, EventBody::Chord(chord));
+        if j < old_len {
+            command::replace_event_at(tx, shape.voice, bar, offset, made)?;
         } else {
             tx.apply(Edit::Insert(Object::Event {
-                voice,
+                voice: shape.voice,
                 bar,
                 placed: PlacedEvent::new(offset, made),
                 place: None,
             }))?;
         }
     }
+    Ok(())
+}
 
-    // 5. The kept graces: `Before` ones at the new start, `After` ones at the new end (the end of
-    // the last piece's bar if it ends on a barline).
+/// Step 5 of [`rewrite_chain`]: the kept graces go to the new chain, `Before` ones at its start,
+/// `After` ones at its end (the end of the last piece's bar if it ends on a barline).
+/// O(graces) edits.
+///
+/// # Errors
+/// [`DocumentError::Inconsistent`] for no parts; the lookups' and the edits' errors.
+fn move_kept_graces(
+    tx: &mut Transaction<'_>,
+    graces: ChainGraces,
+    parts: &[(BarId, Duration, NoteValue)],
+) -> Result<(), CommandError> {
     let &(first_bar, first_offset, _) = parts.first().ok_or(DocumentError::inconsistent())?;
     let &(last_bar, last_offset, last_value) = parts.last().ok_or(DocumentError::inconsistent())?;
     let end_offset = last_offset.checked_add(last_value.length()?)?;
-    for (graces, bar, offset) in [
-        (before, first_bar, first_offset),
-        (after, last_bar, end_offset),
+    for (list, bar, offset) in [
+        (graces.before, first_bar, first_offset),
+        (graces.after, last_bar, end_offset),
     ] {
-        for g in graces {
+        for g in list {
             let (v, _, placed) = command::current(tx.document(), g)?;
             command::replace_event_at(tx, v, bar, offset, placed.event().clone())?;
         }

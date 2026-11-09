@@ -29,10 +29,10 @@
 //! is done in `i64`, where it cannot overflow; arithmetic on unbounded values (the numerators of
 //! rationals) uses the checked operations of `core-time`.
 
-use orchestra_core_time::invariant::{convert_or, some_or};
 use std::error::Error;
 use std::fmt;
 
+use orchestra_core_time::invariant::{convert_or, some_or};
 use orchestra_core_time::{Rational, RationalError};
 
 // ------------------------------------------------------------------------------------------------
