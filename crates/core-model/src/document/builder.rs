@@ -463,16 +463,7 @@ impl DocumentBuilder {
         // The event needs its staff before it is made: the placement's, or the voice's home staff.
         // The bar and the offset are checked first, as the edit layer does.
         self.doc.check_point(ScorePoint::new(at.bar, at.offset))?;
-        let staff = match at.staff {
-            Some(staff) => staff,
-            None => {
-                self.doc
-                    .voice(at.voice)
-                    .ok_or(DocumentError::UnknownVoice(at.voice))?
-                    .1
-                    .home_staff
-            }
-        };
+        let staff = self.staff_of(&at)?;
         // One ID for the event, one per notehead: all taken up front (and given back together if
         // the chord is refused), so a failure never leaves the counter advanced.
         let needed = u64::try_from(pitches.len())
@@ -529,6 +520,24 @@ impl DocumentBuilder {
         Ok(ChordIds { event, notes })
     }
 
+    /// The staff a new event at `at` is drawn on: the placement's, or else its voice's home
+    /// staff. The one place of this rule for chords and rests. O(1) average (the voice index).
+    ///
+    /// # Errors
+    /// [`DocumentError::UnknownVoice`] when the placement names no staff and its voice does not
+    /// exist.
+    fn staff_of(&self, at: &Placement) -> Result<StaffId, DocumentError> {
+        match at.staff {
+            Some(staff) => Ok(staff),
+            None => Ok(self
+                .doc
+                .voice(at.voice)
+                .ok_or(DocumentError::UnknownVoice(at.voice))?
+                .1
+                .home_staff),
+        }
+    }
+
     /// Adds a rest and returns its event's ID (ADR-0024 §1–§2). Costs as
     /// [`add_chord`](Self::add_chord) without the noteheads.
     ///
@@ -541,16 +550,7 @@ impl DocumentBuilder {
         }
         // As for a chord: the bar and offset first, then the staff the rest is drawn on.
         self.doc.check_point(ScorePoint::new(at.bar, at.offset))?;
-        let staff = match at.staff {
-            Some(staff) => staff,
-            None => {
-                self.doc
-                    .voice(at.voice)
-                    .ok_or(DocumentError::UnknownVoice(at.voice))?
-                    .1
-                    .home_staff
-            }
-        };
+        let staff = self.staff_of(&at)?;
         let raw = self.insert_new(|raw| {
             let rest = Rest::new(value, at.tuplet);
             Ok(Object::Event {

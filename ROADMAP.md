@@ -701,7 +701,18 @@ pull request per group, and asked for an ADR for P3.3 (public API policy). Progr
   generated copy of a bar's events (`[PlacedEvent]::to_vec`) is slower, from the new layout of
   codegen units after `document.rs` was split. **Accepted by the owner** (2026-11-09) with the
   `Bench-regression: accepted` trailer of ADR-0017.
-- **Review 2 complete** once this PR is merged. Not done, with the reason: P4.3 (measured, the
+- **Review 2 complete** once this PR is merged.
+**Third codebase review (2026-11-09, not a SCALETTA step):** at the owner's request Claude
+analysed the codebase again for duplicated, obsolete, redundant and unoptimised code (points
+A1–A6, B1, C1; nothing obsolete found); the owner approved all of it as proposed, one pull request
+per group. Progress:
+- **A1, A2, A3, A5, B1 (`refactor/review3-dedup`):** one implementation of the meter-change lookups
+  for `BarSpan` and `MeterMap` (`Sources`); `DocumentBuilder::staff_of` for chords and rests;
+  `ObjectRef::is_form_marking`, the one list of form markings, with the difference between the
+  change set (bars and numbering included) and the local check written down; `mark_from_file` for
+  the four kinds of marks of the file; the complexity notes of the `place_*` methods made exact.
+- **Still to do:** A4 (`IoFailure`, API of `io`'s errors), A6 (`d` in `core-model`'s tests), C1
+  (try to win back the +6% of `to_parts`). Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
 
 | Step | What | Status |

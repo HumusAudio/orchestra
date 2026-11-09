@@ -590,6 +590,26 @@ fn id<T>(raw: u64, from_raw: fn(u64) -> Option<T>) -> Result<T, LoadError> {
     ))
 }
 
+/// A mark read from the file: its ID, its bar, its offset in the bar and its value. The one
+/// conversion behind the tempo marks, the key changes, the clef changes and the key overrides.
+///
+/// The value comes as a closure, called after both IDs are checked, so a record with a bad ID
+/// and a bad value reports the ID, as the field order of the record would. O(1) plus the value.
+///
+/// # Errors
+/// [`LoadError::Document`] with `ZeroId` for a zero ID; the value's own error.
+fn mark_from_file<I: Copy, T>(
+    raw_id: u64,
+    from_raw: fn(u64) -> Option<I>,
+    raw_bar: u64,
+    at: Duration,
+    value: impl FnOnce() -> Result<T, LoadError>,
+) -> Result<Mark<I, T>, LoadError> {
+    let mark_id = id(raw_id, from_raw)?;
+    let bar = id(raw_bar, BarId::from_raw)?;
+    Ok(Mark::new(mark_id, bar, at, value()?))
+}
+
 /// The bar IDs of the file and where each is, for the meter map's entries (ADR-0029 I6).
 struct Bars {
     /// Bar ID (raw) → index.
@@ -654,12 +674,9 @@ pub(crate) fn to_parts(file: FileV1) -> Result<DocumentParts, LoadError> {
             .into_iter()
             .map(|m| {
                 let change = m.change.map(tempo_change_from_file).transpose()?;
-                Ok(Mark::new(
-                    id(m.id, TempoMarkId::from_raw)?,
-                    id(m.bar, BarId::from_raw)?,
-                    m.at.0,
-                    tempo_mark(m.text.as_deref(), change)?,
-                ))
+                mark_from_file(m.id, TempoMarkId::from_raw, m.bar, m.at.0, || {
+                    tempo_mark(m.text.as_deref(), change)
+                })
             })
             .collect::<Result<_, LoadError>>()?,
         initial_key: key_from_file(&doc.key)?,
@@ -667,12 +684,9 @@ pub(crate) fn to_parts(file: FileV1) -> Result<DocumentParts, LoadError> {
             .key_changes
             .iter()
             .map(|m| {
-                Ok(Mark::new(
-                    id(m.id, KeyChangeId::from_raw)?,
-                    id(m.bar, BarId::from_raw)?,
-                    m.at.0,
-                    key_from_file(&m.key)?,
-                ))
+                mark_from_file(m.id, KeyChangeId::from_raw, m.bar, m.at.0, || {
+                    key_from_file(&m.key)
+                })
             })
             .collect::<Result<_, LoadError>>()?,
         repeat_starts: doc
@@ -954,12 +968,7 @@ fn track_from_file(t: TrackV1) -> Result<TrackParts, LoadError> {
                         .clef_changes
                         .iter()
                         .map(|c| {
-                            Ok(Mark::new(
-                                id(c.id, ClefId::from_raw)?,
-                                id(c.bar, BarId::from_raw)?,
-                                c.at.0,
-                                c.clef.0,
-                            ))
+                            mark_from_file(c.id, ClefId::from_raw, c.bar, c.at.0, || Ok(c.clef.0))
                         })
                         .collect::<Result<_, LoadError>>()?,
                 })
@@ -974,11 +983,8 @@ fn track_from_file(t: TrackV1) -> Result<TrackParts, LoadError> {
             .key_overrides
             .iter()
             .map(|m| {
-                Ok(Mark::new(
-                    id(m.id, KeyChangeId::from_raw)?,
-                    id(m.bar, BarId::from_raw)?,
-                    m.at.0,
-                    match &m.key {
+                mark_from_file(m.id, KeyChangeId::from_raw, m.bar, m.at.0, || {
+                    Ok(match &m.key {
                         KeyOverrideV1::Key(k) => {
                             KeyOverride::Signature(KeySignature::Key(key_from_file(k)?))
                         }
@@ -986,8 +992,8 @@ fn track_from_file(t: TrackV1) -> Result<TrackParts, LoadError> {
                             KeyOverride::Signature(KeySignature::NoSignature)
                         }
                         KeyOverrideV1::FollowScore => KeyOverride::FollowScore,
-                    },
-                ))
+                    })
+                })
             })
             .collect::<Result<_, LoadError>>()?,
         slurs: t

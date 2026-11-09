@@ -236,15 +236,11 @@ impl ChangeSet {
     const fn note_kind(&mut self, object: ObjectRef) {
         match object {
             ObjectRef::TempoMark(_) | ObjectRef::InitialTempo => self.tempo_dirty = true,
-            ObjectRef::RepeatStart(_)
-            | ObjectRef::RepeatEnd(_)
-            | ObjectRef::Volta(_)
-            | ObjectRef::Marker(_)
-            | ObjectRef::Jump(_)
-            | ObjectRef::BarRepeat(_)
-            | ObjectRef::PassRule(_)
-            | ObjectRef::Numbering
-            | ObjectRef::Bar(_) => self.form = true,
+            // The path is recomputed for the form markings, and also when a bar comes or goes or
+            // the numbering style changes: both change the played bars, while neither is a
+            // marking whose rules the local check would look at (see `Document::check_objects`).
+            ObjectRef::Numbering | ObjectRef::Bar(_) => self.form = true,
+            o if o.is_form_marking() => self.form = true,
             _ => {}
         }
     }

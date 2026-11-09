@@ -743,13 +743,10 @@ impl Document {
                     }
                 }
                 ObjectRef::TempoMark(_) | ObjectRef::InitialTempo => tempo = true,
-                ObjectRef::RepeatStart(_)
-                | ObjectRef::RepeatEnd(_)
-                | ObjectRef::Volta(_)
-                | ObjectRef::Marker(_)
-                | ObjectRef::Jump(_)
-                | ObjectRef::BarRepeat(_)
-                | ObjectRef::PassRule(_) => form = true,
+                // Only the form markings themselves: the numbering style has no rule of the form,
+                // and the commands on bars are checked by the cascade of the form instead
+                // (`command::cascade`, ADR-0026 W4–W6), not here.
+                o if o.is_form_marking() => form = true,
                 _ => {}
             }
         }
