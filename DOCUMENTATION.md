@@ -3591,6 +3591,41 @@ cargo run --release -p fileformat
 The numbers and the findings (RON's generic tree cannot read enums back, postcard is not
 self-describing) are in `spikes/fileformat/RESULTS.md` and ADR-0029.
 
+### The UI building blocks spike
+
+`spikes/gui-blocks` (step F2.01) links every building block of ADR-0012 into one binary, before
+any of them enters the workspace: `winit`, `softbuffer`, `tiny-skia`, `skrifa`, `harfrust`,
+`accesskit` with `accesskit_winit`, `rfd`, and `muda` on macOS. It does just enough with each one
+that the linker keeps it. It shapes a line of text in Inter with harfrust and draws the outlines
+that skrifa reads, and does the same for a few Bravura glyphs:
+
+```rust
+let shaper = ShaperFont::new(font);
+let mut buffer = Buffer::new();
+buffer.push_str(text);
+buffer.guess_segment_properties();
+harfrust::shape(&shaper, &mut buffer, ShapeOptions::new()).expect("shaping failed");
+let scaler = ScalerFont::unhinted(font.clone(), Some(ppem));
+```
+
+The same `skrifa::Font` feeds both the shaper and the scaler, which is why ADR-0036 keeps skrifa
+and drops ttf-parser. The `headless` mode writes the picture to a PNG. The `window` mode shows it
+with winit and softbuffer, publishes a two-node AccessKit tree and opens the native file dialog
+on `O`. Cargo features (`a11y`, `dialogs`, `csd`, `dialogs-ashpd`) leave blocks out, so the cost
+of each one can be measured:
+
+```sh
+cd spikes
+cargo build --release -p gui-blocks
+./target/release/gui-blocks headless out/blocks.png
+./target/release/gui-blocks window
+cargo build --release -p gui-blocks --no-default-features --features dialogs,csd
+```
+
+The sizes, the crate counts per platform, the build times, the libraries loaded at run time and
+the duplicate versions that `cargo deny` reports are in `spikes/gui-blocks/RESULTS.md`. The
+choices built on them are in ADR-0036. The libraries are recorded in `docs/native-deps.md`.
+
 ## Lessons from Phase 0
 
 Things that are not obvious and cost time when you meet them for the first time:

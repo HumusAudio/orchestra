@@ -3813,6 +3813,42 @@ cargo run --release -p fileformat
 I numeri e le scoperte (l'albero generico di RON non sa rileggere gli enum, postcard non si
 descrive da solo) sono in `spikes/fileformat/RESULTS.md` e in ADR-0029.
 
+### Il prototipo dei mattoni dell'interfaccia
+
+`spikes/gui-blocks` (passo F2.01) mette insieme in un solo binario tutti i mattoni di ADR-0012,
+prima che uno qualsiasi di loro entri nel workspace: `winit`, `softbuffer`, `tiny-skia`, `skrifa`,
+`harfrust`, `accesskit` con `accesskit_winit`, `rfd` e, su macOS, `muda`. Con ciascuno fa quanto
+basta perché il linker lo tenga. Sagoma con harfrust una riga di testo in Inter e ne disegna i
+contorni letti da skrifa, e fa lo stesso con alcuni glifi di Bravura:
+
+```rust
+let shaper = ShaperFont::new(font);
+let mut buffer = Buffer::new();
+buffer.push_str(text);
+buffer.guess_segment_properties();
+harfrust::shape(&shaper, &mut buffer, ShapeOptions::new()).expect("shaping failed");
+let scaler = ScalerFont::unhinted(font.clone(), Some(ppem));
+```
+
+Lo stesso `skrifa::Font` serve sia al sagomatore sia allo scaler: per questo ADR-0036 tiene skrifa
+e toglie ttf-parser. La modalità `headless` scrive l'immagine in un PNG. La modalità `window` la
+mostra con winit e softbuffer, pubblica un albero AccessKit di due nodi e apre la finestra di
+dialogo nativa dei file premendo `O`. Alcune feature di Cargo (`a11y`, `dialogs`, `csd`,
+`dialogs-ashpd`) tolgono dei mattoni, così si misura quanto costa ciascuno:
+
+```sh
+cd spikes
+cargo build --release -p gui-blocks
+./target/release/gui-blocks headless out/blocks.png
+./target/release/gui-blocks window
+cargo build --release -p gui-blocks --no-default-features --features dialogs,csd
+```
+
+Le dimensioni, il numero di crate per piattaforma, i tempi di compilazione, le librerie caricate
+durante l'esecuzione e le versioni doppie segnalate da `cargo deny` sono in
+`spikes/gui-blocks/RESULTS.md`. Le scelte fatte su queste misure sono in ADR-0036. Le librerie
+sono registrate in `docs/native-deps.md`.
+
 ## Lezioni della Fase 0
 
 Cose non ovvie che fanno perdere tempo la prima volta che le si incontra:

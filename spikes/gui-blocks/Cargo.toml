@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "gui-blocks"
+description = "Spike F2.01: every UI building block of ADR-0012 linked together, to measure size, build time and dependency tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Versions checked on crates.io on 2026-11-09; every one is at least two weeks old except where
+# RESULTS.md says otherwise. Features are trimmed to what Orchestra would actually need, because
+# that is what the measurements must reflect.
+[dependencies]
+# Windows, input, IME. No default features: X11 and Wayland, both loaded with dlopen (no link-time
+# dependency on system libraries); Wayland client-side decorations without a title font
+# (`-notitle` avoids pulling ab_glyph, a second font stack).
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen"] }
+# Presenting CPU pixels. `kms` (direct rendering without a compositor) dropped: never needed.
+softbuffer = { version = "=0.4.8", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"] }
+# 2D drawing on the CPU; `png-format` is needed for headless screenshots (ADR-0009).
+tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd", "png-format"] }
+# Font reading/outlines and shaping: the same fontations family, sharing `read-fonts`.
+skrifa = { version = "=0.49.0", default-features = false, features = ["std"] }
+harfrust = { version = "=0.15.0", default-features = false, features = ["std"] }
+# Accessibility tree + winit adapter (platform adapters selected by target inside).
+accesskit = { version = "=0.25.2", optional = true }
+accesskit_winit = { version = "=0.34.2", optional = true, default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
+# Native file dialogs: on Linux the xdg-desktop-portal backend only (no GTK).
+rfd = { version = "=0.17.2", optional = true, default-features = false, features = ["xdg-portal"] }
+# Alternative measured for comparison: rfd 0.16 talks to the portal through `ashpd`/`zbus` (pure
+# Rust, the same zbus AccessKit already uses) instead of loading libdbus-1 with dlopen.
+rfd016 = { package = "rfd", version = "=0.16.1", optional = true, default-features = false, features = ["xdg-portal", "async-std"] }
+
+# macOS global menu only: on Linux muda would require GTK, and there we draw the menu ourselves.
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "=0.21.2", default-features = false }
+
+# Features exist only to measure what each block costs (build the binary with and without it).
+[features]
+default = ["a11y", "dialogs", "csd"]
+# Wayland client-side decorations drawn by winit (GNOME has no server-side ones).
+csd = ["winit/wayland-csd-adwaita-notitle"]
+a11y = ["dep:accesskit", "dep:accesskit_winit"]
+dialogs = ["dep:rfd"]
+dialogs-ashpd = ["dep:rfd016"]

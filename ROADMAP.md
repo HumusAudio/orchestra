@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); next F2.02.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -732,6 +732,22 @@ per group. Progress:
   The profile itself is in `Cargo.toml` (`build/release-codegen-units`).
 - **Review 3 complete** (#50–#52 merged). Not done, with the reason: P4.3 (measured, the
   clone is cheap and keeps a failed undo's step whole).
+
+**Phase 2A started (2026-11-09).** Step **F2.01** (`docs/f2-01-ui-building-blocks`): the
+building blocks of ADR-0012 checked on crates.io and measured together in `spikes/gui-blocks`
+(`RESULTS.md`). Choices approved by the owner before starting: a new ADR rather than an edit of
+ADR-0012, `skrifa` only (no `ttf-parser`), clipboard and system theme left to their steps,
+native libraries registered now. **ADR-0036 Proposed**: versions (winit 0.30.13, softbuffer 0.4.8,
+tiny-skia 0.12.0, skrifa 0.49 + harfrust 0.15, accesskit 0.25.2 + accesskit_winit 0.34.2, rfd
+0.17.2, muda 0.21.2 macOS only) and trimmed features; rfd 0.17 (libdbus-1 by dlopen) preferred
+to 0.16 (ashpd/zbus, +0.9 MB, +29 crates); all blocks 9.6 MB stripped (1.5 MB of fonts), 163
+crates on Linux, 213 s clean release build; AccessKit alone +3.2 MB, +69 crates, +76 s on Linux.
+Found: `deny.toml` denies duplicate versions and the blocks bring several, mostly through
+winit 0.30 (to list in `[bans] skip` with their exits, ADR-0036 B7); four entries in
+`docs/native-deps.md`. The spike's headless mode works; its window mode cannot run in the
+sandbox (no compositor); the owner tried it on their desktop (window, text and file dialog
+work) and **accepted ADR-0036** the same day. B6: winit's Wayland decorations for now, our own
+title bar later in the new step **F2.11b** (SCALETTA v0.50), starting with its own ADR. F2.01 done.
 
 | Step | What | Status |
 |---|---|---|
