@@ -171,7 +171,11 @@ conversioni segnalano già quelle pericolose).
 `unsafe_code` non è nella tabella del workspace. La radice di ogni crate comincia con
 `#![forbid(unsafe_code)]`, tranne `audio-engine`, `plugin-host` e `io`, i tre crate che parleranno
 con API in C. Un `forbid` a livello di workspace non si potrebbe allentare solo per quei tre, e
-l'attributo rende l'eccezione visibile proprio in cima al crate.
+l'attributo rende l'eccezione visibile proprio in cima al crate. Quei tre cominciano invece con
+`#![deny(unsafe_code)]`: anche lì `unsafe` resta un errore finché l'elemento che ne ha bisogno non
+dice `#[allow(unsafe_code, reason = "...")]` accanto al suo commento `// SAFETY:`, così non può
+entrare senza che nessuno se ne accorga e una ricerca di quell'`allow` elenca tutti i punti che lo
+usano.
 
 `xtask` non eredita questa tabella: è uno strumento per sviluppatori che stampa messaggi ed esce
 con codici di errore, quindi dichiara la sua (documentazione obbligatoria, pedantic attivo,
@@ -2763,6 +2767,12 @@ il processo separa i thread di uno stesso programma (un salvataggio automatico a
 manuale), e un nome già occupato, per esempio un residuo di un processo andato in crash il cui id è
 tornato, si salta provando il numero successivo, al massimo 64 volte. Un residuo non si cancella
 mai: potrebbe essere il salvataggio in corso di un altro programma.
+Un link simbolico si salva **attraverso**: si sostituisce il file a cui punta, nella sua cartella, e
+il link resta un link (`resolve_link`; un link che non punta a niente crea il file che nomina). I
+bit dei permessi del file sostituito si copiano sul file temporaneo prima della rinomina
+(`platform::copy_permissions`: la modalità su Unix; niente su Windows, dove un file nuovo eredita le
+regole d'accesso della cartella e copiare l'attributo di sola lettura farebbe solo fallire il
+salvataggio successivo), così un progetto reso privato resta privato.
 
 **Test.** `tests/project_cases.rs`: andata e ritorno del documento di prova, della partitura
 normale e di quella pesante (stessi byte dopo un secondo salvataggio, stesso contenuto, stessi ID e
@@ -3545,6 +3555,12 @@ I job:
   dei peggioramenti di ADR-0017 (con tutta la cronologia git, `fetch-depth: 0`, perché serve la
   base comune); la pagina di riepilogo mostra allora solo il confronto. Su Windows e macOS anche il job **check** esegue `cargo xtask bench`, che lì si
   limita a compilare i benchmark.
+
+Ogni job ha un `timeout-minutes` (check 45, guides 20, bench 90): senza, GitHub aspetta sei ore
+prima di fermare un job bloccato (un test chiuso in un ciclo, un runner che non risponde più). I
+valori sono qualche volta la durata normale più lunga (circa 10 minuti per un check su Windows senza
+cache, 20 per il confronto dei benchmark), così un runner lento finisce comunque e uno bloccato si
+ferma presto.
 
 Usiamo solo i runner standard ospitati da GitHub: sono gratuiti per i repository pubblici, mentre
 quelli più grandi si pagano anche lì. Ogni action di terzi è fissata con l'hash completo del commit,

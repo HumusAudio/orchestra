@@ -16,6 +16,16 @@
 //! A failure at any step removes the temporary file (best effort) and leaves the previous file
 //! as it was.
 //!
+//! # Links and permissions
+//! - **A symbolic link** is saved through: the steps above run on the file it points to, in that
+//!   file's directory (so the rename stays within one file system, as below), and the link is
+//!   left as it is. Renaming over the link itself would turn it into a plain file and leave the
+//!   real file unchanged, which is never what the user meant.
+//! - **The permissions** of the file replaced are copied onto the temporary file before the
+//!   rename, where the platform has them (`crate::platform`: the mode bits on Unix), so a project
+//!   made private or shared with a group stays so after a save. The owner and the group are not
+//!   copied (that needs privileges); a new file gets the default permissions.
+//!
 //! # Why the same directory
 //! A rename is atomic only within one file system; a temporary file elsewhere (say, `/tmp`) could
 //! be on another one, and the "rename" would become a copy that a crash can cut in half.
@@ -146,6 +156,14 @@ fn write_with(
         let p = p.to_path_buf();
         move |e: io::Error| WriteFailure::new(&e, &p)
     };
+    // A symbolic link is saved *through*: the file it points to is replaced and the link stays a
+    // link (see "Links and permissions" in the module documentation).
+    let resolved = resolve_link(path);
+    let path = resolved.as_path();
+    // The file being replaced, if any: its permissions go to the new file. `None` for a new file
+    // (or one we cannot inspect: the save then proceeds with the default permissions, and any
+    // real problem with the target shows up at the rename).
+    let replaced = fs::metadata(path).ok();
     let name = path
         .file_name()
         .ok_or_else(|| WriteFailure::of_kind(io::ErrorKind::InvalidInput, path))?;
@@ -159,6 +177,9 @@ fn write_with(
     // below. The file was created by us (`create_new`), so removing it on failure never touches
     // anybody else's file.
     let written = (|| -> Result<(), WriteFailure> {
+        if let Some(replaced) = &replaced {
+            crate::platform::copy_permissions(replaced, &file).map_err(failure(&temp))?;
+        }
         file.write_all(bytes).map_err(failure(&temp))?;
         file.sync_all().map_err(failure(&temp))?;
         // Close the file before renaming it: Windows refuses to rename an open file.
@@ -173,6 +194,31 @@ fn write_with(
         let _ = fs::remove_file(&temp);
     }
     written
+}
+
+/// The file a save of `path` must replace: `path` itself, or, when `path` is a symbolic link, the
+/// file it points to (the canonical path; for a dangling link, its target read from the link and
+/// taken relative to the link's directory). A rename over the link itself would replace the
+/// link with a plain file, cutting it from the file the user meant.
+///
+/// # Complexity
+/// O(1) system calls for a plain file (one `lstat`); O(path components) for a link.
+fn resolve_link(path: &Path) -> PathBuf {
+    let is_link = fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink());
+    if !is_link {
+        return path.to_path_buf();
+    }
+    if let Ok(real) = fs::canonicalize(path) {
+        return real;
+    }
+    match fs::read_link(path) {
+        Ok(target) if target.is_absolute() => target,
+        Ok(target) => match path.parent() {
+            Some(dir) => dir.join(target),
+            None => target,
+        },
+        Err(_) => path.to_path_buf(),
+    }
 }
 
 /// Creates a new temporary file `.<name>.<pid>.<serial>.tmp` in `directory`, trying the next
@@ -279,6 +325,57 @@ mod tests {
             WriteFailure::of_kind(io::ErrorKind::AlreadyExists, &leftover)
         );
         assert!(!dir.join("a.mid").exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The permission bits of the replaced file survive the save (Unix: the only platform with
+    /// them in the standard library).
+    #[cfg(unix)]
+    #[test]
+    fn the_permissions_are_kept() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = test_dir("permissions");
+        let path = dir.join("private.orchestra");
+        fs::write(&path, b"old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        write(&path, b"new").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Saving through a symbolic link replaces the file it points to and keeps the link.
+    #[cfg(unix)]
+    #[test]
+    fn a_link_is_saved_through() {
+        let dir = test_dir("link");
+        let real = dir.join("real.orchestra");
+        let link = dir.join("link.orchestra");
+        fs::write(&real, b"old").unwrap();
+        std::os::unix::fs::symlink("real.orchestra", &link).unwrap();
+        write(&link, b"new").unwrap();
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(&real).unwrap(), b"new");
+        assert_eq!(names(&dir).len(), 2, "{:?}", names(&dir));
+        // A dangling link: the file it names is created, the link stays.
+        let dangling = dir.join("dangling.orchestra");
+        std::os::unix::fs::symlink("missing.orchestra", &dangling).unwrap();
+        write(&dangling, b"made").unwrap();
+        assert!(
+            fs::symlink_metadata(&dangling)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read(dir.join("missing.orchestra")).unwrap(), b"made");
         fs::remove_dir_all(&dir).unwrap();
     }
 

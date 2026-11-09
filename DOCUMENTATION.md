@@ -160,7 +160,10 @@ the dangerous conversions).
 `unsafe_code` is not in the workspace table. Each crate's root starts with
 `#![forbid(unsafe_code)]`, except `audio-engine`, `plugin-host` and `io`, the three crates that will
 talk to C APIs. A workspace-level `forbid` could not be relaxed for just those three, and the
-attribute makes the exception visible right at the top of the crate.
+attribute makes the exception visible right at the top of the crate. Those three start with
+`#![deny(unsafe_code)]` instead: `unsafe` is still an error there until the item that needs it says
+`#[allow(unsafe_code, reason = "...")]` next to its `// SAFETY:` comment, so it cannot slip in
+unnoticed and a search for that `allow` lists every place that uses it.
 
 `xtask` does not inherit this table: it is a developer tool that prints and exits with error codes,
 so it declares its own (documentation required, pedantic on, `unreachable_pub` and
@@ -2587,6 +2590,12 @@ unique: the process id separates programs, a process-wide atomic serial number s
 threads of one program (an automatic save next to a manual one), and a name already taken, for
 example a leftover of a crashed process whose id came back, is skipped by trying the next serial,
 at most 64 times. A leftover is never deleted: it might be another program's save in progress.
+A symbolic link is saved **through**: the file it points to is replaced, in its own directory, and
+the link stays a link (`resolve_link`; a dangling link creates the file it names). The permission
+bits of the file replaced are copied onto the temporary file before the rename
+(`platform::copy_permissions`: the mode on Unix; nothing on Windows, where a new file inherits the
+directory's access rules and copying the read-only flag would only make the next save fail), so a
+project made private stays private.
 
 **Tests.** `tests/project_cases.rs`: round trips of the test document, the normal and the heavy
 score (same bytes after a second save, same content, IDs and counter); the layout; a BOM and CRLF
@@ -3341,6 +3350,11 @@ The jobs:
   gate of ADR-0017 (with the whole git history, `fetch-depth: 0`, because the merge base must be
   available); the summary page then shows only the comparison. On Windows and macOS the **check** job runs `cargo xtask bench` too, which there only compiles
   the benchmarks.
+
+Every job has a `timeout-minutes` (check 45, guides 20, bench 90): without one, GitHub waits six
+hours before stopping a job that hangs (a test stuck in a loop, a runner that stops answering). The
+values are a few times the longest normal run (about 10 minutes for a cold Windows check, 20 for
+the benchmark comparison), so a slow runner still finishes and a stuck one is stopped early.
 
 Only the standard GitHub-hosted runners are used: they are free for public repositories, while
 larger runners are billed even there. Every third-party action is pinned to a full commit hash,

@@ -26,3 +26,9 @@
 //! ## Unsafe code
 //! `unsafe` is allowed here (FFI with plugin APIs, shared memory). Every `unsafe` block carries a
 //! `// SAFETY:` comment.
+
+// `unsafe` is allowed in this crate (FFI with plugin APIs, shared memory), but only where it is
+// written on purpose: `deny` makes every `unsafe` block an error until the item that needs it says
+// `#[allow(unsafe_code, reason = "...")]`, next to its `// SAFETY:` comment. So `unsafe` cannot
+// slip in unnoticed, and a search for that `allow` lists every place that uses it.
+#![deny(unsafe_code)]

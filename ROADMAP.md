@@ -675,7 +675,13 @@ pull request per group, and asked for an ADR for P3.3 (public API policy). Progr
   decisions". `MeterMap`/`BarSpan::set_uncounted(bar, bool) -> bool` became
   `set_numbering(bar, BarCounting) -> BarCounting`; `test_scores::plain(size, bool)` takes
   `Instruments::{Plain, WithEditing}`.
-- **Still to do:** P3.2 and P3.3 (after ADR-0034, PR #46), P4.
+- **P4 (minor, `chore/review2-p4-minor`, stacked on P3):** `timeout-minutes` on every CI job
+  (45/20/90); `#![deny(unsafe_code)]` in `io`, `audio-engine` and `plugin-host`; P4.3 measured and
+  **not changed** (the undo of a 200-note paste is ≈ 235 000 instructions in all; the clone keeps
+  a failed undo's step whole, documented next to it); `safe_write` saves through symbolic links
+  and keeps the Unix permission bits of the file it replaces (within ADR-0029 S13: the temporary
+  file still sits in the real file's directory).
+- **Still to do:** P3.2 and P3.3, after the owner decides on ADR-0034 (PR #46).
 
 | Step | What | Status |
 |---|---|---|
