@@ -42,3 +42,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0032](0032-midi-file-export-v0.md) | MIDI file export v0: Standard MIDI File 1.0, written by us | Accepted (E9 amended by ADR-0033) |
 | [0033](0033-midi-half-way-key.md) | One rule for a pitch half way between two MIDI keys: the lower key | Accepted |
 | [0034](0034-public-api-policy.md) | Public API of the library crates: one path per item, exhaustive errors | Accepted |
+| [0035](0035-release-build-profile.md) | Release build profile: one codegen unit per crate | Accepted |
