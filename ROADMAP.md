@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is in progress (ADR-0036 Proposed).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); next F2.02.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -745,7 +745,9 @@ crates on Linux, 213 s clean release build; AccessKit alone +3.2 MB, +69 crates,
 Found: `deny.toml` denies duplicate versions and the blocks bring several, mostly through
 winit 0.30 (to list in `[bans] skip` with their exits, ADR-0036 B7); four entries in
 `docs/native-deps.md`. The spike's headless mode works; its window mode cannot run in the
-sandbox (no compositor) and waits for the owner. Open: B6 (winit's Wayland decorations for now).
+sandbox (no compositor); the owner tried it on their desktop (window, text and file dialog
+work) and **accepted ADR-0036** the same day. B6: winit's Wayland decorations for now, our own
+title bar later in the new step **F2.11b** (SCALETTA v0.50), starting with its own ADR. F2.01 done.
 
 | Step | What | Status |
 |---|---|---|

@@ -43,4 +43,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0033](0033-midi-half-way-key.md) | One rule for a pitch half way between two MIDI keys: the lower key | Accepted |
 | [0034](0034-public-api-policy.md) | Public API of the library crates: one path per item, exhaustive errors | Accepted |
 | [0035](0035-release-build-profile.md) | Release build profile: one codegen unit per crate | Accepted |
-| [0036](0036-ui-building-blocks.md) | UI building blocks: versions, features, native libraries (amends ADR-0012) | Proposed |
+| [0036](0036-ui-building-blocks.md) | UI building blocks: versions, features, native libraries (amends ADR-0012) | Accepted |

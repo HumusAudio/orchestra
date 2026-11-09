@@ -1,6 +1,7 @@
 # ADR-0036 — UI building blocks: versions, features, native libraries
 
-- **Status:** Proposed (2026-11-09, SCALETTA F2.01)
+- **Status:** Accepted (owner, 2026-11-09, after trying the spike's window mode on their desktop:
+  window, text and file dialog work; B6 completed with the plan for our own title bar)
 - **Date:** 2026-11-09
 - **Amends:** ADR-0012, the table "Building block (to be confirmed with an ADR amendment when
   first added)". The decision of ADR-0012 (no toolkit, our own interface on low-level blocks,
@@ -114,8 +115,13 @@ GNOME on Wayland does not draw window decorations (title bar, close button). The
 draws them. With `wayland-csd-adwaita-notitle`, winit draws simple Adwaita-like ones without a
 title. They cost +0.3 MB and a second `tiny-skia` (0.11, from `sctk-adwaita`). Without them, on
 GNOME/Wayland the window would have no title bar and could not be moved or closed with the
-mouse. We keep them **until** we decide to draw our own title bar (a client-side decoration of
-ours, the same on every platform). That is a design choice with its own ADR, not taken here.
+mouse. We keep them **for now**. The plan approved by the owner is to replace them later with
+**our own title bar**, drawn with our widgets, in SCALETTA step F2.11b (after the basic widgets
+and the menus). That step starts with its own ADR, which decides where our title bar is used
+(only on Linux, or everywhere with the native window buttons on macOS, as CLAUDE.md §6 asks us to
+respect platform conventions). The switch is local to the window layer: drop the
+`wayland-csd-adwaita-notitle` feature, create the window without decorations, draw the bar, and
+use winit's `drag_window`/`drag_resize_window`. It also removes the second `tiny-skia` (B7).
 
 ### B7 — Duplicate versions: listed in `deny.toml`, each with its exit
 
@@ -176,4 +182,5 @@ are decided in their own steps, as SCALETTA plans.
 - `docs/native-deps.md` gets its first entries.
 - Windows and macOS binary sizes are measured by the CI from F2.04, when the window code exists.
 - The window mode of the spike could not be tried in the development sandbox (no compositor).
-  The owner tries it on their desktop before this ADR is accepted.
+  The owner tried it on their desktop on 2026-11-09: the window, the text and the file dialog
+  work.

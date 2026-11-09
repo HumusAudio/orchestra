@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.49, approvata dal proprietario il 2026-11-09.**
+> **Stato di questo documento: v0.50, approvata dal proprietario il 2026-11-09.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -684,7 +684,7 @@ controllo completo. Va fatta bene una volta sola.
 
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
-| F2.01 | **Verifica e conferma dei mattoni** (ADR-0012 tabella): versioni, licenze, dimensioni di `winit`, `softbuffer`, `tiny-skia`, `skrifa`, `harfrust`, `accesskit`, `rfd`, `muda`; emendamento all'ADR | ⬜ | 1 |
+| F2.01 | **Verifica e conferma dei mattoni** (ADR-0012 tabella): versioni, licenze, dimensioni di `winit`, `softbuffer`, `tiny-skia`, `skrifa`, `harfrust`, `accesskit`, `rfd`, `muda`; emendamento all'ADR | ✅ ADR-0036 | 1 |
 | F2.02 | **Sistema dei temi** (ADR-0014): token semantici, istanze chiara e scura, test WCAG 2.2 AA, rilevamento del tema di sistema in `platform/` | ⬜ | 2–3 |
 | F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ⬜ | 2–3 |
 | F2.04 | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ⬜ | 2 |
@@ -695,11 +695,22 @@ controllo completo. Va fatta bene una volta sola.
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
+| F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
 
+- **F2.01** **Fatto il 2026-11-09 (ADR-0036 Accepted):** prima di partire il proprietario ha
+  approvato un ADR nuovo invece di modificare ADR-0012, solo `skrifa` (niente `ttf-parser`), appunti
+  e tema di sistema rimandati ai loro passi, librerie native registrate subito. La prova
+  `spikes/gui-blocks` mette tutti i mattoni in un binario: 9,6 MB senza simboli (1,5 MB di font),
+  163 crate su Linux, 213 s di compilazione da zero; AccessKit da solo +3,2 MB, +69 crate, +76 s.
+  `rfd` 0.17 (libdbus-1 caricata con dlopen) preferito alla 0.16 (`ashpd`/`zbus`, +0,9 MB); `muda`
+  solo su macOS; le versioni doppie (quasi tutte da `winit` 0.30) vanno in `deny.toml` con la loro
+  uscita, nel passo che le porta; prime voci in `docs/native-deps.md`. Il proprietario ha provato
+  la finestra sul suo desktop. Decorazioni di `winit` su Wayland per ora, poi la nostra barra del
+  titolo in F2.11b (proprietario).
 - **F2.06** viene presto apposta: è il rischio aperto più grosso della UI (la sandbox non ha GPU).
   Richiede che il proprietario esegua i test sul proprio schermo.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
@@ -988,3 +999,4 @@ raccomandato.
 | 2026-11-08 | 0.47 | F1.17 fatto (PR #35): Fase 1 chiusa, tappa M1 raggiunta (comando `m1`); D13 chiusa (F2.14 confermato); opzioni di riproduzione nelle Preferenze di F2.12; prossimo passo F2.01 | proprietario |
 | 2026-11-08 | 0.48 | Revisione del codice dopo M1 (PR #37–#42): duplicazioni e codice inutile rimossi, ADR-0033 (tasto inferiore a metà strada, emenda ADR-0032 E9), indice delle voci nel documento; in F2.23 la rimisura dei conteggi e un benchmark con abbellimenti e note lunghe (D5, D6); prossimo passo resta F2.01 | proprietario |
 | 2026-11-09 | 0.49 | Seconda revisione del codice (PR #44–#49): pratiche poco raccomandabili corrette (nomi temporanei unici nel salvataggio, conversioni "impossibili" controllate in debug, costanti razionali verificate in compilazione, errori con causa e posizione, `MigrationError` tipizzato, timeout della CI, permessi e link simbolici nel salvataggio); ADR-0034 (moduli privati, un solo percorso per elemento, errori esaustivi); nei commenti le sigle delle decisioni si scrivono con il loro ADR; funzioni lunghe divise nei loro passi; prossimo passo resta F2.01 | proprietario |
+| 2026-11-09 | 0.50 | F2.01 fatto (ADR-0036 Accepted): mattoni dell'interfaccia verificati e misurati insieme; nuovo F2.11b (la nostra barra del titolo, con un suo ADR) | proprietario |
