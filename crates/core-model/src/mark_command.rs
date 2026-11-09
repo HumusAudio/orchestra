@@ -75,6 +75,10 @@ use crate::tempo_mark::TempoMark;
 ///
 /// Each variant carries what the builder's `add_*` method of the same object takes, so that a
 /// document built in one step and one built command by command hold the same objects.
+///
+/// `#[non_exhaustive]` (ADR-0034 D3): new kinds of marks arrive with the notation steps, and
+/// callers only *build* these values (the interface turns a user action into one), they do not
+/// need to match every kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MarkSpec {

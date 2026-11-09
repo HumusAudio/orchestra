@@ -269,6 +269,9 @@ pub enum NewBody {
 }
 
 /// One aspect of an event that [`Command::ChangeEvent`] changes.
+///
+/// `#[non_exhaustive]` (ADR-0034 D3), like [`Command`]: new aspects come with later steps, and
+/// callers build these values rather than match them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EventChange {

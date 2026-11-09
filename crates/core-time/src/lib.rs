@@ -13,17 +13,17 @@
 //! ## Responsibilities (Phase 1)
 //! - [`Rational`], the rational type for positions/durations that never silently rounds (triplets
 //!   of triplets must line up exactly, even after hours of music). Implemented in step F1.03
-//!   according to ADR-0015: see the [`rational`] module.
+//!   according to ADR-0015: see the `rational` module.
 //! - [`Position`] and [`Duration`], the domain types over `Rational` (ADR-0018 §1): a position
 //!   minus a position is a duration, and adding two positions does not compile. See the
-//!   [`position`] module.
+//!   `position` module.
 //! - The tempo map (ADR-0020, ADR-0021): immediate and gradual tempo changes ([`TempoChange`]),
 //!   and [`TempoMap`], which turns written positions into seconds and back with O(log n)
 //!   lookups, and into exact sample and frame indices; segment start times lie on a fixed grid
-//!   ([`TIME_GRID`]). See the [`tempo_map`] module.
+//!   ([`TIME_GRID`]). See the `tempo_map` module.
 //! - The meter map (ADR-0018, ADR-0019): written meters ([`Meter`]), beat groupings
 //!   ([`BeatGrouping`]), irregular and free bars, and [`MeterMap`], which turns positions into
-//!   bars and beats and back with O(log n) lookups. See the [`meter`] and [`meter_map`] modules.
+//!   bars and beats and back with O(log n) lookups. See the `meter` and `meter_map` modules.
 //! - Conversions rational time ⇄ seconds ⇄ sample index (at a given sample rate) ⇄ video frame
 //!   (with a rational frame rate, e.g. 30000/1001 for NTSC).
 //!
@@ -34,7 +34,7 @@
 //!   real-time context (CLAUDE.md §5).
 //!
 //! The units of real time are [`Tempo`], [`Seconds`], [`SampleRate`] and [`FrameRate`], with the
-//! rounding rules of ADR-0020 §5 (see the [`tempo`] and [`clock`] modules); the tempo map adds the
+//! rounding rules of ADR-0020 §5 (see the `tempo` and `clock` modules); the tempo map adds the
 //! exact sample and frame indices inside gradual changes ([`IndexAt`]).
 //!
 //! ## Allowed dependencies
@@ -138,14 +138,17 @@ macro_rules! rational {
     };
 }
 
-pub mod clock;
+mod clock;
+// The one public module (ADR-0034 D1): `invariant::convert_or` and `invariant::some_or` read as
+// what they are only with their namespace; at the root, `convert_or` would say nothing about the
+// rule it enforces. Every other module is private and its API is re-exported below.
 pub mod invariant;
-pub mod meter;
-pub mod meter_map;
-pub mod position;
-pub mod rational;
-pub mod tempo;
-pub mod tempo_map;
+mod meter;
+mod meter_map;
+mod position;
+mod rational;
+mod tempo;
+mod tempo_map;
 
 pub use clock::{ClockError, FrameRate, SampleRate, Seconds};
 pub use meter::{BeatGrouping, MAX_GROUPING_GROUPS, MAX_METER_GROUPS, Meter, MeterError};

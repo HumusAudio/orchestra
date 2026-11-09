@@ -29,7 +29,7 @@
     reason = "test helpers: a failed unwrap fails the test"
 )]
 
-use orchestra_core_model::pitch::{
+use orchestra_core_model::{
     Alteration, Interval, Key, Mode, Pitch, PitchError, Quality, Step, TraditionalKey,
 };
 use orchestra_core_time::Rational;

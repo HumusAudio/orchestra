@@ -71,7 +71,6 @@ use orchestra_core_time::{
 /// The `Display` texts are English and meant for developers; the interface maps each variant to a
 /// Fluent key (CLAUDE.md §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum UnrollError {
     /// The document answered with an error (an unknown bar: a bug of the model).
     Document(DocumentError),

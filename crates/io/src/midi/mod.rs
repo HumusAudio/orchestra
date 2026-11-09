@@ -128,7 +128,6 @@ pub struct MidiExport {
 /// Something the MIDI file could not say exactly (ADR-0032 E6). Each names what it concerns, so
 /// that the interface (later) and the example (now) can show it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum MidiWarning {
     /// The notes before the first beat (an acciaccatura before the first note) made the whole
     /// file start later, by this many quarter notes, in a first bar of its own (E5).
@@ -179,7 +178,6 @@ pub enum MidiWarning {
 /// The `Display` texts are English and meant for developers; the interface maps each variant to a
 /// Fluent key (CLAUDE.md §7).
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum MidiError {
     /// The path could not be read (a bug of the model rather than a panic, or absurd values).
     Path(UnrollError),

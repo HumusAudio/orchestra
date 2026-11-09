@@ -245,7 +245,7 @@ impl Step {
 ///
 /// # Examples
 /// ```
-/// use orchestra_core_model::pitch::Alteration;
+/// use orchestra_core_model::Alteration;
 /// use orchestra_core_time::Rational;
 ///
 /// let quarter_sharp = Alteration::new(Rational::new(1, 2)?)?;
@@ -322,7 +322,7 @@ impl Alteration {
 ///
 /// # Examples
 /// ```
-/// use orchestra_core_model::pitch::{Alteration, Pitch, Step};
+/// use orchestra_core_model::{Alteration, Pitch, Step};
 ///
 /// let b_sharp_3 = Pitch::new(Step::B, Alteration::SHARP, 3);
 /// let c_4 = Pitch::new(Step::C, Alteration::NATURAL, 4);
@@ -605,7 +605,7 @@ pub enum Quality {
 ///
 /// # Examples
 /// ```
-/// use orchestra_core_model::pitch::{Interval, Quality};
+/// use orchestra_core_model::{Interval, Quality};
 ///
 /// let major_third = Interval::from_quality(Quality::Major, 3, false)?;
 /// assert_eq!(major_third.quality()?, Some(Quality::Major));

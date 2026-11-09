@@ -26,8 +26,8 @@
 //! every block carries a `// SAFETY:` comment. Pure-Rust parsing is strongly preferred.
 //!
 //! ## What exists so far
-//! - [`project`]: the project file, version 1 (ADR-0029; SCALETTA F1.15b): [`project::save`],
-//!   [`project::load`], [`project::to_bytes`], [`project::from_bytes`].
+//! - `project`: the project file, version 1 (ADR-0029; SCALETTA F1.15b): [`save`],
+//!   [`load`], [`to_bytes`], [`from_bytes`].
 //! - [`midi`]: the export of the played notes as a Standard MIDI File 1.0 (ADR-0032; SCALETTA
 //!   F1.18): [`midi::export`], [`midi::save`].
 //! - `safe_write` (internal): the safe write shared by both (ADR-0029 S13).
@@ -38,9 +38,12 @@
 // slip in unnoticed, and a search for that `allow` lists every place that uses it.
 #![deny(unsafe_code)]
 
+// The one public module (ADR-0034 D1): the MIDI export's `export` and `save` would clash at the
+// root with the project file's `save`, and `midi::save` says which file it writes. Every other
+// module is private; the project file's API is re-exported below.
 pub mod midi;
 mod platform;
-pub mod project;
+mod project;
 mod safe_write;
 
 pub use project::{

@@ -87,7 +87,6 @@ const MIN_LENGTH: Duration = Duration::from_rational(orchestra_core_time::ration
 ///
 /// The `Display` texts are English and meant for developers (CLAUDE.md §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum PerformError {
     /// The path could not be read.
     Unroll(UnrollError),
