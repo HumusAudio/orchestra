@@ -63,6 +63,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # A bound on a stuck job (a test that hangs, a runner that stops answering): without it GitHub
+    # waits 6 hours. A cold run takes about 10 minutes on the slowest platform (Windows, no
+    # cache); 45 leaves room for a slow runner without wasting hours on a hang.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -99,6 +103,8 @@ jobs:
   guides:
     name: guides (PDF)
     runs-on: ubuntu-latest
+    # Typst renders both guides in well under a minute; 20 bounds a stuck job (see `check`).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -128,6 +134,10 @@ jobs:
   bench:
     name: bench (instruction counts)
     runs-on: ubuntu-latest
+    # Under Valgrind the benchmarks are slow, and on a branch they run twice (the merge base and
+    # the tree, ADR-0017): about 20 minutes with a warm cache. 90 bounds a stuck job (see `check`)
+    # with room for a cold cache.
+    timeout-minutes: 90
     steps:
       # The whole history (`fetch-depth: 0`) and the remote branches: the comparison needs the
       # merge base of this commit and `origin/main`, which a shallow clone does not contain.

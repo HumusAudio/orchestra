@@ -28,3 +28,9 @@
 //! This is one of the three crates where `unsafe` is allowed (FFI with audio APIs, lock-free
 //! primitives). Every `unsafe` block carries a `// SAFETY:` comment proving its correctness; the
 //! lint `clippy::undocumented_unsafe_blocks` is an error.
+
+// `unsafe` is allowed in this crate (FFI with audio APIs, lock-free primitives), but only where
+// it is written on purpose: `deny` makes every `unsafe` block an error until the item that needs it says
+// `#[allow(unsafe_code, reason = "...")]`, next to its `// SAFETY:` comment. So `unsafe` cannot
+// slip in unnoticed, and a search for that `allow` lists every place that uses it.
+#![deny(unsafe_code)]

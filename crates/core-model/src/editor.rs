@@ -733,6 +733,12 @@ impl Editor {
         let mut changes = ChangeSet::default();
         let mut inverses = Vec::with_capacity(edits.len());
         for edit in edits {
+            // A clone, because `apply_edit` consumes its edit and the step must survive a failed
+            // run whole: `undo` and `redo` put it back in the history. Measured on 2026-11-09
+            // (second codebase review, `benches/editor.rs`): the undo of a 200-note paste costs
+            // ≈ 235 000 instructions in all, well under 0.1 ms on the reference laptop, so
+            // recovering the originals from the reverted inverses instead is not worth its
+            // complexity on the failure path.
             match self.document.apply_edit(edit.clone(), &mut changes) {
                 Ok(inverse) => inverses.push(inverse),
                 Err(cause) => {
