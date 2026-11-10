@@ -222,6 +222,17 @@ aarch64), so a Windows-only dependency with a bad license is caught on Linux too
 database is kept in `target/advisory-dbs` instead of `~/.cargo`, which is read-only inside the
 Claude Code sandbox.
 
+**The exceptions**, each with its reason and the event that removes it (the `reason` field):
+
+- `[bans] skip`: `syn` 2, a build-time duplicate next to `syn` 3. It comes from two proc macros of
+  `zbus` 5 (`enumflags2_derive`, `tracing-attributes`), as ADR-0036 B7 foresaw. Exit: those macros
+  moving to syn 3, or zbus 6.
+- `[advisories] ignore`: RUSTSEC-2026-0370, -0371 and -0372, the "unmaintained" notices of
+  `zvariant`, `zbus_names` and `zvariant_derive`. zbus 6 merged them into `zbus` itself. They are
+  not vulnerabilities, and only these three IDs are ignored, so a real security advisory on the
+  same crates still fails the check. We stay on zbus 5.19 because AccessKit does (ADR-0038 S7).
+  Exit: AccessKit moving to zbus 6, and us with it in the same step.
+
 ### Line endings and ignored files
 
 `.gitattributes` stores every text file with LF and checks it out with LF on every system,
@@ -2919,6 +2930,92 @@ Eight bugs were injected: seven were caught, one only after adding the threshold
 No benchmark: there is no hot path yet. A token read is one field access, and a custom theme is
 resolved once, when it is chosen.
 
+#### The system's light/dark preference
+
+When the user leaves the mode on *System* (the default), the interface must know whether the
+operating system prefers light or dark, and follow it while the program runs (ADR-0014 §5). Step
+F2.02b put this in `orchestra-ui`'s first platform module, `platform/appearance` (ADR-0038). The
+theme system already had the other half: `ThemeMode::resolve` takes an `Option<Appearance>`,
+where `None` means "the system said nothing" and gives dark. This module produces that `Option`
+and its changes.
+
+**One trait, one function.** `SystemAppearanceSource` is the only door; `system_appearance_source()`
+returns the implementation of the platform the program was built for. `observe` takes a callback
+and returns an `AppearanceWatch`:
+
+```rust
+let watch = system_appearance_source().observe(Box::new(|value| {
+    // Runs on the source's own thread, at each real change: forward it, do not block.
+    let _ = proxy.send(value);
+}));
+let appearance = ThemeMode::System.resolve(watch.current()); // None → dark (ADR-0037 T9)
+```
+
+`current()` is the latest answer the caller has seen; `last_error()` says why the system did not
+answer, for diagnostics (`SystemAppearanceError`: bus unreachable, read failed, unexpected type,
+unknown number, observation broken, timeout, thread not started). None of these errors is ever a
+failure for the user: each one simply means "no answer", so dark.
+
+**Linux: the desktop portal.** The XDG desktop portal is a D-Bus service on the session bus, also
+inside Flatpak. The file `portal.rs` talks to it with `zbus` 5.19, the same version and features
+AccessKit uses, so the two will share one copy and one async stack (`async-io`, no `tokio`). The
+order matters: first subscribe to the `SettingChanged` signal, then read the value with `ReadOne`
+(or with the old `Read` on portals from before 2023, whose value is wrapped in one more variant).
+Subscribed first, a change between the two steps cannot be lost: at worst it arrives twice. The
+portal answers with a number: 1 is dark, 2 is light, and **0** ("no preference") is **light**,
+because GNOME reports its default light style as 0 (owner's choice, ADR-0038 S4); any other
+number counts as no answer. Everything runs on one thread, `orchestra-appearance`, which sleeps on
+the D-Bus socket between changes: no polling, no CPU.
+
+**Windows and macOS: later, with winit.** On those systems `winit` already reads the preference
+(the registry on Windows, `effectiveAppearance` on macOS) and reports its changes, with no extra
+dependency and no polling. `winit` enters the workspace in F2.04, with the first window; until
+then `no_answer.rs` always answers `None`, which costs nothing because there is no window yet.
+
+**The rules, in one place.** The thread-based machinery in `mod.rs` (`AppearanceWatch::spawn`
+and the `Reporter` the source thread receives) applies four rules, so the platform code only
+translates the system's messages:
+
+1. startup never waits more than **250 ms** for the first answer (`FIRST_READ_TIMEOUT`; the
+   startup budget is 3 s, and a missing portal can make D-Bus wait 25 s). A late answer arrives
+   later through the callback, like a change;
+2. only **real transitions** reach the callback: on the owner's desktop the portal sent each
+   change three times, and the repeats are dropped;
+3. an error becomes "no answer" and is kept in `last_error`;
+4. after the watch is dropped the callback is never called again, not even once: it lives behind
+   the same lock the reporter takes to call it. A lock is allowed here, because this is not the
+   audio thread.
+
+```rust
+pub(crate) fn answer(&self, value: Option<Appearance>) {
+    let mut state = self.shared.lock();
+    if state.waiting {
+        // The first answer, in time: it becomes the watch's initial value.
+        state.waiting = false;
+        state.delivered = value;
+        self.shared.first_answer.notify_all();
+    } else if state.delivered != value {
+        // A real transition: repeats never reach the callback.
+        state.delivered = value;
+        if let Some(callback) = state.callback.as_mut() {
+            callback(value);
+        }
+    }
+}
+```
+
+**Tests.** `platform/appearance/tests.rs` checks the four rules on every platform with
+*scripted* fake sources: the test sends commands to the source thread over a channel and waits
+for each one to be done, so the order of events is exact and no test depends on timing. A first
+answer in time, repeats, a late answer, a late `None`, a failure before the first answer (which
+releases the caller at once), a failure while observing, the drop, a callback that panics. On
+Linux, the decoding is tested on hand-built D-Bus values (the three numbers, unknown numbers, the
+old `Read`'s extra variant, too many layers, wrong types). A last test opens the real source and
+checks that it never hangs or panics: on CI there is no session bus, so the answer is `None` with
+a reason. The real reading needs a desktop with a portal: the owner checked it by hand on
+2026-11-10 (initial value and every change read correctly). No benchmark: there is no hot path,
+just one read at startup and a message when the user flips a switch.
+
 ### orchestra-test-support: counting allocations in tests
 
 A crate that exists **only for tests and benchmarks** (ADR-0016). Every other crate may use it,
@@ -3699,6 +3796,10 @@ cargo build --release -p gui-blocks --no-default-features --features dialogs,csd
 The sizes, the crate counts per platform, the build times, the libraries loaded at run time and
 the duplicate versions that `cargo deny` reports are in `spikes/gui-blocks/RESULTS.md`. The
 choices built on them are in ADR-0036. The libraries are recorded in `docs/native-deps.md`.
+For step F2.02b the spike gained a `theme` mode and three features, one per candidate for reading
+the system's light/dark preference: `theme-zbus` (our own code on `zbus`), `theme-darklight` and
+`theme-mundy`. `gui-blocks theme` prints the preference, then every change. The figures are in
+the same `RESULTS.md`, the choice in ADR-0038.
 
 ## Lessons from Phase 0
 

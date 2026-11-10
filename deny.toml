@@ -23,7 +23,17 @@ all-features = true
 db-path = "target/advisory-dbs"
 # Known vulnerabilities and unmaintained/yanked crates (RustSec database) are errors by default in
 # this schema version. Exceptions go here, each with a comment and an expiry plan.
-ignore = []
+ignore = [
+    # The three crates below were merged into `zbus` itself in zbus 6, and their author published
+    # "unmaintained" advisories for the separate crates. They are not vulnerabilities: a real
+    # security advisory on them would still fail this check (only these three IDs are ignored).
+    # They come from zbus 5.19 (ADR-0038 S2, S7), which we use because AccessKit's
+    # `accesskit_unix` 0.24 does (it ignores the same advisories, AccessKit PR #834, 2026-10-18).
+    # Exit: when AccessKit moves to zbus 6, we move with it in the same step and remove these.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, merged into zbus 6; we stay on zbus 5 with AccessKit (ADR-0038 S7)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, merged into zbus 6; we stay on zbus 5 with AccessKit (ADR-0038 S7)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, merged into zbus 6; we stay on zbus 5 with AccessKit (ADR-0038 S7)" },
+]
 
 [licenses]
 # Only licenses compatible with distributing the whole program under GPL-3.0-or-later.
@@ -70,7 +80,12 @@ wildcards = "deny"
 # Path dependencies inside the workspace have no version: allow them.
 allow-wildcard-paths = true
 highlight = "all"
-skip = []
+skip = [
+    # syn 2 next to syn 3, build-time only (proc macros), foreseen by ADR-0036 B7. zbus 5.19
+    # (ADR-0038) brings syn 2 through `enumflags2_derive` and `tracing-attributes`; the rest of the
+    # tree is on syn 3. Exit: those proc macros moving to syn 3, or zbus 6 (ADR-0038 S7).
+    { crate = "syn@2.0.119", reason = "build-time proc macros of zbus 5 (enumflags2_derive, tracing-attributes), ADR-0036 B7" },
+]
 skip-tree = []
 deny = []
 

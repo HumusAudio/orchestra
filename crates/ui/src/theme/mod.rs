@@ -14,8 +14,8 @@
 //! - `mode`: *System / Light / Dark* and which half it picks;
 //! - `contrast`: the WCAG ratio and the table of pairs.
 //!
-//! No platform code here: reading the system's preference is step F2.02b, in `platform/`
-//! behind a trait (ADR-0014 §5).
+//! No platform code here: the system's preference is read in `platform::appearance`, behind the
+//! trait `SystemAppearanceSource` (ADR-0014 §5, ADR-0038), and handed to `ThemeMode::resolve`.
 
 pub(crate) mod builtin;
 pub(crate) mod color;

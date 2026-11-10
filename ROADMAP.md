@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); next F2.02b (system theme detection).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); next F2.03 (the drawing abstraction).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -780,6 +780,30 @@ of captions and the warning label (→ `accent-text` `#8a5a12`, ≥ 5.3:1), the 
 F2.02 into F2.02a (done) and F2.02b, adds F2.12b (the theme editor) and notes in F2.07, F2.09,
 F2.12.
 
+Step **F2.02b** (`feature/f2-02b-system-theme`, 2026-11-10), the system's light/dark preference.
+The owner asked to verify the candidates first. Measured in `spikes/gui-blocks` (features
+`theme-zbus`, `theme-darklight`, `theme-mundy`; `RESULTS.md`): our own code on `zbus` 5.19 adds
+**no crate** on Linux next to AccessKit (+0.62 MB); `dark-light` 3.0 adds 2–4 crates per platform
+and on macOS polls every second; libdbus-1 with dlopen would mean about 600 lines of `unsafe` in a
+crate that forbids it; `winit` 0.30 reads the preference on Windows and macOS (before any window)
+but never on Linux. The owner ran both Linux candidates on their desktop: every change was read,
+and the portal sent **each change three times**. **ADR-0038 Accepted**: one trait
+`SystemAppearanceSource`, our portal code on Linux (subscribe to `SettingChanged`, then `ReadOne`,
+with the old `Read` as fallback), Windows and macOS with `winit` in F2.04 (no answer, so dark,
+until then); **S4 by the owner: the portal's 0 ("no preference", GNOME's default light style)
+means light**; **S5: the first read waits at most 250 ms** (owner), a late answer arrives through
+the callback. During the implementation `cargo deny` flagged three crates of zbus 5 as
+unmaintained (RUSTSEC-2026-0370/0371/0372, merged into zbus 6; not vulnerabilities): with the
+owner's ok (**S7**) we stay on zbus 5.19 like AccessKit (its PR #834) and ignore those three IDs
+until AccessKit moves to zbus 6; `syn` 2 joins `skip` as ADR-0036 B7 foresaw. Implemented in
+`orchestra-ui`, private module `platform/appearance` re-exported at the root
+(`SystemAppearanceSource`, `system_appearance_source`, `AppearanceWatch`, `AppearanceCallback`,
+`SystemAppearanceError`); `zbus` and `futures-lite` are Linux-only dependencies. Tests: 15 in
+`platform/appearance/tests.rs`, scripted fake sources for the four rules (bounded wait, repeats
+dropped, errors as "no answer", no callback after the drop) on every platform, the portal's value
+decoding on Linux, and the real source opened without hanging (no session bus on CI). No
+benchmark (no hot path). The real reading is checked by hand on the owner's desktop.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -852,9 +876,12 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   now).
 - **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
   the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
-- **F2.02b next:** reading the system's light/dark preference in `platform/` behind a trait
-  (ADR-0014 §5) and observing its changes; the D-Bus route on Linux (rfd's dlopen of libdbus-1,
-  a dedicated crate, or winit's `Window::theme`, which needs a window, F2.04) is still to choose.
+- **System theme on Windows and macOS (ADR-0038 S3):** implement `SystemAppearanceSource` with
+  `winit` in F2.04 (`ActiveEventLoop::system_theme()`, `WindowEvent::ThemeChanged`, never a fixed
+  `Window::set_theme`) and bridge the callback to the event loop; until then *System* gives dark
+  there. To confirm on a GNOME machine that its light style is reported as 0 (ADR-0038 S4).
+- **zbus 6 (ADR-0038 S7):** when AccessKit moves to zbus 6, move with it in the same step and
+  remove the three RustSec ignores and the `syn` 2 skip from `deny.toml`.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users
   once the DAW view exists.
 - **From F1.14b, to keep in mind:** the interface (F3) must expose `MoveMode::PerformanceOnly` (a

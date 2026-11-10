@@ -99,3 +99,35 @@ November 2025 (beta 4 on 2026-10-24), and `accesskit_winit` 0.34 still requires 
 - `accesskit_winit::Adapter` **panics** if it is created after the window has been shown: the
   window must be created invisible, the adapter attached, then the window shown.
 - Inter's outlines are CFF, Bravura's too: the CFF path of skrifa is exercised.
+
+## F2.02b — reading the system light/dark preference (2026-11-10)
+
+Three candidates, each a feature of this spike (`src/theme.rs`); `gui-blocks theme` prints the
+preference, then every change. ADR-0038 is the decision built on these numbers.
+
+```sh
+cd spikes
+cargo build --release -p gui-blocks --features theme-zbus        # our code on zbus 5.19
+cargo build --release -p gui-blocks --features theme-darklight   # dark-light 3.0.0
+./target/release/gui-blocks theme
+```
+
+| variant (on top of the default features) | binary (stripped) | crates Linux / Windows / macOS |
+|---|---|---|
+| default features, measured again today | 10.82 MB | 163 / 70 / 82 |
+| + our code on `zbus` 5.19 (`async-io`, no default features) | 11.44 MB (+0.62) | 163 (+0) on Linux |
+| + `dark-light` 3.0.0 | 11.71 MB (+0.88) | 165 / 74 / 85 |
+| + `mundy` 0.2.3 (colour scheme only) | not built | 165 on Linux |
+
+- The default build is 10.82 MB today instead of 9.64 MB on 2026-11-09, with the same
+  `Cargo.lock` entries for the blocks; the differences above come from builds of the same day and
+  compare with each other, not with the table of F2.01.
+- The `zbus` feature is not limited to Linux in this spike, so its Windows/macOS counts are
+  meaningless; in the product it is a Linux-only dependency.
+- `dark-light` on macOS polls `AppleInterfaceStyle` every second on a thread; on Windows it waits
+  on `RegNotifyChangeKeyValue` (event-driven); on Linux it uses `zbus` with the proxy macros.
+- `winit` 0.30.13: `ActiveEventLoop::system_theme()` answers on Windows and macOS before any
+  window exists, `None` on Linux (X11 and Wayland).
+- In the sandbox the session bus is not reachable (`Operation not permitted`): both candidates
+  report the error and exit cleanly. On the owner's desktop both read the initial value and every
+  change; the portal sent **each change three times**.

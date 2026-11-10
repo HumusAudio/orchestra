@@ -19,8 +19,11 @@
 //! - Themes from the first widget (ADR-0014, ADR-0037): widgets and renderers read only semantic
 //!   colour and shape tokens of the active theme, never literal values. Ten built-in light/dark
 //!   pairs (Studio by default) and custom themes stored as overrides of a built-in pair; the mode
-//!   follows the operating system (detected in `platform/` modules, F2.02b) or is forced light or
-//!   dark. Implemented in the private module `theme`, re-exported at the root.
+//!   follows the operating system or is forced light or dark. Implemented in the private module
+//!   `theme`, re-exported at the root.
+//! - The operating system's light/dark preference and its changes (ADR-0014 §5, ADR-0038), in the
+//!   private module `platform` behind the trait `SystemAppearanceSource`: the XDG desktop portal
+//!   on Linux; on Windows and macOS `winit` from step F2.04, no answer (dark) until then.
 //! - The only logo is `assets/logo/orchestra-logo.svg`, recoloured per theme, never reshaped.
 //! - Headless rendering to PNG, used by `cargo xtask screenshots` for the user guides.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
@@ -31,10 +34,12 @@
 //!
 //! ## Allowed dependencies
 //! `orchestra-core-time`, `orchestra-core-model`, `orchestra-playback`, `orchestra-notation-layout`,
-//! `orchestra-i18n`, `orchestra-video`.
+//! `orchestra-i18n`, `orchestra-video`. External: `zbus` and `futures-lite` on Linux only, for the
+//! desktop portal (ADR-0038 S2).
 
 #![forbid(unsafe_code)]
 
+mod platform;
 mod theme;
 
 // The theme system (ADR-0014, ADR-0037), re-exported at the root as ADR-0034 D1 requires.
@@ -48,3 +53,9 @@ pub use theme::custom::{CustomTheme, Override};
 pub use theme::mode::{Appearance, ThemeMode};
 pub use theme::pair::ThemePair;
 pub use theme::token::{ColorToken, Shape, ShapeToken, Theme};
+
+// The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
+pub use platform::appearance::{
+    AppearanceCallback, AppearanceWatch, SystemAppearanceError, SystemAppearanceSource,
+    system_appearance_source,
+};
