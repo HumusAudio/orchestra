@@ -819,8 +819,8 @@ draws each damaged region in a reused scratch buffer and copies it, or the whole
 of it; straight edges snapped to device pixels. While implementing, the shadow's y integral needed
 **12 samples** instead of the 4 the ADR draft said (measured against a brute-force integration: 4
 gave errors of 3.5 steps of 8-bit colour near corners, 12 give 0.84), plus an exact formula for
-plain rectangles and a normalisation over ±3σ: **to be recorded in ADR-0039 D6 with the owner's
-ok**. Tests: 23 in `tests/draw.rs` (exact pixel probes, an anti-aliased circle's area, partial
+plain rectangles and a normalisation over ±3σ: **recorded in ADR-0039 D6 with the owner's ok**
+(SCALETTA v0.53). Tests: 23 in `tests/draw.rs` (exact pixel probes, an anti-aliased circle's area, partial
 drawing equal to full drawing), 2 in `tests/draw_no_alloc.rs`, 5 on the shadow formula; six
 injected bugs caught (one after strengthening the snapping test). Benchmark `benches/draw.rs`
 (reference scene of Phase 0, 1920 × 1080, 200 segments, symbols as paths): record 2.7 M

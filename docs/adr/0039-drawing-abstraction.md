@@ -1,6 +1,7 @@
 # ADR-0039 — The drawing abstraction: a segmented display list of themed commands
 
-- **Status:** Accepted (owner, 2026-11-10; D1, D3, D6 and D8 chosen by the owner, option (a) each)
+- **Status:** Accepted (owner, 2026-11-10; D1, D3, D6 and D8 chosen by the owner, option (a) each;
+  D6 amended with the owner's approval the same day, after measuring)
 - **Date:** 2026-11-10
 - **Implements:** ADR-0012 (our own renderer, headless rendering for free), ADR-0007 rule 4
   (incremental rendering) and rule 5 (software fallback), ADR-0014 §2 (no literal colour in
@@ -105,10 +106,18 @@ a rounded rectangle, a blur radius (the standard deviation, in logical pixels) a
 `tiny-skia` backend computes it **analytically**, like vello's native command (whose formula
 differs): along x the integral of the Gaussian over the shape's row is exact (two `erf`, with
 the row's width shortened by the corner's circle); along y the integral is approximated with
-four samples weighted by the Gaussian over ±3σ. This is the well-known method for blurred
-rounded boxes; for a plain rectangle it is exact along x and very close along y. Only the
+**twelve** samples weighted by the Gaussian over ±3σ, divided by the Gaussian's share inside ±3σ
+(99.73 %) so the inside of a shadow is exactly covered. A **plain rectangle** (radius 0) is exact
+in both directions: the coverage is the product of two `erf` differences, without sampling. Only the
 pixels inside the blurred bounds (the rectangle grown by 3σ) are touched, and no mask buffer is
 allocated per shadow. A blur of 0 is an ordinary filled rounded rectangle.
+
+**Amendment (2026-11-10, owner's approval), from the measurements of the implementation:** the
+draft said four samples, the number often used for this method. Measured against a brute-force
+2D integration on cells aligned with the shape, four samples err by up to **3.5 steps** of 8-bit
+colour near rounded corners (visible), eight by 1.1, twelve by **0.84** (with the normalisation),
+and sixteen give no further gain. Hence twelve, the exact rectangle and the normalisation. The
+cost is twelve rows of two `erf` per pixel, only within 3σ of a shadow.
 
 ### D7 — Crisp lines: snapping to device pixels
 
