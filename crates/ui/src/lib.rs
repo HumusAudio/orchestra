@@ -16,9 +16,11 @@
 //! - Bundled fonts: same look and behaviour on every platform, while
 //!   respecting system conventions (primary modifier Ctrl/Cmd, global menu bar on macOS, native
 //!   file dialogs) through `platform/` modules behind traits.
-//! - Light and dark themes from the first widget (ADR-0014): widgets and renderers read only
-//!   semantic colour tokens of the active theme, never literal colours; the default follows the
-//!   operating system (detected in `platform/` modules), the user can force light or dark.
+//! - Themes from the first widget (ADR-0014, ADR-0037): widgets and renderers read only semantic
+//!   colour and shape tokens of the active theme, never literal values. Ten built-in light/dark
+//!   pairs (Studio by default) and custom themes stored as overrides of a built-in pair; the mode
+//!   follows the operating system (detected in `platform/` modules, F2.02b) or is forced light or
+//!   dark. Implemented in the private module `theme`, re-exported at the root.
 //! - The only logo is `assets/logo/orchestra-logo.svg`, recoloured per theme, never reshaped.
 //! - Headless rendering to PNG, used by `cargo xtask screenshots` for the user guides.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
@@ -32,3 +34,17 @@
 //! `orchestra-i18n`, `orchestra-video`.
 
 #![forbid(unsafe_code)]
+
+mod theme;
+
+// The theme system (ADR-0014, ADR-0037), re-exported at the root as ADR-0034 D1 requires.
+pub use theme::builtin::BuiltInTheme;
+pub use theme::color::Color;
+pub use theme::contrast::{
+    CONTRAST_PAIRS, ContrastFailure, ContrastKind, ContrastPair, EXEMPT_TOKENS, contrast_ratio,
+    relative_luminance,
+};
+pub use theme::custom::{CustomTheme, Override};
+pub use theme::mode::{Appearance, ThemeMode};
+pub use theme::pair::ThemePair;
+pub use theme::token::{ColorToken, Shape, ShapeToken, Theme};

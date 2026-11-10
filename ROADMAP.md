@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); next F2.02.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); next F2.02b (system theme detection).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -749,6 +749,31 @@ sandbox (no compositor); the owner tried it on their desktop (window, text and f
 work) and **accepted ADR-0036** the same day. B6: winit's Wayland decorations for now, our own
 title bar later in the new step **F2.11b** (SCALETTA v0.50), starting with its own ADR. F2.01 done.
 
+Step **F2.02a** (`feature/f2-02a-themes`, 2026-11-10), the theme system without a window. In the
+briefing the owner chose the base UI tokens only (notation and DAW tokens with their steps) and
+asked for palette proposals: two or three built on pure black and pure white with straight lines
+and square corners, six or seven in other directions, varying corners and lines too. A comparison
+page (the owner's private artifact "Temi di Orchestra", version 1) showed ten light/dark pairs on
+the same mock window, each checked by a script against 31 WCAG 2.2 AA pairs; two accents (the
+guides' amber on light paper, 2.68:1, and Studio's orange) were darkened first. The owner then
+**kept all ten pairs** as user choices, with **Studio** as the default, and asked that the user
+can customise every detail. **ADR-0037 Accepted** (amends ADR-0014 §1, §3, §7): ten pairs with
+stable IDs and their own shape; setting = pair + mode (*System* by default); sRGB 8-bit straight
+alpha; 24 colour tokens (with `shadow`) and 5 shape tokens (corners, lines, focus ring 2 px,
+shadow blur and offset); 31 pairs, `border`/`text-disabled`/`shadow` exempt; custom themes as a
+base pair + overrides, warned about and never refused below the thresholds; **T9 by the owner:
+with *System* and no answer from the system, dark**; text tokens in F2.07, density in F2.09,
+names and settings file in F2.12, the theme editor in a new step F2.12b. Implemented in
+`orchestra-ui`, private module `theme` re-exported at the root (`Color`, `ColorToken`,
+`ShapeToken`, `Shape`, `Theme`, `ThemePair`, `BuiltInTheme`, `CustomTheme`, `Override`,
+`ThemeMode`, `Appearance`, `CONTRAST_PAIRS`, `EXEMPT_TOKENS`, `contrast_ratio`,
+`relative_luminance`, `ContrastFailure`…): the colour tokens listed once in a macro, so a missing
+token is a compile error; the ten pairs generated once from the approved page into `builtin.rs`,
+their only source from now on. No new dependency (`orchestra-test-support` and `proptest` as
+dev-dependencies). Tests: `tests/theme.rs` (14, with an oracle from the WCAG 2.0 text and a
+property test) and `tests/theme_no_alloc.rs`; eight injected bugs, seven caught (one only after
+adding the threshold test `#767676`/`#777777`), one equivalent. No benchmark (no hot path yet).
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -821,6 +846,13 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   now).
 - **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
   the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
+- **The guides' amber fails WCAG as text (found in F2.02a, 2026-11-10):** `docs/guide/template.typ`
+  uses the accent `#c8892b` on the paper `#f6f3ec` for links and for the "Figure N" of captions,
+  2.68:1 against the 4.5:1 text needs. Fix in the template (for example the darker amber
+  `#8a5a12` of the Parchment theme's `accent-text`) with the owner's ok; not done yet.
+- **F2.02b next:** reading the system's light/dark preference in `platform/` behind a trait
+  (ADR-0014 §5) and observing its changes; the D-Bus route on Linux (rfd's dlopen of libdbus-1,
+  a dedicated crate, or winit's `Window::theme`, which needs a window, F2.04) is still to choose.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users
   once the DAW view exists.
 - **From F1.14b, to keep in mind:** the interface (F3) must expose `MoveMode::PerformanceOnly` (a

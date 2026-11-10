@@ -2845,6 +2845,80 @@ The table of General MIDI programs is shared with `export_midi` in `examples/com
 included by both with `#[path]`: Cargo builds every file directly in `examples/` as an example of
 its own, so a shared file goes in a subdirectory.
 
+#### The themes of the interface
+
+`orchestra-ui` has its first module, `theme` (step F2.02a, ADR-0014 and ADR-0037). It is the
+theme system the interface will draw with, and it comes before the first widget on purpose: if a
+widget ever wrote a literal colour, turning it into a theme later would mean hunting through the
+whole code base. There is no window yet, no dependency and no platform code: just data, a
+formula and their tests.
+
+**Tokens, not colours.** A widget never says "grey"; it says "muted text" or "the edge of a
+control", and asks the active theme what colour that is. These roles are the *tokens*: 24 colour
+tokens (surfaces, lines, text, accent, controls, selection and focus, error/warning/success, the
+shadow) and 5 shape tokens in logical pixels (corner radius, line width, focus-ring width, shadow
+blur and offset). The colour tokens are listed **once**, in a macro in `token.rs`, which generates
+the public enum `ColorToken`, the stable names (`surface-raised`, `on-accent`…) and a private
+struct with one field per token. The built-in themes fill that struct with a literal, so a theme
+that forgets a token does not compile. Reading a token is a `match` turned into a jump table:
+O(1), no allocation, no possible panic.
+
+```rust
+let appearance = ThemeMode::System.resolve(system_preference); // None → dark (ADR-0037 T9)
+let theme = BuiltInTheme::Studio.pair().instance(appearance);
+let background = theme.color(ColorToken::Surface);
+let corners = theme.shape().corner_radius; // logical pixels
+```
+
+**Colours.** `Color` is four bytes, sRGB with straight (not premultiplied) alpha, the format of
+`tiny-skia` and `softbuffer` and the `#rrggbbaa` a person types. `Color::rgb(0x1c1c1e)` reads like
+the CSS `#1c1c1e`; `Color::over` composites a translucent colour over an opaque one in integer
+arithmetic, blending the sRGB values directly as renderers do, because the contrast check must
+judge what the screen really shows.
+
+**Ten pairs.** Every theme is a `ThemePair`, a light and a dark `Theme`. The ten built-in pairs
+(`BuiltInTheme`: `absolute`, `graphite`, `signal`, `parchment`, `slate`, `studio`, `forest`,
+`lagoon`, `nocturne`, `snow`) come from the comparison page the owner approved on 2026-11-10 and
+live as constants in `builtin.rs`, their only source; Studio is the default. The user's setting is
+a pair plus a `ThemeMode` (*System*, the default, *Light*, *Dark*); when the system says nothing,
+*System* gives dark, because Studio is designed dark first. The identifiers are stable keys for
+the settings file (F2.12), never shown: the visible names will be Fluent strings.
+
+**Custom themes.** A `CustomTheme` is a base pair plus a list of `Override`s per half (a colour
+token or a shape token with a new value), applied in order, so the later one wins. Storing the
+differences instead of a copy means that tokens added in later versions come from the base, with
+no migration: the same idea as the performance offsets of a note. `resolve()` gives the full pair.
+
+**Contrast.** `contrast_ratio` is the WCAG 2.x formula (relative luminance of the linearised
+channels, `(L1 + 0.05) / (L2 + 0.05)`), in `f64` because this is interface code and the power 2.4
+has no exact form. `CONTRAST_PAIRS` lists the 31 pairs that must contrast: text pairs need 4.5:1,
+graphic pairs (control edges, the accent as a state, the focus ring) 3:1; `border`,
+`text-disabled` and `shadow` are exempt, as WCAG allows. `Theme::contrast_failures()` returns
+lazily every pair an instance fails, without allocating: the tests use it for the built-in themes,
+and the theme editor (F2.12b) will use it to warn, never to refuse, when a user goes below the
+thresholds.
+
+```rust
+for failure in custom.resolve().light.contrast_failures() {
+    // e.g. text on surface = 2.31, needs 4.5
+    println!("{} on {} = {:.2}", failure.pair.foreground.name(),
+             failure.pair.background.name(), failure.ratio);
+}
+```
+
+**Tests.** `tests/theme.rs`: all twenty instances pass all 31 pairs (every failure printed at
+once); every token is in a pair or exempt, never both; pairs are distinct; built-in colours are
+opaque except the shadow; shapes, names, identifiers, defaults and the mode resolution match the
+ADR; custom themes resolve correctly; the check is exact at the threshold (`#767676` on white
+passes, `#777777` fails); the ratio agrees with an oracle written from the WCAG text (the 0.03928
+threshold of WCAG 2.0, compositing in floating point) on random colours. `tests/theme_no_alloc.rs`
+proves that reading tokens, checking the contrast and resolving a custom theme never allocate.
+Eight bugs were injected: seven were caught, one only after adding the threshold test; the eighth
+(`<=` instead of `<`) is equivalent, because no 8-bit pair gives exactly 4.5.
+
+No benchmark: there is no hot path yet. A token read is one field access, and a custom theme is
+resolved once, when it is chosen.
+
 ### orchestra-test-support: counting allocations in tests
 
 A crate that exists **only for tests and benchmarks** (ADR-0016). Every other crate may use it,
