@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.50, approvata dal proprietario il 2026-11-09.**
+> **Stato di questo documento: v0.51, approvata dal proprietario il 2026-11-10.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -685,7 +685,8 @@ controllo completo. Va fatta bene una volta sola.
 | ID | Passo | Stato | Stima |
 |---|---|---|---|
 | F2.01 | **Verifica e conferma dei mattoni** (ADR-0012 tabella): versioni, licenze, dimensioni di `winit`, `softbuffer`, `tiny-skia`, `skrifa`, `harfrust`, `accesskit`, `rfd`, `muda`; emendamento all'ADR | ✅ ADR-0036 | 1 |
-| F2.02 | **Sistema dei temi** (ADR-0014): token semantici, istanze chiara e scura, test WCAG 2.2 AA, rilevamento del tema di sistema in `platform/` | ⬜ | 2–3 |
+| F2.02a | **Sistema dei temi** (ADR-0014): token semantici, dieci coppie chiaro/scuro incluse, temi personalizzati come modifiche, test WCAG 2.2 AA | ✅ ADR-0037 | 2 |
+| F2.02b | **Rilevamento del tema di sistema** in `platform/` dietro un trait (ADR-0014 §5), con i cambi osservati a programma aperto | ⬜ | 1 |
 | F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ⬜ | 2–3 |
 | F2.04 | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ⬜ | 2 |
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema chiaro, en-US) | ⬜ | 1 |
@@ -697,6 +698,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
+| F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ⬜ | 2 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
@@ -711,10 +713,30 @@ controllo completo. Va fatta bene una volta sola.
   uscita, nel passo che le porta; prime voci in `docs/native-deps.md`. Il proprietario ha provato
   la finestra sul suo desktop. Decorazioni di `winit` su Wayland per ora, poi la nostra barra del
   titolo in F2.11b (proprietario).
+- **F2.02a** **Fatto il 2026-11-10 (ADR-0037 Accepted, emenda ADR-0014 §1, §3, §7):** il
+  proprietario ha visto dieci proposte (pagina di confronto "Temi di Orchestra": tre in bianco e
+  nero puri, sette diverse) e ha scelto di **tenerle tutte** come scelta dell'utente, con **Studio**
+  predefinito e la personalizzazione di ogni dettaglio. L'impostazione è coppia + modo (*Sistema*
+  predefinito); senza risposta dal sistema si usa lo **scuro** (T9, proprietario). 24 token di
+  colore e 5 di forma (angoli e linee per coppia, anello di focus 2 px, ombra), 31 coppie WCAG;
+  temi personalizzati come tema di partenza + modifiche, con avviso e mai blocco sotto le soglie.
+  Modulo `theme` di `orchestra-ui`, nessuna dipendenza nuova. Nello stesso passo, con l'ok del
+  proprietario, corretti nelle guide i testi in ambra e in verde sotto WCAG (numeri dei capitoli,
+  "Figura N", etichette dei riquadri).
+- **F2.02b** ❓ Su Linux il portale XDG passa da D-Bus: da scegliere fra il caricamento di
+  libdbus-1 come fa `rfd` 0.17, un crate dedicato, o `Window::theme` di `winit` (che vuole una
+  finestra, quindi dopo F2.04).
 - **F2.06** viene presto apposta: è il rischio aperto più grosso della UI (la sandbox non ha GPU).
   Richiede che il proprietario esegua i test sul proprio schermo.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
+- **F2.07** Da ADR-0037: qui si definiscono anche i **token del testo** (carattere fra i font
+  inclusi, scala delle dimensioni, pesi), personalizzabili come gli altri.
+- **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
+  del tema.
+- **F2.12** Da ADR-0037: i nomi delle dieci coppie e le parole *Sistema / Chiaro / Scuro* nei sei
+  cataloghi (con il glossario), e il **file delle impostazioni** con versione e migrazioni (CLAUDE.md
+  §9) che salva coppia, modo e temi personalizzati.
 - **F2.12** Approvato dal proprietario il 2026-11-08: nelle Preferenze anche le **opzioni di
   riproduzione**, cioè i valori oggi fissi di ADR-0027 §14–§15 (gradini degli accenti, tenute e
   ritorni dei profili d'attacco), con i valori tarati a orecchio come predefiniti.
@@ -1000,3 +1022,4 @@ raccomandato.
 | 2026-11-08 | 0.48 | Revisione del codice dopo M1 (PR #37–#42): duplicazioni e codice inutile rimossi, ADR-0033 (tasto inferiore a metà strada, emenda ADR-0032 E9), indice delle voci nel documento; in F2.23 la rimisura dei conteggi e un benchmark con abbellimenti e note lunghe (D5, D6); prossimo passo resta F2.01 | proprietario |
 | 2026-11-09 | 0.49 | Seconda revisione del codice (PR #44–#49): pratiche poco raccomandabili corrette (nomi temporanei unici nel salvataggio, conversioni "impossibili" controllate in debug, costanti razionali verificate in compilazione, errori con causa e posizione, `MigrationError` tipizzato, timeout della CI, permessi e link simbolici nel salvataggio); ADR-0034 (moduli privati, un solo percorso per elemento, errori esaustivi); nei commenti le sigle delle decisioni si scrivono con il loro ADR; funzioni lunghe divise nei loro passi; prossimo passo resta F2.01 | proprietario |
 | 2026-11-09 | 0.50 | F2.01 fatto (ADR-0036 Accepted): mattoni dell'interfaccia verificati e misurati insieme; nuovo F2.11b (la nostra barra del titolo, con un suo ADR) | proprietario |
+| 2026-11-10 | 0.51 | F2.02 diviso in F2.02a (fatto, ADR-0037: dieci coppie di temi, Studio predefinito, personalizzazione) e F2.02b (tema di sistema); nuovo F2.12b (editor dei temi); note in F2.07 (token del testo), F2.09 (densità), F2.12 (nomi dei temi, file delle impostazioni); ambra delle guide corretta | proprietario |

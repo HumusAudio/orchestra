@@ -773,6 +773,12 @@ their only source from now on. No new dependency (`orchestra-test-support` and `
 dev-dependencies). Tests: `tests/theme.rs` (14, with an oracle from the WCAG 2.0 text and a
 property test) and `tests/theme_no_alloc.rs`; eight injected bugs, seven caught (one only after
 adding the threshold test `#767676`/`#777777`), one equivalent. No benchmark (no hot path yet).
+With the owner's ok, the same step fixed the guides' text colours that failed WCAG on the white
+page: the large chapter numbers (brass 2.97:1 → `accent-large` `#a8701c`, 4.2:1), the "Figure N"
+of captions and the warning label (→ `accent-text` `#8a5a12`, ≥ 5.3:1), the tip label (green
+3.78:1 → `tip-text` `#3f6b1e`, 5.85:1); rules and box bars keep the brass. SCALETTA v0.51 splits
+F2.02 into F2.02a (done) and F2.02b, adds F2.12b (the theme editor) and notes in F2.07, F2.09,
+F2.12.
 
 | Step | What | Status |
 |---|---|---|
@@ -846,10 +852,6 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   now).
 - **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
   the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
-- **The guides' amber fails WCAG as text (found in F2.02a, 2026-11-10):** `docs/guide/template.typ`
-  uses the accent `#c8892b` on the paper `#f6f3ec` for links and for the "Figure N" of captions,
-  2.68:1 against the 4.5:1 text needs. Fix in the template (for example the darker amber
-  `#8a5a12` of the Parchment theme's `accent-text`) with the owner's ok; not done yet.
 - **F2.02b next:** reading the system's light/dark preference in `platform/` behind a trait
   (ADR-0014 §5) and observing its changes; the D-Bus route on Linux (rfd's dlopen of libdbus-1,
   a dedicated crate, or winit's `Window::theme`, which needs a window, F2.04) is still to choose.
