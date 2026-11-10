@@ -31,7 +31,8 @@ use tiny_skia::{
 
 use super::Renderer;
 use super::command::{Command, PathElement};
-use super::damage::{Damage, MAX_RECTS};
+use super::damage::Damage;
+use super::device::{DeviceRect, DeviceRegions, device_region, pixel_span, to_f32};
 use super::geometry::{Point, Rect, RoundedRect, Transform};
 use super::image::{DrawError, Image};
 use super::list::{DisplayList, SHADOW_REACH_SIGMAS, Segment};
@@ -42,31 +43,6 @@ use crate::{ColorToken, Theme};
 /// The control-point distance of a cubic Bézier approximating a quarter circle of radius 1:
 /// 4/3 · (√2 − 1) ≈ 0.552 285 (the standard value; error below 0.03 % of the radius).
 const KAPPA: f32 = 0.552_284_8;
-
-/// Blurs below this standard deviation, in device pixels, are drawn as a sharp fill: the
-/// Gaussian is then narrower than a pixel and the analytic coverage is indistinguishable from
-/// the anti-aliased edge.
-const MIN_DEVICE_SIGMA: f32 = 0.25;
-
-/// A rectangle of whole device pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DeviceRect {
-    /// Left column.
-    x: u32,
-    /// Top row.
-    y: u32,
-    /// Width in pixels, ≥ 1.
-    width: u32,
-    /// Height in pixels, ≥ 1.
-    height: u32,
-}
-
-impl DeviceRect {
-    /// Number of pixels.
-    fn area(&self) -> u64 {
-        u64::from(self.width) * u64::from(self.height)
-    }
-}
 
 /// The `tiny-skia` renderer. Keep one per window (or per headless job) and reuse it: its buffers
 /// are what makes later frames allocation-free in our code.
@@ -122,6 +98,21 @@ impl CpuRenderer {
 
     /// Draws one device region: into the target itself when it is the whole frame, otherwise
     /// into the scratch buffer and then copied.
+    ///
+    /// # Why the scratch area is larger than the region
+    /// `tiny-skia` rasterises an anti-aliased path differently depending on whether the path is
+    /// entirely inside the pixmap it draws into (it takes another clipping path otherwise). A
+    /// notehead cut by the edge of a small scratch pixmap would get edge pixels a few units off
+    /// the full frame's (found by the owner in F2.04a: up to 28 of 255). So the scratch area is
+    /// the region grown to contain **every command (and clip) that meets it**, clamped to the
+    /// frame: then each path is either wholly inside the scratch area, as in the full frame, or
+    /// cut by the frame's own edge, as in the full frame; its pixels are the full frame's, shifted
+    /// by whole pixels. Only the region itself is copied back.
+    ///
+    /// # Cost
+    /// A region over a large shape (a panel's rounded background) redraws the whole shape. That
+    /// is the price of exactness; plain rectangles and lines are drawn without anti-aliasing
+    /// (ADR-0039 D7) and still count, conservatively.
     fn render_region(
         &mut self,
         list: &DisplayList,
@@ -130,53 +121,90 @@ impl CpuRenderer {
         region: DeviceRect,
         target: &mut Image,
     ) {
-        let whole = region.x == 0
-            && region.y == 0
-            && region.width == target.width()
-            && region.height == target.height();
+        let (width, height) = (target.width(), target.height());
+        let area = Self::scratch_area(list, scale, region, width, height);
+        let whole = area.x == 0 && area.y == 0 && area.width == width && area.height == height;
         if whole {
-            let (width, height) = (target.width(), target.height());
+            // Drawing the whole frame gives every pixel its final value, the region's included.
             if let Some(pixmap) = PixmapMut::from_bytes(target.data_mut(), width, height) {
-                self.draw_region(list, theme, scale, region, pixmap);
+                self.draw_region(list, theme, scale, area, area, pixmap);
             }
             return;
         }
-        // A partial region: draw into the reused scratch buffer.
-        let len = region.area().saturating_mul(4);
+        let len = area.area().saturating_mul(4);
         let Ok(len) = usize::try_from(len) else {
             return;
         };
         let mut scratch = std::mem::take(&mut self.scratch);
         scratch.clear();
         scratch.resize(len, 0);
-        if let Some(pixmap) = PixmapMut::from_bytes(&mut scratch, region.width, region.height) {
-            self.draw_region(list, theme, scale, region, pixmap);
+        if let Some(pixmap) = PixmapMut::from_bytes(&mut scratch, area.width, area.height) {
+            self.draw_region(list, theme, scale, area, region, pixmap);
         }
-        copy_region(&scratch, region, target);
+        copy_region(&scratch, area, region, target);
         self.scratch = scratch;
     }
 
+    /// The device area a partial redraw of `region` must draw: the region grown by the device
+    /// bounds of every drawing command and clip of the segments that meet it, when they meet it,
+    /// clamped to the frame (see [`render_region`](Self::render_region)).
+    ///
+    /// # Complexity
+    /// O(commands of the segments meeting the region), the same scan the replay does.
+    fn scratch_area(
+        list: &DisplayList,
+        scale: f32,
+        region: DeviceRect,
+        width: u32,
+        height: u32,
+    ) -> DeviceRect {
+        if region.x == 0 && region.y == 0 && region.width == width && region.height == height {
+            // Already the whole frame: nothing can grow it (and the scan would cost a full pass).
+            return region;
+        }
+        let logical = region.logical(scale);
+        let mut area = region;
+        for segment in list.segments() {
+            if !segment.bounds.intersects(&logical) {
+                continue;
+            }
+            for entry in &segment.entries {
+                if needs_whole_shape(&entry.command)
+                    && entry.bounds.intersects(&logical)
+                    && let Some(device) = device_region(&entry.bounds, scale, width, height)
+                {
+                    area = area.union(&device);
+                }
+            }
+        }
+        area
+    }
+
     /// Clears `pixmap` (which shows `region` of the frame) and replays the segments that meet it.
+    /// `needed` is the part of `region` that will be kept (copied to the target): commands whose
+    /// pixels do not depend on the pixmap (the analytic shadow) only compute that part.
     fn draw_region(
         &mut self,
         list: &DisplayList,
         theme: &Theme,
         scale: f32,
         region: DeviceRect,
+        needed: DeviceRect,
         mut pixmap: PixmapMut<'_>,
     ) {
         pixmap.fill(skia_color(theme, Paint::token(ColorToken::Surface)));
         // The region in logical pixels, for culling against the bounds the list recorded.
-        let logical = Rect::new(
-            to_f32(region.x) / scale,
-            to_f32(region.y) / scale,
-            to_f32(region.x.saturating_add(region.width)) / scale,
-            to_f32(region.y.saturating_add(region.height)) / scale,
-        );
+        let logical = region.logical(scale);
         let mut frame = Frame {
             pixmap,
             scale,
             origin: Point::new(to_f32(region.x), to_f32(region.y)),
+            needed: Rect::new(
+                to_f32(needed.x - region.x),
+                to_f32(needed.y - region.y),
+                to_f32(needed.x - region.x + needed.width),
+                to_f32(needed.y - region.y + needed.height),
+            ),
             logical,
             theme,
             list,
@@ -511,8 +539,9 @@ impl CpuRenderer {
     ) {
         let factor = transform.scale * frame.scale;
         let sigma = blur * factor;
-        if sigma < MIN_DEVICE_SIGMA {
-            // Narrower than a pixel: an ordinary fill is the same picture, and cheaper.
+        if sigma <= 0.0 {
+            // No blur: an ordinary fill. Any positive blur, however small, is computed
+            // analytically, so its pixels never depend on the scratch area (`needs_whole_shape`).
             if shape.clamped_radius() <= 0.0 {
                 self.fill_snapped(frame, transform, &shape.rect, paint);
             } else {
@@ -522,7 +551,11 @@ impl CpuRenderer {
         }
         let device = frame.to_device_rect(transform, &shape.rect);
         let radius = shape.clamped_radius() * factor;
-        let reach = device.inflate(sigma * SHADOW_REACH_SIGMAS);
+        // Only the pixels that are both within the blur's reach and kept (`needed`): a shadow's
+        // pixels do not depend on the pixmap, so the rest of a grown scratch area is skipped.
+        let reach = device
+            .inflate(sigma * SHADOW_REACH_SIGMAS)
+            .intersect(&frame.needed);
         let width = frame.pixmap.width();
         let height = frame.pixmap.height();
         // The pixels to visit: the blurred bounds, clamped to the pixmap.
@@ -667,37 +700,50 @@ impl Renderer for CpuRenderer {
         if damage.is_empty() {
             return Ok(());
         }
-        let frame = DeviceRect {
-            x: 0,
-            y: 0,
-            width: target.width(),
-            height: target.height(),
-        };
-        let mut regions = [frame; MAX_RECTS];
-        let mut count = 0;
-        let mut whole = damage.is_all();
-        if !whole {
-            let mut area = 0_u64;
-            for rect in damage.rects() {
-                if let Some(device) = device_region(rect, scale, target.width(), target.height())
-                    && let Some(slot) = regions.get_mut(count)
-                {
-                    area += device.area();
-                    *slot = device;
-                    count += 1;
-                }
-            }
-            // More than half the frame: one full redraw is cheaper than many clipped ones (D5).
-            whole = area.saturating_mul(2) > frame.area();
-        }
-        if whole {
-            self.render_region(list, theme, scale, frame, target);
-        } else {
-            for region in regions.iter().take(count) {
-                self.render_region(list, theme, scale, *region, target);
-            }
+        // The same device regions the window presents (ADR-0040 W4): one computation for both.
+        let regions = DeviceRegions::new(damage, scale, target.width(), target.height());
+        for region in regions.iter() {
+            self.render_region(list, theme, scale, *region, target);
         }
         Ok(())
+    }
+}
+
+/// `true` for the commands whose pixels depend on the scratch area they are drawn into: the ones
+/// `tiny-skia` fills or strokes as anti-aliased paths, and clips (their masks are paths too).
+///
+/// The others give the same pixels whatever the area: snapped rectangles and straight lines are
+/// filled without anti-aliasing on whole pixels (ADR-0039 D7), and a blurred shadow is computed
+/// pixel by pixel from a formula. Growing the scratch area for them would only cost time: the
+/// owner saw it in F2.04a, where growing it for the demonstration's shadowed panel made every
+/// pointer move redraw the whole shadow (68 ms a frame).
+fn needs_whole_shape(command: &Command) -> bool {
+    match command {
+        Command::FillRoundedRect { shape, .. } | Command::StrokeRoundedRect { shape, .. } => {
+            shape.clamped_radius() > 0.0
+        }
+        // A line is snapped only when it is horizontal or vertical with butt or square caps;
+        // our transforms (translate, uniform scale) keep it so. "Straight" means bit-for-bit equal
+        // coordinates on purpose: then the renderer, which compares the transformed coordinates,
+        // certainly sees it straight too; a nearly straight line counts as a path (the safe side:
+        // growing the area is never wrong, only slower).
+        Command::Line {
+            from, to, stroke, ..
+        } => {
+            let straight = from.x.to_bits() == to.x.to_bits() || from.y.to_bits() == to.y.to_bits();
+            !straight || stroke.cap == LineCap::Round
+        }
+        // A sharp shadow (blur 0) is an ordinary fill, a path when its corners are rounded.
+        Command::Shadow { shape, blur, .. } => *blur <= 0.0 && shape.clamped_radius() > 0.0,
+        Command::FillPath { .. }
+        | Command::StrokePath { .. }
+        | Command::Image { .. }
+        | Command::PushClip { .. } => true,
+        Command::FillRect { .. }
+        | Command::StrokeRect { .. }
+        | Command::PopClip
+        | Command::PushTransform(_)
+        | Command::PopTransform => false,
     }
 }
 
@@ -710,6 +756,9 @@ struct Frame<'p, 'a> {
     /// The region's top-left corner in the frame, device pixels: subtracted from every
     /// coordinate, so the pixmap's (0, 0) is the region's corner.
     origin: Point,
+    /// The part of the pixmap that will be kept, in the pixmap's device pixels (the whole pixmap
+    /// unless the scratch area was grown, see `render_region`).
+    needed: Rect,
     /// The region in logical pixels, for culling.
     logical: Rect,
     /// The theme the tokens resolve with.
@@ -810,57 +859,6 @@ fn band_start(centre: f32, band: f32) -> f32 {
     }
 }
 
-/// The device region of a logical damage rectangle (D5): times the scale, rounded outwards, plus
-/// one pixel of anti-aliasing fringe, clamped to the frame. `None` when nothing is left.
-fn device_region(rect: &Rect, scale: f32, width: u32, height: u32) -> Option<DeviceRect> {
-    let fringe = 1.0;
-    let device = Rect::new(
-        (rect.x0 * scale).floor() - fringe,
-        (rect.y0 * scale).floor() - fringe,
-        (rect.x1 * scale).ceil() + fringe,
-        (rect.y1 * scale).ceil() + fringe,
-    );
-    let (x0, y0, x1, y1) = pixel_span(&device, width, height)?;
-    Some(DeviceRect {
-        x: x0,
-        y: y0,
-        width: x1 - x0,
-        height: y1 - y0,
-    })
-}
-
-/// The whole pixels a device rectangle touches, clamped to `width × height`, as
-/// `(first column, first row, end column, end row)` (ends exclusive). `None` when empty.
-fn pixel_span(rect: &Rect, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
-    if rect.is_empty() {
-        return None;
-    }
-    let x0 = clamp_to_pixels(rect.x0.floor(), width);
-    let y0 = clamp_to_pixels(rect.y0.floor(), height);
-    let x1 = clamp_to_pixels(rect.x1.ceil(), width);
-    let y1 = clamp_to_pixels(rect.y1.ceil(), height);
-    (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
-}
-
-/// A whole-pixel coordinate clamped to `0..=limit`.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the value is clamped to 0..=limit (a u32) first, and is already a whole number"
-)]
-fn clamp_to_pixels(value: f32, limit: u32) -> u32 {
-    value.clamp(0.0, to_f32(limit)) as u32
-}
-
-/// A pixel count as `f32`. Exact up to 2²⁴ (16 million pixels a side), far beyond any surface.
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "pixel coordinates stay far below 2^24, where f32 is exact"
-)]
-fn to_f32(value: u32) -> f32 {
-    value as f32
-}
-
 /// Blends a premultiplied `source` colour (channels 0–255) with `cover` (0–1) over `pixel`
 /// (premultiplied RGBA bytes): `out = source · cover + pixel · (1 − source_alpha · cover)`.
 #[allow(
@@ -876,14 +874,19 @@ fn blend_over(pixel: &mut [u8], source: &[f32; 4], cover: f32) {
     }
 }
 
-/// Copies a drawn region (`scratch`, `region.width × region.height` pixels) into its place in
-/// the target, row by row.
-fn copy_region(scratch: &[u8], region: DeviceRect, target: &mut Image) {
-    let row_bytes = region.width as usize * 4;
+/// Copies `region` of the frame from `scratch`, which holds the drawn `area` (a rectangle of the
+/// frame containing `region`, `area.width × area.height` pixels), into its place in `target`, row
+/// by row.
+fn copy_region(scratch: &[u8], area: DeviceRect, region: DeviceRect, target: &mut Image) {
+    let scratch_stride = area.width as usize * 4;
     let target_stride = target.width() as usize * 4;
+    let row_bytes = region.width as usize * 4;
+    let column = (region.x - area.x) as usize * 4;
     let data = target.data_mut();
     for row in 0..region.height as usize {
-        let source = scratch.get(row * row_bytes..(row + 1) * row_bytes);
+        let source_start =
+            (region.y - area.y) as usize * scratch_stride + row * scratch_stride + column;
+        let source = scratch.get(source_start..source_start + row_bytes);
         let start = (region.y as usize + row) * target_stride + region.x as usize * 4;
         let destination = data.get_mut(start..start + row_bytes);
         if let (Some(source), Some(destination)) = (source, destination) {

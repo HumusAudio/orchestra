@@ -3268,7 +3268,21 @@ danneggiato (in pixel del dispositivo, arrotondato verso l'esterno, più un pixe
 l'anti-aliasing) disegna in un buffer di appoggio di quella dimensione, lo pulisce con il
 `surface` del tema, ripete solo i segmenti e i comandi il cui ingombro lo tocca, e copia il
 risultato nell'immagine. Quando il danno copre più di metà del fotogramma, disegna direttamente il
-fotogramma intero. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
+fotogramma intero. Il buffer di appoggio non è solo il rettangolo danneggiato: viene allargato fino
+a contenere ogni comando e ritaglio che lo tocca (entro i bordi del fotogramma), e nell'immagine si
+ricopia solo il rettangolo danneggiato. Il motivo l'ha trovato il proprietario in F2.04a:
+`tiny-skia` sfuma i bordi di un tracciato in modo diverso quando il tracciato è tagliato dal bordo
+dell'immagine in cui disegna, quindi una testa di nota tagliata da un buffer piccolo aveva pixel di
+bordo sbagliati fino a 28 su 255. Allargato così, ogni tracciato viene disegnato esattamente come
+nel fotogramma intero, spostato di pixel interi; un test muove un disco sopra teste di nota, un
+ritaglio arrotondato e un pannello grande, e controlla a ogni passo che il ridisegno parziale sia
+uguale al disegno completo. Allargano l'area solo i comandi i cui pixel dipendono dall'immagine in
+cui si disegna: i tracciati sfumati (rettangoli arrotondati, tracciati, linee oblique o con le
+estremità arrotondate), le immagini e i ritagli. Rettangoli e linee allineati, e le ombre, danno
+gli stessi pixel in qualunque immagine, e un'ombra calcola solo i pixel che vengono ricopiati. La
+prima versione allargava l'area per tutto, e l'ombra del pannello della finestra di prova faceva
+costare 68 ms a ogni movimento del puntatore (il proprietario l'ha visto come un puntatore poco
+reattivo); ora un movimento costa circa 0,5 ms. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
 rigo da 1 px o il bordo di un widget cade su esattamente una fila di pixel, mai su due
 semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 
@@ -3276,15 +3290,19 @@ semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 di un rettangolo arrotondato sfocato. In orizzontale l'integrale è esatto (due `erf` sulla riga,
 accorciata dal cerchio dell'angolo); in verticale usa dodici campioni su ±3σ, divisi per la parte
 della gaussiana dentro ±3σ, così l'interno di un'ombra è coperto del tutto. Un rettangolo senza
-angoli arrotondati è esatto nelle due direzioni (un prodotto di due differenze di `erf`). I dodici
-campioni sono stati scelti misurando contro un'integrazione a forza bruta: con quattro gli errori
-arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli, con dodici al massimo 0,84.
+angoli arrotondati è esatto nelle due direzioni (un prodotto di due differenze di `erf`), e lo è
+ogni punto di un rettangolo arrotondato la cui finestra di ±3σ non arriva a un angolo arrotondato:
+si campionano solo quattro quadrati agli angoli, quindi un'ombra grande costa quattro `erf` per
+pixel quasi ovunque (il fotogramma 960 × 600 della finestra di prova è passato da circa 65 ms a
+16 ms). I dodici campioni sono stati scelti misurando contro un'integrazione a forza bruta: con
+quattro gli errori arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli, con dodici al
+massimo 0,84.
 
 **Senza finestra.** `CpuRenderer::render_to_image` disegna una lista in un'immagine RGBA in memoria
 (il tipo `Image`, alfa premoltiplicata), senza finestra e senza display. I file PNG arrivano con gli
 screenshot, in F2.05.
 
-**Test.** `tests/draw.rs` (23 test) controlla i pixel in modo esatto dove il risultato è esatto per
+**Test.** `tests/draw.rs` (24 test) controlla i pixel in modo esatto dove il risultato è esatto per
 costruzione: rettangoli e linee allineati (spessori pari e dispari, estremità piatte e quadrate),
 linee sottilissime che non spariscono mai, il fattore di scala, i token di due temi, l'opacità,
 l'ordine dei segmenti, il danno dopo una nuova registrazione e una rimozione, il ridisegno delle
@@ -3305,13 +3323,88 @@ riempiti perché i glifi arrivano in F2.07.
 |---|---|---|---|
 | `record_scene` | 2,7 M | ~2,7 ms | — |
 | `draw_full_frame` | 84,6 M | ~85 ms | ≤ 33 M (30 fps in software) |
-| `edit_one_note` | 0,55 M | ~0,5 ms | una piccola parte di 50 ms |
+| `edit_one_note` | 0,61 M | ~0,6 ms | una piccola parte di 50 ms |
 
-Modificare costa poco, come vogliono i segmenti. Un fotogramma intero supera il suo budget: l'86 %
+Modificare costa poco, come vogliono i segmenti. Prima della correzione di F2.04a costava 0,55 M:
+allargare il buffer di appoggio alle teste di nota intere che taglia aggiunge circa il 10 %, il
+prezzo dei pixel esatti. Un fotogramma intero supera il suo budget: l'86 %
 è il riempimento delle 2000 teste di nota come tracciati con anti-aliasing, circa 36 000 istruzioni
 l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella parte (lo spike di
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
 fotogramma intero si rimisura lì e in F2.23.
+
+#### La finestra e il ciclo degli eventi
+
+Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
+`orchestra-ui` è l'unico posto che conosce `winit` (finestre, ciclo degli eventi, input) e
+`softbuffer` (portare i pixel calcolati dalla CPU sullo schermo); tutto il resto vede i nostri
+tipi, quindi un aggiornamento di `winit` tocca solo questo modulo.
+
+**Come lo usa un programma.** Ciò che una finestra mostra implementa `WindowApp`: `layout` registra
+tutta l'interfaccia nella lista quando la finestra ha una dimensione (e dopo ogni ridimensionamento
+o cambio di scala), e `input` registra di nuovo i segmenti che un evento cambia. `run` apre la
+finestra e fa girare il ciclo finché la finestra non viene chiusa:
+
+```rust
+let options = WindowOptions { title, theme, width: 960.0, height: 600.0 };
+orchestra_ui::run(demo::Demo::default(), options)?;
+```
+
+**Fotogrammi su richiesta.** Il ciclo dorme finché non arriva un evento. Si disegna un fotogramma
+solo quando la lista ha aree danneggiate, o sono cambiate la dimensione o la scala della finestra,
+quindi un Orchestra fermo non usa la CPU. Disegnare vuol dire ridisegnare solo le aree danneggiate
+nel fotogramma completo dell'interfaccia (un'`Image` in pixel del dispositivo), poi copiarlo nel
+buffer di `softbuffer` come `0RGB`. Se quel buffer contiene esattamente il fotogramma precedente (la
+sua *età* è 1), si copiano solo i rettangoli danneggiati e li si presenta con `present_with_damage`;
+altrimenti (età 0 dopo un ridimensionamento, o buffer più vecchi quando il sistema ne alterna due o
+tre) si copia il fotogramma intero. Anche un fotogramma chiesto dal *sistema* senza alcuna area
+danneggiata è una copia intera: su X11 una finestra riaperta dopo essere stata minimizzata ha perso
+i suoi pixel sullo schermo anche se il buffer dice ancora età 1, e presentare zero rettangoli la
+lasciava nera finché il puntatore non la ridipingeva pezzo per pezzo (trovato dal proprietario). E
+quando la finestra torna visibile (`Occluded(false)`) il fotogramma successivo è sempre una copia
+intera: su KDE Plasma con X11, riaprire una finestra minimizzata manda quell'evento insieme a un
+movimento del puntatore, quindi il fotogramma aveva una piccola area danneggiata *e* pixel persi, e
+copiare solo l'area danneggiata lasciava comunque nero il resto (trovato con una versione
+diagnostica che stampava gli eventi della finestra). Tenere il nostro fotogramma è ciò che rende corretto il disegno
+parziale qualunque cosa il sistema faccia con i suoi buffer. Le aree danneggiate in pixel del
+dispositivo vengono da un'unica funzione (`draw/device.rs`) condivisa dal renderer e dalla
+finestra, così ciò che si ridisegna è esattamente ciò che si presenta.
+
+**Input.** Gli eventi di `winit` diventano i nostri, in pixel logici: il puntatore (mosso, pulsanti,
+uscito dalla finestra), la rotellina (righe, o pixel da un touchpad), i tasti come li chiama la
+disposizione della tastiera (un carattere, o un tasto con un nome come Invio o una freccia, con le
+ripetizioni), il focus, e i modificatori. I modificatori hanno un **primario** astratto (Ctrl su
+Linux e Windows, Cmd su macOS) e un **secondario** (l'altro), più Shift e Alt; le scorciatoie si
+scriveranno con `primary`, così una sola tabella vale ovunque. L'inserimento di testo e i metodi di
+input arrivano con il campo di testo in F2.10.
+
+**Creare la finestra.** La finestra viene creata invisibile, preparata (oggi la superficie e la
+prima dimensione; l'adapter di AccessKit con i primi widget, che va in panic se arriva dopo che la
+finestra è stata mostrata), e solo allora mostrata. `window/order.rs` lo fa in una funzione
+generica sul tipo di finestra, così un test verifica l'ordine con una finestra finta.
+
+**La finestra di prova.** `cargo run -p orchestra-app` apre `crates/app/src/demo.rs`: un pannello
+in rilievo con la sua ombra e tre controlli, un rigo di cinque linee da 1 px con delle teste di
+nota (che devono restare nitide a ogni scala), quattro quadrati che si accendono con il
+modificatore primario e il secondario, Shift e Alt, e un disco che segue il puntatore (colore
+d'accento mentre un pulsante è premuto). Muovere il puntatore registra di nuovo solo il segmento
+del disco, quindi si ridisegnano solo il suo posto vecchio e quello nuovo. Il titolo è `app-name`
+tradotto; il tema è Studio nel modo del sistema, letto una volta all'avvio (seguirne i cambi arriva
+in F2.04b). Senza display il programma si ferma con un messaggio chiaro ("Could not find wayland
+compositor") invece di andare in panic.
+
+**Dipendenze.** `winit` 0.30.13 e `softbuffer` 0.4.8, con le feature di ADR-0036 (X11 e Wayland
+caricati a runtime, decorazioni di Wayland disegnate da `winit` fino alla nostra barra del titolo
+in F2.11b). Portano copie più vecchie di alcuni crate (`rustix`, `windows-sys`, `objc2`,
+`bitflags`, `getrandom`, `thiserror`, e `tiny-skia` 0.11 per le decorazioni), elencate in
+`deny.toml` con la loro uscita: `winit` 0.31, o la nostra barra del titolo. Il binario di rilascio
+della finestra di prova pesa 7,0 MB.
+
+**Test.** `window/tests.rs` (10 test) gira sulle tre piattaforme senza display: il modificatore
+primario su macOS e altrove, tasti, pulsanti e rotellina, la conversione in `0RGB`, la copia di
+un'area che tocca solo quell'area, la scelta fra copia parziale e intera secondo l'età del buffer,
+i rettangoli presentati in pixel del dispositivo, e l'ordine di creazione della finestra (anche
+quando la creazione fallisce). La finestra vera la verifica a mano il proprietario su Linux.
 
 ### orchestra-test-support: contare le allocazioni nei test
 

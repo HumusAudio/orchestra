@@ -16,7 +16,9 @@
 //!   `[−3σ, +3σ]` that falls inside the shape, each weighted by the Gaussian, then divided by the
 //!   Gaussian's weight within ±3σ (99.73 %), so the inside of a shadow is exactly covered.
 //! - **A plain rectangle (radius 0) is exact in both directions:** the shape is a product of two
-//!   intervals, so the coverage is the product of two 1D integrals, without sampling.
+//!   intervals, so the coverage is the product of two 1D integrals, without sampling. So is every
+//!   point of a rounded rectangle whose ±3σ window does not reach a rounded corner: there the
+//!   shape is a rectangle as far as the Gaussian can see. Only four corner squares are sampled.
 //!
 //! This is the well-known method for blurred rounded boxes (used by several GPU renderers, often
 //! with four samples). It is written here from the mathematics above, and the number of samples
@@ -28,7 +30,8 @@
 //! scale in effect before calling [`coverage`].
 //!
 //! # Complexity
-//! O(1) per pixel: twelve rows, each two `erf` and one `exp` (four `erf` for a plain rectangle). The backend only calls it for pixels
+//! O(1) per pixel: four `erf` outside the corner squares, twelve rows of two `erf` and one `exp`
+//! inside them. The backend only calls it for pixels
 //! inside the shape grown by 3σ.
 
 use std::f32::consts::{FRAC_1_SQRT_2, PI};
@@ -114,15 +117,23 @@ pub(crate) fn coverage(
     let radius = radius.clamp(0.0, half_width.min(half_height));
     let x = px - f32::midpoint(x0, x1);
     let y = py - f32::midpoint(y0, y1);
-    if radius <= 0.0 {
-        // A plain rectangle: the 2D Gaussian is separable and the shape is a product of two
-        // intervals, so the coverage is exactly the product of two 1D integrals, no sampling.
+    // Away from the rounded corners the shape is, as far as the Gaussian can see (±3σ), a plain
+    // rectangle: a point whose row stays within the straight sides for the whole window
+    // (|y| ≤ h − r − 3σ), or whose column does (|x| ≤ w − r − 3σ), only "sees" straight edges.
+    // There, and everywhere for a plain rectangle, the 2D Gaussian is separable and the coverage
+    // is exactly the product of two 1D integrals (four `erf`, no sampling). This covers all but
+    // four corner squares of side r + 6σ, so a large shadow costs four `erf` per pixel almost
+    // everywhere (measured in F2.04a: the demonstration's 520 × 260 panel shadow went from about
+    // 50 ms to a few milliseconds).
+    let reach = 3.0 * sigma;
+    let straight_rows = y.abs() <= half_height - radius - reach;
+    let straight_columns = x.abs() <= half_width - radius - reach;
+    if radius <= 0.0 || straight_rows || straight_columns {
         return (interval(x, half_width, sigma) * interval(y, half_height, sigma)).clamp(0.0, 1.0);
     }
-    // The integration variable t is the vertical offset of the Gaussian's sample; the row it
-    // looks at is at height y − t, which must be inside the shape: t ∈ [y − h, y + h]. Within
-    // that, only ±3σ matters.
-    let reach = 3.0 * sigma;
+    // Near a corner: the integration variable t is the vertical offset of the Gaussian's sample;
+    // the row it looks at is at height y − t, which must be inside the shape: t ∈ [y − h, y + h].
+    // Within that, only ±3σ matters.
     let start = (-reach).clamp(y - half_height, y + half_height);
     let end = reach.clamp(y - half_height, y + half_height);
     let step = (end - start) / f32::from(Y_SAMPLES);

@@ -397,9 +397,11 @@ impl Recorder<'_> {
             None => in_list,
         };
         self.stacks.clips.push(clip);
+        // The clip's bounds let a partial redraw include its whole shape (see the renderer's
+        // `render_region`); state commands are never skipped, so this does not cull it.
         self.entries.push(Entry {
             command: Command::PushClip { shape },
-            bounds: Rect::EMPTY,
+            bounds: clip,
         });
     }
 

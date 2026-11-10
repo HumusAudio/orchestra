@@ -37,11 +37,13 @@
 //! - `command`: the recorded commands (crate-internal);
 //! - `list`: the display list, its segments and the recorder;
 //! - `damage`: the damaged rectangles of a frame;
+//! - `device`: the damage in device pixels, shared by the renderer and the window;
 //! - `shadow`: the analytic blurred rounded rectangle;
 //! - `skia`: the `tiny-skia` backend, the only file that knows `tiny-skia`.
 
 pub(crate) mod command;
 pub(crate) mod damage;
+pub(crate) mod device;
 pub(crate) mod geometry;
 pub(crate) mod image;
 pub(crate) mod list;

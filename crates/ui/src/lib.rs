@@ -28,6 +28,9 @@
 //! - Drawing through a display list of themed commands in segments, redrawn only where damaged,
 //!   with a `tiny-skia` backend that also renders headless into an image (ADR-0039, private module
 //!   `draw`); PNG encoding for `cargo xtask screenshots` comes in F2.05.
+//! - The window and the event loop on `winit` + `softbuffer` (ADR-0040, private module `window`):
+//!   frames on demand, our own input events with an abstract primary modifier, scale and resize;
+//!   the interface implements `WindowApp` and never sees `winit`.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
 //!
 //! ## What this crate must NOT do
@@ -44,6 +47,7 @@
 mod draw;
 mod platform;
 mod theme;
+mod window;
 
 // The theme system (ADR-0014, ADR-0037), re-exported at the root as ADR-0034 D1 requires.
 pub use theme::builtin::BuiltInTheme;
@@ -65,6 +69,12 @@ pub use draw::image::{DrawError, Image, ImageId};
 pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
 pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
+
+// The window and the event loop (ADR-0040), re-exported like the rest.
+pub use window::input::{
+    ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton, WheelDelta,
+};
+pub use window::{WindowApp, WindowError, WindowOptions, run};
 
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
 pub use platform::appearance::{

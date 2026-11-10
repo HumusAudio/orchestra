@@ -105,10 +105,19 @@ zbus = { version = "=5.19.0", default-features = false, features = ["async-io"] 
 # Already in the tree through zbus itself, so it adds no crate. Default features keep `std`.
 futures-lite = "2.6.1"
 # tiny-skia: the CPU 2D renderer of the interface (ADR-0012, ADR-0036, ADR-0039; BSD-3-Clause,
-# 0.12.0 of 2026-02-02, still the latest on 2026-11-10). Pinned EXACTLY as ADR-0036 fixes it.
+# 0.12.0 of 2026-02-02, still the latest on 2026-11-10). A caret requirement on the verified
+# version, as ADR-0036 B1 asks for the UI blocks (for a 0.x crate that accepts 0.12 patches only).
 # Features: `std` and `simd` (fast pipelines on SSE2/AVX2/NEON); NOT `png-format`, which comes
 # with the screenshots in F2.05 (ADR-0039 D8), together with the png/miniz_oxide duplicate.
-tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }
+# winit: windows, the event loop and input (ADR-0012, ADR-0036, ADR-0040; Apache-2.0; 0.30.13
+# checked again on 2026-11-10, 0.31 is still a beta). Features from ADR-0036 B2: X11 and Wayland,
+# both loaded with dlopen (no system library linked at build time), raw-window-handle 0.6 for
+# softbuffer, and Wayland decorations drawn by winit without a title font (B6, until F2.11b).
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "x11", "wayland", "wayland-dlopen", "wayland-csd-adwaita-notitle"] }
+# softbuffer: presenting CPU pixels in the window (ADR-0036, ADR-0040 W4; MIT OR Apache-2.0;
+# 0.4.8 checked again on 2026-11-10). X11 and Wayland with dlopen; no `kms` (B2).
+softbuffer = { version = "0.4.8", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"] }
 
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a

@@ -503,6 +503,63 @@ fn drawing_the_damage_gives_the_same_picture_as_drawing_everything() {
 }
 
 #[test]
+fn a_moving_shape_over_paths_redraws_them_exactly() {
+    // Found by the owner in F2.04a: a disc moving over noteheads left their edge pixels a few
+    // units off (up to 28 of 255), because tiny-skia anti-aliases a path cut by the edge of the
+    // pixmap differently. A large rounded panel, noteheads (paths) inside a rounded clip, and a
+    // disc moved in small steps across them: after every partial redraw the frame must equal a
+    // full drawing of the same list.
+    let theme = light();
+    let mut list = DisplayList::new();
+    list.record(SegmentId(1), |r| {
+        r.fill_rounded_rect(
+            RoundedRect::new(Rect::new(10.0, 10.0, 230.0, 110.0), 12.0),
+            ColorToken::SurfaceRaised,
+        );
+        r.push_clip(RoundedRect::new(Rect::new(20.0, 20.0, 220.0, 100.0), 16.0));
+        for note in 0..10_u8 {
+            let x = 30.0 + f32::from(note) * 20.0;
+            let y = 40.0 + f32::from(note % 5) * 9.0;
+            r.fill_path(FillRule::NonZero, ColorToken::Text, |p| {
+                p.move_to(x + 6.0, y);
+                p.cubic_to(x + 6.0, y + 2.5, x + 3.3, y + 4.5, x, y + 4.5);
+                p.cubic_to(x - 3.3, y + 4.5, x - 6.0, y + 2.5, x - 6.0, y);
+                p.cubic_to(x - 6.0, y - 2.5, x - 3.3, y - 4.5, x, y - 4.5);
+                p.cubic_to(x + 3.3, y - 4.5, x + 6.0, y - 2.5, x + 6.0, y);
+                p.close();
+            });
+        }
+        r.pop_clip();
+    });
+    let mut renderer = CpuRenderer::new();
+    let mut frame = Image::new(240, 120).unwrap();
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme, &damage, 1.0, &mut frame)
+        .unwrap();
+    for step in 0..60_u8 {
+        let x = 15.0 + f32::from(step) * 3.5;
+        let y = 30.0 + f32::from(step % 7) * 8.0;
+        list.record(SegmentId(2), |r| {
+            r.fill_rounded_rect(
+                RoundedRect::new(Rect::new(x - 7.0, y - 7.0, x + 7.0, y + 7.0), 7.0),
+                Paint::with_opacity(ColorToken::Text, 160),
+            );
+        });
+        let damage = list.take_damage();
+        renderer
+            .render(&list, &theme, &damage, 1.0, &mut frame)
+            .unwrap();
+        let full = draw(&list, &theme, 240, 120, 1.0);
+        let difference = max_difference(&frame, &full);
+        assert!(
+            difference <= 1,
+            "step {step}: partial and full differ by {difference}"
+        );
+    }
+}
+
+#[test]
 fn clips_limit_drawing_and_nest() {
     let theme = light();
     let mut list = DisplayList::new();

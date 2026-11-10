@@ -137,7 +137,9 @@ impl Command {
 }
 
 /// A command and its bounds in list coordinates (after transforms and clips), used to skip it
-/// when it does not meet the damage (ADR-0039 D5). State commands have empty bounds.
+/// when it does not meet the damage (ADR-0039 D5). A clip's bounds are its rectangle in list
+/// coordinates (used to size the area a partial redraw needs, never to skip it); the other state
+/// commands have empty bounds.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Entry {
     /// The command.

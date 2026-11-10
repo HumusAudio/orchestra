@@ -85,6 +85,21 @@ skip = [
     # (ADR-0038) brings syn 2 through `enumflags2_derive` and `tracing-attributes`; the rest of the
     # tree is on syn 3. Exit: those proc macros moving to syn 3, or zbus 6 (ADR-0038 S7).
     { crate = "syn@2.0.119", reason = "build-time proc macros of zbus 5 (enumflags2_derive, tracing-attributes), ADR-0036 B7" },
+    # The older copies below all come with winit 0.30 (ADR-0036 B7, ADR-0040), directly or through
+    # its Linux stack (smithay-client-toolkit, calloop) and its Wayland decorations (sctk-adwaita).
+    # Exit for all of them: winit 0.31, and our own title bar (F2.11b) for tiny-skia 0.11.
+    { crate = "rustix@0.38.44", reason = "winit 0.30 and calloop (Linux); exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "linux-raw-sys@0.4.15", reason = "rustix 0.38 of winit 0.30 (Linux); exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "windows-sys@0.52.0", reason = "winit 0.30 (Windows); exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "windows-sys@0.59.0", reason = "rustix 0.38 of winit 0.30's calloop; exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "objc2@0.5.3", reason = "winit 0.30 (macOS); exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "objc2-foundation@0.2.2", reason = "winit 0.30 (macOS); exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "bitflags@1.3.2", reason = "winit 0.30's macOS and Linux stack; exit: winit 0.31 (ADR-0036 B7)" },
+    { crate = "getrandom@0.3.4", reason = "ahash of winit 0.30; exit: winit 0.31 (found in F2.04a, same cause as ADR-0036 B7)" },
+    { crate = "thiserror@1.0.69", reason = "calloop and smithay-client-toolkit of winit 0.30 (Linux); exit: winit 0.31 (found in F2.04a)" },
+    { crate = "thiserror-impl@1.0.69", reason = "the derive of thiserror 1, same as above; exit: winit 0.31" },
+    { crate = "tiny-skia@0.11.4", reason = "sctk-adwaita, winit's Wayland decorations (ADR-0036 B6); exit: our title bar (F2.11b)" },
+    { crate = "tiny-skia-path@0.11.4", reason = "tiny-skia 0.11 of sctk-adwaita, same as above; exit: F2.11b" },
 ]
 skip-tree = []
 deny = []

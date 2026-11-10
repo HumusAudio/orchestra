@@ -3063,7 +3063,19 @@ with the same size does not allocate either.
 rectangle (in device pixels, rounded outwards, plus one pixel for anti-aliasing) it draws into a
 scratch buffer of that size, clears it with the theme's `surface`, replays only the segments and
 the commands whose bounds meet it, and copies the result into the image. When the damage covers
-more than half the frame, it draws the whole frame directly. Straight edges are **snapped** to
+more than half the frame, it draws the whole frame directly. The scratch buffer is not just the
+damaged rectangle: it is grown to contain every command and clip that touches it (clamped to the
+frame), and only the damaged rectangle is copied back. The reason was found by the owner in
+F2.04a: `tiny-skia` anti-aliases a path differently when the path is cut by the edge of the pixmap
+it draws into, so a notehead cut by a small scratch buffer got edge pixels up to 28 of 255 off.
+Grown this way, every path is drawn exactly as in the full frame, shifted by whole pixels; a test
+moves a disc over noteheads, a rounded clip and a large panel, and checks after every step that
+the partial redraw equals a full drawing. Only the commands whose pixels depend on the pixmap grow
+the area: anti-aliased paths (rounded rectangles, paths, slanted or round-capped lines), images
+and clips. Snapped rectangles and lines, and shadows, give the same pixels in any pixmap, and a
+shadow only computes the pixels that are copied back. The first version grew the area for
+everything, and the demonstration's panel shadow made every pointer move cost 68 ms (seen by the
+owner as a sluggish pointer); now a pointer move costs about 0.5 ms. Straight edges are **snapped** to
 device pixels: a 1 px staff line or a widget border falls on exactly one row of pixels, never on
 two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 
@@ -3071,15 +3083,17 @@ two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 rounded rectangle for each pixel. Along x the integral is exact (two `erf` over the row, shortened
 by the corner's circle); along y it uses twelve samples over ±3σ, divided by the share of the
 Gaussian inside ±3σ so the inside of a shadow is fully covered. A plain rectangle is exact in both
-directions (a product of two `erf` differences). Twelve samples were chosen by measuring against a
-brute-force integration: four gave errors of 3.5 steps of 8-bit colour near the corners, twelve
-give at most 0.84.
+directions (a product of two `erf` differences), and so is every point of a rounded rectangle whose
+±3σ window does not reach a rounded corner: only four corner squares are sampled, so a large
+shadow costs four `erf` per pixel almost everywhere (the demonstration's 960 × 600 frame went from
+about 65 ms to 16 ms). Twelve samples were chosen by measuring against a brute-force integration:
+four gave errors of 3.5 steps of 8-bit colour near the corners, twelve give at most 0.84.
 
 **Headless.** `CpuRenderer::render_to_image` draws a list into an in-memory RGBA image (the
 `Image` type, premultiplied alpha), with no window and no display. PNG files come with the
 screenshots, in F2.05.
 
-**Tests.** `tests/draw.rs` (23 tests) checks pixels exactly where the result is exact by design:
+**Tests.** `tests/draw.rs` (24 tests) checks pixels exactly where the result is exact by design:
 snapped rectangles and lines (odd and even widths, butt and square caps), hairlines that never
 vanish, the scale factor, the tokens of two themes, opacity, the order of segments, damage after
 re-recording and removing, redrawing only the damage (a marker pixel outside it survives), the
@@ -3098,12 +3112,81 @@ glyphs come in F2.07.
 |---|---|---|---|
 | `record_scene` | 2.7 M | ~2.7 ms | — |
 | `draw_full_frame` | 84.6 M | ~85 ms | ≤ 33 M (30 fps in software) |
-| `edit_one_note` | 0.55 M | ~0.5 ms | a small part of 50 ms |
+| `edit_one_note` | 0.61 M | ~0.6 ms | a small part of 50 ms |
 
-Editing is cheap, as the segments intend. A full frame is over its budget: 86 % of it is filling
+Editing is cheap, as the segments intend. It cost 0.55 M before the fix of F2.04a: growing the
+scratch buffer to the whole noteheads it cuts adds about 10 %, the price of exact pixels. A full frame is over its budget: 86 % of it is filling
 the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs drawn from a
 cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
 and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.
+
+#### The window and the event loop
+
+Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
+`orchestra-ui` is the only place that knows `winit` (windows, the event loop, input) and
+`softbuffer` (putting CPU pixels on screen); everything outside it sees our own types, so a
+`winit` update touches this module only.
+
+**How a program uses it.** What a window shows implements `WindowApp`: `layout` records the whole
+interface into the display list when the window gets a size (and after every resize or scale
+change), and `input` re-records the segments an event changes. `run` opens the window and runs the
+loop until the window is closed:
+
+```rust
+let options = WindowOptions { title, theme, width: 960.0, height: 600.0 };
+orchestra_ui::run(demo::Demo::default(), options)?;
+```
+
+**Frames on demand.** The loop sleeps until an event arrives. A frame is drawn only when the list
+has damage, or the window's size or scale changed, so an idle Orchestra uses no CPU. Drawing
+renders only the damage into the interface's own full frame (an `Image` in device pixels), then
+copies it into `softbuffer`'s buffer as `0RGB`. If that buffer holds exactly the previous frame
+(its *age* is 1), only the damaged rectangles are copied and presented with
+`present_with_damage`; otherwise (age 0 after a resize, or older buffers when the system rotates
+two or three) the whole frame is copied. A frame the *system* asks for with no damage at all is a
+whole copy too: on X11 a window restored after being minimised has lost its pixels on screen
+although the buffer still reports age 1, and presenting zero rectangles left it black until the
+pointer repainted it piece by piece (found by the owner). And when the window becomes visible
+again (`Occluded(false)`) the next frame is always a whole copy: on KDE Plasma with X11, restoring
+a minimised window sends that event together with a pointer move, so the frame had a little damage
+*and* lost pixels, and copying only the damage still left the rest black (found with a diagnostic
+build that printed the window's events). Keeping our own frame is what makes partial drawing
+correct whatever the system does with its buffers. The damaged regions in device pixels come from
+one function (`draw/device.rs`) shared by the renderer and the window, so what is redrawn is
+exactly what is presented.
+
+**Input.** `winit`'s events become ours, in logical pixels: the pointer (moved, buttons, left the
+window), the wheel (lines, or pixels from a touchpad), keys as the keyboard layout names them (a
+character, or a named key such as Enter or an arrow, with repeats), focus, and the modifiers.
+Modifiers have an abstract **primary** (Ctrl on Linux and Windows, Cmd on macOS) and a
+**secondary** (the other), plus Shift and Alt; shortcuts will be written with `primary`, so one
+table works everywhere. Text input and input methods come with the text field in F2.10.
+
+**Creating the window.** The window is created invisible, set up (today the surface and the first
+size; AccessKit's adapter with the first widgets, which panics if it arrives after the window was
+shown), and only then shown. `window/order.rs` does this in a function generic over the window, so
+a test checks the order with a fake window.
+
+**The demonstration window.** `cargo run -p orchestra-app` opens `crates/app/src/demo.rs`: a raised
+panel with its shadow and three controls, a staff of five 1 px lines with noteheads (which must
+stay sharp at every scale), four squares that light up with the primary and secondary modifiers,
+Shift and Alt, and a disc that follows the pointer (accent colour while a button is held). Moving
+the pointer re-records only the disc's segment, so only its old and new place are redrawn. The
+title is the localised `app-name`; the theme is Studio in the system's mode, read once at start
+(following changes comes in F2.04b). Without a display the program stops with a clear message
+("Could not find wayland compositor") instead of a panic.
+
+**Dependencies.** `winit` 0.30.13 and `softbuffer` 0.4.8, with the features of ADR-0036 (X11 and
+Wayland loaded at run time, Wayland decorations drawn by `winit` until our own title bar in
+F2.11b). They bring older copies of some crates (`rustix`, `windows-sys`, `objc2`, `bitflags`,
+`getrandom`, `thiserror`, and `tiny-skia` 0.11 for the decorations), listed in `deny.toml` with
+their exit: `winit` 0.31, or our title bar. The release binary of the demonstration is 7.0 MB.
+
+**Tests.** `window/tests.rs` (10 tests) runs on the three platforms without a display: the primary
+modifier on macOS and elsewhere, keys, buttons and wheels, the `0RGB` conversion, copying a region
+touches only that region, the choice between partial and whole copies by buffer age, the
+presented rectangles in device pixels, and the order of window creation (also when creation
+fails). The window itself is checked by hand by the owner on Linux.
 
 ### orchestra-test-support: counting allocations in tests
 

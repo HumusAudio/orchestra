@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! The window and the event loop (ADR-0040): the only module that knows `winit` and `softbuffer`.
+//!
+//! [`run`] opens a window and runs the event loop until the window is closed. What the window
+//! shows is a [`WindowApp`]: it records its interface into a [`DisplayList`] when the window's
+//! size changes ([`WindowApp::layout`]) and re-records the segments an input event changes
+//! ([`WindowApp::input`]). The loop sleeps between events and draws a frame only when the list has
+//! damage (W2), redrawing and presenting only the damaged regions (W4).
+//!
+//! # Files
+//! - `input`: our input events and their translation from `winit` (W5);
+//! - `present`: from our RGBA frame to `softbuffer`'s buffer (W4);
+//! - `order`: invisible, set up, shown (W7);
+//! - `shell`: the event loop's handler.
+
+pub(crate) mod input;
+pub(crate) mod order;
+pub(crate) mod present;
+mod shell;
+#[cfg(test)]
+mod tests;
+
+use std::fmt;
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+use crate::{DisplayList, DrawError, Rect, Theme};
+
+/// What a window shows (ADR-0040 W1): the interface records itself through this trait and never
+/// sees `winit`.
+pub trait WindowApp {
+    /// Records the whole interface for a surface of `bounds` (logical pixels, origin at the top
+    /// left). Called when the window first has a size and after every resize or scale change; the
+    /// whole surface is redrawn afterwards.
+    fn layout(&mut self, bounds: Rect, list: &mut DisplayList);
+
+    /// Handles one input event, re-recording the segments it changes. Only their area is redrawn.
+    fn input(&mut self, event: &input::InputEvent, list: &mut DisplayList);
+}
+
+/// How to open the window.
+#[derive(Debug, Clone)]
+pub struct WindowOptions {
+    /// The title, already localised by the caller (no text in this crate's code, CLAUDE.md §7).
+    pub title: String,
+    /// The theme to draw with (ADR-0037). Following the system's changes comes in F2.04b.
+    pub theme: Theme,
+    /// The initial width, logical pixels.
+    pub width: f32,
+    /// The initial height, logical pixels.
+    pub height: f32,
+}
+
+/// Why the window could not run. Exhaustive (ADR-0034 D2). The details are the libraries'
+/// English messages, for developers.
+#[derive(Debug, Clone, PartialEq)]
+pub enum WindowError {
+    /// The event loop could not start (no display server reachable, for example).
+    EventLoop {
+        /// The library's description.
+        detail: String,
+    },
+    /// The window could not be created.
+    CreateWindow {
+        /// The library's description.
+        detail: String,
+    },
+    /// The surface for presenting pixels failed.
+    Surface {
+        /// The library's description.
+        detail: String,
+    },
+    /// Drawing failed.
+    Draw(DrawError),
+}
+
+impl fmt::Display for WindowError {
+    /// One English line for developers.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EventLoop { detail } => write!(f, "the event loop could not start: {detail}"),
+            Self::CreateWindow { detail } => write!(f, "the window could not be created: {detail}"),
+            Self::Surface { detail } => write!(f, "presenting pixels failed: {detail}"),
+            Self::Draw(error) => write!(f, "drawing failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for WindowError {}
+
+/// Opens a window showing `app` and runs the event loop until the window is closed (ADR-0040).
+///
+/// Blocks the calling thread, which must be the program's main thread (macOS requires it).
+///
+/// # Errors
+/// [`WindowError`] when the loop, the window or the surface cannot be created, or drawing fails.
+pub fn run<A: WindowApp>(app: A, options: WindowOptions) -> Result<(), WindowError> {
+    let event_loop = EventLoop::new().map_err(|error| WindowError::EventLoop {
+        detail: error.to_string(),
+    })?;
+    // Frames on demand (W2): sleep until the next event.
+    event_loop.set_control_flow(ControlFlow::Wait);
+    let mut shell = shell::Shell::new(app, options);
+    event_loop
+        .run_app(&mut shell)
+        .map_err(|error| WindowError::EventLoop {
+            detail: error.to_string(),
+        })?;
+    shell.error.map_or(Ok(()), Err)
+}
