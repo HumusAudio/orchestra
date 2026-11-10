@@ -30,8 +30,8 @@ impl ThemeMode {
     /// The appearance to show, given what the operating system reports.
     ///
     /// `system` is what [`AppearanceWatch::current`](crate::AppearanceWatch::current) returns:
-    /// `None` when the preference cannot be read (no desktop portal, an error, Windows and macOS
-    /// before step F2.04; ADR-0038). Then *System* gives **dark** (ADR-0037 T9, owner's choice):
+    /// `None` when the preference cannot be read (no desktop portal, an error, a system that
+    /// does not say; ADR-0038). Then *System* gives **dark** (ADR-0037 T9, owner's choice):
     /// the default pair, Studio, is designed dark first. *Light* and *Dark* ignore `system`.
     #[must_use]
     pub const fn resolve(self, system: Option<Appearance>) -> Appearance {

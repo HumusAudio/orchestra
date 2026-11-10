@@ -30,16 +30,15 @@ mod demo;
 use std::process::ExitCode;
 
 use orchestra_i18n::{Locale, Localizer};
-use orchestra_ui::{
-    BuiltInTheme, SystemAppearanceSource, ThemeMode, WindowOptions, system_appearance_source,
-};
+use orchestra_ui::{BuiltInTheme, ThemeMode, WindowOptions};
 
 /// Program entry point: opens the demonstration window of ADR-0040 W8 until the real interface
 /// exists.
 ///
 /// The title is the localised application name (CLAUDE.md §7; the language is fixed to en-US
-/// until F2.13 detects the system's). The theme is Studio (ADR-0037 T1) in the system's mode, read
-/// once at start (ADR-0038); following its changes comes in F2.04b.
+/// until F2.13 detects the system's). The theme is Studio (ADR-0037 T1) in the *System* mode: the
+/// window reads the system's light/dark preference and follows its changes (ADR-0038), until the
+/// Preferences of F2.12 let the user choose both.
 fn main() -> ExitCode {
     let title = match Localizer::new(Locale::EnUs).and_then(|l| l.format("app-name", None)) {
         Ok(title) => title,
@@ -48,16 +47,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    // Read the system's preference once; the watch is dropped right after (no changes followed).
-    let system = system_appearance_source()
-        .observe(Box::new(|_| {}))
-        .current();
-    let theme = *BuiltInTheme::Studio
-        .pair()
-        .instance(ThemeMode::System.resolve(system));
     let options = WindowOptions {
         title,
-        theme,
+        pair: *BuiltInTheme::Studio.pair(),
+        mode: ThemeMode::System,
         width: 960.0,
         height: 600.0,
     };

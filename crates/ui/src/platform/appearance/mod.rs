@@ -10,8 +10,9 @@
 //! `Option<Appearance>`, where `None` means "the system said nothing" and gives dark (ADR-0037
 //! T9). This module produces that `Option`, and every later change of it:
 //!
-//! - [`SystemAppearanceSource`] is the one trait (ADR-0038 S1). [`system_appearance_source`]
-//!   returns the implementation of the platform the program was built for.
+//! - [`SystemAppearanceSource`] is the one trait (ADR-0038 S1). The crate-private
+//!   [`observe_system`] starts the implementation of the platform the program was built for; the
+//!   window's event loop calls it (ADR-0040 W3), nothing else needs to.
 //! - [`SystemAppearanceSource::observe`] returns an [`AppearanceWatch`], whose
 //!   [`current`](AppearanceWatch::current) is the preference known at that moment, and calls a
 //!   callback with each **real transition** afterwards, until the watch is dropped.
@@ -20,9 +21,10 @@
 //!
 //! - `portal` (Linux): the XDG desktop portal over D-Bus, with our own code on `zbus`
 //!   (ADR-0038 S2).
-//! - `no_answer` (Windows, macOS): always `None` for now. ADR-0038 S3 implements both with
-//!   `winit` in step F2.04, when `winit` enters the workspace; until then there is no window to
-//!   theme, so the dark fallback is harmless.
+//! - `fed` (Windows, macOS, any other system): a source fed by the window's event loop with what
+//!   `winit` reports, `ActiveEventLoop::system_theme()` and `WindowEvent::ThemeChanged`
+//!   (ADR-0038 S3, step F2.04b). `winit` only answers inside a running event loop, so the loop
+//!   reads it and passes it on through a [`Reporter`].
 //!
 //! # The thread-based machinery, shared and tested on every platform
 //!
@@ -40,22 +42,25 @@
 //!    last one is kept for diagnostics in [`AppearanceWatch::last_error`] (ADR-0038 S2).
 //! 4. **After the watch is dropped, the callback is never called again**, not even once: the
 //!    callback lives behind the same lock the reporter takes to call it.
+//!
+//! The fed source of Windows and macOS uses the same [`Reporter`], so rules 2–4 hold there too;
+//! rule 1 is trivially true, because its first answer is known before `observe` is called.
 
-// On Windows and macOS (until F2.04, ADR-0038 S3) no source uses the thread-based machinery
-// below, so outside the tests the compiler would call it dead. It is kept compiled there on
-// purpose: the tests exercise it on every platform with fake sources, and F2.04 may use it. The
-// attribute is limited to exactly that case, so on Linux, and in every test build, real dead code
-// is still reported.
+// Outside Linux no source uses the thread-based machinery below (`AppearanceWatch::spawn`,
+// `Reporter::fail`, the timeout), so outside the tests the compiler would call it dead. It is kept
+// compiled there on purpose: the tests exercise it on every platform with fake sources, and a
+// future source that has to wait on the system would use it. The attribute is limited to exactly
+// that case, so on Linux, and in every test build, real dead code is still reported.
 #![cfg_attr(
     not(any(target_os = "linux", test)),
     allow(
         dead_code,
-        reason = "thread-based sources exist only on Linux until F2.04 (ADR-0038 S3)"
+        reason = "thread-based sources exist only on Linux (ADR-0038 S2, S3)"
     )
 )]
 
-#[cfg(not(target_os = "linux"))]
-mod no_answer;
+#[cfg(any(not(target_os = "linux"), test))]
+mod fed;
 #[cfg(target_os = "linux")]
 mod portal;
 #[cfg(test)]
@@ -82,8 +87,9 @@ pub(crate) const FIRST_READ_TIMEOUT: Duration = Duration::from_millis(250);
 /// The callback that receives each change of the system's preference (ADR-0038 S1).
 ///
 /// The argument is the new answer: `Some` light or dark, or `None` when the system stops
-/// answering (an error, the portal going away). It is called on the source's own thread, never on
-/// the caller's, hence `Send`; in F2.04 it will forward the value to the event loop of the window.
+/// answering (an error, the portal going away). It may be called on the source's own thread (the
+/// Linux portal's), hence `Send`; the window forwards the value to its event loop with
+/// `EventLoopProxy` (ADR-0040 W3).
 ///
 /// # Contract
 /// It runs while the watch's internal lock is held (rule 4 of the module documentation), so it
@@ -94,8 +100,8 @@ pub type AppearanceCallback = Box<dyn FnMut(Option<Appearance>) + Send + 'static
 
 /// A source of the operating system's light/dark preference: the one trait of ADR-0038 S1.
 ///
-/// The interface asks [`system_appearance_source`] for the platform's implementation and never
-/// learns which one it got. Tests and, later, other front ends can supply their own.
+/// The window starts the platform's implementation with [`observe_system`] and never learns which
+/// one it got. Tests and, later, other front ends can supply their own.
 pub trait SystemAppearanceSource {
     /// Starts observing the system's preference.
     ///
@@ -108,22 +114,53 @@ pub trait SystemAppearanceSource {
     fn observe(&self, on_change: AppearanceCallback) -> AppearanceWatch;
 }
 
-/// The implementation of [`SystemAppearanceSource`] for the platform this program was built for.
+/// A running observation of the platform's preference, as [`observe_system`] starts it.
+pub(crate) struct SystemObservation {
+    /// The observation: [`AppearanceWatch::current`] is the initial value, the callback gets the
+    /// changes. Keep it for the whole session.
+    pub(crate) watch: AppearanceWatch,
+    /// Where the event loop feeds what `winit` reports (Windows, macOS, other systems: the `fed`
+    /// source, ADR-0038 S3). `None` on Linux, where the portal's own thread does the reporting and
+    /// `winit` has nothing to say.
+    pub(crate) feed: Option<Reporter>,
+}
+
+/// Starts observing the system's preference on the platform this program was built for, with
+/// `on_change` receiving every real transition (ADR-0038 S1).
 ///
-/// - Linux: the XDG desktop portal (ADR-0038 S2).
-/// - Windows and macOS: no answer until step F2.04 brings `winit` (ADR-0038 S3).
+/// `event_loop_answer` is what `winit`'s `ActiveEventLoop::system_theme()` said, already
+/// translated (the window module does it: `winit` lives only there, ADR-0040 W1):
 ///
-/// Cheap: it builds a value without touching the system; the work starts in
-/// [`observe`](SystemAppearanceSource::observe).
-#[must_use]
-pub fn system_appearance_source() -> impl SystemAppearanceSource {
+/// - **Linux:** ignored (`winit` always says `None` there). The XDG desktop portal is asked on a
+///   thread of its own (ADR-0038 S2); this waits at most [`FIRST_READ_TIMEOUT`] for its first
+///   answer (S5). `feed` is `None`.
+/// - **Windows, macOS, other systems:** it is the initial value, and `feed` is the reporter through
+///   which the event loop passes on every later `ThemeChanged` (S3). Returns at once.
+///
+/// # Why one function instead of a public constructor per platform
+/// On Windows and macOS the source only works inside a running event loop, so a public "give me
+/// the system's source" outside the window would always answer "nothing" there and mislead its
+/// callers. The window is the only caller, inside its loop.
+pub(crate) fn observe_system(
+    event_loop_answer: Option<Appearance>,
+    on_change: AppearanceCallback,
+) -> SystemObservation {
     #[cfg(target_os = "linux")]
     {
-        portal::PortalSource
+        // `winit` never answers on Linux (ADR-0038, context): the portal is the source.
+        let _ = event_loop_answer;
+        SystemObservation {
+            watch: portal::PortalSource.observe(on_change),
+            feed: None,
+        }
     }
     #[cfg(not(target_os = "linux"))]
     {
-        no_answer::NoAnswerSource
+        let (source, feed) = fed::FedSource::new(event_loop_answer);
+        SystemObservation {
+            watch: source.observe(on_change),
+            feed: Some(feed),
+        }
     }
 }
 
@@ -252,11 +289,13 @@ impl Shared {
     }
 }
 
-/// The source thread's way of telling the [`AppearanceWatch`] what the system said.
+/// A source's way of telling the [`AppearanceWatch`] what the system said.
 ///
-/// Every source that waits on the system (today the Linux portal) gets one and calls it from its
-/// own thread. It applies the module's rules 1–4, so the platform code only translates the
-/// system's messages into [`Reporter::answer`] and [`Reporter::fail`].
+/// A source that waits on the system (the Linux portal) gets one and calls it from its own
+/// thread; the fed source of Windows and macOS hands it to the window's event loop, which calls it
+/// on the main thread with what `winit` reports. It applies the module's rules 1–4, so the
+/// platform code only translates the system's messages into [`Reporter::answer`] and
+/// [`Reporter::fail`].
 pub(crate) struct Reporter {
     /// The observation this reporter feeds.
     shared: Arc<Shared>,
@@ -363,25 +402,6 @@ impl AppearanceWatch {
             state.last_error = Some(SystemAppearanceError::Timeout);
         }
         drop(state);
-        Self { shared }
-    }
-
-    /// A watch that never answers and never changes: the source of a platform with no
-    /// implementation yet (ADR-0038 S3) or of a front end that has no system to ask.
-    ///
-    /// Compiled only where it is used: on the platforms without an implementation, and in the
-    /// tests (on Linux the portal source never needs it).
-    #[cfg(any(not(target_os = "linux"), test))]
-    pub(crate) fn no_answer() -> Self {
-        let shared = Arc::new(Shared {
-            state: Mutex::new(State {
-                waiting: false,
-                delivered: None,
-                callback: None,
-                last_error: None,
-            }),
-            first_answer: Condvar::new(),
-        });
         Self { shared }
     }
 

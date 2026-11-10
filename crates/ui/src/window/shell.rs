@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The event loop's handler (ADR-0040): owns the window, the surface, the frame and the display
-//! list, translates `winit`'s events into ours for the [`WindowApp`], and draws frames on demand.
+//! list, translates `winit`'s events into ours for the [`WindowApp`], draws frames on demand, and
+//! follows the system's light/dark preference (`super::appearance`).
 
 use std::num::NonZeroU32;
 use std::rc::Rc;
@@ -10,15 +11,17 @@ use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::WindowEvent;
-use winit::event_loop::ActiveEventLoop;
+use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
+use super::appearance::{ShellEvent, ThemeState, appearance_from_winit};
 use super::input::{self, InputEvent, Modifiers};
 use super::order::open_in_order;
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
 use super::{WindowApp, WindowError, WindowOptions};
 use crate::draw::device::DeviceRegions;
-use crate::{CpuRenderer, DisplayList, Image, Point, Rect, Renderer};
+use crate::platform::appearance::{Reporter, SystemObservation, observe_system};
+use crate::{AppearanceWatch, CpuRenderer, DisplayList, Image, Point, Rect, Renderer};
 
 /// The window and what draws into it, once it exists.
 struct Open {
@@ -40,6 +43,17 @@ pub(crate) struct Shell<A> {
     app: A,
     /// The options it was started with.
     options: WindowOptions,
+    /// The theme in use: the pair and mode of the options, and the half the system selects.
+    theme: ThemeState,
+    /// The way into our own event loop from other threads (ADR-0040 W3); a clone goes into the
+    /// appearance callback.
+    proxy: EventLoopProxy<ShellEvent>,
+    /// The observation of the system's preference, started in the first `resumed` and kept for
+    /// the whole session: dropping it would stop the changes (ADR-0038 S1).
+    appearance: Option<AppearanceWatch>,
+    /// Where `winit`'s `ThemeChanged` is passed on (Windows, macOS: ADR-0038 S3); `None` on Linux,
+    /// where the portal's thread reports by itself, and before the first `resumed`.
+    appearance_feed: Option<Reporter>,
     /// What to draw.
     list: DisplayList,
     /// How to draw it.
@@ -60,11 +74,15 @@ pub(crate) struct Shell<A> {
 }
 
 impl<A: WindowApp> Shell<A> {
-    /// A handler for `app`, with no window yet.
-    pub(crate) fn new(app: A, options: WindowOptions) -> Self {
+    /// A handler for `app`, with no window yet. `proxy` belongs to the event loop that will run it.
+    pub(crate) fn new(app: A, options: WindowOptions, proxy: EventLoopProxy<ShellEvent>) -> Self {
         Self {
             app,
+            theme: ThemeState::new(options.pair, options.mode),
             options,
+            proxy,
+            appearance: None,
+            appearance_feed: None,
             list: DisplayList::new(),
             renderer: CpuRenderer::new(),
             open: None,
@@ -80,6 +98,39 @@ impl<A: WindowApp> Shell<A> {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: WindowError) {
         self.error = Some(error);
         event_loop.exit();
+    }
+
+    /// Starts observing the system's preference (ADR-0038) and takes its first answer, before the
+    /// window exists, so the first frame already has the right half of the pair.
+    ///
+    /// On Linux this waits at most 250 ms for the portal (ADR-0038 S5); on Windows and macOS the
+    /// answer is `winit`'s, read here and at once. Every later change arrives as a
+    /// [`ShellEvent::SystemAppearance`] through the proxy (`user_event`).
+    fn start_appearance(&mut self, event_loop: &ActiveEventLoop) {
+        let proxy = self.proxy.clone();
+        let SystemObservation { watch, feed } = observe_system(
+            event_loop.system_theme().map(appearance_from_winit),
+            Box::new(move |value| {
+                // Fails only when the event loop has already ended, that is while the program is
+                // closing: there is no window left to theme, so the change is rightly dropped.
+                let _closed = proxy.send_event(ShellEvent::SystemAppearance(value));
+            }),
+        );
+        self.theme.set_system(watch.current());
+        self.appearance = Some(watch);
+        self.appearance_feed = feed;
+    }
+
+    /// Applies a new answer of the system: when the half to draw with changes, everything is
+    /// damaged and a frame is requested (ADR-0037 T6). Layout does not depend on colours, so
+    /// nothing is re-recorded.
+    fn apply_system_appearance(&mut self, system: Option<crate::Appearance>) {
+        if self.theme.set_system(system) {
+            self.list.damage_all();
+            if let Some(open) = self.open.as_ref() {
+                open.window.request_redraw();
+            }
+        }
     }
 
     /// Creates the window (invisible), its surface and the first frame, then shows it (W7).
@@ -110,6 +161,14 @@ impl<A: WindowApp> Shell<A> {
             },
         )?;
         let (context, surface) = surface?;
+        // The system may have changed between `system_theme()` and the window's creation, and no
+        // `ThemeChanged` is promised for that moment: the window's own theme (Windows, macOS,
+        // which follow the system because we never call `set_theme`) closes the gap. A repeat is
+        // dropped by the reporter. On Linux there is no feed, and `winit` would only echo what the
+        // application set.
+        if let (Some(feed), Some(theme)) = (self.appearance_feed.as_ref(), window.theme()) {
+            feed.answer(Some(appearance_from_winit(theme)));
+        }
         let scale = window.scale_factor();
         let size = window.inner_size();
         self.open = Some(Open {
@@ -169,7 +228,7 @@ impl<A: WindowApp> Shell<A> {
         let (width, height) = (frame.width(), frame.height());
         let regions = DeviceRegions::new(&damage, scale, width, height);
         self.renderer
-            .render(&self.list, &self.options.theme, &damage, scale, frame)
+            .render(&self.list, self.theme.theme(), &damage, scale, frame)
             .map_err(WindowError::Draw)?;
         let mut buffer = open
             .surface
@@ -207,10 +266,13 @@ impl<A: WindowApp> Shell<A> {
     }
 }
 
-impl<A: WindowApp> ApplicationHandler for Shell<A> {
+impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
     /// Creates the window the first time the application is resumed (`winit` 0.30 allows window
-    /// creation only from here on).
+    /// creation only from here on), after starting to observe the system's preference.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.appearance.is_none() {
+            self.start_appearance(event_loop);
+        }
         if self.open.is_none()
             && let Err(error) = self.open_window(event_loop)
         {
@@ -277,6 +339,13 @@ impl<A: WindowApp> ApplicationHandler for Shell<A> {
                 });
             }
             WindowEvent::Focused(focused) => self.deliver(&InputEvent::Focus(focused)),
+            // The system's preference changed (Windows, macOS; never sent on Linux). It goes
+            // through the reporter, so it reaches `user_event` like the portal's changes.
+            WindowEvent::ThemeChanged(theme) => {
+                if let Some(feed) = self.appearance_feed.as_ref() {
+                    feed.answer(Some(appearance_from_winit(theme)));
+                }
+            }
             // Visible again (restored, uncovered): the system may have dropped the window's
             // pixels, so the next frame is a whole copy (`CopyPlan::choose`), even if a pointer
             // move arriving at the same time damages part of it.
@@ -293,6 +362,13 @@ impl<A: WindowApp> ApplicationHandler for Shell<A> {
             && let Some(open) = self.open.as_ref()
         {
             open.window.request_redraw();
+        }
+    }
+
+    /// Our own events, sent through the proxy (ADR-0040 W3): today the system's preference.
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ShellEvent) {
+        match event {
+            ShellEvent::SystemAppearance(system) => self.apply_system_appearance(system),
         }
     }
 }

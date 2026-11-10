@@ -2,7 +2,8 @@
 
 //! Tests of the window's logic, without a display (ADR-0040 W9): the input translation (with the
 //! primary modifier of each platform), the pixel conversion, the choice between partial and whole
-//! copies, the damage rectangles for `present_with_damage`, and the order of window creation.
+//! copies, the damage rectangles for `present_with_damage`, the order of window creation, and how
+//! the theme in use follows the system's answers (F2.04b).
 
 use std::cell::RefCell;
 
@@ -10,13 +11,14 @@ use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey, SmolStr};
 
+use super::appearance::{ThemeState, appearance_from_winit};
 use super::input::{
     self, ButtonState, Key, Modifiers, NamedKey, PointerButton, WheelDelta, to_logical,
 };
 use super::order::{Showable, open_in_order};
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect, to_0rgb};
 use crate::draw::device::{DeviceRect, DeviceRegions};
-use crate::{Damage, Image, Rect};
+use crate::{Appearance, BuiltInTheme, Damage, Image, Rect, ThemeMode};
 
 #[test]
 fn the_primary_modifier_is_ctrl_except_on_macos() {
@@ -239,4 +241,54 @@ fn a_window_that_cannot_be_created_is_neither_set_up_nor_shown() {
     );
     assert_eq!(result.err(), Some("no display"));
     assert!(log.borrow().is_empty());
+}
+
+#[test]
+fn winit_themes_are_our_appearances() {
+    assert_eq!(
+        appearance_from_winit(winit::window::Theme::Light),
+        Appearance::Light
+    );
+    assert_eq!(
+        appearance_from_winit(winit::window::Theme::Dark),
+        Appearance::Dark
+    );
+}
+
+#[test]
+fn the_system_mode_follows_every_answer_and_says_when_to_redraw() {
+    let pair = *BuiltInTheme::Studio.pair();
+    let mut state = ThemeState::new(pair, ThemeMode::System);
+    // Before any answer: dark (ADR-0037 T9).
+    assert_eq!(state.appearance(), Appearance::Dark);
+    assert_eq!(state.theme(), &pair.dark);
+    // Light: a change, so a redraw, and the light half.
+    assert!(state.set_system(Some(Appearance::Light)));
+    assert_eq!(state.theme(), &pair.light);
+    // The same answer again: nothing to redraw.
+    assert!(!state.set_system(Some(Appearance::Light)));
+    // The system stops answering: back to dark, a change.
+    assert!(state.set_system(None));
+    assert_eq!(state.theme(), &pair.dark);
+    // Dark after "no answer" looks the same: no redraw.
+    assert!(!state.set_system(Some(Appearance::Dark)));
+}
+
+#[test]
+fn a_forced_mode_ignores_the_system() {
+    let pair = *BuiltInTheme::Studio.pair();
+    for (mode, half) in [
+        (ThemeMode::Light, Appearance::Light),
+        (ThemeMode::Dark, Appearance::Dark),
+    ] {
+        let mut state = ThemeState::new(pair, mode);
+        assert_eq!(state.appearance(), half);
+        for system in [Some(Appearance::Light), Some(Appearance::Dark), None] {
+            assert!(
+                !state.set_system(system),
+                "{mode:?} must not redraw for {system:?}"
+            );
+            assert_eq!(state.appearance(), half);
+        }
+    }
 }

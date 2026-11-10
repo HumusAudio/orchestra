@@ -23,7 +23,8 @@
 //!   `theme`, re-exported at the root.
 //! - The operating system's light/dark preference and its changes (ADR-0014 §5, ADR-0038), in the
 //!   private module `platform` behind the trait `SystemAppearanceSource`: the XDG desktop portal
-//!   on Linux; on Windows and macOS `winit` from step F2.04, no answer (dark) until then.
+//!   on Linux, `winit` on Windows and macOS (fed by the window's event loop). The window follows
+//!   the changes while the program runs.
 //! - The only logo is `assets/logo/orchestra-logo.svg`, recoloured per theme, never reshaped.
 //! - Drawing through a display list of themed commands in segments, redrawn only where damaged,
 //!   with a `tiny-skia` backend that also renders headless into an image (ADR-0039, private module
@@ -79,5 +80,4 @@ pub use window::{WindowApp, WindowError, WindowOptions, run};
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
 pub use platform::appearance::{
     AppearanceCallback, AppearanceWatch, SystemAppearanceError, SystemAppearanceSource,
-    system_appearance_source,
 };
