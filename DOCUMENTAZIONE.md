@@ -237,6 +237,17 @@ x86_64 e aarch64), così una dipendenza solo-Windows con una licenza sbagliata v
 su Linux. Il database RustSec sta in `target/advisory-dbs` invece che in `~/.cargo`, che nel
 sandbox di Claude Code è in sola lettura.
 
+**Le eccezioni**, ognuna con il suo motivo e l'evento che la toglie (il campo `reason`):
+
+- `[bans] skip`: `syn` 2, un doppione solo di compilazione accanto a `syn` 3. Viene da due macro
+  procedurali di `zbus` 5 (`enumflags2_derive`, `tracing-attributes`), come prevedeva ADR-0036 B7.
+  Uscita: quelle macro che passano a syn 3, oppure zbus 6.
+- `[advisories] ignore`: RUSTSEC-2026-0370, -0371 e -0372, gli avvisi "non più mantenuto" di
+  `zvariant`, `zbus_names` e `zvariant_derive`. zbus 6 li ha incorporati in `zbus` stesso. Non
+  sono vulnerabilità, e sono ignorati solo questi tre ID, quindi un vero avviso di sicurezza sugli
+  stessi crate fa ancora fallire il controllo. Restiamo su zbus 5.19 perché ci resta AccessKit
+  (ADR-0038 S7). Uscita: AccessKit che passa a zbus 6, e noi con lui nello stesso passo.
+
 ### Fine riga e file ignorati
 
 `.gitattributes` salva ogni file di testo con LF e lo estrae con LF su ogni sistema, Windows

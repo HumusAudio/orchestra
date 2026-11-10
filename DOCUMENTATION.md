@@ -222,6 +222,17 @@ aarch64), so a Windows-only dependency with a bad license is caught on Linux too
 database is kept in `target/advisory-dbs` instead of `~/.cargo`, which is read-only inside the
 Claude Code sandbox.
 
+**The exceptions**, each with its reason and the event that removes it (the `reason` field):
+
+- `[bans] skip`: `syn` 2, a build-time duplicate next to `syn` 3. It comes from two proc macros of
+  `zbus` 5 (`enumflags2_derive`, `tracing-attributes`), as ADR-0036 B7 foresaw. Exit: those macros
+  moving to syn 3, or zbus 6.
+- `[advisories] ignore`: RUSTSEC-2026-0370, -0371 and -0372, the "unmaintained" notices of
+  `zvariant`, `zbus_names` and `zvariant_derive`. zbus 6 merged them into `zbus` itself. They are
+  not vulnerabilities, and only these three IDs are ignored, so a real security advisory on the
+  same crates still fails the check. We stay on zbus 5.19 because AccessKit does (ADR-0038 S7).
+  Exit: AccessKit moving to zbus 6, and us with it in the same step.
+
 ### Line endings and ignored files
 
 `.gitattributes` stores every text file with LF and checks it out with LF on every system,
