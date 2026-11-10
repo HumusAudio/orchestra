@@ -47,3 +47,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0037](0037-themes-tokens-and-customisation.md) | Themes: tokens, ten built-in pairs, user customisation (amends ADR-0014) | Accepted |
 | [0038](0038-system-theme-detection.md) | Reading the system light/dark preference: our portal code on Linux, winit elsewhere | Accepted |
 | [0039](0039-drawing-abstraction.md) | The drawing abstraction: a segmented display list of themed commands | Accepted |
+| [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted |
