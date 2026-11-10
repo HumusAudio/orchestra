@@ -104,6 +104,11 @@ zbus = { version = "=5.19.0", default-features = false, features = ["async-io"] 
 # futures-lite: `StreamExt::next` on zbus's message stream (Apache-2.0 OR MIT, 2.6.1 of 2025-08).
 # Already in the tree through zbus itself, so it adds no crate. Default features keep `std`.
 futures-lite = "2.6.1"
+# tiny-skia: the CPU 2D renderer of the interface (ADR-0012, ADR-0036, ADR-0039; BSD-3-Clause,
+# 0.12.0 of 2026-02-02, still the latest on 2026-11-10). Pinned EXACTLY as ADR-0036 fixes it.
+# Features: `std` and `simd` (fast pipelines on SSE2/AVX2/NEON); NOT `png-format`, which comes
+# with the screenshots in F2.05 (ADR-0039 D8), together with the png/miniz_oxide duplicate.
+tiny-skia = { version = "=0.12.0", default-features = false, features = ["std", "simd"] }
 
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a

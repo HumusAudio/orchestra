@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.52, approvata dal proprietario il 2026-11-10.**
+> **Stato di questo documento: v0.53, approvata dal proprietario il 2026-11-10.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -687,7 +687,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.01 | **Verifica e conferma dei mattoni** (ADR-0012 tabella): versioni, licenze, dimensioni di `winit`, `softbuffer`, `tiny-skia`, `skrifa`, `harfrust`, `accesskit`, `rfd`, `muda`; emendamento all'ADR | ✅ ADR-0036 | 1 |
 | F2.02a | **Sistema dei temi** (ADR-0014): token semantici, dieci coppie chiaro/scuro incluse, temi personalizzati come modifiche, test WCAG 2.2 AA | ✅ ADR-0037 | 2 |
 | F2.02b | **Rilevamento del tema di sistema** in `platform/` dietro un trait (ADR-0014 §5), con i cambi osservati a programma aperto | ✅ ADR-0038 | 1 |
-| F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ⬜ | 2–3 |
+| F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ✅ ADR-0039 | 2–3 |
 | F2.04 | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ⬜ | 2 |
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema chiaro, en-US) | ⬜ | 1 |
 | F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ⬜ | 2–3 |
@@ -734,6 +734,18 @@ controllo completo. Va fatta bene una volta sola.
   `cargo deny` ha segnalato tre crate di zbus 5 come non più mantenuti (RUSTSEC-2026-0370/0371/0372,
   non vulnerabilità): ignorati come fa AccessKit, finché AccessKit non passa a zbus 6 (S7,
   proprietario); `syn` 2 in `skip` come prevedeva ADR-0036 B7.
+- **F2.03** **Fatto il 2026-11-10 (ADR-0039 Accepted):** il proprietario ha scelto una lista piatta
+  divisa in segmenti, i token del tema nei comandi, l'ombra analitica subito e niente PNG prima di
+  F2.05. Modulo `draw` di `orchestra-ui`, `tiny-skia` 0.12 entra nel workspace (7 crate piccoli).
+  Misurando, l'ombra ha avuto bisogno di 12 campioni invece di 4 (errore massimo 0,84 gradini a
+  8 bit invece di 3,5), più la formula esatta per i rettangoli: D6 emendato con l'ok del
+  proprietario. Benchmark sulla scena di riferimento: modificare una nota 0,55 M istruzioni,
+  fotogramma intero 84,6 M contro un budget di 33 M, l'86 % per le teste di nota disegnate come
+  tracciati al posto dei glifi.
+- **F2.04** Da ADR-0039: presentare l'immagine con `softbuffer`, convertendo da RGBA
+  premoltiplicato a `0RGB` solo le aree danneggiate.
+- **F2.05** Da ADR-0039 D8: scrittura PNG con la feature `png-format` di `tiny-skia`, e il
+  doppione di `miniz_oxide` in `skip` di `deny.toml` come prevede ADR-0036 B7.
 - **F2.04** Da ADR-0038 S3: implementare `SystemAppearanceSource` con `winit` su Windows e macOS
   (`ActiveEventLoop::system_theme()` all'avvio, `WindowEvent::ThemeChanged` per i cambi) e
   collegare la callback al ciclo eventi; mai `Window::set_theme` con un valore fisso, perché sulle
@@ -744,6 +756,9 @@ controllo completo. Va fatta bene una volta sola.
   Richiede che il proprietario esegua i test sul proprio schermo.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
+- **F2.07** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
+  della scena di riferimento deve rientrare nei 33 M istruzioni (30 fps in software con la regola
+  di F1.16c); se non ci rientra, si apre un ADR sul budget.
 - **F2.07** Da ADR-0037: qui si definiscono anche i **token del testo** (carattere fra i font
   inclusi, scala delle dimensioni, pesi), personalizzabili come gli altri.
 - **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
@@ -1038,3 +1053,4 @@ raccomandato.
 | 2026-11-09 | 0.50 | F2.01 fatto (ADR-0036 Accepted): mattoni dell'interfaccia verificati e misurati insieme; nuovo F2.11b (la nostra barra del titolo, con un suo ADR) | proprietario |
 | 2026-11-10 | 0.51 | F2.02 diviso in F2.02a (fatto, ADR-0037: dieci coppie di temi, Studio predefinito, personalizzazione) e F2.02b (tema di sistema); nuovo F2.12b (editor dei temi); note in F2.07 (token del testo), F2.09 (densità), F2.12 (nomi dei temi, file delle impostazioni); ambra delle guide corretta | proprietario |
 | 2026-11-10 | 0.52 | F2.02b fatto (ADR-0038 Accepted: portale XDG con `zbus` 5.19 su Linux, `winit` su Windows e macOS in F2.04, lo 0 del portale vale chiaro, prima lettura entro 250 ms, avvisi RustSec di zbus 5 ignorati con AccessKit); nota in F2.04 (tema di sistema con `winit`, passaggio a zbus 6 con AccessKit); prossimo passo F2.03 | proprietario |
+| 2026-11-10 | 0.53 | F2.03 fatto (ADR-0039 Accepted, D6 emendato: ombra a 12 campioni misurati); note in F2.04 (presentazione con `softbuffer`), F2.05 (PNG e `miniz_oxide`), F2.07 (budget del fotogramma intero con la cache dei glifi); prossimo passo F2.04 | proprietario |

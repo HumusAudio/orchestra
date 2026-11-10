@@ -25,7 +25,9 @@
 //!   private module `platform` behind the trait `SystemAppearanceSource`: the XDG desktop portal
 //!   on Linux; on Windows and macOS `winit` from step F2.04, no answer (dark) until then.
 //! - The only logo is `assets/logo/orchestra-logo.svg`, recoloured per theme, never reshaped.
-//! - Headless rendering to PNG, used by `cargo xtask screenshots` for the user guides.
+//! - Drawing through a display list of themed commands in segments, redrawn only where damaged,
+//!   with a `tiny-skia` backend that also renders headless into an image (ADR-0039, private module
+//!   `draw`); PNG encoding for `cargo xtask screenshots` comes in F2.05.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
 //!
 //! ## What this crate must NOT do
@@ -39,6 +41,7 @@
 
 #![forbid(unsafe_code)]
 
+mod draw;
 mod platform;
 mod theme;
 
@@ -53,6 +56,15 @@ pub use theme::custom::{CustomTheme, Override};
 pub use theme::mode::{Appearance, ThemeMode};
 pub use theme::pair::ThemePair;
 pub use theme::token::{ColorToken, Shape, ShapeToken, Theme};
+
+// The drawing abstraction (ADR-0039), re-exported like the theme system.
+pub use draw::Renderer;
+pub use draw::damage::Damage;
+pub use draw::geometry::{Point, Rect, RoundedRect, Transform};
+pub use draw::image::{DrawError, Image, ImageId};
+pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
+pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
+pub use draw::skia::CpuRenderer;
 
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
 pub use platform::appearance::{
