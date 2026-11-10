@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.54, approvata dal proprietario il 2026-11-10.**
+> **Stato di questo documento: v0.55, approvata dal proprietario il 2026-11-10.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -689,7 +689,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.02b | **Rilevamento del tema di sistema** in `platform/` dietro un trait (ADR-0014 §5), con i cambi osservati a programma aperto | ✅ ADR-0038 | 1 |
 | F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ✅ ADR-0039 | 2–3 |
 | F2.04a | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ✅ ADR-0040 | 2 |
-| F2.04b | **Tema di sistema su Windows e macOS** con `winit` (ADR-0038 S3) e **cambi di tema seguiti** a programma aperto: la callback del portale Linux portata al ciclo eventi con `EventLoopProxy` (ADR-0040 W3) | ⬜ | 1 |
+| F2.04b | **Tema di sistema su Windows e macOS** con `winit` (ADR-0038 S3) e **cambi di tema seguiti** a programma aperto: la callback del portale Linux portata al ciclo eventi con `EventLoopProxy` (ADR-0040 W3) | ✅ | 1 |
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema chiaro, en-US) | ⬜ | 1 |
 | F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ⬜ | 2–3 |
 | F2.07 | **Testo**: font inclusi, shaping, cache dei glifi, misure; Bravura per i simboli musicali | ⬜ | 3 |
@@ -754,16 +754,24 @@ controllo completo. Va fatta bene una volta sola.
   intera dopo `Occluded(false)`). `tiny-skia` riportato al requisito caret (ADR-0036 B1).
 - **F2.05** Da ADR-0039 D8: scrittura PNG con la feature `png-format` di `tiny-skia`, e il
   doppione di `miniz_oxide` in `skip` di `deny.toml` come prevede ADR-0036 B7.
-- **F2.04b** Da ADR-0038 S3: implementare `SystemAppearanceSource` con `winit` su Windows e macOS
-  (`ActiveEventLoop::system_theme()` all'avvio, `WindowEvent::ThemeChanged` per i cambi) e
-  collegare la callback al ciclo eventi; mai `Window::set_theme` con un valore fisso, perché sulle
-  due piattaforme spegne gli avvisi di cambio. Quando entra AccessKit, ricontrollare se è passato a
-  zbus 6: in quel caso ci passiamo anche noi nello stesso passo e togliamo da `deny.toml` le tre
-  eccezioni RustSec e `syn` 2 (ADR-0038 S7).
+- **F2.04b** **Fatto il 2026-11-10 (PR #60, nessun ADR nuovo):** come previsto da ADR-0038 S3 e
+  ADR-0040 W3. Il proprietario ha approvato **una sola strada** per i cambi su tutte le
+  piattaforme: su Windows e macOS una sorgente **alimentata dal ciclo eventi** (`system_theme()`
+  prima della finestra, il tema della finestra subito dopo, poi ogni `ThemeChanged`) con lo stesso
+  `Reporter` del portale; la callback manda il nostro evento con `EventLoopProxy` e la finestra
+  ridisegna tutto solo quando la metà della coppia cambia. API: `WindowOptions` riceve coppia e
+  modo, `system_appearance_source()` diventa privata del crate. AccessKit usa ancora zbus 5.19:
+  restano le eccezioni di ADR-0038 S7. Il proprietario l'ha provato su KDE Plasma (Wayland e X11):
+  un rallentamento percepito, confrontato con `main` sulla stessa build, è risultato identico.
+  Windows e macOS solo nella CI (ADR-0040 W9). Il colore della barra del titolo con un modo
+  forzato è rimandato (nota in F2.12).
 - **F2.06** viene presto apposta: è il rischio aperto più grosso della UI (la sandbox non ha GPU).
   Richiede che il proprietario esegua i test sul proprio schermo.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
+- **F2.08** Da ADR-0038 S7 (era una nota di F2.04b): quando entra AccessKit, ricontrollare se è
+  passato a zbus 6; in quel caso ci passiamo anche noi nello stesso passo e togliamo da
+  `deny.toml` le tre eccezioni RustSec e `syn` 2.
 - **F2.08** Da ADR-0040 W7: l'adapter di AccessKit si aggancia al punto di preparazione già pronto
   (finestra creata invisibile, preparata, poi mostrata), provato da un test in F2.04a.
 - **F2.07** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
@@ -779,6 +787,12 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.12** Approvato dal proprietario il 2026-11-08: nelle Preferenze anche le **opzioni di
   riproduzione**, cioè i valori oggi fissi di ADR-0027 §14–§15 (gradini degli accenti, tenute e
   ritorni dei profili d'attacco), con i valori tarati a orecchio come predefiniti.
+- **F2.12** Rimandato dal proprietario in F2.04b (2026-11-10): con *Chiaro* o *Scuro* scelti a mano,
+  la **barra del titolo di sistema** (Windows, e Wayland con le decorazioni di `winit`) segue
+  ancora il sistema e può non accordarsi con la finestra. Si accorda con `Window::set_theme`, e si
+  torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
+  Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
+  barra del titolo, lì il problema sparisce su Linux.
 - **F2.14** Proposta di Claude, **confermata dal proprietario il 2026-11-08** (D13 chiusa):
   anticiparlo qui perché un musicista che perde lavoro smette di usare il programma.
 
@@ -1065,3 +1079,4 @@ raccomandato.
 | 2026-11-10 | 0.52 | F2.02b fatto (ADR-0038 Accepted: portale XDG con `zbus` 5.19 su Linux, `winit` su Windows e macOS in F2.04, lo 0 del portale vale chiaro, prima lettura entro 250 ms, avvisi RustSec di zbus 5 ignorati con AccessKit); nota in F2.04 (tema di sistema con `winit`, passaggio a zbus 6 con AccessKit); prossimo passo F2.03 | proprietario |
 | 2026-11-10 | 0.53 | F2.03 fatto (ADR-0039 Accepted, D6 emendato: ombra a 12 campioni misurati); note in F2.04 (presentazione con `softbuffer`), F2.05 (PNG e `miniz_oxide`), F2.07 (budget del fotogramma intero con la cache dei glifi); prossimo passo F2.04 | proprietario |
 | 2026-11-10 | 0.54 | F2.04 diviso in F2.04a (fatto, ADR-0040: finestra, ciclo eventi, input; tre errori trovati dal proprietario e corretti) e F2.04b (tema di sistema su Windows e macOS, cambi di tema seguiti); note di F2.04 spostate in F2.04b; nota in F2.08 (AccessKit nel punto di preparazione); prossimo passo F2.04b | proprietario |
+| 2026-11-10 | 0.55 | F2.04b fatto (PR #60): tema di sistema su Windows e macOS con `winit`, cambi seguiti a programma aperto su una sola strada (`EventLoopProxy`); nota di zbus 6 spostata in F2.08; nota in F2.12 (barra del titolo con un modo forzato); prossimo passo F2.05 | proprietario |
