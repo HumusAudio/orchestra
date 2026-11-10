@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.51, approvata dal proprietario il 2026-11-10.**
+> **Stato di questo documento: v0.52, approvata dal proprietario il 2026-11-10.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -686,7 +686,7 @@ controllo completo. Va fatta bene una volta sola.
 |---|---|---|---|
 | F2.01 | **Verifica e conferma dei mattoni** (ADR-0012 tabella): versioni, licenze, dimensioni di `winit`, `softbuffer`, `tiny-skia`, `skrifa`, `harfrust`, `accesskit`, `rfd`, `muda`; emendamento all'ADR | ✅ ADR-0036 | 1 |
 | F2.02a | **Sistema dei temi** (ADR-0014): token semantici, dieci coppie chiaro/scuro incluse, temi personalizzati come modifiche, test WCAG 2.2 AA | ✅ ADR-0037 | 2 |
-| F2.02b | **Rilevamento del tema di sistema** in `platform/` dietro un trait (ADR-0014 §5), con i cambi osservati a programma aperto | ⬜ | 1 |
+| F2.02b | **Rilevamento del tema di sistema** in `platform/` dietro un trait (ADR-0014 §5), con i cambi osservati a programma aperto | ✅ ADR-0038 | 1 |
 | F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ⬜ | 2–3 |
 | F2.04 | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ⬜ | 2 |
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema chiaro, en-US) | ⬜ | 1 |
@@ -723,9 +723,23 @@ controllo completo. Va fatta bene una volta sola.
   Modulo `theme` di `orchestra-ui`, nessuna dipendenza nuova. Nello stesso passo, con l'ok del
   proprietario, corretti nelle guide i testi in ambra e in verde sotto WCAG (numeri dei capitoli,
   "Figura N", etichette dei riquadri).
-- **F2.02b** ❓ Su Linux il portale XDG passa da D-Bus: da scegliere fra il caricamento di
-  libdbus-1 come fa `rfd` 0.17, un crate dedicato, o `Window::theme` di `winit` (che vuole una
-  finestra, quindi dopo F2.04).
+- **F2.02b** **Fatto il 2026-11-10 (ADR-0038 Accepted):** prima di partire il proprietario ha
+  chiesto di verificare i candidati, misurati nello spike `gui-blocks`. Su Linux il nostro codice
+  su `zbus` 5.19 (la versione di AccessKit: nessun crate in più accanto a lui); libdbus-1 caricata a
+  runtime scartata (circa 600 righe di `unsafe`), `dark-light` scartato (su macOS controlla ogni
+  secondo). Windows e macOS con `winit` in F2.04, fino ad allora scuro (T9). Il proprietario ha
+  provato la lettura sul suo desktop (il portale manda ogni cambio tre volte: si scartano le
+  ripetizioni) e ha scelto: lo 0 del portale ("nessuna preferenza", lo stile chiaro predefinito di
+  GNOME) vale **chiaro**; la prima lettura aspetta **al massimo 250 ms**. Durante il lavoro
+  `cargo deny` ha segnalato tre crate di zbus 5 come non più mantenuti (RUSTSEC-2026-0370/0371/0372,
+  non vulnerabilità): ignorati come fa AccessKit, finché AccessKit non passa a zbus 6 (S7,
+  proprietario); `syn` 2 in `skip` come prevedeva ADR-0036 B7.
+- **F2.04** Da ADR-0038 S3: implementare `SystemAppearanceSource` con `winit` su Windows e macOS
+  (`ActiveEventLoop::system_theme()` all'avvio, `WindowEvent::ThemeChanged` per i cambi) e
+  collegare la callback al ciclo eventi; mai `Window::set_theme` con un valore fisso, perché sulle
+  due piattaforme spegne gli avvisi di cambio. Quando entra AccessKit, ricontrollare se è passato a
+  zbus 6: in quel caso ci passiamo anche noi nello stesso passo e togliamo da `deny.toml` le tre
+  eccezioni RustSec e `syn` 2 (ADR-0038 S7).
 - **F2.06** viene presto apposta: è il rischio aperto più grosso della UI (la sandbox non ha GPU).
   Richiede che il proprietario esegua i test sul proprio schermo.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
@@ -1023,3 +1037,4 @@ raccomandato.
 | 2026-11-09 | 0.49 | Seconda revisione del codice (PR #44–#49): pratiche poco raccomandabili corrette (nomi temporanei unici nel salvataggio, conversioni "impossibili" controllate in debug, costanti razionali verificate in compilazione, errori con causa e posizione, `MigrationError` tipizzato, timeout della CI, permessi e link simbolici nel salvataggio); ADR-0034 (moduli privati, un solo percorso per elemento, errori esaustivi); nei commenti le sigle delle decisioni si scrivono con il loro ADR; funzioni lunghe divise nei loro passi; prossimo passo resta F2.01 | proprietario |
 | 2026-11-09 | 0.50 | F2.01 fatto (ADR-0036 Accepted): mattoni dell'interfaccia verificati e misurati insieme; nuovo F2.11b (la nostra barra del titolo, con un suo ADR) | proprietario |
 | 2026-11-10 | 0.51 | F2.02 diviso in F2.02a (fatto, ADR-0037: dieci coppie di temi, Studio predefinito, personalizzazione) e F2.02b (tema di sistema); nuovo F2.12b (editor dei temi); note in F2.07 (token del testo), F2.09 (densità), F2.12 (nomi dei temi, file delle impostazioni); ambra delle guide corretta | proprietario |
+| 2026-11-10 | 0.52 | F2.02b fatto (ADR-0038 Accepted: portale XDG con `zbus` 5.19 su Linux, `winit` su Windows e macOS in F2.04, lo 0 del portale vale chiaro, prima lettura entro 250 ms, avvisi RustSec di zbus 5 ignorati con AccessKit); nota in F2.04 (tema di sistema con `winit`, passaggio a zbus 6 con AccessKit); prossimo passo F2.03 | proprietario |
