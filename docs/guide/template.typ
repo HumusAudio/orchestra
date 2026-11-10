@@ -12,11 +12,20 @@
 // Design tokens
 // ------------------------------------------------------------------------------------------------
 
-/// Palette: a deep "ink" blue for structure, a warm brass accent (orchestral, and readable on
-/// white), soft paper tones for boxes. Contrast of `ink` on white is above WCAG AAA.
+/// Palette: a deep "ink" blue for structure, a warm brass accent (orchestral), soft paper tones for
+/// boxes. Contrast of `ink` on white is above WCAG AAA.
+///
+/// The brass `accent` reaches only 2.97:1 on the white page (2.66–2.76:1 on the boxes), enough for
+/// decoration (rules, the bars of the boxes) but not for text (WCAG 2.2 AA: 4.5:1, 3:1 for large
+/// text). Text in the accent colour therefore uses darker brasses (found in F2.02a, ADR-0037):
+/// `accent-large` for the large chapter numbers (4.2:1 on white) and `accent-text` for small text
+/// (5.9:1 on white, ≥ 5.3:1 on every box; the same value as the Parchment theme's `accent-text`).
+/// Likewise `tip-text` for the label of the tip box, whose bar green reaches only 3.78:1.
 #let palette = (
   ink: rgb("#1f2547"),
   accent: rgb("#c8892b"),
+  accent-large: rgb("#a8701c"),
+  accent-text: rgb("#8a5a12"),
   muted: rgb("#5b6178"),
   paper: rgb("#f6f3ec"),
   rule: rgb("#d9d4c7"),
@@ -24,6 +33,7 @@
   note-bar: rgb("#3d5bb5"),
   tip-bg: rgb("#f4f8ee"),
   tip-bar: rgb("#5f8a2e"),
+  tip-text: rgb("#3f6b1e"),
   warn-bg: rgb("#fbf1e6"),
   warn-bar: rgb("#c8892b"),
 )
@@ -57,8 +67,9 @@
 // Reusable blocks for chapters
 // ------------------------------------------------------------------------------------------------
 
-/// Generic callout box: a coloured bar on the left, a bold label and the content.
-#let callout(label, body, bg: palette.note-bg, bar: palette.note-bar) = block(
+/// Generic callout box: a coloured bar on the left, a bold label and the content. The label is
+/// text, so it may need a darker shade than the decorative bar (`label-fill`, see the palette).
+#let callout(label, body, bg: palette.note-bg, bar: palette.note-bar, label-fill: none) = block(
   width: 100%,
   fill: bg,
   inset: (left: 14pt, rest: 10pt),
@@ -66,7 +77,7 @@
   stroke: (left: 3pt + bar),
   breakable: false,
 )[
-  #text(font: fonts.heading, weight: "semibold", size: 9pt, fill: bar, upper(label))
+  #text(font: fonts.heading, weight: "semibold", size: 9pt, fill: if label-fill == none { bar } else { label-fill }, upper(label))
   #v(-4pt)
   #body
 ]
@@ -74,9 +85,9 @@
 /// "Note" box. The label is passed by each guide in its own language.
 #let note(label, body) = callout(label, body)
 /// "Tip" box.
-#let tip(label, body) = callout(label, body, bg: palette.tip-bg, bar: palette.tip-bar)
+#let tip(label, body) = callout(label, body, bg: palette.tip-bg, bar: palette.tip-bar, label-fill: palette.tip-text)
 /// "Warning" box.
-#let warning(label, body) = callout(label, body, bg: palette.warn-bg, bar: palette.warn-bar)
+#let warning(label, body) = callout(label, body, bg: palette.warn-bg, bar: palette.warn-bar, label-fill: palette.accent-text)
 
 /// A screenshot generated headless by `cargo xtask screenshots` (always in en-US, shared by both
 /// guides): framed, with a soft shadow-like border and a caption. `path` is absolute from the
@@ -193,7 +204,7 @@
     pagebreak(weak: true)
     v(1.5cm)
     if it.numbering != none {
-      text(size: 40pt, weight: "bold", fill: palette.accent, counter(heading).display("1"))
+      text(size: 40pt, weight: "bold", fill: palette.accent-large, counter(heading).display("1"))
       v(-14pt)
     }
     text(size: 24pt, weight: "bold", it.body)
@@ -215,13 +226,14 @@
     it,
   )
 
-  // Figure captions: small Inter, muted, with the localised "Figure N" in the accent colour.
+  // Figure captions: small Inter, muted, with the localised "Figure N" in the darker accent made
+  // for text (the brass `accent` is too light for small text, see the palette).
   show figure.caption: it => text(font: fonts.heading, size: 8.5pt, fill: palette.muted)[
-    #text(fill: palette.accent, weight: "semibold")[#it.supplement #context it.counter.display(it.numbering)]#it.separator#it.body
+    #text(fill: palette.accent-text, weight: "semibold")[#it.supplement #context it.counter.display(it.numbering)]#it.separator#it.body
   ]
   set figure(gap: 8pt)
 
-  // Links in the accent colour.
+  // Links in the note blue (5.6:1 on white).
   show link: set text(fill: palette.note-bar)
 
   // Table of contents on its own page, chapters in bold.
