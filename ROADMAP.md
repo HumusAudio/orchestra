@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); next F2.04 (window, event loop, input).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); next F2.04b (the system theme on Windows and macOS, and its changes).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -827,6 +827,31 @@ injected bugs caught (one after strengthening the snapping test). Benchmark `ben
 instructions, **full frame 84.6 M (over the 33 M budget of 30 fps by the rule of F1.16c; 86 % is
 filling the 2000 noteheads as anti-aliased paths)**, one-note edit 0.55 M.
 
+Step **F2.04a** (`feature/f2-04a-window`, 2026-11-10), the window and the event loop. Before
+starting, the owner split F2.04 into F2.04a and F2.04b, accepted the structure below, chose to test
+the window order of ADR-0036 B9 now with an empty hook (AccessKit itself still enters with the first
+widget, ADR-0036 B1), a demonstration window, and manual tests only on Linux until D18. **ADR-0040
+Accepted**: `winit` 0.30.13 and `softbuffer` 0.4.8 only in the module `window` of `orchestra-ui`
+(W1); frames on demand (W2); our own full frame, only the damage drawn and, at buffer age 1, only
+the damage copied (W4); our own input events in logical pixels with an abstract primary modifier
+(W5); scale and resize (W6); invisible → setup → shown (W7); `cargo run -p orchestra-app` opens the
+demonstration window (W8). The device regions are now one function shared by the renderer and the
+window (`draw/device.rs`). `tiny-skia` back to a caret requirement (F2.03 had pinned it exactly,
+against ADR-0036 B1, with a wrong comment). `winit`'s older duplicates in `deny.toml`'s `skip`,
+each with its exit (`getrandom`, `thiserror` and `windows-sys` 0.59 are new, same cause). The owner
+tested the window on KDE Plasma, Wayland and X11, and found three bugs, all fixed and covered by
+tests: (1) a partial redraw changed the edge pixels of noteheads cut by the region (up to 28/255),
+because `tiny-skia` anti-aliases a path cut by the pixmap's edge differently: the scratch area now
+grows to whole anti-aliased paths, images and clips (not to snapped shapes or shadows), and only the
+region is copied back; (2) that first fix made the pointer sluggish (68 ms a frame, the panel's
+shadow recomputed whole): shadows now compute only the kept pixels and use the exact separable
+formula away from rounded corners (pointer moves 0.5 ms, a whole 960 × 600 demo frame 16 ms);
+(3) on X11 a restored window stayed black: a frame with no damage, and the frame after
+`Occluded(false)` (KDE sends it together with a pointer move, seen with a diagnostic build), are now
+whole copies. Edit benchmark 0.61 M instructions (0.55 M before), accepted by the owner with the
+trailer `Bench-regression: accepted`. Tests: 10 window tests without a display, 1 new drawing
+regression test.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -907,6 +932,10 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   84.6 M instructions against 33 M (30 fps by the rule of F1.16c). 86 % is the 2000 symbols drawn
   as anti-aliased paths, the stand-in for glyphs: measure again in F2.07 with the glyph cache
   (ADR-0012's spike: 243 ms without, 28.8 ms with), and in real time in F2.23.
+- **The window on Windows and macOS (ADR-0040 W9):** compiled and tested by CI, never looked at
+  by anyone until decision D18 (machines for manual tests); accepted by the owner until M2A.
+- **Whole frames with shadows (F2.04a):** a whole 960 × 600 frame of the demonstration costs about
+  16 ms, mostly the panel's shadow: fine for resizing; to watch when real popups and panels arrive.
 - **Pixel tolerance across platforms (ADR-0039 D10):** the drawing tests use exact probes on
   snapped pixels and a tolerance of one unit only where anti-aliasing is involved; CI on the three
   platforms tells whether `tiny-skia`'s SIMD gives the same pixels on ARM (macOS).

@@ -28,9 +28,21 @@ impl CopyPlan {
     /// its pixels on screen even though `softbuffer`'s buffer still reports age 1. Presenting zero
     /// rectangles left it black until the pointer damaged it piece by piece (found by the owner in
     /// F2.04a). Our frame is still valid, so copying it whole costs one conversion and no drawing.
-    pub(crate) fn choose(age: u8, regions: &DeviceRegions, width: u32, height: u32) -> Self {
+    ///
+    /// **`pixels_lost` forces a whole copy** whatever the damage: the system said the window's
+    /// pixels on screen may be gone (it became visible again). Found by the owner on KDE Plasma
+    /// with X11: restoring a minimised window sends `Occluded(false)` together with a pointer
+    /// move, so the frame has a little damage *and* lost pixels, and copying only the damage left
+    /// the rest black.
+    pub(crate) fn choose(
+        age: u8,
+        regions: &DeviceRegions,
+        width: u32,
+        height: u32,
+        pixels_lost: bool,
+    ) -> Self {
         let none = regions.iter().next().is_none();
-        if age == 1 && !none && !regions.is_whole(width, height) {
+        if age == 1 && !pixels_lost && !none && !regions.is_whole(width, height) {
             Self::Damage
         } else {
             Self::Whole

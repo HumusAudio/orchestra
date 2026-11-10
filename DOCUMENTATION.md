@@ -3146,8 +3146,11 @@ copies it into `softbuffer`'s buffer as `0RGB`. If that buffer holds exactly the
 two or three) the whole frame is copied. A frame the *system* asks for with no damage at all is a
 whole copy too: on X11 a window restored after being minimised has lost its pixels on screen
 although the buffer still reports age 1, and presenting zero rectangles left it black until the
-pointer repainted it piece by piece (found by the owner). The window also asks for a frame when it
-becomes visible again (`Occluded(false)`). Keeping our own frame is what makes partial drawing
+pointer repainted it piece by piece (found by the owner). And when the window becomes visible
+again (`Occluded(false)`) the next frame is always a whole copy: on KDE Plasma with X11, restoring
+a minimised window sends that event together with a pointer move, so the frame had a little damage
+*and* lost pixels, and copying only the damage still left the rest black (found with a diagnostic
+build that printed the window's events). Keeping our own frame is what makes partial drawing
 correct whatever the system does with its buffers. The damaged regions in device pixels come from
 one function (`draw/device.rs`) shared by the renderer and the window, so what is redrawn is
 exactly what is presented.

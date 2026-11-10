@@ -3360,8 +3360,12 @@ altrimenti (età 0 dopo un ridimensionamento, o buffer più vecchi quando il sis
 tre) si copia il fotogramma intero. Anche un fotogramma chiesto dal *sistema* senza alcuna area
 danneggiata è una copia intera: su X11 una finestra riaperta dopo essere stata minimizzata ha perso
 i suoi pixel sullo schermo anche se il buffer dice ancora età 1, e presentare zero rettangoli la
-lasciava nera finché il puntatore non la ridipingeva pezzo per pezzo (trovato dal proprietario). La
-finestra chiede un fotogramma anche quando torna visibile (`Occluded(false)`). Tenere il nostro fotogramma è ciò che rende corretto il disegno
+lasciava nera finché il puntatore non la ridipingeva pezzo per pezzo (trovato dal proprietario). E
+quando la finestra torna visibile (`Occluded(false)`) il fotogramma successivo è sempre una copia
+intera: su KDE Plasma con X11, riaprire una finestra minimizzata manda quell'evento insieme a un
+movimento del puntatore, quindi il fotogramma aveva una piccola area danneggiata *e* pixel persi, e
+copiare solo l'area danneggiata lasciava comunque nero il resto (trovato con una versione
+diagnostica che stampava gli eventi della finestra). Tenere il nostro fotogramma è ciò che rende corretto il disegno
 parziale qualunque cosa il sistema faccia con i suoi buffer. Le aree danneggiate in pixel del
 dispositivo vengono da un'unica funzione (`draw/device.rs`) condivisa dal renderer e dalla
 finestra, così ciò che si ridisegna è esattamente ciò che si presenta.

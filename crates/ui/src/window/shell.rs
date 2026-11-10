@@ -50,6 +50,9 @@ pub(crate) struct Shell<A> {
     modifiers: Modifiers,
     /// The pointer's last position, logical pixels, for button events.
     pointer: Point,
+    /// `true` when the system said the window's pixels on screen may be lost (it became visible
+    /// again): the next frame copies the whole frame (`CopyPlan::choose`), then this is reset.
+    pixels_lost: bool,
     /// The damage rectangles for `present_with_damage`, reused from frame to frame.
     present_rects: Vec<softbuffer::Rect>,
     /// The error that stopped the loop, returned by [`super::run`].
@@ -67,6 +70,7 @@ impl<A: WindowApp> Shell<A> {
             open: None,
             modifiers: Modifiers::default(),
             pointer: Point::default(),
+            pixels_lost: false,
             present_rects: Vec::new(),
             error: None,
         }
@@ -171,7 +175,9 @@ impl<A: WindowApp> Shell<A> {
             .surface
             .buffer_mut()
             .map_err(|error| surface_error(&error))?;
-        match CopyPlan::choose(buffer.age(), &regions, width, height) {
+        let plan = CopyPlan::choose(buffer.age(), &regions, width, height, self.pixels_lost);
+        self.pixels_lost = false;
+        match plan {
             CopyPlan::Whole => {
                 copy_whole(frame, &mut buffer);
                 buffer.present().map_err(|error| surface_error(&error))?;
@@ -272,8 +278,10 @@ impl<A: WindowApp> ApplicationHandler for Shell<A> {
             }
             WindowEvent::Focused(focused) => self.deliver(&InputEvent::Focus(focused)),
             // Visible again (restored, uncovered): the system may have dropped the window's
-            // pixels, so present the frame again (a whole copy, see `CopyPlan::choose`).
+            // pixels, so the next frame is a whole copy (`CopyPlan::choose`), even if a pointer
+            // move arriving at the same time damages part of it.
             WindowEvent::Occluded(false) => {
+                self.pixels_lost = true;
                 if let Some(open) = self.open.as_ref() {
                     open.window.request_redraw();
                 }

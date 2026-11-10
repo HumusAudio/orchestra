@@ -159,17 +159,32 @@ fn only_a_buffer_of_age_one_gets_a_partial_copy() {
     let mut damage = Damage::none();
     damage.add(Rect::new(10.0, 10.0, 20.0, 20.0));
     let partial = DeviceRegions::new(&damage, 1.0, 200, 100);
-    assert_eq!(CopyPlan::choose(1, &partial, 200, 100), CopyPlan::Damage);
+    assert_eq!(
+        CopyPlan::choose(1, &partial, 200, 100, false),
+        CopyPlan::Damage
+    );
     // Unknown contents (after a resize) or an older buffer: everything is copied.
-    assert_eq!(CopyPlan::choose(0, &partial, 200, 100), CopyPlan::Whole);
-    assert_eq!(CopyPlan::choose(2, &partial, 200, 100), CopyPlan::Whole);
+    assert_eq!(
+        CopyPlan::choose(0, &partial, 200, 100, false),
+        CopyPlan::Whole
+    );
+    assert_eq!(
+        CopyPlan::choose(2, &partial, 200, 100, false),
+        CopyPlan::Whole
+    );
     // Damage that is already the whole frame is a whole copy at any age.
     let all = DeviceRegions::new(&Damage::all(), 1.0, 200, 100);
-    assert_eq!(CopyPlan::choose(1, &all, 200, 100), CopyPlan::Whole);
+    assert_eq!(CopyPlan::choose(1, &all, 200, 100, false), CopyPlan::Whole);
     // No damage: the system asked for a frame (a window restored on X11 lost its pixels), so the
     // whole frame is presented again even when the buffer reports age 1.
     let none = DeviceRegions::new(&Damage::none(), 1.0, 200, 100);
-    assert_eq!(CopyPlan::choose(1, &none, 200, 100), CopyPlan::Whole);
+    assert_eq!(CopyPlan::choose(1, &none, 200, 100, false), CopyPlan::Whole);
+    // Pixels lost (the window became visible again), with a pointer move damaging a little at
+    // the same time (KDE Plasma on X11): a whole copy, not just the damage.
+    assert_eq!(
+        CopyPlan::choose(1, &partial, 200, 100, true),
+        CopyPlan::Whole
+    );
 }
 
 #[test]
