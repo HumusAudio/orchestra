@@ -2939,16 +2939,22 @@ theme system already had the other half: `ThemeMode::resolve` takes an `Option<A
 where `None` means "the system said nothing" and gives dark. This module produces that `Option`
 and its changes.
 
-**One trait, one function.** `SystemAppearanceSource` is the only door; `system_appearance_source()`
-returns the implementation of the platform the program was built for. `observe` takes a callback
-and returns an `AppearanceWatch`:
+**One trait, one function.** `SystemAppearanceSource` is the only door; the crate-private
+`observe_system()` starts the implementation of the platform the program was built for. Its only
+caller is the window's event loop (F2.04b): on Windows and macOS the source works only inside a
+running loop, so a public "give me the system's source" would always answer "nothing" there.
+`observe` takes a callback and returns an `AppearanceWatch`:
 
 ```rust
-let watch = system_appearance_source().observe(Box::new(|value| {
-    // Runs on the source's own thread, at each real change: forward it, do not block.
-    let _ = proxy.send(value);
-}));
-let appearance = ThemeMode::System.resolve(watch.current()); // None → dark (ADR-0037 T9)
+// In the window's event loop (`window/shell.rs`), the first time it resumes:
+let SystemObservation { watch, feed } = observe_system(
+    event_loop.system_theme().map(appearance_from_winit), // always None on Linux
+    Box::new(move |value| {
+        // At each real change, on any thread: hand it to the event loop.
+        let _closed = proxy.send_event(ShellEvent::SystemAppearance(value));
+    }),
+);
+self.theme.set_system(watch.current()); // None → dark (ADR-0037 T9)
 ```
 
 `current()` is the latest answer the caller has seen; `last_error()` says why the system did not
@@ -2967,10 +2973,17 @@ because GNOME reports its default light style as 0 (owner's choice, ADR-0038 S4)
 number counts as no answer. Everything runs on one thread, `orchestra-appearance`, which sleeps on
 the D-Bus socket between changes: no polling, no CPU.
 
-**Windows and macOS: later, with winit.** On those systems `winit` already reads the preference
-(the registry on Windows, `effectiveAppearance` on macOS) and reports its changes, with no extra
-dependency and no polling. `winit` enters the workspace in F2.04, with the first window; until
-then `no_answer.rs` always answers `None`, which costs nothing because there is no window yet.
+**Windows and macOS: winit, fed by the event loop.** On those systems `winit` already reads the
+preference (the registry on Windows, `effectiveAppearance` on macOS) and reports its changes, with
+no extra dependency and no polling (ADR-0038 S3, step F2.04b). But it answers only inside a
+running event loop, and `winit` lives only in the `window` module (ADR-0040 W1). So `fed.rs` holds
+a source that asks nothing itself: `FedSource::new(initial)` returns the source and the same
+`Reporter` the portal's thread uses, and the event loop feeds it: `system_theme()` as the initial
+value, then every `WindowEvent::ThemeChanged`. The rules below (repeats dropped, nothing after the
+drop) therefore hold on all three platforms with one piece of code. On other systems (the BSDs)
+`winit` says `None` and never changes it, so the fed source simply says "no answer" all session,
+with no error. The program never calls `Window::set_theme` with a fixed value, because on Windows
+and macOS that would stop `ThemeChanged`.
 
 **The rules, in one place.** The thread-based machinery in `mod.rs` (`AppearanceWatch::spawn`
 and the `Reporter` the source thread receives) applies four rules, so the platform code only
@@ -3010,9 +3023,12 @@ for each one to be done, so the order of events is exact and no test depends on 
 answer in time, repeats, a late answer, a late `None`, a failure before the first answer (which
 releases the caller at once), a failure while observing, the drop, a callback that panics. On
 Linux, the decoding is tested on hand-built D-Bus values (the three numbers, unknown numbers, the
-old `Read`'s extra variant, too many layers, wrong types). A last test opens the real source and
-checks that it never hangs or panics: on CI there is no session bus, so the answer is `None` with
-a reason. The real reading needs a desktop with a portal: the owner checked it by hand on
+old `Read`'s extra variant, too many layers, wrong types). The fed source of Windows and macOS is
+tested everywhere with a hand-fed reporter: the initial value is not a callback, repeats are
+dropped, an answer before `observe` only updates the value, and nothing arrives after the drop. A
+last test opens the real source and checks that it never hangs or panics, and that a feed exists
+exactly where `winit` is the source: on CI there is no session bus, so on Linux the answer is
+`None` with a reason. The real reading needs a desktop with a portal: the owner checked it by hand on
 2026-11-10 (initial value and every change read correctly). No benchmark: there is no hot path,
 just one read at startup and a message when the user flips a switch.
 
@@ -3133,7 +3149,13 @@ change), and `input` re-records the segments an event changes. `run` opens the w
 loop until the window is closed:
 
 ```rust
-let options = WindowOptions { title, theme, width: 960.0, height: 600.0 };
+let options = WindowOptions {
+    title,
+    pair: *BuiltInTheme::Studio.pair(),
+    mode: ThemeMode::System,
+    width: 960.0,
+    height: 600.0,
+};
 orchestra_ui::run(demo::Demo::default(), options)?;
 ```
 
@@ -3162,6 +3184,22 @@ Modifiers have an abstract **primary** (Ctrl on Linux and Windows, Cmd on macOS)
 **secondary** (the other), plus Shift and Alt; shortcuts will be written with `primary`, so one
 table works everywhere. Text input and input methods come with the text field in F2.10.
 
+**Following the system's theme** (F2.04b). The window receives the theme as a **pair and a mode**
+(`WindowOptions::pair`, `WindowOptions::mode`), not as a resolved half, so it can switch half by
+itself. The first time the loop resumes, before the window exists, it starts observing the
+system's preference (the previous section) and takes its first answer, so the first frame is
+already right. Every change then reaches the window along **one path on every platform**: the
+portal's thread on Linux, or `ThemeChanged` fed into the reporter on Windows and macOS, calls the
+callback, which sends our own event `ShellEvent::SystemAppearance` through `winit`'s
+`EventLoopProxy` (ADR-0040 W3); `user_event` hands it to `ThemeState::set_system`. That function
+answers whether the half to draw with changed: if so, everything is damaged and one frame is
+drawn; layout does not depend on colours, so nothing is re-recorded. With the mode *Light* or
+*Dark*, or with the same half again, nothing is redrawn. On Windows and macOS, right after
+creating the window, its own theme is fed once more, to close the gap between reading
+`system_theme()` and the window existing (a repeat is dropped). `ThemeChanged` already arrives on
+the loop's thread there, and it takes the detour through the proxy on purpose: one rule for
+repeats and one place that applies a change, at the cost of one more wake-up per theme change.
+
 **Creating the window.** The window is created invisible, set up (today the surface and the first
 size; AccessKit's adapter with the first widgets, which panics if it arrives after the window was
 shown), and only then shown. `window/order.rs` does this in a function generic over the window, so
@@ -3172,8 +3210,9 @@ panel with its shadow and three controls, a staff of five 1 px lines with notehe
 stay sharp at every scale), four squares that light up with the primary and secondary modifiers,
 Shift and Alt, and a disc that follows the pointer (accent colour while a button is held). Moving
 the pointer re-records only the disc's segment, so only its old and new place are redrawn. The
-title is the localised `app-name`; the theme is Studio in the system's mode, read once at start
-(following changes comes in F2.04b). Without a display the program stops with a clear message
+title is the localised `app-name`; the theme is Studio in the *System* mode, and switching the
+desktop between light and dark while the window is open redraws it in the other half (checked by
+hand by the owner on Linux, Wayland and X11). Without a display the program stops with a clear message
 ("Could not find wayland compositor") instead of a panic.
 
 **Dependencies.** `winit` 0.30.13 and `softbuffer` 0.4.8, with the features of ADR-0036 (X11 and
@@ -3182,11 +3221,14 @@ F2.11b). They bring older copies of some crates (`rustix`, `windows-sys`, `objc2
 `getrandom`, `thiserror`, and `tiny-skia` 0.11 for the decorations), listed in `deny.toml` with
 their exit: `winit` 0.31, or our title bar. The release binary of the demonstration is 7.0 MB.
 
-**Tests.** `window/tests.rs` (10 tests) runs on the three platforms without a display: the primary
+**Tests.** `window/tests.rs` (13 tests) runs on the three platforms without a display: the primary
 modifier on macOS and elsewhere, keys, buttons and wheels, the `0RGB` conversion, copying a region
 touches only that region, the choice between partial and whole copies by buffer age, the
-presented rectangles in device pixels, and the order of window creation (also when creation
-fails). The window itself is checked by hand by the owner on Linux.
+presented rectangles in device pixels, the order of window creation (also when creation fails),
+`winit`'s themes as ours, and `ThemeState` (the *System* mode follows every answer and asks for a
+redraw only when the half changes; *Light* and *Dark* ignore the system). The window itself is
+checked by hand by the owner on Linux; on Windows and macOS the theme code is compiled and tested
+by CI but not looked at (ADR-0040 W9).
 
 ### orchestra-test-support: counting allocations in tests
 

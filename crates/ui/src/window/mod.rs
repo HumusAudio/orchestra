@@ -6,14 +6,18 @@
 //! shows is a [`WindowApp`]: it records its interface into a [`DisplayList`] when the window's
 //! size changes ([`WindowApp::layout`]) and re-records the segments an input event changes
 //! ([`WindowApp::input`]). The loop sleeps between events and draws a frame only when the list has
-//! damage (W2), redrawing and presenting only the damaged regions (W4).
+//! damage (W2), redrawing and presenting only the damaged regions (W4). It draws with the theme
+//! pair and mode of [`WindowOptions`] and follows the system's light/dark preference while it runs
+//! (ADR-0038 S3, step F2.04b).
 //!
 //! # Files
+//! - `appearance`: following the system's preference, our proxy event, the theme in use (W3);
 //! - `input`: our input events and their translation from `winit` (W5);
 //! - `present`: from our RGBA frame to `softbuffer`'s buffer (W4);
 //! - `order`: invisible, set up, shown (W7);
 //! - `shell`: the event loop's handler.
 
+pub(crate) mod appearance;
 pub(crate) mod input;
 pub(crate) mod order;
 pub(crate) mod present;
@@ -25,7 +29,7 @@ use std::fmt;
 
 use winit::event_loop::{ControlFlow, EventLoop};
 
-use crate::{DisplayList, DrawError, Rect, Theme};
+use crate::{DisplayList, DrawError, Rect, ThemeMode, ThemePair};
 
 /// What a window shows (ADR-0040 W1): the interface records itself through this trait and never
 /// sees `winit`.
@@ -44,8 +48,12 @@ pub trait WindowApp {
 pub struct WindowOptions {
     /// The title, already localised by the caller (no text in this crate's code, CLAUDE.md §7).
     pub title: String,
-    /// The theme to draw with (ADR-0037). Following the system's changes comes in F2.04b.
-    pub theme: Theme,
+    /// The theme pair to draw with (ADR-0037 T1): its light or dark half is chosen by `mode`.
+    pub pair: ThemePair,
+    /// The user's mode (ADR-0014 §1). With [`ThemeMode::System`] the window reads the system's
+    /// preference when it opens and follows its changes while it is open (ADR-0038); with
+    /// *Light* or *Dark* the system is not consulted for drawing.
+    pub mode: ThemeMode,
     /// The initial width, logical pixels.
     pub width: f32,
     /// The initial height, logical pixels.
@@ -96,12 +104,16 @@ impl std::error::Error for WindowError {}
 /// # Errors
 /// [`WindowError`] when the loop, the window or the surface cannot be created, or drawing fails.
 pub fn run<A: WindowApp>(app: A, options: WindowOptions) -> Result<(), WindowError> {
-    let event_loop = EventLoop::new().map_err(|error| WindowError::EventLoop {
-        detail: error.to_string(),
-    })?;
+    // An event loop that also carries our own event (W3), so other threads (the portal's) can wake
+    // it through a proxy.
+    let event_loop = EventLoop::<appearance::ShellEvent>::with_user_event()
+        .build()
+        .map_err(|error| WindowError::EventLoop {
+            detail: error.to_string(),
+        })?;
     // Frames on demand (W2): sleep until the next event.
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut shell = shell::Shell::new(app, options);
+    let mut shell = shell::Shell::new(app, options, event_loop.create_proxy());
     event_loop
         .run_app(&mut shell)
         .map_err(|error| WindowError::EventLoop {

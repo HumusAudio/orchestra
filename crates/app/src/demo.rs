@@ -10,6 +10,8 @@
 //!   with the primary modifier, the secondary one, Shift and Alt;
 //! - **crisp lines and scale:** a staff of five 1 px lines with noteheads, which must stay sharp at
 //!   every scale factor;
+//! - **following the system's theme:** switching the desktop between light and dark while the
+//!   window is open redraws it in the other half of the pair (ADR-0038, F2.04b);
 //! - **shapes and the theme:** a raised panel with its shadow and three controls in the theme's
 //!   colours, at the window's size (resizing lays it out again).
 //!

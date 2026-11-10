@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); next F2.04b (the system theme on Windows and macOS, and its changes).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); next F2.05 (`cargo xtask screenshots`).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -852,6 +852,28 @@ whole copies. Edit benchmark 0.61 M instructions (0.55 M before), accepted by th
 trailer `Bench-regression: accepted`. Tests: 10 window tests without a display, 1 new drawing
 regression test.
 
+Step **F2.04b** (`feature/f2-04b-system-theme`, 2026-11-10), the system theme followed while the
+window is open, as ADR-0038 S3 and ADR-0040 W3 planned (no new ADR, no new dependency, no new
+interface text). Approved by the owner before starting: one path for every platform, the public
+API change below, and the system title bar's colour with a forced mode postponed (see the open
+items). On Windows and macOS a new **fed source** (`platform/appearance/fed.rs`) implements the
+trait of ADR-0038 S1 with the same `Reporter` as the Linux portal: the event loop feeds it
+`ActiveEventLoop::system_theme()` before creating the window, the window's own theme right after
+(closing the gap between the two), and every `WindowEvent::ThemeChanged`. On every platform the
+callback sends our own `ShellEvent::SystemAppearance` through `EventLoopProxy`; `user_event` hands
+it to `ThemeState::set_system`, which damages everything only when the half to draw with changes.
+`winit` never sends `ThemeChanged` on Linux (checked in its 0.30.13 source), so the portal stays the
+only source there. `no_answer.rs` is gone (other systems get the fed source with `winit`'s `None`).
+API: `WindowOptions` takes `pair` and `mode` instead of a resolved `theme`;
+`system_appearance_source()` is now crate-private (`observe_system`), because outside the event
+loop it could only answer "nothing" on Windows and macOS; `orchestra-app` updated. AccessKit still
+uses zbus 5.19 (`accesskit_unix` 0.24.1), so ADR-0038 S7's exceptions stay. Tests: 8 new (fed
+source ×5, `ThemeState` ×2, `winit` themes), the platform test now checks that a feed exists
+exactly where `winit` is the source. The owner checked it on KDE Plasma, Wayland and X11
+(XWayland): right half at start, changes followed at once. A perceived slowdown was compared A/B
+against `main` (same debug build): identical. Windows and macOS: not compiled locally (no targets
+in the sandbox), only by CI.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -924,10 +946,15 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   now).
 - **Meter rewrite after a free bar (F1.11c): fixed** by PR #24 (R12, merged 2026-11-06, see above);
   the property test's seed is in `crates/core-model/proptest-regressions/command_tests.txt`.
-- **System theme on Windows and macOS (ADR-0038 S3):** implement `SystemAppearanceSource` with
-  `winit` in F2.04 (`ActiveEventLoop::system_theme()`, `WindowEvent::ThemeChanged`, never a fixed
-  `Window::set_theme`) and bridge the callback to the event loop; until then *System* gives dark
-  there. To confirm on a GNOME machine that its light style is reported as 0 (ADR-0038 S4).
+- **System theme on Windows and macOS (ADR-0038 S3): done in F2.04b** (fed source, one path
+  through `EventLoopProxy`). Still to confirm on a GNOME machine that its light style is reported
+  as 0 (ADR-0038 S4).
+- **The system title bar with a forced mode (seen in F2.04b, postponed by the owner):** on Windows
+  (and on Wayland with `winit`'s decorations) the title bar follows the system, so with *Light* or
+  *Dark* chosen by hand it may not match the window. Fixing it needs `Window::set_theme`, which on
+  Windows and macOS stops `ThemeChanged` while it is set (`set_theme(None)` restores it). Today the
+  mode is always *System*, so it is invisible. To do in F2.12 (the Preferences change the mode) or
+  F2.11b (our own title bar).
 - **Full-frame budget (F2.03, ADR-0039 D10):** the software full frame of the reference scene costs
   84.6 M instructions against 33 M (30 fps by the rule of F1.16c). 86 % is the 2000 symbols drawn
   as anti-aliased paths, the stand-in for glyphs: measure again in F2.07 with the glyph cache

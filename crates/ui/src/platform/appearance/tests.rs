@@ -8,6 +8,9 @@
 //! only waits are the deliberately tiny timeouts of the "late answer" cases, and the large ones
 //! that must *not* be reached.
 //!
+//! The fed source of Windows and macOS (ADR-0038 S3) is tested on every platform with a hand-fed
+//! reporter, standing in for the window's event loop.
+//!
 //! On Linux, the portal's value decoding is tested on hand-built D-Bus values, and opening the
 //! real source is checked not to hang or panic on a machine that may have no session bus at all
 //! (CI runners have none).
@@ -16,9 +19,10 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use super::fed::FedSource;
 use super::{
     AppearanceCallback, AppearanceWatch, FIRST_READ_TIMEOUT, SystemAppearanceError,
-    SystemAppearanceSource, system_appearance_source,
+    SystemAppearanceSource, observe_system,
 };
 use crate::Appearance;
 
@@ -243,12 +247,69 @@ fn a_panicking_callback_does_not_break_the_watch() {
 }
 
 #[test]
-fn the_no_answer_watch_says_nothing_and_records_nothing() {
-    let watch = AppearanceWatch::no_answer();
+fn a_fed_source_without_an_answer_says_nothing_and_records_nothing() {
+    // What a system with no preference to report gives (`winit` answering `None`): no value and
+    // no error, because nothing failed.
+    let (source, _feed) = FedSource::new(None);
+    let watch = source.observe(Box::new(|_| {}));
     assert_eq!(watch.current(), None);
     assert_eq!(watch.last_error(), None);
     // Debug output names the state, for diagnostics.
     assert!(format!("{watch:?}").contains("current: None"));
+}
+
+#[test]
+fn a_fed_source_starts_with_the_event_loops_answer_and_calls_nothing() {
+    let (source, _feed) = FedSource::new(Some(Appearance::Light));
+    let calls: Calls = Arc::default();
+    let watch = source.observe(recording(&calls));
+    // The first answer is the initial value (rule 1), not a callback.
+    assert_eq!(watch.current(), Some(Appearance::Light));
+    assert_eq!(calls_of(&calls), NO_CALLS);
+}
+
+#[test]
+fn a_fed_source_passes_on_real_changes_only() {
+    let (source, feed) = FedSource::new(Some(Appearance::Dark));
+    let calls: Calls = Arc::default();
+    let watch = source.observe(recording(&calls));
+    // The same value again, as `ThemeChanged` or the window's own theme may repeat it: dropped.
+    feed.answer(Some(Appearance::Dark));
+    // Two real transitions, each with a repeat after it.
+    feed.answer(Some(Appearance::Light));
+    feed.answer(Some(Appearance::Light));
+    feed.answer(Some(Appearance::Dark));
+    feed.answer(Some(Appearance::Dark));
+    assert_eq!(
+        calls_of(&calls),
+        vec![Some(Appearance::Light), Some(Appearance::Dark)]
+    );
+    assert_eq!(watch.current(), Some(Appearance::Dark));
+}
+
+#[test]
+fn a_fed_answer_before_observe_only_updates_the_value() {
+    // The window may feed its own theme before anyone observes: there is no callback to call yet,
+    // but the value is kept, so observing afterwards starts from it.
+    let (source, feed) = FedSource::new(Some(Appearance::Dark));
+    feed.answer(Some(Appearance::Light));
+    let calls: Calls = Arc::default();
+    let watch = source.observe(recording(&calls));
+    assert_eq!(watch.current(), Some(Appearance::Light));
+    assert_eq!(calls_of(&calls), NO_CALLS);
+}
+
+#[test]
+fn a_fed_source_is_silent_after_its_watch_is_dropped() {
+    // Rule 4 with the fed source: the event loop may still report `ThemeChanged` after the watch
+    // is gone (it never is, in practice: the window keeps it for the session), and the callback
+    // must not run.
+    let (source, feed) = FedSource::new(Some(Appearance::Dark));
+    let calls: Calls = Arc::default();
+    let watch = source.observe(recording(&calls));
+    drop(watch);
+    feed.answer(Some(Appearance::Light));
+    assert_eq!(calls_of(&calls), NO_CALLS);
 }
 
 #[test]
@@ -284,12 +345,20 @@ fn error_messages_are_one_line_and_name_the_detail() {
 
 #[test]
 fn the_platform_source_never_hangs_or_panics() {
-    // On a CI runner there is no session bus (Linux) or no implementation yet (Windows, macOS):
-    // the answer is `None`. On a developer's desktop the portal may answer: any value is fine.
-    // What must hold everywhere is the bounded wait of ADR-0038 S5.
+    // On a Linux CI runner there is no session bus: the answer is `None`. On a developer's desktop
+    // the portal may answer: any value is fine. Elsewhere the source is fed by the event loop and
+    // starts from what it was given (here `None`, as from a `winit` with nothing to say). What
+    // must hold everywhere is the bounded wait of ADR-0038 S5.
     let started = Instant::now();
-    let watch = system_appearance_source().observe(Box::new(|_| {}));
+    let observation = observe_system(None, Box::new(|_| {}));
+    let watch = observation.watch;
     let elapsed = started.elapsed();
+    // Only the fed source has a feed for the event loop (ADR-0038 S3).
+    assert_eq!(
+        observation.feed.is_some(),
+        !cfg!(target_os = "linux"),
+        "a feed exactly where winit is the source"
+    );
     // The bound plus a generous margin for a loaded runner creating a thread.
     assert!(
         elapsed < FIRST_READ_TIMEOUT + Duration::from_secs(5),

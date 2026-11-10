@@ -3138,16 +3138,22 @@ sistema operativo preferisce il chiaro o lo scuro, e seguirlo mentre il programm
 prende un `Option<Appearance>`, dove `None` vuol dire "il sistema non ha detto niente" e dà lo
 scuro. Questo modulo produce quell'`Option` e i suoi cambi.
 
-**Un trait, una funzione.** `SystemAppearanceSource` è l'unica porta; `system_appearance_source()`
-restituisce l'implementazione della piattaforma per cui il programma è compilato. `observe` prende
-una callback e restituisce un `AppearanceWatch`:
+**Un trait, una funzione.** `SystemAppearanceSource` è l'unica porta; `observe_system()`, privata
+del crate, avvia l'implementazione della piattaforma per cui il programma è compilato. L'unico a
+chiamarla è il ciclo eventi della finestra (F2.04b): su Windows e macOS la sorgente funziona solo
+dentro un ciclo in esecuzione, quindi una funzione pubblica "dammi la sorgente del sistema" lì
+risponderebbe sempre "niente". `observe` prende una callback e restituisce un `AppearanceWatch`:
 
 ```rust
-let watch = system_appearance_source().observe(Box::new(|value| {
-    // Runs on the source's own thread, at each real change: forward it, do not block.
-    let _ = proxy.send(value);
-}));
-let appearance = ThemeMode::System.resolve(watch.current()); // None → dark (ADR-0037 T9)
+// In the window's event loop (`window/shell.rs`), the first time it resumes:
+let SystemObservation { watch, feed } = observe_system(
+    event_loop.system_theme().map(appearance_from_winit), // always None on Linux
+    Box::new(move |value| {
+        // At each real change, on any thread: hand it to the event loop.
+        let _closed = proxy.send_event(ShellEvent::SystemAppearance(value));
+    }),
+);
+self.theme.set_system(watch.current()); // None → dark (ADR-0037 T9)
 ```
 
 `current()` è l'ultima risposta che il chiamante ha visto; `last_error()` dice perché il sistema
@@ -3168,10 +3174,18 @@ chiaro predefinito (scelta del proprietario, ADR-0038 S4); ogni altro numero val
 risposta. Tutto gira su un solo thread, `orchestra-appearance`, che fra un cambio e l'altro dorme
 sul socket D-Bus: niente controlli periodici, niente CPU.
 
-**Windows e macOS: dopo, con winit.** Su quei sistemi `winit` legge già la preferenza (il registro
-su Windows, `effectiveAppearance` su macOS) e ne segnala i cambi, senza dipendenze in più e senza
-controlli periodici. `winit` entra nel workspace in F2.04, con la prima finestra; fino ad allora
-`no_answer.rs` risponde sempre `None`, il che non costa nulla perché una finestra non c'è ancora.
+**Windows e macOS: winit, alimentato dal ciclo eventi.** Su quei sistemi `winit` legge già la
+preferenza (il registro su Windows, `effectiveAppearance` su macOS) e ne segnala i cambi, senza
+dipendenze in più e senza controlli periodici (ADR-0038 S3, passo F2.04b). Però risponde solo
+dentro un ciclo eventi in esecuzione, e `winit` vive solo nel modulo `window` (ADR-0040 W1). Così
+`fed.rs` contiene una sorgente che da sola non chiede nulla: `FedSource::new(initial)` restituisce
+la sorgente e lo stesso `Reporter` che usa il thread del portale, e il ciclo eventi la alimenta:
+`system_theme()` come valore iniziale, poi ogni `WindowEvent::ThemeChanged`. Le regole qui sotto
+(ripetizioni scartate, niente dopo il rilascio) valgono quindi sulle tre piattaforme con un solo
+pezzo di codice. Sugli altri sistemi (i BSD) `winit` dice `None` e non lo cambia mai, quindi la
+sorgente alimentata dice semplicemente "nessuna risposta" per tutta la sessione, senza errori. Il
+programma non chiama mai `Window::set_theme` con un valore fisso, perché su Windows e macOS
+spegnerebbe `ThemeChanged`.
 
 **Le regole, in un posto solo.** Il meccanismo a thread di `mod.rs` (`AppearanceWatch::spawn` e il
 `Reporter` che riceve il thread della sorgente) applica quattro regole, così il codice di
@@ -3212,9 +3226,12 @@ prima risposta in tempo, le ripetizioni, una risposta in ritardo, un `None` in r
 prima della prima risposta (che libera subito il chiamante), un errore durante l'osservazione, il
 rilascio del watch, una callback che va in panic. Su Linux la decodifica è provata su valori D-Bus
 costruiti a mano (i tre numeri, numeri sconosciuti, la variante in più del vecchio `Read`, troppi
-livelli, tipi sbagliati). Un ultimo test apre la sorgente vera e controlla che non resti mai
-bloccata e non vada in panic: nella CI non c'è un bus di sessione, quindi la risposta è `None` con
-il suo motivo. La lettura vera richiede un desktop con il portale: il proprietario l'ha verificata
+livelli, tipi sbagliati). La sorgente alimentata di Windows e macOS è provata ovunque con un
+`Reporter` alimentato a mano: il valore iniziale non è una callback, le ripetizioni sono scartate,
+una risposta prima di `observe` aggiorna solo il valore, e dopo il rilascio non arriva nulla. Un
+ultimo test apre la sorgente vera e controlla che non resti mai bloccata e non vada in panic, e
+che ci sia un canale di alimentazione esattamente dove la sorgente è `winit`: nella CI non c'è un
+bus di sessione, quindi su Linux la risposta è `None` con il suo motivo. La lettura vera richiede un desktop con il portale: il proprietario l'ha verificata
 a mano il 2026-11-10 (valore iniziale e ogni cambio letti correttamente). Nessun benchmark: non c'è
 un percorso caldo, solo una lettura all'avvio e un messaggio quando l'utente sposta un interruttore.
 
@@ -3346,7 +3363,13 @@ o cambio di scala), e `input` registra di nuovo i segmenti che un evento cambia.
 finestra e fa girare il ciclo finché la finestra non viene chiusa:
 
 ```rust
-let options = WindowOptions { title, theme, width: 960.0, height: 600.0 };
+let options = WindowOptions {
+    title,
+    pair: *BuiltInTheme::Studio.pair(),
+    mode: ThemeMode::System,
+    width: 960.0,
+    height: 600.0,
+};
 orchestra_ui::run(demo::Demo::default(), options)?;
 ```
 
@@ -3378,6 +3401,23 @@ Linux e Windows, Cmd su macOS) e un **secondario** (l'altro), più Shift e Alt; 
 scriveranno con `primary`, così una sola tabella vale ovunque. L'inserimento di testo e i metodi di
 input arrivano con il campo di testo in F2.10.
 
+**Seguire il tema di sistema** (F2.04b). La finestra riceve il tema come **coppia e modo**
+(`WindowOptions::pair`, `WindowOptions::mode`), non come metà già scelta, così può cambiare metà da
+sola. La prima volta che il ciclo riparte, prima che la finestra esista, comincia a osservare la
+preferenza del sistema (la sezione precedente) e ne prende la prima risposta, così il primo
+fotogramma è già giusto. Ogni cambio poi raggiunge la finestra per **una sola strada su ogni
+piattaforma**: il thread del portale su Linux, oppure `ThemeChanged` passato al `Reporter` su
+Windows e macOS, chiama la callback, che manda il nostro evento `ShellEvent::SystemAppearance`
+attraverso l'`EventLoopProxy` di `winit` (ADR-0040 W3); `user_event` lo passa a
+`ThemeState::set_system`. Quella funzione risponde se la metà con cui disegnare è cambiata: in quel
+caso si danneggia tutto e si disegna un fotogramma; il layout non dipende dai colori, quindi non si
+registra di nuovo nulla. Con il modo *Chiaro* o *Scuro*, o con la stessa metà di prima, non si
+ridisegna nulla. Su Windows e macOS, subito dopo aver creato la finestra, si passa ancora una volta
+il suo tema, per chiudere il buco fra la lettura di `system_theme()` e la nascita della finestra
+(una ripetizione viene scartata). Lì `ThemeChanged` arriva già sul thread del ciclo, e fa la
+deviazione attraverso il proxy apposta: una sola regola per le ripetizioni e un solo posto che
+applica un cambio, al costo di un risveglio in più a ogni cambio di tema.
+
 **Creare la finestra.** La finestra viene creata invisibile, preparata (oggi la superficie e la
 prima dimensione; l'adapter di AccessKit con i primi widget, che va in panic se arriva dopo che la
 finestra è stata mostrata), e solo allora mostrata. `window/order.rs` lo fa in una funzione
@@ -3389,8 +3429,9 @@ nota (che devono restare nitide a ogni scala), quattro quadrati che si accendono
 modificatore primario e il secondario, Shift e Alt, e un disco che segue il puntatore (colore
 d'accento mentre un pulsante è premuto). Muovere il puntatore registra di nuovo solo il segmento
 del disco, quindi si ridisegnano solo il suo posto vecchio e quello nuovo. Il titolo è `app-name`
-tradotto; il tema è Studio nel modo del sistema, letto una volta all'avvio (seguirne i cambi arriva
-in F2.04b). Senza display il programma si ferma con un messaggio chiaro ("Could not find wayland
+tradotto; il tema è Studio nel modo *Sistema*, e passando il desktop da chiaro a scuro (o
+viceversa) con la finestra aperta la si vede ridisegnata nell'altra metà (verificato a mano dal
+proprietario su Linux, Wayland e X11). Senza display il programma si ferma con un messaggio chiaro ("Could not find wayland
 compositor") invece di andare in panic.
 
 **Dipendenze.** `winit` 0.30.13 e `softbuffer` 0.4.8, con le feature di ADR-0036 (X11 e Wayland
@@ -3400,11 +3441,14 @@ in F2.11b). Portano copie più vecchie di alcuni crate (`rustix`, `windows-sys`,
 `deny.toml` con la loro uscita: `winit` 0.31, o la nostra barra del titolo. Il binario di rilascio
 della finestra di prova pesa 7,0 MB.
 
-**Test.** `window/tests.rs` (10 test) gira sulle tre piattaforme senza display: il modificatore
+**Test.** `window/tests.rs` (13 test) gira sulle tre piattaforme senza display: il modificatore
 primario su macOS e altrove, tasti, pulsanti e rotellina, la conversione in `0RGB`, la copia di
 un'area che tocca solo quell'area, la scelta fra copia parziale e intera secondo l'età del buffer,
-i rettangoli presentati in pixel del dispositivo, e l'ordine di creazione della finestra (anche
-quando la creazione fallisce). La finestra vera la verifica a mano il proprietario su Linux.
+i rettangoli presentati in pixel del dispositivo, l'ordine di creazione della finestra (anche
+quando la creazione fallisce), i temi di `winit` tradotti nei nostri, e `ThemeState` (il modo
+*Sistema* segue ogni risposta e chiede un ridisegno solo quando la metà cambia; *Chiaro* e *Scuro*
+ignorano il sistema). La finestra vera la verifica a mano il proprietario su Linux; su Windows e
+macOS il codice del tema è compilato e provato dalla CI ma nessuno lo guarda (ADR-0040 W9).
 
 ### orchestra-test-support: contare le allocazioni nei test
 
