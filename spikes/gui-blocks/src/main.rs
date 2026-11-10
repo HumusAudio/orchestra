@@ -21,6 +21,8 @@
 //! Spike shortcuts (acceptable here, NOT in product code): errors panic, no glyph cache, the whole
 //! window is redrawn on every frame.
 
+mod theme;
+
 use std::num::NonZeroU32;
 use std::rc::Rc;
 use std::time::Instant;
@@ -342,6 +344,7 @@ fn main() {
     match args.get(1).map(String::as_str) {
         Some("headless") => headless(args.get(2).map_or("gui-blocks.png", String::as_str)),
         Some("window") => window::run(),
+        Some("theme") => theme::run(),
         _ => eprintln!("usage: gui-blocks headless <out.png> | gui-blocks window"),
     }
 }

@@ -30,6 +30,13 @@ rfd = { version = "=0.17.2", optional = true, default-features = false, features
 # Alternative measured for comparison: rfd 0.16 talks to the portal through `ashpd`/`zbus` (pure
 # Rust, the same zbus AccessKit already uses) instead of loading libdbus-1 with dlopen.
 rfd016 = { package = "rfd", version = "=0.16.1", optional = true, default-features = false, features = ["xdg-portal", "async-std"] }
+# F2.02b: reading the system light/dark preference. Three candidates, measured one at a time:
+# zbus directly (the version and features AccessKit already uses), dark-light 3, mundy 0.2.
+zbus = { version = "=5.19.0", optional = true, default-features = false, features = ["async-io"] }
+futures-lite = { version = "2", optional = true }
+async-io = { version = "2", optional = true }
+dark-light = { version = "=3.0.0", optional = true }
+mundy = { version = "=0.2.3", optional = true, default-features = false, features = ["async-io", "color-scheme"] }
 
 # macOS global menu only: on Linux muda would require GTK, and there we draw the menu ourselves.
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -43,3 +50,6 @@ csd = ["winit/wayland-csd-adwaita-notitle"]
 a11y = ["dep:accesskit", "dep:accesskit_winit"]
 dialogs = ["dep:rfd"]
 dialogs-ashpd = ["dep:rfd016"]
+theme-zbus = ["dep:zbus", "dep:futures-lite"]
+theme-darklight = ["dep:dark-light"]
+theme-mundy = ["dep:mundy", "dep:futures-lite", "dep:async-io"]

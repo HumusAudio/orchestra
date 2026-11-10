@@ -45,3 +45,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0035](0035-release-build-profile.md) | Release build profile: one codegen unit per crate | Accepted |
 | [0036](0036-ui-building-blocks.md) | UI building blocks: versions, features, native libraries (amends ADR-0012) | Accepted |
 | [0037](0037-themes-tokens-and-customisation.md) | Themes: tokens, ten built-in pairs, user customisation (amends ADR-0014) | Accepted |
+| [0038](0038-system-theme-detection.md) | Reading the system light/dark preference: our portal code on Linux, winit elsewhere | Accepted |
