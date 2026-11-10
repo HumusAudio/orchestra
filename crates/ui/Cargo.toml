@@ -19,6 +19,12 @@ orchestra-notation-layout.workspace = true
 orchestra-i18n.workspace = true
 orchestra-video.workspace = true
 
+# Reading the system's light/dark preference from the XDG desktop portal (ADR-0038 S2). Linux
+# only: on Windows and macOS the preference comes from `winit` (ADR-0038 S3, step F2.04).
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus.workspace = true
+futures-lite.workspace = true
+
 [dev-dependencies]
 # Allocation-counting allocator for the "reading a theme never allocates" test (ADR-0016),
 # test-only.

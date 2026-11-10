@@ -1,6 +1,7 @@
 # ADR-0038 — Reading the system's light/dark preference: our portal code on Linux, winit elsewhere
 
-- **Status:** Accepted (owner, 2026-11-10; S4 option (a) and S5's 250 ms chosen by the owner)
+- **Status:** Accepted (owner, 2026-11-10; S4 option (a) and S5's 250 ms chosen by the owner; S7
+  added with the owner's approval the same day)
 - **Date:** 2026-11-10
 - **Implements:** ADR-0014 §5 (system preference detection in `platform/`, changes observed while
   the program runs), within ADR-0006 §2 (platform code only in `platform/` behind traits) and
@@ -109,6 +110,28 @@ numbers, wrong types, the double variant of `Read`), dropping repeated values, a
 `None` rule. The real reading needs a session bus with a portal, which CI runners do not have: it
 is checked by hand by the owner on their desktop, like the window in F2.01. On a machine without
 a bus, a test checks that opening the source gives `None` quickly and does not panic.
+
+### S7 — The RustSec advisories of zbus 5's helper crates (added during implementation)
+
+`cargo deny` reports three crates of the zbus 5 family as **unmaintained**: `zvariant`
+(RUSTSEC-2026-0370), `zbus_names` (-0371), `zvariant_derive` (-0372). zbus 6 merged them into
+`zbus` itself and their author published advisories for the separate crates. They are not
+vulnerabilities, and `zbus` 5.19 itself is not flagged. AccessKit has the same three through
+`accesskit_unix` 0.24 and ignores them (AccessKit PR #834, 2026-10-18), because zbus 6 needs a
+newer Rust than its minimum version.
+
+So, with the owner's approval (2026-11-10): we **stay on zbus 5.19** and list the three IDs in
+`deny.toml`'s `[advisories] ignore`, each with its reason. Only these IDs are ignored: a real
+security advisory on the same crates still fails the check. **Exit:** when AccessKit moves to
+zbus 6, we move with it in the same step and remove the three entries.
+
+The rejected alternative, zbus 6 now, has no advisory but would put two copies of zbus in the tree
+as soon as AccessKit enters (F2.04), about +0.9 MB and a few dozen crates, until AccessKit moves;
+and zbus 6.2 is under two weeks old.
+
+zbus 5 also brings `syn` 2 next to the tree's `syn` 3, at build time only (`enumflags2_derive`,
+`tracing-attributes`): the duplicate ADR-0036 B7 foresaw, now listed in `deny.toml`'s `skip` with
+its exit (those proc macros moving to syn 3, or zbus 6).
 
 ## Alternatives rejected
 

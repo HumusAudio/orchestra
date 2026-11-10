@@ -95,6 +95,15 @@ gungraun = "=0.20.0"
 # the export writes its own bytes. Default features off (`std` only): no parallel parsing, no
 # `rayon`.
 midly = { version = "0.5.3", default-features = false, features = ["std"] }
+# The system's light/dark preference on Linux (ADR-0038 S2, verified on crates.io on 2026-11-10).
+# zbus: D-Bus in pure Rust, MIT. Pinned EXACTLY to the version AccessKit's `accesskit_unix` 0.24
+# uses, with its features (`async-io`, no default features: no `blocking-api`, no tokio), so the
+# two share one copy and one async stack (`cargo deny` refuses duplicates). zbus 6 exists but
+# would be a second copy next to AccessKit's. Linux-only dependency of `orchestra-ui`.
+zbus = { version = "=5.19.0", default-features = false, features = ["async-io"] }
+# futures-lite: `StreamExt::next` on zbus's message stream (Apache-2.0 OR MIT, 2.6.1 of 2025-08).
+# Already in the tree through zbus itself, so it adds no crate. Default features keep `std`.
+futures-lite = "2.6.1"
 
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a

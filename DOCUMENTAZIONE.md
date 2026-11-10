@@ -3118,6 +3118,95 @@ invece di `<`) è equivalente, perché nessuna coppia a 8 bit dà esattamente 4,
 Nessun benchmark: non c'è ancora un percorso caldo. Leggere un token è l'accesso a un campo, e un
 tema personalizzato si risolve una volta sola, quando lo si sceglie.
 
+#### La preferenza chiaro/scuro del sistema
+
+Quando l'utente lascia il modo su *Sistema* (il predefinito), l'interfaccia deve sapere se il
+sistema operativo preferisce il chiaro o lo scuro, e seguirlo mentre il programma è aperto
+(ADR-0014 §5). Il passo F2.02b l'ha messo nel primo modulo di piattaforma di `orchestra-ui`,
+`platform/appearance` (ADR-0038). L'altra metà c'era già nel sistema dei temi: `ThemeMode::resolve`
+prende un `Option<Appearance>`, dove `None` vuol dire "il sistema non ha detto niente" e dà lo
+scuro. Questo modulo produce quell'`Option` e i suoi cambi.
+
+**Un trait, una funzione.** `SystemAppearanceSource` è l'unica porta; `system_appearance_source()`
+restituisce l'implementazione della piattaforma per cui il programma è compilato. `observe` prende
+una callback e restituisce un `AppearanceWatch`:
+
+```rust
+let watch = system_appearance_source().observe(Box::new(|value| {
+    // Runs on the source's own thread, at each real change: forward it, do not block.
+    let _ = proxy.send(value);
+}));
+let appearance = ThemeMode::System.resolve(watch.current()); // None → dark (ADR-0037 T9)
+```
+
+`current()` è l'ultima risposta che il chiamante ha visto; `last_error()` dice perché il sistema
+non ha risposto, per la diagnosi (`SystemAppearanceError`: bus irraggiungibile, lettura fallita,
+tipo inatteso, numero sconosciuto, osservazione interrotta, tempo scaduto, thread non avviato).
+Nessuno di questi errori è mai un guasto per l'utente: ognuno vuol dire solo "nessuna risposta",
+quindi scuro.
+
+**Linux: il portale del desktop.** Il portale XDG è un servizio D-Bus sul bus di sessione, anche
+dentro Flatpak. Il file `portal.rs` ci parla con `zbus` 5.19, la stessa versione e le stesse
+feature di AccessKit, così i due condivideranno una sola copia e un solo stack asincrono
+(`async-io`, niente `tokio`). L'ordine conta: prima ci si iscrive al segnale `SettingChanged`, poi
+si legge il valore con `ReadOne` (o con il vecchio `Read` sui portali di prima del 2023, che
+avvolge il valore in una variante in più). Iscrivendosi prima, un cambio fra i due passi non può
+andare perso: al massimo arriva due volte. Il portale risponde con un numero: 1 è scuro, 2 è
+chiaro, e **0** ("nessuna preferenza") è **chiaro**, perché GNOME segnala come 0 il suo stile
+chiaro predefinito (scelta del proprietario, ADR-0038 S4); ogni altro numero vale come nessuna
+risposta. Tutto gira su un solo thread, `orchestra-appearance`, che fra un cambio e l'altro dorme
+sul socket D-Bus: niente controlli periodici, niente CPU.
+
+**Windows e macOS: dopo, con winit.** Su quei sistemi `winit` legge già la preferenza (il registro
+su Windows, `effectiveAppearance` su macOS) e ne segnala i cambi, senza dipendenze in più e senza
+controlli periodici. `winit` entra nel workspace in F2.04, con la prima finestra; fino ad allora
+`no_answer.rs` risponde sempre `None`, il che non costa nulla perché una finestra non c'è ancora.
+
+**Le regole, in un posto solo.** Il meccanismo a thread di `mod.rs` (`AppearanceWatch::spawn` e il
+`Reporter` che riceve il thread della sorgente) applica quattro regole, così il codice di
+piattaforma deve solo tradurre i messaggi del sistema:
+
+1. l'avvio non aspetta mai più di **250 ms** la prima risposta (`FIRST_READ_TIMEOUT`; il budget
+   dell'avvio è 3 s, e un portale assente può far aspettare D-Bus 25 s). Una risposta in ritardo
+   arriva dopo attraverso la callback, come un cambio;
+2. alla callback arrivano solo i **cambi veri**: sul desktop del proprietario il portale ha
+   mandato ogni cambio tre volte, e le ripetizioni vengono scartate;
+3. un errore diventa "nessuna risposta" e resta in `last_error`;
+4. dopo che il watch è stato lasciato andare la callback non viene più chiamata, neanche una
+   volta: vive dietro lo stesso lock che il reporter prende per chiamarla. Qui un lock è ammesso,
+   perché non è il thread audio.
+
+```rust
+pub(crate) fn answer(&self, value: Option<Appearance>) {
+    let mut state = self.shared.lock();
+    if state.waiting {
+        // The first answer, in time: it becomes the watch's initial value.
+        state.waiting = false;
+        state.delivered = value;
+        self.shared.first_answer.notify_all();
+    } else if state.delivered != value {
+        // A real transition: repeats never reach the callback.
+        state.delivered = value;
+        if let Some(callback) = state.callback.as_mut() {
+            callback(value);
+        }
+    }
+}
+```
+
+**Test.** `platform/appearance/tests.rs` verifica le quattro regole su ogni piattaforma con
+sorgenti finte *a copione*: il test manda comandi al thread della sorgente su un canale e aspetta
+che ognuno sia eseguito, così l'ordine degli eventi è esatto e nessun test dipende dai tempi. Una
+prima risposta in tempo, le ripetizioni, una risposta in ritardo, un `None` in ritardo, un errore
+prima della prima risposta (che libera subito il chiamante), un errore durante l'osservazione, il
+rilascio del watch, una callback che va in panic. Su Linux la decodifica è provata su valori D-Bus
+costruiti a mano (i tre numeri, numeri sconosciuti, la variante in più del vecchio `Read`, troppi
+livelli, tipi sbagliati). Un ultimo test apre la sorgente vera e controlla che non resti mai
+bloccata e non vada in panic: nella CI non c'è un bus di sessione, quindi la risposta è `None` con
+il suo motivo. La lettura vera richiede un desktop con il portale: il proprietario l'ha verificata
+a mano il 2026-11-10 (valore iniziale e ogni cambio letti correttamente). Nessun benchmark: non c'è
+un percorso caldo, solo una lettura all'avvio e un messaggio quando l'utente sposta un interruttore.
+
 ### orchestra-test-support: contare le allocazioni nei test
 
 Un crate che esiste **solo per test e benchmark** (ADR-0016). Tutti gli altri crate possono
@@ -3926,6 +4015,10 @@ Le dimensioni, il numero di crate per piattaforma, i tempi di compilazione, le l
 durante l'esecuzione e le versioni doppie segnalate da `cargo deny` sono in
 `spikes/gui-blocks/RESULTS.md`. Le scelte fatte su queste misure sono in ADR-0036. Le librerie
 sono registrate in `docs/native-deps.md`.
+Per il passo F2.02b il prototipo ha avuto un modo `theme` e tre feature, una per ogni candidato
+alla lettura della preferenza chiaro/scuro del sistema: `theme-zbus` (il nostro codice su `zbus`),
+`theme-darklight` e `theme-mundy`. `gui-blocks theme` stampa la preferenza, poi ogni cambio. I
+numeri sono nello stesso `RESULTS.md`, la scelta in ADR-0038.
 
 ## Lezioni della Fase 0
 
