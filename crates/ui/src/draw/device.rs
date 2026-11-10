@@ -27,6 +27,30 @@ impl DeviceRect {
     pub(crate) fn area(&self) -> u64 {
         u64::from(self.width) * u64::from(self.height)
     }
+
+    /// The smallest device rectangle containing both.
+    pub(crate) fn union(&self, other: &Self) -> Self {
+        let x0 = self.x.min(other.x);
+        let y0 = self.y.min(other.y);
+        let x1 = (self.x + self.width).max(other.x + other.width);
+        let y1 = (self.y + self.height).max(other.y + other.height);
+        Self {
+            x: x0,
+            y: y0,
+            width: x1 - x0,
+            height: y1 - y0,
+        }
+    }
+
+    /// The rectangle in logical pixels at `scale`.
+    pub(crate) fn logical(&self, scale: f32) -> Rect {
+        Rect::new(
+            to_f32(self.x) / scale,
+            to_f32(self.y) / scale,
+            to_f32(self.x.saturating_add(self.width)) / scale,
+            to_f32(self.y.saturating_add(self.height)) / scale,
+        )
+    }
 }
 
 /// The device regions of one frame's damage: either the whole frame or up to [`MAX_RECTS`]
@@ -107,7 +131,12 @@ impl DeviceRegions {
 /// The device region of a logical damage rectangle (ADR-0039 D5): times the scale, rounded
 /// outwards, plus one pixel of anti-aliasing fringe, clamped to the frame. `None` when nothing is
 /// left.
-fn device_region(rect: &Rect, scale: f32, width: u32, height: u32) -> Option<DeviceRect> {
+pub(crate) fn device_region(
+    rect: &Rect,
+    scale: f32,
+    width: u32,
+    height: u32,
+) -> Option<DeviceRect> {
     let fringe = 1.0;
     let device = Rect::new(
         (rect.x0 * scale).floor() - fringe,

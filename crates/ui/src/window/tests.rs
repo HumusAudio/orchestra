@@ -166,6 +166,10 @@ fn only_a_buffer_of_age_one_gets_a_partial_copy() {
     // Damage that is already the whole frame is a whole copy at any age.
     let all = DeviceRegions::new(&Damage::all(), 1.0, 200, 100);
     assert_eq!(CopyPlan::choose(1, &all, 200, 100), CopyPlan::Whole);
+    // No damage: the system asked for a frame (a window restored on X11 lost its pixels), so the
+    // whole frame is presented again even when the buffer reports age 1.
+    let none = DeviceRegions::new(&Damage::none(), 1.0, 200, 100);
+    assert_eq!(CopyPlan::choose(1, &none, 200, 100), CopyPlan::Whole);
 }
 
 #[test]

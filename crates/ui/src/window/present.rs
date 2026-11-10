@@ -21,9 +21,16 @@ impl CopyPlan {
     /// Chooses by the buffer's age (ADR-0040 W4): `softbuffer` reports 1 when the buffer holds the
     /// frame presented just before, 0 when its contents are unknown (always after a resize), and
     /// more when the system rotates several buffers. Only age 1 allows copying the damage alone;
-    /// so does damage that is already the whole frame, trivially.
+    /// damage that is already the whole frame is a whole copy, trivially.
+    ///
+    /// **No damage at all is a whole copy too.** It means the *system* asked for a frame without
+    /// anything changing in the interface: on X11 a window restored after being minimised has lost
+    /// its pixels on screen even though `softbuffer`'s buffer still reports age 1. Presenting zero
+    /// rectangles left it black until the pointer damaged it piece by piece (found by the owner in
+    /// F2.04a). Our frame is still valid, so copying it whole costs one conversion and no drawing.
     pub(crate) fn choose(age: u8, regions: &DeviceRegions, width: u32, height: u32) -> Self {
-        if age == 1 && !regions.is_whole(width, height) {
+        let none = regions.iter().next().is_none();
+        if age == 1 && !none && !regions.is_whole(width, height) {
             Self::Damage
         } else {
             Self::Whole

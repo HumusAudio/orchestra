@@ -32,7 +32,7 @@ use tiny_skia::{
 use super::Renderer;
 use super::command::{Command, PathElement};
 use super::damage::Damage;
-use super::device::{DeviceRect, DeviceRegions, pixel_span, to_f32};
+use super::device::{DeviceRect, DeviceRegions, device_region, pixel_span, to_f32};
 use super::geometry::{Point, Rect, RoundedRect, Transform};
 use super::image::{DrawError, Image};
 use super::list::{DisplayList, SHADOW_REACH_SIGMAS, Segment};
@@ -103,6 +103,21 @@ impl CpuRenderer {
 
     /// Draws one device region: into the target itself when it is the whole frame, otherwise
     /// into the scratch buffer and then copied.
+    ///
+    /// # Why the scratch area is larger than the region
+    /// `tiny-skia` rasterises an anti-aliased path differently depending on whether the path is
+    /// entirely inside the pixmap it draws into (it takes another clipping path otherwise). A
+    /// notehead cut by the edge of a small scratch pixmap would get edge pixels a few units off
+    /// the full frame's (found by the owner in F2.04a: up to 28 of 255). So the scratch area is
+    /// the region grown to contain **every command (and clip) that meets it**, clamped to the
+    /// frame: then each path is either wholly inside the scratch area, as in the full frame, or
+    /// cut by the frame's own edge, as in the full frame; its pixels are the full frame's, shifted
+    /// by whole pixels. Only the region itself is copied back.
+    ///
+    /// # Cost
+    /// A region over a large shape (a panel's rounded background) redraws the whole shape. That
+    /// is the price of exactness; plain rectangles and lines are drawn without anti-aliasing
+    /// (ADR-0039 D7) and still count, conservatively.
     fn render_region(
         &mut self,
         list: &DisplayList,
@@ -111,30 +126,65 @@ impl CpuRenderer {
         region: DeviceRect,
         target: &mut Image,
     ) {
-        let whole = region.x == 0
-            && region.y == 0
-            && region.width == target.width()
-            && region.height == target.height();
+        let (width, height) = (target.width(), target.height());
+        let area = Self::scratch_area(list, scale, region, width, height);
+        let whole = area.x == 0 && area.y == 0 && area.width == width && area.height == height;
         if whole {
-            let (width, height) = (target.width(), target.height());
+            // Drawing the whole frame gives every pixel its final value, the region's included.
             if let Some(pixmap) = PixmapMut::from_bytes(target.data_mut(), width, height) {
-                self.draw_region(list, theme, scale, region, pixmap);
+                self.draw_region(list, theme, scale, area, pixmap);
             }
             return;
         }
-        // A partial region: draw into the reused scratch buffer.
-        let len = region.area().saturating_mul(4);
+        let len = area.area().saturating_mul(4);
         let Ok(len) = usize::try_from(len) else {
             return;
         };
         let mut scratch = std::mem::take(&mut self.scratch);
         scratch.clear();
         scratch.resize(len, 0);
-        if let Some(pixmap) = PixmapMut::from_bytes(&mut scratch, region.width, region.height) {
-            self.draw_region(list, theme, scale, region, pixmap);
+        if let Some(pixmap) = PixmapMut::from_bytes(&mut scratch, area.width, area.height) {
+            self.draw_region(list, theme, scale, area, pixmap);
         }
-        copy_region(&scratch, region, target);
+        copy_region(&scratch, area, region, target);
         self.scratch = scratch;
+    }
+
+    /// The device area a partial redraw of `region` must draw: the region grown by the device
+    /// bounds of every drawing command and clip of the segments that meet it, when they meet it,
+    /// clamped to the frame (see [`render_region`](Self::render_region)).
+    ///
+    /// # Complexity
+    /// O(commands of the segments meeting the region), the same scan the replay does.
+    fn scratch_area(
+        list: &DisplayList,
+        scale: f32,
+        region: DeviceRect,
+        width: u32,
+        height: u32,
+    ) -> DeviceRect {
+        if region.x == 0 && region.y == 0 && region.width == width && region.height == height {
+            // Already the whole frame: nothing can grow it (and the scan would cost a full pass).
+            return region;
+        }
+        let logical = region.logical(scale);
+        let mut area = region;
+        for segment in list.segments() {
+            if !segment.bounds.intersects(&logical) {
+                continue;
+            }
+            for entry in &segment.entries {
+                let counts =
+                    !entry.command.is_state() || matches!(entry.command, Command::PushClip { .. });
+                if counts
+                    && entry.bounds.intersects(&logical)
+                    && let Some(device) = device_region(&entry.bounds, scale, width, height)
+                {
+                    area = area.union(&device);
+                }
+            }
+        }
+        area
     }
 
     /// Clears `pixmap` (which shows `region` of the frame) and replays the segments that meet it.
@@ -148,12 +198,7 @@ impl CpuRenderer {
     ) {
         pixmap.fill(skia_color(theme, Paint::token(ColorToken::Surface)));
         // The region in logical pixels, for culling against the bounds the list recorded.
-        let logical = Rect::new(
-            to_f32(region.x) / scale,
-            to_f32(region.y) / scale,
-            to_f32(region.x.saturating_add(region.width)) / scale,
-            to_f32(region.y.saturating_add(region.height)) / scale,
-        );
+        let logical = region.logical(scale);
         let mut frame = Frame {
             pixmap,
             scale,
@@ -781,14 +826,19 @@ fn blend_over(pixel: &mut [u8], source: &[f32; 4], cover: f32) {
     }
 }
 
-/// Copies a drawn region (`scratch`, `region.width × region.height` pixels) into its place in
-/// the target, row by row.
-fn copy_region(scratch: &[u8], region: DeviceRect, target: &mut Image) {
-    let row_bytes = region.width as usize * 4;
+/// Copies `region` of the frame from `scratch`, which holds the drawn `area` (a rectangle of the
+/// frame containing `region`, `area.width × area.height` pixels), into its place in `target`, row
+/// by row.
+fn copy_region(scratch: &[u8], area: DeviceRect, region: DeviceRect, target: &mut Image) {
+    let scratch_stride = area.width as usize * 4;
     let target_stride = target.width() as usize * 4;
+    let row_bytes = region.width as usize * 4;
+    let column = (region.x - area.x) as usize * 4;
     let data = target.data_mut();
     for row in 0..region.height as usize {
-        let source = scratch.get(row * row_bytes..(row + 1) * row_bytes);
+        let source_start =
+            (region.y - area.y) as usize * scratch_stride + row * scratch_stride + column;
+        let source = scratch.get(source_start..source_start + row_bytes);
         let start = (region.y as usize + row) * target_stride + region.x as usize * 4;
         let destination = data.get_mut(start..start + row_bytes);
         if let (Some(source), Some(destination)) = (source, destination) {

@@ -271,6 +271,13 @@ impl<A: WindowApp> ApplicationHandler for Shell<A> {
                 });
             }
             WindowEvent::Focused(focused) => self.deliver(&InputEvent::Focus(focused)),
+            // Visible again (restored, uncovered): the system may have dropped the window's
+            // pixels, so present the frame again (a whole copy, see `CopyPlan::choose`).
+            WindowEvent::Occluded(false) => {
+                if let Some(open) = self.open.as_ref() {
+                    open.window.request_redraw();
+                }
+            }
             _ => {}
         }
         // Frames on demand (W2): only when something is damaged.

@@ -3268,7 +3268,15 @@ danneggiato (in pixel del dispositivo, arrotondato verso l'esterno, più un pixe
 l'anti-aliasing) disegna in un buffer di appoggio di quella dimensione, lo pulisce con il
 `surface` del tema, ripete solo i segmenti e i comandi il cui ingombro lo tocca, e copia il
 risultato nell'immagine. Quando il danno copre più di metà del fotogramma, disegna direttamente il
-fotogramma intero. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
+fotogramma intero. Il buffer di appoggio non è solo il rettangolo danneggiato: viene allargato fino
+a contenere ogni comando e ritaglio che lo tocca (entro i bordi del fotogramma), e nell'immagine si
+ricopia solo il rettangolo danneggiato. Il motivo l'ha trovato il proprietario in F2.04a:
+`tiny-skia` sfuma i bordi di un tracciato in modo diverso quando il tracciato è tagliato dal bordo
+dell'immagine in cui disegna, quindi una testa di nota tagliata da un buffer piccolo aveva pixel di
+bordo sbagliati fino a 28 su 255. Allargato così, ogni tracciato viene disegnato esattamente come
+nel fotogramma intero, spostato di pixel interi; un test muove un disco sopra teste di nota, un
+ritaglio arrotondato e un pannello grande, e controlla a ogni passo che il ridisegno parziale sia
+uguale al disegno completo. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
 rigo da 1 px o il bordo di un widget cade su esattamente una fila di pixel, mai su due
 semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 
@@ -3284,7 +3292,7 @@ arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli, con dodici al mas
 (il tipo `Image`, alfa premoltiplicata), senza finestra e senza display. I file PNG arrivano con gli
 screenshot, in F2.05.
 
-**Test.** `tests/draw.rs` (23 test) controlla i pixel in modo esatto dove il risultato è esatto per
+**Test.** `tests/draw.rs` (24 test) controlla i pixel in modo esatto dove il risultato è esatto per
 costruzione: rettangoli e linee allineati (spessori pari e dispari, estremità piatte e quadrate),
 linee sottilissime che non spariscono mai, il fattore di scala, i token di due temi, l'opacità,
 l'ordine dei segmenti, il danno dopo una nuova registrazione e una rimozione, il ridisegno delle
@@ -3305,9 +3313,10 @@ riempiti perché i glifi arrivano in F2.07.
 |---|---|---|---|
 | `record_scene` | 2,7 M | ~2,7 ms | — |
 | `draw_full_frame` | 84,6 M | ~85 ms | ≤ 33 M (30 fps in software) |
-| `edit_one_note` | 0,55 M | ~0,5 ms | una piccola parte di 50 ms |
+| `edit_one_note` | 1,47 M | ~1,5 ms | una piccola parte di 50 ms |
 
-Modificare costa poco, come vogliono i segmenti. Un fotogramma intero supera il suo budget: l'86 %
+Modificare costa poco, come vogliono i segmenti. Prima della correzione di F2.04a costava 0,55 M:
+allargare il buffer di appoggio alle forme intere lo quasi triplica, il prezzo dei pixel esatti. Un fotogramma intero supera il suo budget: l'86 %
 è il riempimento delle 2000 teste di nota come tracciati con anti-aliasing, circa 36 000 istruzioni
 l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella parte (lo spike di
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
@@ -3337,7 +3346,11 @@ nel fotogramma completo dell'interfaccia (un'`Image` in pixel del dispositivo), 
 buffer di `softbuffer` come `0RGB`. Se quel buffer contiene esattamente il fotogramma precedente (la
 sua *età* è 1), si copiano solo i rettangoli danneggiati e li si presenta con `present_with_damage`;
 altrimenti (età 0 dopo un ridimensionamento, o buffer più vecchi quando il sistema ne alterna due o
-tre) si copia il fotogramma intero. Tenere il nostro fotogramma è ciò che rende corretto il disegno
+tre) si copia il fotogramma intero. Anche un fotogramma chiesto dal *sistema* senza alcuna area
+danneggiata è una copia intera: su X11 una finestra riaperta dopo essere stata minimizzata ha perso
+i suoi pixel sullo schermo anche se il buffer dice ancora età 1, e presentare zero rettangoli la
+lasciava nera finché il puntatore non la ridipingeva pezzo per pezzo (trovato dal proprietario). La
+finestra chiede un fotogramma anche quando torna visibile (`Occluded(false)`). Tenere il nostro fotogramma è ciò che rende corretto il disegno
 parziale qualunque cosa il sistema faccia con i suoi buffer. Le aree danneggiate in pixel del
 dispositivo vengono da un'unica funzione (`draw/device.rs`) condivisa dal renderer e dalla
 finestra, così ciò che si ridisegna è esattamente ciò che si presenta.

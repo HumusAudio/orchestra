@@ -3063,7 +3063,14 @@ with the same size does not allocate either.
 rectangle (in device pixels, rounded outwards, plus one pixel for anti-aliasing) it draws into a
 scratch buffer of that size, clears it with the theme's `surface`, replays only the segments and
 the commands whose bounds meet it, and copies the result into the image. When the damage covers
-more than half the frame, it draws the whole frame directly. Straight edges are **snapped** to
+more than half the frame, it draws the whole frame directly. The scratch buffer is not just the
+damaged rectangle: it is grown to contain every command and clip that touches it (clamped to the
+frame), and only the damaged rectangle is copied back. The reason was found by the owner in
+F2.04a: `tiny-skia` anti-aliases a path differently when the path is cut by the edge of the pixmap
+it draws into, so a notehead cut by a small scratch buffer got edge pixels up to 28 of 255 off.
+Grown this way, every path is drawn exactly as in the full frame, shifted by whole pixels; a test
+moves a disc over noteheads, a rounded clip and a large panel, and checks after every step that
+the partial redraw equals a full drawing. Straight edges are **snapped** to
 device pixels: a 1 px staff line or a widget border falls on exactly one row of pixels, never on
 two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 
@@ -3079,7 +3086,7 @@ give at most 0.84.
 `Image` type, premultiplied alpha), with no window and no display. PNG files come with the
 screenshots, in F2.05.
 
-**Tests.** `tests/draw.rs` (23 tests) checks pixels exactly where the result is exact by design:
+**Tests.** `tests/draw.rs` (24 tests) checks pixels exactly where the result is exact by design:
 snapped rectangles and lines (odd and even widths, butt and square caps), hairlines that never
 vanish, the scale factor, the tokens of two themes, opacity, the order of segments, damage after
 re-recording and removing, redrawing only the damage (a marker pixel outside it survives), the
@@ -3098,9 +3105,10 @@ glyphs come in F2.07.
 |---|---|---|---|
 | `record_scene` | 2.7 M | ~2.7 ms | — |
 | `draw_full_frame` | 84.6 M | ~85 ms | ≤ 33 M (30 fps in software) |
-| `edit_one_note` | 0.55 M | ~0.5 ms | a small part of 50 ms |
+| `edit_one_note` | 1.47 M | ~1.5 ms | a small part of 50 ms |
 
-Editing is cheap, as the segments intend. A full frame is over its budget: 86 % of it is filling
+Editing is cheap, as the segments intend. It cost 0.55 M before the fix of F2.04a: growing the
+scratch buffer to whole shapes nearly triples it, the price of exact pixels. A full frame is over its budget: 86 % of it is filling
 the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs drawn from a
 cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
 and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.
@@ -3128,7 +3136,11 @@ renders only the damage into the interface's own full frame (an `Image` in devic
 copies it into `softbuffer`'s buffer as `0RGB`. If that buffer holds exactly the previous frame
 (its *age* is 1), only the damaged rectangles are copied and presented with
 `present_with_damage`; otherwise (age 0 after a resize, or older buffers when the system rotates
-two or three) the whole frame is copied. Keeping our own frame is what makes partial drawing
+two or three) the whole frame is copied. A frame the *system* asks for with no damage at all is a
+whole copy too: on X11 a window restored after being minimised has lost its pixels on screen
+although the buffer still reports age 1, and presenting zero rectangles left it black until the
+pointer repainted it piece by piece (found by the owner). The window also asks for a frame when it
+becomes visible again (`Occluded(false)`). Keeping our own frame is what makes partial drawing
 correct whatever the system does with its buffers. The damaged regions in device pixels come from
 one function (`draw/device.rs`) shared by the renderer and the window, so what is redrawn is
 exactly what is presented.
