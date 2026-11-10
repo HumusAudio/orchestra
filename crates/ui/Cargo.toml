@@ -19,5 +19,11 @@ orchestra-notation-layout.workspace = true
 orchestra-i18n.workspace = true
 orchestra-video.workspace = true
 
+[dev-dependencies]
+# Allocation-counting allocator for the "reading a theme never allocates" test (ADR-0016),
+# test-only.
+orchestra-test-support.workspace = true
+proptest.workspace = true
+
 [lints]
 workspace = true

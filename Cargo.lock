@@ -389,7 +389,9 @@ dependencies = [
  "orchestra-i18n",
  "orchestra-notation-layout",
  "orchestra-playback",
+ "orchestra-test-support",
  "orchestra-video",
+ "proptest",
 ]
 
 [[package]]

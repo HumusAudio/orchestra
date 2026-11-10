@@ -3040,6 +3040,84 @@ La tabella dei programmi General MIDI è condivisa con `export_midi` in `example
 inclusa da tutti e due con `#[path]`: Cargo compila come esempio a sé ogni file messo direttamente
 in `examples/`, quindi un file condiviso va in una sottocartella.
 
+#### I temi dell'interfaccia
+
+`orchestra-ui` ha il suo primo modulo, `theme` (passo F2.02a, ADR-0014 e ADR-0037). È il sistema
+dei temi con cui l'interfaccia disegnerà, e arriva apposta prima del primo widget: se un widget
+scrivesse anche una sola volta un colore letterale, trasformarlo in tema dopo vorrebbe dire
+andarlo a cercare in tutto il codice. Non c'è ancora una finestra, né una dipendenza, né codice di
+piattaforma: solo dati, una formula e i loro test.
+
+**Token, non colori.** Un widget non dice mai "grigio"; dice "testo secondario" o "il bordo di un
+controllo", e chiede al tema attivo di che colore è. Questi ruoli sono i *token*: 24 token di
+colore (superfici, linee, testo, accento, controlli, selezione e focus, errore/avviso/conferma,
+l'ombra) e 5 token di forma in pixel logici (raggio degli angoli, spessore delle linee, spessore
+dell'anello di focus, sfocatura e spostamento dell'ombra). I token di colore sono elencati **una
+volta sola**, in una macro di `token.rs`, che ne ricava l'enum pubblico `ColorToken`, i nomi stabili
+(`surface-raised`, `on-accent`…) e una struttura privata con un campo per token. I temi inclusi
+riempiono quella struttura con un letterale, quindi un tema che dimentica un token non compila.
+Leggere un token è un `match` tradotto in una tabella di salto: O(1), nessuna allocazione, nessun
+panic possibile.
+
+```rust
+let appearance = ThemeMode::System.resolve(system_preference); // None → dark (ADR-0037 T9)
+let theme = BuiltInTheme::Studio.pair().instance(appearance);
+let background = theme.color(ColorToken::Surface);
+let corners = theme.shape().corner_radius; // logical pixels
+```
+
+**I colori.** `Color` sono quattro byte, sRGB con alfa non premoltiplicato, il formato di
+`tiny-skia` e `softbuffer` e il `#rrggbbaa` che una persona scrive. `Color::rgb(0x1c1c1e)` si legge
+come il `#1c1c1e` del CSS; `Color::over` compone un colore trasparente sopra uno opaco con
+l'aritmetica intera, mescolando direttamente i valori sRGB come fanno i renderer, perché la
+verifica del contrasto deve giudicare quello che lo schermo mostra davvero.
+
+**Dieci coppie.** Ogni tema è una `ThemePair`, un `Theme` chiaro e uno scuro. Le dieci coppie
+incluse (`BuiltInTheme`: `absolute`, `graphite`, `signal`, `parchment`, `slate`, `studio`, `forest`,
+`lagoon`, `nocturne`, `snow`) vengono dalla pagina di confronto approvata dal proprietario il
+2026-11-10 e vivono come costanti in `builtin.rs`, la loro unica fonte; Studio è quella
+predefinita. L'impostazione dell'utente è una coppia più un `ThemeMode` (*Sistema*, il
+predefinito, *Chiaro*, *Scuro*); quando il sistema non dice nulla, *Sistema* dà lo scuro, perché
+Studio nasce scuro. Gli identificatori sono chiavi stabili per il file delle impostazioni (F2.12),
+mai mostrate: i nomi visibili saranno testi Fluent.
+
+**Temi personalizzati.** Un `CustomTheme` è una coppia di partenza più un elenco di `Override` per
+ogni metà (un token di colore o di forma con un valore nuovo), applicati in ordine, così vince
+l'ultimo. Salvare le differenze invece di una copia significa che i token aggiunti nelle versioni
+future arrivano dalla coppia di partenza, senza migrazioni: la stessa idea degli scostamenti di
+esecuzione di una nota. `resolve()` restituisce la coppia completa.
+
+**Il contrasto.** `contrast_ratio` è la formula di WCAG 2.x (luminanza relativa dei canali
+linearizzati, `(L1 + 0,05) / (L2 + 0,05)`), in `f64` perché è codice d'interfaccia e la potenza 2,4
+non ha una forma esatta. `CONTRAST_PAIRS` elenca le 31 coppie che devono contrastare: le coppie di
+testo vogliono 4,5:1, quelle grafiche (bordi dei controlli, l'accento come stato, l'anello di
+focus) 3:1; `border`, `text-disabled` e `shadow` sono esenti, come WCAG consente.
+`Theme::contrast_failures()` restituisce in modo pigro ogni coppia che un'istanza non supera, senza
+allocare: i test la usano per i temi inclusi, e l'editor dei temi (F2.12b) la userà per avvisare,
+mai per rifiutare, quando un utente scende sotto le soglie.
+
+```rust
+for failure in custom.resolve().light.contrast_failures() {
+    // e.g. text on surface = 2.31, needs 4.5
+    println!("{} on {} = {:.2}", failure.pair.foreground.name(),
+             failure.pair.background.name(), failure.ratio);
+}
+```
+
+**I test.** `tests/theme.rs`: tutte e venti le istanze superano tutte le 31 coppie (ogni fallimento
+stampato in una volta); ogni token sta in una coppia oppure è esente, mai entrambe le cose; le
+coppie sono distinte; i colori inclusi sono opachi tranne l'ombra; forme, nomi, identificatori,
+predefiniti e risoluzione del modo corrispondono all'ADR; i temi personalizzati si risolvono
+correttamente; la verifica è esatta sulla soglia (`#767676` sul bianco passa, `#777777` no); il
+rapporto coincide con un oracolo scritto dal testo di WCAG (la soglia 0,03928 di WCAG 2.0, la
+composizione in virgola mobile) su colori casuali. `tests/theme_no_alloc.rs` dimostra che leggere i
+token, verificare il contrasto e risolvere un tema personalizzato non allocano mai. Sono stati
+iniettati otto bug: sette presi, uno solo dopo aver aggiunto il test sulla soglia; l'ottavo (`<=`
+invece di `<`) è equivalente, perché nessuna coppia a 8 bit dà esattamente 4,5.
+
+Nessun benchmark: non c'è ancora un percorso caldo. Leggere un token è l'accesso a un campo, e un
+tema personalizzato si risolve una volta sola, quando lo si sceglie.
+
 ### orchestra-test-support: contare le allocazioni nei test
 
 Un crate che esiste **solo per test e benchmark** (ADR-0016). Tutti gli altri crate possono
