@@ -3276,7 +3276,13 @@ dell'immagine in cui disegna, quindi una testa di nota tagliata da un buffer pic
 bordo sbagliati fino a 28 su 255. Allargato così, ogni tracciato viene disegnato esattamente come
 nel fotogramma intero, spostato di pixel interi; un test muove un disco sopra teste di nota, un
 ritaglio arrotondato e un pannello grande, e controlla a ogni passo che il ridisegno parziale sia
-uguale al disegno completo. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
+uguale al disegno completo. Allargano l'area solo i comandi i cui pixel dipendono dall'immagine in
+cui si disegna: i tracciati sfumati (rettangoli arrotondati, tracciati, linee oblique o con le
+estremità arrotondate), le immagini e i ritagli. Rettangoli e linee allineati, e le ombre, danno
+gli stessi pixel in qualunque immagine, e un'ombra calcola solo i pixel che vengono ricopiati. La
+prima versione allargava l'area per tutto, e l'ombra del pannello della finestra di prova faceva
+costare 68 ms a ogni movimento del puntatore (il proprietario l'ha visto come un puntatore poco
+reattivo); ora un movimento costa circa 0,5 ms. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
 rigo da 1 px o il bordo di un widget cade su esattamente una fila di pixel, mai su due
 semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 
@@ -3284,9 +3290,13 @@ semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 di un rettangolo arrotondato sfocato. In orizzontale l'integrale è esatto (due `erf` sulla riga,
 accorciata dal cerchio dell'angolo); in verticale usa dodici campioni su ±3σ, divisi per la parte
 della gaussiana dentro ±3σ, così l'interno di un'ombra è coperto del tutto. Un rettangolo senza
-angoli arrotondati è esatto nelle due direzioni (un prodotto di due differenze di `erf`). I dodici
-campioni sono stati scelti misurando contro un'integrazione a forza bruta: con quattro gli errori
-arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli, con dodici al massimo 0,84.
+angoli arrotondati è esatto nelle due direzioni (un prodotto di due differenze di `erf`), e lo è
+ogni punto di un rettangolo arrotondato la cui finestra di ±3σ non arriva a un angolo arrotondato:
+si campionano solo quattro quadrati agli angoli, quindi un'ombra grande costa quattro `erf` per
+pixel quasi ovunque (il fotogramma 960 × 600 della finestra di prova è passato da circa 65 ms a
+16 ms). I dodici campioni sono stati scelti misurando contro un'integrazione a forza bruta: con
+quattro gli errori arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli, con dodici al
+massimo 0,84.
 
 **Senza finestra.** `CpuRenderer::render_to_image` disegna una lista in un'immagine RGBA in memoria
 (il tipo `Image`, alfa premoltiplicata), senza finestra e senza display. I file PNG arrivano con gli
@@ -3313,10 +3323,11 @@ riempiti perché i glifi arrivano in F2.07.
 |---|---|---|---|
 | `record_scene` | 2,7 M | ~2,7 ms | — |
 | `draw_full_frame` | 84,6 M | ~85 ms | ≤ 33 M (30 fps in software) |
-| `edit_one_note` | 1,47 M | ~1,5 ms | una piccola parte di 50 ms |
+| `edit_one_note` | 0,61 M | ~0,6 ms | una piccola parte di 50 ms |
 
 Modificare costa poco, come vogliono i segmenti. Prima della correzione di F2.04a costava 0,55 M:
-allargare il buffer di appoggio alle forme intere lo quasi triplica, il prezzo dei pixel esatti. Un fotogramma intero supera il suo budget: l'86 %
+allargare il buffer di appoggio alle teste di nota intere che taglia aggiunge circa il 10 %, il
+prezzo dei pixel esatti. Un fotogramma intero supera il suo budget: l'86 %
 è il riempimento delle 2000 teste di nota come tracciati con anti-aliasing, circa 36 000 istruzioni
 l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella parte (lo spike di
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del

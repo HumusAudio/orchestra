@@ -3070,7 +3070,12 @@ F2.04a: `tiny-skia` anti-aliases a path differently when the path is cut by the 
 it draws into, so a notehead cut by a small scratch buffer got edge pixels up to 28 of 255 off.
 Grown this way, every path is drawn exactly as in the full frame, shifted by whole pixels; a test
 moves a disc over noteheads, a rounded clip and a large panel, and checks after every step that
-the partial redraw equals a full drawing. Straight edges are **snapped** to
+the partial redraw equals a full drawing. Only the commands whose pixels depend on the pixmap grow
+the area: anti-aliased paths (rounded rectangles, paths, slanted or round-capped lines), images
+and clips. Snapped rectangles and lines, and shadows, give the same pixels in any pixmap, and a
+shadow only computes the pixels that are copied back. The first version grew the area for
+everything, and the demonstration's panel shadow made every pointer move cost 68 ms (seen by the
+owner as a sluggish pointer); now a pointer move costs about 0.5 ms. Straight edges are **snapped** to
 device pixels: a 1 px staff line or a widget border falls on exactly one row of pixels, never on
 two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 
@@ -3078,9 +3083,11 @@ two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 rounded rectangle for each pixel. Along x the integral is exact (two `erf` over the row, shortened
 by the corner's circle); along y it uses twelve samples over ±3σ, divided by the share of the
 Gaussian inside ±3σ so the inside of a shadow is fully covered. A plain rectangle is exact in both
-directions (a product of two `erf` differences). Twelve samples were chosen by measuring against a
-brute-force integration: four gave errors of 3.5 steps of 8-bit colour near the corners, twelve
-give at most 0.84.
+directions (a product of two `erf` differences), and so is every point of a rounded rectangle whose
+±3σ window does not reach a rounded corner: only four corner squares are sampled, so a large
+shadow costs four `erf` per pixel almost everywhere (the demonstration's 960 × 600 frame went from
+about 65 ms to 16 ms). Twelve samples were chosen by measuring against a brute-force integration:
+four gave errors of 3.5 steps of 8-bit colour near the corners, twelve give at most 0.84.
 
 **Headless.** `CpuRenderer::render_to_image` draws a list into an in-memory RGBA image (the
 `Image` type, premultiplied alpha), with no window and no display. PNG files come with the
@@ -3105,10 +3112,10 @@ glyphs come in F2.07.
 |---|---|---|---|
 | `record_scene` | 2.7 M | ~2.7 ms | — |
 | `draw_full_frame` | 84.6 M | ~85 ms | ≤ 33 M (30 fps in software) |
-| `edit_one_note` | 1.47 M | ~1.5 ms | a small part of 50 ms |
+| `edit_one_note` | 0.61 M | ~0.6 ms | a small part of 50 ms |
 
 Editing is cheap, as the segments intend. It cost 0.55 M before the fix of F2.04a: growing the
-scratch buffer to whole shapes nearly triples it, the price of exact pixels. A full frame is over its budget: 86 % of it is filling
+scratch buffer to the whole noteheads it cuts adds about 10 %, the price of exact pixels. A full frame is over its budget: 86 % of it is filling
 the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs drawn from a
 cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
 and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.

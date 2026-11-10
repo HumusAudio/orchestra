@@ -44,11 +44,6 @@ use crate::{ColorToken, Theme};
 /// 4/3 · (√2 − 1) ≈ 0.552 285 (the standard value; error below 0.03 % of the radius).
 const KAPPA: f32 = 0.552_284_8;
 
-/// Blurs below this standard deviation, in device pixels, are drawn as a sharp fill: the
-/// Gaussian is then narrower than a pixel and the analytic coverage is indistinguishable from
-/// the anti-aliased edge.
-const MIN_DEVICE_SIGMA: f32 = 0.25;
-
 /// The `tiny-skia` renderer. Keep one per window (or per headless job) and reuse it: its buffers
 /// are what makes later frames allocation-free in our code.
 #[derive(Default)]
@@ -132,7 +127,7 @@ impl CpuRenderer {
         if whole {
             // Drawing the whole frame gives every pixel its final value, the region's included.
             if let Some(pixmap) = PixmapMut::from_bytes(target.data_mut(), width, height) {
-                self.draw_region(list, theme, scale, area, pixmap);
+                self.draw_region(list, theme, scale, area, area, pixmap);
             }
             return;
         }
@@ -144,7 +139,7 @@ impl CpuRenderer {
         scratch.clear();
         scratch.resize(len, 0);
         if let Some(pixmap) = PixmapMut::from_bytes(&mut scratch, area.width, area.height) {
-            self.draw_region(list, theme, scale, area, pixmap);
+            self.draw_region(list, theme, scale, area, region, pixmap);
         }
         copy_region(&scratch, area, region, target);
         self.scratch = scratch;
@@ -174,9 +169,7 @@ impl CpuRenderer {
                 continue;
             }
             for entry in &segment.entries {
-                let counts =
-                    !entry.command.is_state() || matches!(entry.command, Command::PushClip { .. });
-                if counts
+                if needs_whole_shape(&entry.command)
                     && entry.bounds.intersects(&logical)
                     && let Some(device) = device_region(&entry.bounds, scale, width, height)
                 {
@@ -188,12 +181,15 @@ impl CpuRenderer {
     }
 
     /// Clears `pixmap` (which shows `region` of the frame) and replays the segments that meet it.
+    /// `needed` is the part of `region` that will be kept (copied to the target): commands whose
+    /// pixels do not depend on the pixmap (the analytic shadow) only compute that part.
     fn draw_region(
         &mut self,
         list: &DisplayList,
         theme: &Theme,
         scale: f32,
         region: DeviceRect,
+        needed: DeviceRect,
         mut pixmap: PixmapMut<'_>,
     ) {
         pixmap.fill(skia_color(theme, Paint::token(ColorToken::Surface)));
@@ -203,6 +199,12 @@ impl CpuRenderer {
             pixmap,
             scale,
             origin: Point::new(to_f32(region.x), to_f32(region.y)),
+            needed: Rect::new(
+                to_f32(needed.x - region.x),
+                to_f32(needed.y - region.y),
+                to_f32(needed.x - region.x + needed.width),
+                to_f32(needed.y - region.y + needed.height),
+            ),
             logical,
             theme,
             list,
@@ -537,8 +539,9 @@ impl CpuRenderer {
     ) {
         let factor = transform.scale * frame.scale;
         let sigma = blur * factor;
-        if sigma < MIN_DEVICE_SIGMA {
-            // Narrower than a pixel: an ordinary fill is the same picture, and cheaper.
+        if sigma <= 0.0 {
+            // No blur: an ordinary fill. Any positive blur, however small, is computed
+            // analytically, so its pixels never depend on the scratch area (`needs_whole_shape`).
             if shape.clamped_radius() <= 0.0 {
                 self.fill_snapped(frame, transform, &shape.rect, paint);
             } else {
@@ -548,7 +551,11 @@ impl CpuRenderer {
         }
         let device = frame.to_device_rect(transform, &shape.rect);
         let radius = shape.clamped_radius() * factor;
-        let reach = device.inflate(sigma * SHADOW_REACH_SIGMAS);
+        // Only the pixels that are both within the blur's reach and kept (`needed`): a shadow's
+        // pixels do not depend on the pixmap, so the rest of a grown scratch area is skipped.
+        let reach = device
+            .inflate(sigma * SHADOW_REACH_SIGMAS)
+            .intersect(&frame.needed);
         let width = frame.pixmap.width();
         let height = frame.pixmap.height();
         // The pixels to visit: the blurred bounds, clamped to the pixmap.
@@ -702,6 +709,44 @@ impl Renderer for CpuRenderer {
     }
 }
 
+/// `true` for the commands whose pixels depend on the scratch area they are drawn into: the ones
+/// `tiny-skia` fills or strokes as anti-aliased paths, and clips (their masks are paths too).
+///
+/// The others give the same pixels whatever the area: snapped rectangles and straight lines are
+/// filled without anti-aliasing on whole pixels (ADR-0039 D7), and a blurred shadow is computed
+/// pixel by pixel from a formula. Growing the scratch area for them would only cost time: the
+/// owner saw it in F2.04a, where growing it for the demonstration's shadowed panel made every
+/// pointer move redraw the whole shadow (68 ms a frame).
+fn needs_whole_shape(command: &Command) -> bool {
+    match command {
+        Command::FillRoundedRect { shape, .. } | Command::StrokeRoundedRect { shape, .. } => {
+            shape.clamped_radius() > 0.0
+        }
+        // A line is snapped only when it is horizontal or vertical with butt or square caps;
+        // our transforms (translate, uniform scale) keep it so. "Straight" means bit-for-bit equal
+        // coordinates on purpose: then the renderer, which compares the transformed coordinates,
+        // certainly sees it straight too; a nearly straight line counts as a path (the safe side:
+        // growing the area is never wrong, only slower).
+        Command::Line {
+            from, to, stroke, ..
+        } => {
+            let straight = from.x.to_bits() == to.x.to_bits() || from.y.to_bits() == to.y.to_bits();
+            !straight || stroke.cap == LineCap::Round
+        }
+        // A sharp shadow (blur 0) is an ordinary fill, a path when its corners are rounded.
+        Command::Shadow { shape, blur, .. } => *blur <= 0.0 && shape.clamped_radius() > 0.0,
+        Command::FillPath { .. }
+        | Command::StrokePath { .. }
+        | Command::Image { .. }
+        | Command::PushClip { .. } => true,
+        Command::FillRect { .. }
+        | Command::StrokeRect { .. }
+        | Command::PopClip
+        | Command::PushTransform(_)
+        | Command::PopTransform => false,
+    }
+}
+
 /// What one region's replay needs to know.
 struct Frame<'p, 'a> {
     /// Where the pixels go (the target, or the scratch buffer of a partial region).
@@ -711,6 +756,9 @@ struct Frame<'p, 'a> {
     /// The region's top-left corner in the frame, device pixels: subtracted from every
     /// coordinate, so the pixmap's (0, 0) is the region's corner.
     origin: Point,
+    /// The part of the pixmap that will be kept, in the pixmap's device pixels (the whole pixmap
+    /// unless the scratch area was grown, see `render_region`).
+    needed: Rect,
     /// The region in logical pixels, for culling.
     logical: Rect,
     /// The theme the tokens resolve with.
