@@ -31,7 +31,8 @@ use tiny_skia::{
 
 use super::Renderer;
 use super::command::{Command, PathElement};
-use super::damage::{Damage, MAX_RECTS};
+use super::damage::Damage;
+use super::device::{DeviceRect, DeviceRegions, pixel_span, to_f32};
 use super::geometry::{Point, Rect, RoundedRect, Transform};
 use super::image::{DrawError, Image};
 use super::list::{DisplayList, SHADOW_REACH_SIGMAS, Segment};
@@ -47,26 +48,6 @@ const KAPPA: f32 = 0.552_284_8;
 /// Gaussian is then narrower than a pixel and the analytic coverage is indistinguishable from
 /// the anti-aliased edge.
 const MIN_DEVICE_SIGMA: f32 = 0.25;
-
-/// A rectangle of whole device pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct DeviceRect {
-    /// Left column.
-    x: u32,
-    /// Top row.
-    y: u32,
-    /// Width in pixels, ≥ 1.
-    width: u32,
-    /// Height in pixels, ≥ 1.
-    height: u32,
-}
-
-impl DeviceRect {
-    /// Number of pixels.
-    fn area(&self) -> u64 {
-        u64::from(self.width) * u64::from(self.height)
-    }
-}
 
 /// The `tiny-skia` renderer. Keep one per window (or per headless job) and reuse it: its buffers
 /// are what makes later frames allocation-free in our code.
@@ -667,35 +648,10 @@ impl Renderer for CpuRenderer {
         if damage.is_empty() {
             return Ok(());
         }
-        let frame = DeviceRect {
-            x: 0,
-            y: 0,
-            width: target.width(),
-            height: target.height(),
-        };
-        let mut regions = [frame; MAX_RECTS];
-        let mut count = 0;
-        let mut whole = damage.is_all();
-        if !whole {
-            let mut area = 0_u64;
-            for rect in damage.rects() {
-                if let Some(device) = device_region(rect, scale, target.width(), target.height())
-                    && let Some(slot) = regions.get_mut(count)
-                {
-                    area += device.area();
-                    *slot = device;
-                    count += 1;
-                }
-            }
-            // More than half the frame: one full redraw is cheaper than many clipped ones (D5).
-            whole = area.saturating_mul(2) > frame.area();
-        }
-        if whole {
-            self.render_region(list, theme, scale, frame, target);
-        } else {
-            for region in regions.iter().take(count) {
-                self.render_region(list, theme, scale, *region, target);
-            }
+        // The same device regions the window presents (ADR-0040 W4): one computation for both.
+        let regions = DeviceRegions::new(damage, scale, target.width(), target.height());
+        for region in regions.iter() {
+            self.render_region(list, theme, scale, *region, target);
         }
         Ok(())
     }
@@ -808,57 +764,6 @@ fn band_start(centre: f32, band: f32) -> f32 {
     } else {
         centre.round() - band * 0.5
     }
-}
-
-/// The device region of a logical damage rectangle (D5): times the scale, rounded outwards, plus
-/// one pixel of anti-aliasing fringe, clamped to the frame. `None` when nothing is left.
-fn device_region(rect: &Rect, scale: f32, width: u32, height: u32) -> Option<DeviceRect> {
-    let fringe = 1.0;
-    let device = Rect::new(
-        (rect.x0 * scale).floor() - fringe,
-        (rect.y0 * scale).floor() - fringe,
-        (rect.x1 * scale).ceil() + fringe,
-        (rect.y1 * scale).ceil() + fringe,
-    );
-    let (x0, y0, x1, y1) = pixel_span(&device, width, height)?;
-    Some(DeviceRect {
-        x: x0,
-        y: y0,
-        width: x1 - x0,
-        height: y1 - y0,
-    })
-}
-
-/// The whole pixels a device rectangle touches, clamped to `width × height`, as
-/// `(first column, first row, end column, end row)` (ends exclusive). `None` when empty.
-fn pixel_span(rect: &Rect, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
-    if rect.is_empty() {
-        return None;
-    }
-    let x0 = clamp_to_pixels(rect.x0.floor(), width);
-    let y0 = clamp_to_pixels(rect.y0.floor(), height);
-    let x1 = clamp_to_pixels(rect.x1.ceil(), width);
-    let y1 = clamp_to_pixels(rect.y1.ceil(), height);
-    (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
-}
-
-/// A whole-pixel coordinate clamped to `0..=limit`.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "the value is clamped to 0..=limit (a u32) first, and is already a whole number"
-)]
-fn clamp_to_pixels(value: f32, limit: u32) -> u32 {
-    value.clamp(0.0, to_f32(limit)) as u32
-}
-
-/// A pixel count as `f32`. Exact up to 2²⁴ (16 million pixels a side), far beyond any surface.
-#[allow(
-    clippy::cast_precision_loss,
-    reason = "pixel coordinates stay far below 2^24, where f32 is exact"
-)]
-fn to_f32(value: u32) -> f32 {
-    value as f32
 }
 
 /// Blends a premultiplied `source` colour (channels 0–255) with `cover` (0–1) over `pixel`

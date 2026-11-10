@@ -3313,6 +3313,71 @@ l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella part
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
 fotogramma intero si rimisura lì e in F2.23.
 
+#### La finestra e il ciclo degli eventi
+
+Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
+`orchestra-ui` è l'unico posto che conosce `winit` (finestre, ciclo degli eventi, input) e
+`softbuffer` (portare i pixel calcolati dalla CPU sullo schermo); tutto il resto vede i nostri
+tipi, quindi un aggiornamento di `winit` tocca solo questo modulo.
+
+**Come lo usa un programma.** Ciò che una finestra mostra implementa `WindowApp`: `layout` registra
+tutta l'interfaccia nella lista quando la finestra ha una dimensione (e dopo ogni ridimensionamento
+o cambio di scala), e `input` registra di nuovo i segmenti che un evento cambia. `run` apre la
+finestra e fa girare il ciclo finché la finestra non viene chiusa:
+
+```rust
+let options = WindowOptions { title, theme, width: 960.0, height: 600.0 };
+orchestra_ui::run(demo::Demo::default(), options)?;
+```
+
+**Fotogrammi su richiesta.** Il ciclo dorme finché non arriva un evento. Si disegna un fotogramma
+solo quando la lista ha aree danneggiate, o sono cambiate la dimensione o la scala della finestra,
+quindi un Orchestra fermo non usa la CPU. Disegnare vuol dire ridisegnare solo le aree danneggiate
+nel fotogramma completo dell'interfaccia (un'`Image` in pixel del dispositivo), poi copiarlo nel
+buffer di `softbuffer` come `0RGB`. Se quel buffer contiene esattamente il fotogramma precedente (la
+sua *età* è 1), si copiano solo i rettangoli danneggiati e li si presenta con `present_with_damage`;
+altrimenti (età 0 dopo un ridimensionamento, o buffer più vecchi quando il sistema ne alterna due o
+tre) si copia il fotogramma intero. Tenere il nostro fotogramma è ciò che rende corretto il disegno
+parziale qualunque cosa il sistema faccia con i suoi buffer. Le aree danneggiate in pixel del
+dispositivo vengono da un'unica funzione (`draw/device.rs`) condivisa dal renderer e dalla
+finestra, così ciò che si ridisegna è esattamente ciò che si presenta.
+
+**Input.** Gli eventi di `winit` diventano i nostri, in pixel logici: il puntatore (mosso, pulsanti,
+uscito dalla finestra), la rotellina (righe, o pixel da un touchpad), i tasti come li chiama la
+disposizione della tastiera (un carattere, o un tasto con un nome come Invio o una freccia, con le
+ripetizioni), il focus, e i modificatori. I modificatori hanno un **primario** astratto (Ctrl su
+Linux e Windows, Cmd su macOS) e un **secondario** (l'altro), più Shift e Alt; le scorciatoie si
+scriveranno con `primary`, così una sola tabella vale ovunque. L'inserimento di testo e i metodi di
+input arrivano con il campo di testo in F2.10.
+
+**Creare la finestra.** La finestra viene creata invisibile, preparata (oggi la superficie e la
+prima dimensione; l'adapter di AccessKit con i primi widget, che va in panic se arriva dopo che la
+finestra è stata mostrata), e solo allora mostrata. `window/order.rs` lo fa in una funzione
+generica sul tipo di finestra, così un test verifica l'ordine con una finestra finta.
+
+**La finestra di prova.** `cargo run -p orchestra-app` apre `crates/app/src/demo.rs`: un pannello
+in rilievo con la sua ombra e tre controlli, un rigo di cinque linee da 1 px con delle teste di
+nota (che devono restare nitide a ogni scala), quattro quadrati che si accendono con il
+modificatore primario e il secondario, Shift e Alt, e un disco che segue il puntatore (colore
+d'accento mentre un pulsante è premuto). Muovere il puntatore registra di nuovo solo il segmento
+del disco, quindi si ridisegnano solo il suo posto vecchio e quello nuovo. Il titolo è `app-name`
+tradotto; il tema è Studio nel modo del sistema, letto una volta all'avvio (seguirne i cambi arriva
+in F2.04b). Senza display il programma si ferma con un messaggio chiaro ("Could not find wayland
+compositor") invece di andare in panic.
+
+**Dipendenze.** `winit` 0.30.13 e `softbuffer` 0.4.8, con le feature di ADR-0036 (X11 e Wayland
+caricati a runtime, decorazioni di Wayland disegnate da `winit` fino alla nostra barra del titolo
+in F2.11b). Portano copie più vecchie di alcuni crate (`rustix`, `windows-sys`, `objc2`,
+`bitflags`, `getrandom`, `thiserror`, e `tiny-skia` 0.11 per le decorazioni), elencate in
+`deny.toml` con la loro uscita: `winit` 0.31, o la nostra barra del titolo. Il binario di rilascio
+della finestra di prova pesa 7,0 MB.
+
+**Test.** `window/tests.rs` (10 test) gira sulle tre piattaforme senza display: il modificatore
+primario su macOS e altrove, tasti, pulsanti e rotellina, la conversione in `0RGB`, la copia di
+un'area che tocca solo quell'area, la scelta fra copia parziale e intera secondo l'età del buffer,
+i rettangoli presentati in pixel del dispositivo, e l'ordine di creazione della finestra (anche
+quando la creazione fallisce). La finestra vera la verifica a mano il proprietario su Linux.
+
 ### orchestra-test-support: contare le allocazioni nei test
 
 Un crate che esiste **solo per test e benchmark** (ADR-0016). Tutti gli altri crate possono
