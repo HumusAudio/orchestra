@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); next F2.03 (the drawing abstraction).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); next F2.04 (window, event loop, input).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -804,6 +804,29 @@ dropped, errors as "no answer", no callback after the drop) on every platform, t
 decoding on Linux, and the real source opened without hanging (no session bus on CI). No
 benchmark (no hot path). The real reading is checked by hand on the owner's desktop.
 
+Step **F2.03** (`feature/f2-03-drawing`, 2026-11-10), the drawing abstraction. **ADR-0039
+Accepted**, with the owner's four choices: a flat display list in **segments** with opaque ids
+(re-recording one damages its old and new area), **theme tokens** in the commands (a theme change
+only redraws), the **shadow** now (analytic), no PNG before F2.05. Implemented in the private
+module `draw` of `orchestra-ui`, re-exported at the root (`DisplayList`, `SegmentId`, `Recorder`,
+`PathBuilder`, `Damage`, `Renderer`, `CpuRenderer`, `Image`, `ImageId`, `DrawError`, `Point`,
+`Rect`, `RoundedRect`, `Transform`, `Paint`, `StrokeStyle`, `LineCap`, `LineJoin`, `FillRule`);
+`tiny-skia` 0.12.0 enters the workspace (features `std`, `simd`; 7 small crates, `deny` green).
+Commands: rectangles, rounded rectangles, lines, paths (fill/stroke), shadow, image, clip and
+transform push/pop; bounds computed by the recorder (stroke and shadow reach, transforms, clips;
+clipped-away shapes not recorded); damage of at most 8 rectangles in a fixed array; the backend
+draws each damaged region in a reused scratch buffer and copies it, or the whole frame above half
+of it; straight edges snapped to device pixels. While implementing, the shadow's y integral needed
+**12 samples** instead of the 4 the ADR draft said (measured against a brute-force integration: 4
+gave errors of 3.5 steps of 8-bit colour near corners, 12 give 0.84), plus an exact formula for
+plain rectangles and a normalisation over ±3σ: **to be recorded in ADR-0039 D6 with the owner's
+ok**. Tests: 23 in `tests/draw.rs` (exact pixel probes, an anti-aliased circle's area, partial
+drawing equal to full drawing), 2 in `tests/draw_no_alloc.rs`, 5 on the shadow formula; six
+injected bugs caught (one after strengthening the snapping test). Benchmark `benches/draw.rs`
+(reference scene of Phase 0, 1920 × 1080, 200 segments, symbols as paths): record 2.7 M
+instructions, **full frame 84.6 M (over the 33 M budget of 30 fps by the rule of F1.16c; 86 % is
+filling the 2000 noteheads as anti-aliased paths)**, one-note edit 0.55 M.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -880,6 +903,13 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   `winit` in F2.04 (`ActiveEventLoop::system_theme()`, `WindowEvent::ThemeChanged`, never a fixed
   `Window::set_theme`) and bridge the callback to the event loop; until then *System* gives dark
   there. To confirm on a GNOME machine that its light style is reported as 0 (ADR-0038 S4).
+- **Full-frame budget (F2.03, ADR-0039 D10):** the software full frame of the reference scene costs
+  84.6 M instructions against 33 M (30 fps by the rule of F1.16c). 86 % is the 2000 symbols drawn
+  as anti-aliased paths, the stand-in for glyphs: measure again in F2.07 with the glyph cache
+  (ADR-0012's spike: 243 ms without, 28.8 ms with), and in real time in F2.23.
+- **Pixel tolerance across platforms (ADR-0039 D10):** the drawing tests use exact probes on
+  snapped pixels and a tolerance of one unit only where anti-aliasing is involved; CI on the three
+  platforms tells whether `tiny-skia`'s SIMD gives the same pixels on ARM (macOS).
 - **zbus 6 (ADR-0038 S7):** when AccessKit moves to zbus 6, move with it in the same step and
   remove the three RustSec ignores and the `syn` 2 skip from `deny.toml`.
 - **Tolerance threshold default** (ADR-0028, D09 closed): 1/32 note; still to validate with users

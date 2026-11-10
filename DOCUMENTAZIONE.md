@@ -3218,6 +3218,101 @@ il suo motivo. La lettura vera richiede un desktop con il portale: il proprietar
 a mano il 2026-11-10 (valore iniziale e ogni cambio letti correttamente). Nessun benchmark: non c'è
 un percorso caldo, solo una lettura all'avvio e un messaggio quando l'utente sposta un interruttore.
 
+#### L'astrazione di disegno
+
+Tutto ciò che l'interfaccia mostrerà, da un pulsante a una pagina di partitura, viene prima
+descritto come una lista di **comandi** e solo dopo trasformato in pixel da un **backend** (passo
+F2.03, ADR-0039). Il modulo è `draw` di `orchestra-ui`; l'unico file che conosce la libreria di
+disegno è `draw/skia.rs`.
+
+**Segmenti.** Una `DisplayList` è una sequenza di segmenti, disegnati in ordine (quelli dopo
+sopra). Ogni pezzo dell'interfaccia registra il proprio segmento con un identificativo scelto da
+lui (`SegmentId`); quando cambia, registra di nuovo quel segmento, e si danneggia solo l'area che
+il segmento occupava prima e occupa ora. Gli altri segmenti non vengono né registrati di nuovo né
+ridisegnati fuori dalle aree danneggiate.
+
+```rust
+let mut list = DisplayList::new();
+list.record(SegmentId(1), |r| {
+    let button = RoundedRect::new(Rect::new(10.0, 10.0, 110.0, 40.0), 6.0);
+    r.fill_rounded_rect(button, ColorToken::Control);
+    r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
+});
+let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
+let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+```
+
+**Token, non colori.** Ogni pittura è un token del tema (`ColorToken`), con un'opacità in più
+facoltativa. Il backend cerca il colore nel tema al momento di disegnare, quindi la stessa lista
+si vede in ogni tema, un cambio di tema richiede solo di ridisegnare, e un colore scritto a mano
+non può proprio entrare in un disegno. Gli unici pixel che non vengono dal tema sono le immagini.
+
+**I comandi.** Rettangoli e rettangoli arrotondati, pieni o con il bordo; linee dritte; tracciati
+(segmenti, curve di Bézier quadratiche e cubiche) riempiti con la regola non-zero o pari-dispari,
+o con il bordo, con estremità e giunzioni; un'**ombra** (un rettangolo arrotondato sfocato);
+un'**immagine** dell'archivio della lista, stirata in un rettangolo; ritagli (rettangolo o
+rettangolo arrotondato) e trasformazioni (spostamento e scala uniforme), che si aprono e si
+chiudono. Il testo arriva in F2.07. Le coordinate sono in pixel logici; il backend moltiplica per
+il fattore di scala dello schermo.
+
+**Ingombri e danni.** Il registratore calcola da sé l'ingombro di ogni comando, compreso quanto
+sporgono un bordo o un'ombra, dopo le trasformazioni e i ritagli in corso; una forma ritagliata
+via del tutto non viene neanche registrata. Il danno (`Damage`) è al massimo otto rettangoli: un
+rettangolo che ne tocca un altro si unisce a lui, e quando ne servirebbe un nono si uniscono i due
+la cui unione aggiunge meno area. Sta in un array di dimensione fissa, quindi aggiungere un danno
+non alloca mai. Ogni segmento tiene i propri vettori, e la lista tiene le pile del registratore,
+quindi anche registrare di nuovo un segmento della stessa dimensione non alloca.
+
+**Il backend.** `CpuRenderer` implementa il trait `Renderer` con `tiny-skia`. Per ogni rettangolo
+danneggiato (in pixel del dispositivo, arrotondato verso l'esterno, più un pixel per
+l'anti-aliasing) disegna in un buffer di appoggio di quella dimensione, lo pulisce con il
+`surface` del tema, ripete solo i segmenti e i comandi il cui ingombro lo tocca, e copia il
+risultato nell'immagine. Quando il danno copre più di metà del fotogramma, disegna direttamente il
+fotogramma intero. I bordi dritti vengono **allineati** ai pixel del dispositivo: una linea del
+rigo da 1 px o il bordo di un widget cade su esattamente una fila di pixel, mai su due
+semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
+
+**Ombre.** `tiny-skia` non sa sfocare, quindi `draw/shadow.rs` calcola per ogni pixel la copertura
+di un rettangolo arrotondato sfocato. In orizzontale l'integrale è esatto (due `erf` sulla riga,
+accorciata dal cerchio dell'angolo); in verticale usa dodici campioni su ±3σ, divisi per la parte
+della gaussiana dentro ±3σ, così l'interno di un'ombra è coperto del tutto. Un rettangolo senza
+angoli arrotondati è esatto nelle due direzioni (un prodotto di due differenze di `erf`). I dodici
+campioni sono stati scelti misurando contro un'integrazione a forza bruta: con quattro gli errori
+arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli, con dodici al massimo 0,84.
+
+**Senza finestra.** `CpuRenderer::render_to_image` disegna una lista in un'immagine RGBA in memoria
+(il tipo `Image`, alfa premoltiplicata), senza finestra e senza display. I file PNG arrivano con gli
+screenshot, in F2.05.
+
+**Test.** `tests/draw.rs` (23 test) controlla i pixel in modo esatto dove il risultato è esatto per
+costruzione: rettangoli e linee allineati (spessori pari e dispari, estremità piatte e quadrate),
+linee sottilissime che non spariscono mai, il fattore di scala, i token di due temi, l'opacità,
+l'ordine dei segmenti, il danno dopo una nuova registrazione e una rimozione, il ridisegno delle
+sole aree danneggiate (un pixel segnaposto fuori dal danno sopravvive), la regola di metà
+fotogramma, i ritagli annidati, le trasformazioni chiuse da sole, gli ingombri con bordo e ombra,
+le ombre (scure dentro, simmetriche, sfumate), le immagini, gli errori. Due controlli non dipendono
+dalla logica del codice: l'area di un cerchio con anti-aliasing è π·r² entro lo 0,5 %, e disegnare
+una scena con tutti i comandi solo attraverso i suoi danni dà la stessa immagine che disegnarla
+intera. `tests/draw_no_alloc.rs` dimostra che registrare di nuovo e calcolare i danni non allocano
+mai. Sei errori iniettati sono stati colti (uno solo dopo aver rafforzato il test
+sull'allineamento).
+
+**Benchmark** (`benches/draw.rs`, conteggio di istruzioni): la scena di riferimento della Fase 0,
+10 righi × 20 battute a 1920 × 1080, un segmento per battuta, con i 2000 simboli come tracciati
+riempiti perché i glifi arrivano in F2.07.
+
+| Caso | Istruzioni | Con la regola di F1.16c | Budget |
+|---|---|---|---|
+| `record_scene` | 2,7 M | ~2,7 ms | — |
+| `draw_full_frame` | 84,6 M | ~85 ms | ≤ 33 M (30 fps in software) |
+| `edit_one_note` | 0,55 M | ~0,5 ms | una piccola parte di 50 ms |
+
+Modificare costa poco, come vogliono i segmenti. Un fotogramma intero supera il suo budget: l'86 %
+è il riempimento delle 2000 teste di nota come tracciati con anti-aliasing, circa 36 000 istruzioni
+l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella parte (lo spike di
+ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
+fotogramma intero si rimisura lì e in F2.23.
+
 ### orchestra-test-support: contare le allocazioni nei test
 
 Un crate che esiste **solo per test e benchmark** (ADR-0016). Tutti gli altri crate possono

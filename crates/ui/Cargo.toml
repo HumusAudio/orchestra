@@ -18,6 +18,8 @@ orchestra-playback.workspace = true
 orchestra-notation-layout.workspace = true
 orchestra-i18n.workspace = true
 orchestra-video.workspace = true
+# The CPU backend of the drawing abstraction (ADR-0039 D9), on every platform.
+tiny-skia.workspace = true
 
 # Reading the system's light/dark preference from the XDG desktop portal (ADR-0038 S2). Linux
 # only: on Windows and macOS the preference comes from `winit` (ADR-0038 S3, step F2.04).
@@ -30,6 +32,14 @@ futures-lite.workspace = true
 # test-only.
 orchestra-test-support.workspace = true
 proptest.workspace = true
+# Instruction-count benchmarks of the drawing abstraction (ADR-0016, ADR-0039 D10).
+gungraun.workspace = true
+
+# Instruction-count benchmarks of recording and drawing the reference scene (ADR-0039 D10,
+# SCALETTA F2.03).
+[[bench]]
+name = "draw"
+harness = false
 
 [lints]
 workspace = true

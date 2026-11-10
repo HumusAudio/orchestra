@@ -3016,6 +3016,95 @@ a reason. The real reading needs a desktop with a portal: the owner checked it b
 2026-11-10 (initial value and every change read correctly). No benchmark: there is no hot path,
 just one read at startup and a message when the user flips a switch.
 
+#### The drawing abstraction
+
+Everything the interface will show, from a button to a page of score, is first described as a
+list of **commands**, and only then turned into pixels by a **backend** (step F2.03, ADR-0039).
+The module is `draw` in `orchestra-ui`; the only file that knows the drawing library is
+`draw/skia.rs`.
+
+**Segments.** A `DisplayList` is a sequence of segments, drawn in order (later ones on top). Each
+piece of the interface records its own segment under an id of its choice (`SegmentId`); when it
+changes, it records that segment again, and only the area the segment covered before and covers
+now is damaged. The other segments are neither recorded again nor redrawn outside the damage.
+
+```rust
+let mut list = DisplayList::new();
+list.record(SegmentId(1), |r| {
+    let button = RoundedRect::new(Rect::new(10.0, 10.0, 110.0, 40.0), 6.0);
+    r.fill_rounded_rect(button, ColorToken::Control);
+    r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
+});
+let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
+let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+```
+
+**Tokens, not colours.** Every paint is a theme token (`ColorToken`), with an optional extra
+opacity. The backend looks the colour up in the theme when it draws, so the same list shows in
+every theme, a theme change only redraws, and a literal colour cannot get into a drawing at all.
+The only pixels that do not come from the theme are images.
+
+**The commands.** Rectangles and rounded rectangles, filled or stroked; straight lines; paths
+(lines, quadratic and cubic Béziers) filled with the non-zero or even-odd rule, or stroked with
+caps and joins; a **shadow** (a blurred rounded rectangle); an **image** from the list's store
+stretched into a rectangle; clips (rectangle or rounded rectangle) and transforms (translate and
+uniform scale), pushed and popped. Text comes in F2.07. Coordinates are logical pixels; the
+backend multiplies by the scale factor of the screen.
+
+**Bounds and damage.** The recorder computes each command's bounds itself, including how far a
+stroke or a shadow reaches, after the transforms and clips in effect; a shape that is clipped away
+is not even recorded. The damage (`Damage`) is at most eight rectangles: a rectangle that touches
+another is merged with it, and when a ninth would be needed the two whose union adds the least
+area are merged. It lives in a fixed-size array, so adding damage never allocates. Every segment
+keeps its own vectors, and the list keeps the recorder's stacks, so recording a segment again
+with the same size does not allocate either.
+
+**The backend.** `CpuRenderer` implements the `Renderer` trait with `tiny-skia`. For each damaged
+rectangle (in device pixels, rounded outwards, plus one pixel for anti-aliasing) it draws into a
+scratch buffer of that size, clears it with the theme's `surface`, replays only the segments and
+the commands whose bounds meet it, and copies the result into the image. When the damage covers
+more than half the frame, it draws the whole frame directly. Straight edges are **snapped** to
+device pixels: a 1 px staff line or a widget border falls on exactly one row of pixels, never on
+two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
+
+**Shadows.** `tiny-skia` cannot blur, so `draw/shadow.rs` computes the coverage of a blurred
+rounded rectangle for each pixel. Along x the integral is exact (two `erf` over the row, shortened
+by the corner's circle); along y it uses twelve samples over ±3σ, divided by the share of the
+Gaussian inside ±3σ so the inside of a shadow is fully covered. A plain rectangle is exact in both
+directions (a product of two `erf` differences). Twelve samples were chosen by measuring against a
+brute-force integration: four gave errors of 3.5 steps of 8-bit colour near the corners, twelve
+give at most 0.84.
+
+**Headless.** `CpuRenderer::render_to_image` draws a list into an in-memory RGBA image (the
+`Image` type, premultiplied alpha), with no window and no display. PNG files come with the
+screenshots, in F2.05.
+
+**Tests.** `tests/draw.rs` (23 tests) checks pixels exactly where the result is exact by design:
+snapped rectangles and lines (odd and even widths, butt and square caps), hairlines that never
+vanish, the scale factor, the tokens of two themes, opacity, the order of segments, damage after
+re-recording and removing, redrawing only the damage (a marker pixel outside it survives), the
+half-frame rule, nested clips, transforms closed automatically, bounds with stroke and shadow
+reach, shadows (shaded inside, symmetric, fading), images, errors. Two checks are independent of
+the code's own logic: the area of an anti-aliased circle equals π·r² within 0.5 %, and drawing a
+scene with every command only through its damage gives the same picture as drawing it whole.
+`tests/draw_no_alloc.rs` proves that recording again and computing damage never allocate. Six
+injected bugs were caught (one only after strengthening the snapping test).
+
+**Benchmark** (`benches/draw.rs`, instruction counts): the Phase 0 reference scene, 10 staves ×
+20 measures at 1920 × 1080, one segment per measure, with the 2000 symbols as filled paths since
+glyphs come in F2.07.
+
+| Case | Instructions | By the rule of F1.16c | Budget |
+|---|---|---|---|
+| `record_scene` | 2.7 M | ~2.7 ms | — |
+| `draw_full_frame` | 84.6 M | ~85 ms | ≤ 33 M (30 fps in software) |
+| `edit_one_note` | 0.55 M | ~0.5 ms | a small part of 50 ms |
+
+Editing is cheap, as the segments intend. A full frame is over its budget: 86 % of it is filling
+the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs drawn from a
+cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
+and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.
+
 ### orchestra-test-support: counting allocations in tests
 
 A crate that exists **only for tests and benchmarks** (ADR-0016). Every other crate may use it,
