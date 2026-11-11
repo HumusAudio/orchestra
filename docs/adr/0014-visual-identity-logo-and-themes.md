@@ -1,6 +1,7 @@
 # ADR-0014 — Visual identity: one logo, light and dark themes from the start
 
-- **Status:** Accepted (owner's decision, 2026-10-29)
+- **Status:** Accepted (owner's decision, 2026-10-29). §1, §3 and §7 amended by ADR-0037; **§7
+  amended again by ADR-0041** (2026-11-11): the guides' screenshots use Studio's dark half.
 - **Date:** 2026-10-29
 
 ## Context
@@ -51,6 +52,8 @@ interface ours, so theming is entirely our responsibility.
 6. The logo uses the theme's text colour (or its accent) so it is readable on both backgrounds.
 7. Screenshots for the user guides are generated in the **light** theme (ADR-0009 already fixes
    their language as en-US); a guide section that explains the themes may add dark examples.
+   *Amended by ADR-0041 S3 (owner, 2026-11-11): Studio's **dark** theme; a section on the themes
+   may add light examples.*
 8. The words "System", "Light", "Dark" and any theme-related text follow the i18n process
    (ADR-0008): glossary first, six catalogs.
 
