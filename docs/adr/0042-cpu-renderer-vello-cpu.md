@@ -1,6 +1,8 @@
 # ADR-0042 — The interface renderer: `vello_cpu` behind our display list, no GPU for now
 
-- **Status:** Accepted (owner, 2026-11-11; option B with points 1–6)
+- **Status:** Accepted (owner, 2026-11-11; option B with points 1–6). **R1, R3, R5 and R6
+  superseded by ADR-0043** (2026-11-11): the spike's comparison was confounded by a per-frame
+  shadow; `tiny-skia` stays, with cached shadows. R2 (no GPU for now) and R4 stand.
 - **Date:** 2026-11-11
 - **Based on:** the spike `spikes/gpu-render` (SCALETTA F2.06), figures in its `RESULTS.md`.
 - **Amends:** ADR-0039 D9 (the backend behind the `Renderer` trait), ADR-0036 B1 and B10 (a new

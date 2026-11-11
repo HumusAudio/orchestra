@@ -3100,29 +3100,46 @@ owner as a sluggish pointer); now a pointer move costs about 0.5 ms. Straight ed
 device pixels: a 1 px staff line or a widget border falls on exactly one row of pixels, never on
 two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 
-**The `vello_cpu` backend (F2.06b, in progress).** ADR-0042 replaces `tiny-skia` with
-`vello_cpu` behind the same list. `draw/vello.rs` holds the new `CpuRenderer`: for each damaged
-region it encodes a `vello_cpu` scene the size of the region (only the segments and commands that
-meet it) and rasterises it directly into the frame at the region's offset, with no scratch buffer;
-small regions use a single-threaded context, large ones a context with worker threads
-(`default_render_threads()`: the cores minus one, so a core stays free for audio). The snapping
-rules moved to `draw/snap.rs`, shared by both backends; the old renderer stays, as
-`TinySkiaRenderer`, only while the step compares the two. The window takes the number of threads from
-`WindowOptions::render_threads` (`None` = the default) until the Preferences set it (F2.12).
+**Shadow cache (F2.06b, ADR-0043).** Step F2.06b tried a `vello_cpu` backend (ADR-0042) and
+found that the spike's comparison had been unfair: our renderer recomputed every shadow pixel by
+pixel at every frame, which was most of a full frame's cost (25.8 ms against 11.1 ms without the
+shadow at 1080p, 83.5 against 23.8 ms at 4K). Without it `tiny-skia` was as fast as `vello_cpu`
+at the curve accuracy the owner wanted, so ADR-0043 keeps `tiny-skia` and caches the shadow's
+**coverage**: it depends only on the shape, radius and blur in the frame's device pixels, so
+`compute_shadow` evaluates it once (up to 32 shadows are kept, the least recently used is evicted)
+and each frame only blends it, row by row, with the same single rounding as before. The snapping
+rules moved to `draw/snap.rs` on the way, ready for any future backend. The code follows K2 as
+written: `CachedShadow::coverage` is a `Vec<f32>` with no colour in it, mixed into the pixmap
+(scaled by the clip mask in effect) with one rounding to a byte.
 
-Three things were found and settled on the way. **Curves:** `vello_cpu` turns curves into segments
-with a fixed 0.25 px tolerance, so small round shapes lost area (a notehead at zoom 1: −4.4 %,
-against −0.8 % with `tiny-skia`); the owner chose to flatten every path ourselves, in device
-pixels, at `FLATTEN_TOLERANCE` = 0.05 px (−1.1 %), and the test `small_noteheads_keep_their_area`
-guards it. **Shadows:** `vello_cpu`'s blur was 28–40 steps of 255 away from our formula (its
-parameter behaves like ours divided by √2, and it stops at 2.5σ), so, as ADR-0042 R4 says, ours
-stays: `compute_shadow` fills a small premultiplied image with `shadow::coverage`, cached between
-frames, which `vello_cpu` composites at the shadow's place in the drawing order. **Alpha:** the
-8-bit compositing can leave alpha 254 under a translucent paint; with an opaque surface the frame
-is opaque by construction, so `make_opaque` restores 255 in each redrawn region. New tests check
-that 0, 1 and 3 threads, run twice, give the same bytes, that a partial redraw with threads equals
-a full one, and that shadows stay within 2.5 steps of the formula (one rounding more than
-`tiny-skia`'s floating-point blend, which measured 0.61).
+Blending every pixel of the cached area turned out to be slow: on the development machine a full
+1080p frame with a 1400 × 800 dialog took 31.6 ms against 3.8 ms without its shadow. Most of those
+pixels are the shadow's **inside**, fully covered and hidden under the panel. So the cache also
+keeps `full`, the rectangle where the coverage is full: `full_rect` takes the shape shrunk by
+`3σ + radius` (there the ±3σ window never leaves the shape nor touches a rounded corner) and
+checks every pixel of it against `FULL_COVERAGE` (1 − 0.25/255, so treating it as 1 moves a
+channel by at most a quarter of a step). At full coverage the blend of a channel depends only on
+the pixel's old value, so the frame fills that rectangle from a 256-entry table per channel
+(`full_cover_table`, `fill_full_cover`) and blends only the soft band around it (`blend_span`):
+
+```rust
+for (from, to, full_cover) in [
+    (col0, inner0, false),
+    (inner0, inner1, true),
+    (inner1, col1, false),
+] {
+```
+
+`blend_over` also rounds with `(x + 0.5) as u8` instead of `round()`: on the baseline x86-64
+target `round()` is a library call, four per pixel, and the saturating cast doubles as the clamp.
+Measured afterwards: 7.3 ms for the dialog frame and 3.8 ms for a 240 × 320 menu (3.3 ms
+without its shadow); the `draw_shadowed_panel_frame` benchmark went from 92.3 M to 17.7 M
+instructions. The alternative of storing the shadow already coloured and letting
+`tiny-skia` composite it (13.0 ms for the dialog, 1.57 steps from the formula because it rounds
+twice) was dropped. The test `large_shadows_fill_their_full_part_exactly` checks a large
+translucent shadow, with and without a clip cutting through it, against the formula, and that
+the full rectangle is really used; it catches both a too-large full rectangle and a wrong
+table.
 
 **Shadows.** `tiny-skia` cannot blur, so `draw/shadow.rs` computes the coverage of a blurred
 rounded rectangle for each pixel. Along x the integral is exact (two `erf` over the row, shortened
@@ -3141,12 +3158,14 @@ feature, divides each colour by alpha (PNG wants straight alpha) and compresses 
 opaque image comes back byte for byte when decoded; a translucent pixel may be one unit off,
 which no screenshot has (they are all opaque). A failure is the new `DrawError::PngEncoding`.
 
-**Tests.** `tests/draw.rs` (25 tests) checks pixels exactly where the result is exact by design:
+**Tests.** `tests/draw.rs` (28 tests) checks pixels exactly where the result is exact by design:
 snapped rectangles and lines (odd and even widths, butt and square caps), hairlines that never
 vanish, the scale factor, the tokens of two themes, opacity, the order of segments, damage after
 re-recording and removing, redrawing only the damage (a marker pixel outside it survives), the
 half-frame rule, nested clips, transforms closed automatically, bounds with stroke and shadow
-reach, shadows (shaded inside, symmetric, fading), images, errors, the PNG round trip. Two checks are independent of
+reach, shadows (shaded inside, symmetric, fading), images, errors, the PNG round trip, a busy scene redrawn partially and repeatedly, the area of small
+noteheads. A unit test in `skia.rs` keeps shadows within one step of the formula, computed and
+cached. Two checks are independent of
 the code's own logic: the area of an anti-aliased circle equals π·r² within 0.5 %, and drawing a
 scene with every command only through its damage gives the same picture as drawing it whole.
 `tests/draw_no_alloc.rs` proves that recording again and computing damage never allocate. Six
@@ -4139,9 +4158,10 @@ out/gpu-render/bin/gpu-render-hybrid window hybrid
 The GPU numbers must be taken outside the Claude Code sandbox, which has no GPU (there wgpu falls
 back to a software driver; the report prints the adapter's name). The figures are in
 `spikes/gpu-render/RESULTS.md`. The decision is ADR-0042: no GPU for now (at 1080p it was not
-faster than the best CPU renderer, and it costs start-up time, memory, crates and binary size);
-`vello_cpu` on several threads becomes the rasteriser behind our own display list, keeping the
-segments and the partial redraw (step F2.06b).
+faster than the best CPU renderer, and it costs start-up time, memory, crates and binary size).
+Its choice of `vello_cpu` was reverted by ADR-0043: the spike's `tiny-skia` figures included a
+shadow recomputed at every frame, and without it `tiny-skia` was as fast (see the correction in
+`RESULTS.md`).
 
 ## Lessons from Phase 0
 

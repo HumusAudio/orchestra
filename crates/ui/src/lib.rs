@@ -11,7 +11,8 @@
 //!   with a software rendering fallback when no GPU is available.
 //! - Our own widgets, layout, focus, text editing and menus (ADR-0012: no GUI toolkit), built on
 //!   low-level blocks behind our traits: `winit` (windows, input, IME), `softbuffer`/`wgpu`
-//!   (presenting), `tiny-skia`/`vello` (drawing), our text shaping, `accesskit` (every widget
+//!   (presenting), `tiny-skia` (drawing; a GPU renderer is postponed, ADR-0042/ADR-0043), our
+//!   text shaping, `accesskit` (every widget
 //!   publishes an accessibility node from day one), `rfd` (native file dialogs).
 //! - Bundled fonts: same look and behaviour on every platform, while
 //!   respecting system conventions (primary modifier Ctrl/Cmd, global menu bar on macOS, native
@@ -69,10 +70,7 @@ pub use draw::geometry::{Point, Rect, RoundedRect, Transform};
 pub use draw::image::{DrawError, Image, ImageId};
 pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
 pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
-// The CPU renderer is `vello_cpu` behind our display list since F2.06b (ADR-0042).
-pub use draw::vello::{CpuRenderer, default_render_threads};
-// The previous `tiny-skia` renderer, public only while F2.06b compares the two (ADR-0042 R5).
-pub use draw::skia::TinySkiaRenderer;
+pub use draw::skia::CpuRenderer;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
 pub use window::input::{

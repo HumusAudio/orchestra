@@ -2,8 +2,8 @@
 
 - **Status:** Accepted (owner, 2026-11-09, after trying the spike's window mode on their desktop:
   window, text and file dialog work; B6 completed with the plan for our own title bar).
-  **B1 and B10 amended by ADR-0042** (2026-11-11): `vello_cpu` joins the blocks; no GPU path
-  for now.
+  **B10 answered by ADR-0042** (2026-11-11): no GPU path for now. (Its addition of `vello_cpu`
+  to B1 was reverted by ADR-0043: the blocks are unchanged.)
 - **Date:** 2026-11-09
 - **Amends:** ADR-0012, the table "Building block (to be confirmed with an ADR amendment when
   first added)". The decision of ADR-0012 (no toolkit, our own interface on low-level blocks,
@@ -170,8 +170,8 @@ shows it. This is checked by a test in F2.04.
 ### B10 — Not decided here
 
 Clipboard (F2.10), system theme detection (F2.02) and the GPU path (`wgpu` + `vello`, F2.06)
-are decided in their own steps, as SCALETTA plans. *The GPU path: ADR-0042 (not now; `vello_cpu`
-0.3 joins the blocks as the CPU rasteriser).*
+are decided in their own steps, as SCALETTA plans. *The GPU path: ADR-0042 (not now); the CPU
+rasteriser stays `tiny-skia` (ADR-0043).*
 
 ## Consequences
 

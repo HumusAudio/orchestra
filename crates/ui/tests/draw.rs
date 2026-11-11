@@ -873,10 +873,10 @@ fn notehead(r: &mut orchestra_ui::Recorder<'_>, cx: f32, cy: f32, a: f32, b: f32
     });
 }
 
-/// Small round shapes keep their area (ADR-0042 R4, option A of F2.06b): a notehead at zoom 1
-/// (5 × 4 px) and at zoom 0.5 (2.5 × 2 px) lose at most 1.5 % and 3 % of the exact ellipse area.
-/// With `vello_cpu`'s own 0.25 px flattening they lost 4.4 % and 9.8 %; `tiny-skia` lost 0.8 %
-/// and 2.8 %. The centre is off the pixel grid on purpose.
+/// Small round shapes keep their area: a notehead at zoom 1 (5 × 4 px) and at zoom 0.5
+/// (2.5 × 2 px) lose at most 1.5 % and 3 % of the exact ellipse area (measured in F2.06b: 0.8 %
+/// and 2.8 %). A renderer that flattens curves coarsely fails it: `vello_cpu` 0.3, with its fixed
+/// 0.25 px tolerance, lost 4.4 % and 9.8 % (ADR-0043). The centre is off the pixel grid on purpose.
 #[test]
 fn small_noteheads_keep_their_area() {
     let theme = light();
@@ -903,8 +903,8 @@ fn small_noteheads_keep_their_area() {
     }
 }
 
-/// A scene of staves and noteheads with a shadowed panel and a rounded clip: what the threads and
-/// the partial-redraw tests draw.
+/// A scene of staves and noteheads with a shadowed panel and a rounded clip: what the determinism
+/// and partial-redraw tests draw.
 fn busy_scene() -> DisplayList {
     let mut list = DisplayList::new();
     for staff in 0..6_u64 {
@@ -949,40 +949,39 @@ fn busy_scene() -> DisplayList {
     list
 }
 
-/// ADR-0042 R3 and V5 of F2.06b: the picture does not depend on the number of worker threads,
-/// nor on the run: 0, 1 and 3 threads, twice each, give the same bytes, at scale 1 and 2.
+/// The same list gives the same bytes every time: twice with one renderer (its shadow cache is
+/// then warm) and once with a fresh one, at scale 1 and 2.
 #[test]
-fn threads_and_runs_give_the_same_pixels() {
+fn repeated_renders_give_the_same_pixels() {
     let theme = light();
     let list = busy_scene();
     for scale in [1.0, 2.0] {
         let size = |n: f32| (n * scale) as u32;
-        let reference = CpuRenderer::with_threads(0)
+        let reference = CpuRenderer::new()
             .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
             .unwrap();
-        for threads in [0, 1, 3] {
-            let mut renderer = CpuRenderer::with_threads(threads);
-            for _ in 0..2 {
-                let image = renderer
-                    .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
-                    .unwrap();
-                assert!(
-                    image == reference,
-                    "{threads} threads at scale {scale} differ (max {})",
-                    max_difference(&image, &reference)
-                );
-            }
+        let mut renderer = CpuRenderer::new();
+        for _ in 0..2 {
+            let image = renderer
+                .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
+                .unwrap();
+            assert!(
+                image == reference,
+                "scale {scale}: differs by up to {}",
+                max_difference(&image, &reference)
+            );
         }
     }
 }
 
-/// Partial redraw with worker threads: after moving notes in a large damaged region (large enough
-/// for the multi-threaded context) and in a small one, the frame equals a full redraw.
+/// Partial redraw of a busy scene: after moving notes in a small damaged region and in a large
+/// one, and moving the shadowed panel (whose shadow comes from the cache, ADR-0043), the frame
+/// equals a full redraw.
 #[test]
-fn partial_redraw_with_threads_equals_a_full_redraw() {
+fn partial_redraw_of_a_busy_scene_equals_a_full_redraw() {
     let theme = light();
     let mut list = busy_scene();
-    let mut renderer = CpuRenderer::with_threads(3);
+    let mut renderer = CpuRenderer::new();
     let mut frame = Image::new(640, 400).unwrap();
     renderer
         .render(&list, &theme, &Damage::all(), 1.0, &mut frame)
@@ -1006,7 +1005,7 @@ fn partial_redraw_with_threads_equals_a_full_redraw() {
     renderer
         .render(&list, &theme, &damage, 1.0, &mut frame)
         .unwrap();
-    let full = CpuRenderer::with_threads(0)
+    let full = CpuRenderer::new()
         .render_to_image(&list, &theme, 640, 400, 1.0)
         .unwrap();
     assert!(

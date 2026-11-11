@@ -53,8 +53,6 @@ fn main() -> ExitCode {
         mode: ThemeMode::System,
         width: 960.0,
         height: 600.0,
-        // The default: the cores minus one (ADR-0042 R3), until the Preferences (F2.12).
-        render_threads: None,
     };
     match orchestra_ui::run(Demo::default(), options) {
         Ok(()) => ExitCode::SUCCESS,

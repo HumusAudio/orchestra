@@ -10,7 +10,8 @@
 //!   Re-recording one segment damages only its old and new area ([`Damage`]).
 //! - **Drawing.** A [`Renderer`] draws the damaged parts of the list with a theme, at a scale,
 //!   into an [`Image`]. Today the only backend is [`CpuRenderer`] on `tiny-skia`; a GPU backend
-//!   (`vello`, F2.06) would implement the same trait from the same list.
+//!   (`vello`, measured in F2.06 and postponed by ADR-0042 R2) would implement the same trait
+//!   from the same list.
 //!
 //! ```
 //! use orchestra_ui::{
@@ -40,8 +41,7 @@
 //! - `device`: the damage in device pixels, shared by the renderer and the window;
 //! - `shadow`: the analytic blurred rounded rectangle;
 //! - `skia`: the `tiny-skia` backend, the only file that knows `tiny-skia`;
-//! - `snap`: pixel snapping (D7), shared by the backends;
-//! - `vello`: the `vello_cpu` backend (ADR-0042), the only file that knows `vello_cpu`.
+//! - `snap`: pixel snapping (D7).
 
 pub(crate) mod command;
 pub(crate) mod damage;
@@ -53,7 +53,6 @@ pub(crate) mod paint;
 pub(crate) mod shadow;
 pub(crate) mod skia;
 pub(crate) mod snap;
-pub(crate) mod vello;
 
 use crate::Theme;
 

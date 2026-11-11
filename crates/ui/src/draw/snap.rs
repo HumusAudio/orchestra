@@ -4,9 +4,9 @@
 //! pixels, so a 1 px staff line or a widget border covers exactly one row of pixels in every
 //! backend, never two half-transparent ones.
 //!
-//! These are pure functions of device coordinates. They lived inside the `tiny-skia` backend
-//! until F2.06b, when the `vello_cpu` backend (ADR-0042) needed exactly the same rules: one
-//! definition keeps the two backends' snapped pixels identical while both exist.
+//! These are pure functions of device coordinates, kept apart from the `tiny-skia` backend since
+//! F2.06b (when a second backend was tried, ADR-0042, then dropped, ADR-0043): any future backend,
+//! a GPU one included (ADR-0042 R2), must snap with exactly these rules.
 
 use super::geometry::Rect;
 

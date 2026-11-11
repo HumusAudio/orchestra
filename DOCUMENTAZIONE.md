@@ -3307,33 +3307,49 @@ reattivo); ora un movimento costa circa 0,5 ms. I bordi dritti vengono **allinea
 rigo da 1 px o il bordo di un widget cade su esattamente una fila di pixel, mai su due
 semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 
-**Il backend `vello_cpu` (F2.06b, in corso).** ADR-0042 sostituisce `tiny-skia` con `vello_cpu`
-dietro la stessa lista. `draw/vello.rs` contiene il nuovo `CpuRenderer`: per ogni regione
-danneggiata codifica una scena `vello_cpu` grande quanto la regione (solo i segmenti e i comandi
-che la toccano) e la rasterizza direttamente nel fotogramma allo spostamento della regione, senza
-buffer d'appoggio; le regioni piccole usano un contesto a un thread, quelle grandi un contesto con
-thread di lavoro (`default_render_threads()`: i core meno uno, così un core resta libero per
-l'audio). Le regole di allineamento ai pixel sono passate in `draw/snap.rs`, condiviso dai due
-backend; il vecchio renderer resta, come `TinySkiaRenderer`, solo finché il passo confronta i due.
-La finestra prende il numero di thread da
-`WindowOptions::render_threads` (`None` = il valore predefinito) finché non lo imposteranno le
-Preferenze (F2.12).
+**Cache delle ombre (F2.06b, ADR-0043).** Il passo F2.06b ha provato un backend `vello_cpu`
+(ADR-0042) e ha scoperto che il confronto dello spike era stato falsato: il nostro renderer
+ricalcolava ogni ombra pixel per pixel a ogni fotogramma, e quello era gran parte del costo di un
+fotogramma intero (25,8 ms contro 11,1 ms senza ombra a 1080p, 83,5 contro 23,8 ms a 4K). Senza
+quel costo `tiny-skia` andava veloce quanto `vello_cpu` con la precisione delle curve voluta dal
+proprietario, quindi ADR-0043 tiene `tiny-skia` e mette in cache la **copertura** dell'ombra:
+dipende solo da forma, raggio e sfocatura in pixel del dispositivo del fotogramma, quindi
+`compute_shadow` la calcola una volta (si tengono fino a 32 ombre, si scarta la meno usata di
+recente) e ogni fotogramma la miscela soltanto, riga per riga, con lo stesso unico arrotondamento
+di prima. Strada facendo le regole di allineamento ai pixel sono passate in `draw/snap.rs`, pronte
+per un eventuale backend futuro. Il codice segue K2 così com'è scritto:
+`CachedShadow::coverage` è un `Vec<f32>` senza colore, miscelato nella pixmap (scalato dalla
+maschera di ritaglio in vigore) con un solo arrotondamento a byte.
 
-Strada facendo sono emerse e si sono risolte tre cose. **Curve:** `vello_cpu` trasforma le curve in
-segmenti con una tolleranza fissa di 0,25 px, quindi le forme rotonde piccole perdevano area (una
-testa di nota a zoom 1: −4,4 %, contro −0,8 % con `tiny-skia`); il proprietario ha scelto di
-spezzare noi ogni tracciato, in pixel del dispositivo, con `FLATTEN_TOLERANCE` = 0,05 px (−1,1 %), e
-il test `small_noteheads_keep_their_area` lo sorveglia. **Ombre:** la sfocatura di `vello_cpu`
-distava 28–40 gradini su 255 dalla nostra formula (il suo parametro si comporta come il nostro
-diviso per √2, e si ferma a 2,5σ), quindi, come dice ADR-0042 R4, resta la nostra:
-`compute_shadow` riempie una piccola immagine premoltiplicata con `shadow::coverage`, tenuta in
-cache fra un fotogramma e l'altro, che `vello_cpu` compone al posto dell'ombra nell'ordine di
-disegno. **Alfa:** la composizione a 8 bit può lasciare alfa 254 sotto una vernice semitrasparente;
-con una superficie opaca il fotogramma è opaco per costruzione, quindi `make_opaque` riporta 255 in
-ogni regione ridisegnata. Nuovi test verificano che 0, 1 e 3 thread, eseguiti due volte, diano gli
-stessi byte, che un ridisegno parziale con i thread sia uguale a uno completo e che le ombre restino
-entro 2,5 gradini dalla formula (un arrotondamento in più della miscela in virgola mobile di
-`tiny-skia`, che misurava 0,61).
+Miscelare ogni pixel dell'area in cache si è rivelato lento: sulla macchina di sviluppo un
+fotogramma intero a 1080p con un dialogo di 1400 × 800 richiedeva 31,6 ms contro 3,8 ms senza la
+sua ombra. Gran parte di quei pixel è l'**interno** dell'ombra, coperto del tutto e nascosto sotto
+il pannello. Così la cache tiene anche `full`, il rettangolo dove la copertura è piena: `full_rect`
+prende la forma ristretta di `3σ + raggio` (lì la finestra di ±3σ non esce mai dalla forma e non
+tocca un angolo arrotondato) e controlla ogni suo pixel contro `FULL_COVERAGE` (1 − 0,25/255,
+quindi trattarlo come 1 sposta un canale al massimo di un quarto di gradino). A copertura piena la
+miscela di un canale dipende solo dal vecchio valore del pixel, quindi il fotogramma riempie quel
+rettangolo da una tabella di 256 valori per canale (`full_cover_table`, `fill_full_cover`) e
+miscela solo la fascia sfumata intorno (`blend_span`):
+
+```rust
+for (from, to, full_cover) in [
+    (col0, inner0, false),
+    (inner0, inner1, true),
+    (inner1, col1, false),
+] {
+```
+
+`blend_over` inoltre arrotonda con `(x + 0.5) as u8` invece di `round()`: sul target x86-64 di
+base `round()` è una chiamata di libreria, quattro per pixel, e la conversione saturante fa anche
+da limite a 0–255. Misurato dopo: 7,3 ms per il fotogramma col dialogo e 3,8 ms per un menu di
+240 × 320 (3,3 ms senza la sua ombra); il benchmark `draw_shadowed_panel_frame` è sceso da 92,3 M a
+17,7 M istruzioni. L'alternativa di tenere l'ombra già colorata e farla
+comporre a `tiny-skia` (13,0 ms per il dialogo, 1,57 gradini dalla formula perché arrotonda due
+volte) è stata scartata. Il test `large_shadows_fill_their_full_part_exactly` confronta con la
+formula un'ombra grande e traslucida, con e senza un ritaglio che la attraversa, e verifica che il
+rettangolo pieno sia usato davvero; trova sia un rettangolo pieno troppo grande sia una tabella
+sbagliata.
 
 **Ombre.** `tiny-skia` non sa sfocare, quindi `draw/shadow.rs` calcola per ogni pixel la copertura
 di un rettangolo arrotondato sfocato. In orizzontale l'integrale è esatto (due `erf` sulla riga,
@@ -3355,13 +3371,15 @@ comprime le righe. Un'immagine opaca torna identica byte per byte quando la si d
 semitrasparente può differire di un'unità, cosa che a nessuno screenshot capita (sono tutti
 opachi). Un errore è la nuova variante `DrawError::PngEncoding`.
 
-**Test.** `tests/draw.rs` (25 test) controlla i pixel in modo esatto dove il risultato è esatto per
+**Test.** `tests/draw.rs` (28 test) controlla i pixel in modo esatto dove il risultato è esatto per
 costruzione: rettangoli e linee allineati (spessori pari e dispari, estremità piatte e quadrate),
 linee sottilissime che non spariscono mai, il fattore di scala, i token di due temi, l'opacità,
 l'ordine dei segmenti, il danno dopo una nuova registrazione e una rimozione, il ridisegno delle
 sole aree danneggiate (un pixel segnaposto fuori dal danno sopravvive), la regola di metà
 fotogramma, i ritagli annidati, le trasformazioni chiuse da sole, gli ingombri con bordo e ombra,
-le ombre (scure dentro, simmetriche, sfumate), le immagini, gli errori, l'andata e ritorno in PNG. Due controlli non dipendono
+le ombre (scure dentro, simmetriche, sfumate), le immagini, gli errori, l'andata e ritorno in PNG, una scena fitta ridisegnata in parte e più volte, l'area
+delle teste di nota piccole. Un test di unità in `skia.rs` tiene le ombre entro un gradino dalla
+formula, calcolate e prese dalla cache. Due controlli non dipendono
 dalla logica del codice: l'area di un cerchio con anti-aliasing è π·r² entro lo 0,5 %, e disegnare
 una scena con tutti i comandi solo attraverso i suoi danni dà la stessa immagine che disegnarla
 intera. `tests/draw_no_alloc.rs` dimostra che registrare di nuovo e calcolare i danni non allocano
@@ -4394,8 +4412,9 @@ Le misure GPU vanno prese fuori dalla sandbox di Claude Code, che non ha GPU (l�
 un driver software; il rapporto stampa il nome dell'adattatore). I numeri sono in
 `spikes/gpu-render/RESULTS.md`. La decisione è ADR-0042: per ora niente GPU (a 1080p non era più
 veloce del miglior renderer su CPU, e costa tempo di avvio, memoria, crate e dimensione del
-binario); `vello_cpu` su più thread diventa il rasterizzatore dietro la nostra lista di disegno,
-tenendo i segmenti e il ridisegno parziale (passo F2.06b).
+binario). La sua scelta di `vello_cpu` è stata annullata da ADR-0043: i numeri di `tiny-skia`
+nello spike comprendevano un'ombra ricalcolata a ogni fotogramma, e senza di essa `tiny-skia` era
+altrettanto veloce (vedi la correzione in `RESULTS.md`).
 
 ## Lezioni della Fase 0
 

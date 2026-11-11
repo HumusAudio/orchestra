@@ -58,10 +58,6 @@ pub struct WindowOptions {
     pub width: f32,
     /// The initial height, logical pixels.
     pub height: f32,
-    /// Worker threads for drawing large regions (ADR-0042 R3); `None` picks
-    /// [`default_render_threads`](crate::default_render_threads) (the cores minus one, so a core
-    /// stays free for audio). The Preferences will set it (F2.12).
-    pub render_threads: Option<u16>,
 }
 
 /// Why the window could not run. Exhaustive (ADR-0034 D2). The details are the libraries'

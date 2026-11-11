@@ -20,8 +20,6 @@ orchestra-i18n.workspace = true
 orchestra-video.workspace = true
 # The CPU backend of the drawing abstraction (ADR-0039 D9), on every platform.
 tiny-skia.workspace = true
-# The CPU rasteriser behind the same display list from F2.06b (ADR-0042), on every platform.
-vello_cpu.workspace = true
 # The window, the event loop, input, and presenting pixels (ADR-0040), on every platform.
 winit.workspace = true
 softbuffer.workspace = true

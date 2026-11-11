@@ -1,8 +1,9 @@
 # ADR-0039 — The drawing abstraction: a segmented display list of themed commands
 
 - **Status:** Accepted (owner, 2026-11-10; D1, D3, D6 and D8 chosen by the owner, option (a) each;
-  D6 amended with the owner's approval the same day, after measuring). **D9 amended by ADR-0042**
-  (2026-11-11): the backend becomes `vello_cpu` behind the same list, from step F2.06b.
+  D6 amended with the owner's approval the same day, after measuring). D9 was amended by ADR-0042
+  (`vello_cpu`), **reverted by ADR-0043** (2026-11-11): the backend stays `tiny-skia`; D6's
+  shadow coverage is cached between frames.
 - **Date:** 2026-11-10
 - **Implements:** ADR-0012 (our own renderer, headless rendering for free), ADR-0007 rule 4
   (incremental rendering) and rule 5 (software fallback), ADR-0014 §2 (no literal colour in
@@ -140,8 +141,8 @@ encoding arrives with `cargo xtask screenshots` (F2.05), together with `tiny-ski
 A `Renderer` trait takes the list, the theme, the damage and the target. F2.03 implements it with
 `tiny-skia` (features `std` and `simd`, no `png-format`), for the window (F2.04, through
 `softbuffer`) and for the headless image. The GPU backend (`vello`) implements the same trait in
-F2.06 if that step adopts it; the list does not change. *Amended by ADR-0042 (2026-11-11): no GPU
-backend for now; `vello_cpu` replaces `tiny-skia` as the backend from F2.06b, behind this trait.*
+F2.06 if that step adopts it; the list does not change. *ADR-0042 (2026-11-11): no GPU backend for
+now. Its replacement of `tiny-skia` by `vello_cpu` was reverted by ADR-0043: `tiny-skia` stays.*
 
 ### D10 — Tests and benchmark
 
