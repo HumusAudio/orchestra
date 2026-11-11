@@ -100,7 +100,10 @@ impl Vello {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC
+                // TEXTURE_BINDING: the window mode samples this texture to blit it onto the
+                // surface (found by the owner: the blitter rejects a texture without it).
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
