@@ -4114,7 +4114,10 @@ out/gpu-render/bin/gpu-render-hybrid window hybrid
 
 The GPU numbers must be taken outside the Claude Code sandbox, which has no GPU (there wgpu falls
 back to a software driver; the report prints the adapter's name). The figures are in
-`spikes/gpu-render/RESULTS.md`; the decision will be an ADR.
+`spikes/gpu-render/RESULTS.md`. The decision is ADR-0042: no GPU for now (at 1080p it was not
+faster than the best CPU renderer, and it costs start-up time, memory, crates and binary size);
+`vello_cpu` on several threads becomes the rasteriser behind our own display list, keeping the
+segments and the partial redraw (step F2.06b).
 
 ## Lessons from Phase 0
 

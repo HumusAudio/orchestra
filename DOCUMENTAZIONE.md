@@ -4364,7 +4364,10 @@ out/gpu-render/bin/gpu-render-hybrid window hybrid
 
 Le misure GPU vanno prese fuori dalla sandbox di Claude Code, che non ha GPU (lì wgpu ripiega su
 un driver software; il rapporto stampa il nome dell'adattatore). I numeri sono in
-`spikes/gpu-render/RESULTS.md`; la decisione sarà un ADR.
+`spikes/gpu-render/RESULTS.md`. La decisione è ADR-0042: per ora niente GPU (a 1080p non era più
+veloce del miglior renderer su CPU, e costa tempo di avvio, memoria, crate e dimensione del
+binario); `vello_cpu` su più thread diventa il rasterizzatore dietro la nostra lista di disegno,
+tenendo i segmenti e il ridisegno parziale (passo F2.06b).
 
 ## Lezioni della Fase 0
 

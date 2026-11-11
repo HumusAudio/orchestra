@@ -49,3 +49,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0039](0039-drawing-abstraction.md) | The drawing abstraction: a segmented display list of themed commands | Accepted |
 | [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted |
 | [0041](0041-headless-screenshots.md) | Headless screenshots: a scene catalogue, rendered by the app, never committed (amends ADR-0014 §7, ADR-0037 T10) | Accepted |
+| [0042](0042-cpu-renderer-vello-cpu.md) | The interface renderer: `vello_cpu` behind our display list, no GPU for now (amends ADR-0039 D9, ADR-0036, ADR-0012) | Accepted |
