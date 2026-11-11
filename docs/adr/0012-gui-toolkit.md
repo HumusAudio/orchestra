@@ -1,6 +1,7 @@
 # ADR-0012 — GUI: no toolkit, our own interface on low-level building blocks
 
-- **Status:** Accepted (2026-10-29, owner's decision after the Phase 0, Step 13 spike)
+- **Status:** Accepted (2026-10-29, owner's decision after the Phase 0, Step 13 spike). The 2D
+  drawing row of the block table is answered by ADR-0042 (2026-11-11).
 - **Date:** 2026-10-28 (proposed) · 2026-10-29 (accepted)
 
 ## Context
@@ -54,7 +55,7 @@ can be replaced:
 |---|---|
 | Windows, input events, IME events | `winit` (Apache-2.0) |
 | Presenting pixels | `softbuffer` (CPU) now; `wgpu` (GPU) when the GPU renderer arrives |
-| 2D drawing | `tiny-skia` (CPU, measured above); `vello` (GPU) evaluated in Phase 2 |
+| 2D drawing | `tiny-skia` (CPU, measured above); `vello` (GPU) evaluated in Phase 2 — *measured in F2.06 and postponed; the CPU rasteriser becomes `vello_cpu` (ADR-0042)* |
 | Fonts and text shaping | bundled fonts, `skrifa`/`ttf-parser` outlines, `harfrust` shaping, our own glyph cache |
 | Accessibility | `accesskit` + its platform adapters (the same library egui and Slint use) |
 | Native file dialogs | `rfd` (xdg-desktop-portal on Linux, native on Windows/macOS) |

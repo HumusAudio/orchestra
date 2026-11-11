@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); next F2.06 (the GPU path, measured with the owner).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now, `vello_cpu` behind our display list); next F2.06b (the `vello_cpu` backend).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -890,6 +890,25 @@ to readers (S7), so `User-visible: no`. Tests: PNG round trip in `orchestra-ui`,
 in `orchestra-app` (names, size, opaque, deterministic, Studio dark, bad sizes), all in memory on
 the three platforms. Checked locally: `cargo xtask check`, `cargo xtask guides` end to end with a
 stale PNG removed and another file kept.
+
+Step **F2.06** (`feature/f2-06-gpu-measure`, started 2026-11-11), the GPU renderer measured. Before
+starting the owner approved G1–G8 with all four candidates. The spike `spikes/gpu-render` draws
+the reference scene of F2.03 (4216 operations, 1920 × 1080) with our `CpuRenderer` on
+`tiny-skia`, `vello_cpu` 0.3 (1 and 3 threads), `vello` 0.11 on `wgpu` 30 and `vello_hybrid` 0.2
+on `wgpu` 29; `run.sh` builds the three variants and measures everything, `window` mode shows a
+continuous scroll. Found on the way: the development machine is an **Intel N150**, weaker than
+the reference hardware; the Claude Code sandbox has no GPU (wgpu falls back to software Vulkan),
+so GPU runs are made outside it; Mesa's shader cache hides `vello`'s cold start (1.1 s of shaders
+on Vulkan, 3.2–4.2 s on GL). Headline figures (median ms, full / edit / scroll): `tiny-skia`
+21.4 / 0.1 / 19.4, `vello_cpu` ×3 7.1 / 7.3 / 6.8, `vello` Vulkan 9.7 / 12.3 / 14.4,
+`vello_hybrid` Vulkan 11.5 / 11.8 / 12.7; at 3840 × 2160 (added on the owner's request) `tiny-skia` 68.2 / 0.1 / 64.3, `vello_cpu` ×3 15.7 / 16.2 / 15.0, `vello` GL 11.4 / 12.8 / 15.0. GPU variants add about 40 crates, 2 minutes of clean
+build and 8–9 MB of binary. The owner checked the four windows by eye (`tiny-skia` 37–50 fps, `vello_cpu` 99–108 fps and the
+smoothest, `vello` 68–95, `vello_hybrid` 61–98 and a little jerky; the GPU windows first panicked
+on a spike bug, fixed). **ADR-0042** (Accepted by the owner, option B with points 1–6): no GPU for
+now; `vello_cpu` becomes the rasteriser behind our display list, keeping segments and partial
+redraw (new step F2.06b); worker threads configurable, at least one core left for audio, measured
+in F3; the GPU is re-evaluated with the same spike when a budget is missed with `vello_cpu` or
+`vello`'s costs drop. Amends ADR-0039 D9, ADR-0036 B1/B10, ADR-0012's block table.
 
 | Step | What | Status |
 |---|---|---|
