@@ -16,7 +16,7 @@ use vello_hybrid::{RenderSize, RenderTargetConfig, Renderer, Resources, TextureB
 use wgpu29 as wgpu;
 
 use crate::Backend;
-use crate::scene::{HEIGHT, Op, Scene, View, WIDTH, ellipse_cubics};
+use crate::scene::{Op, Scene, View, ellipse_cubics, height, width};
 
 /// The GPU objects shared by the headless bench and the window.
 pub struct Gpu {
@@ -92,16 +92,16 @@ impl Hybrid {
             &gpu.device,
             &RenderTargetConfig {
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                width: WIDTH,
-                height: HEIGHT,
+                width: width(),
+                height: height(),
             },
         );
         let renderer_time = start.elapsed();
         let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("target"),
             size: wgpu::Extent3d {
-                width: WIDTH,
-                height: HEIGHT,
+                width: width(),
+                height: height(),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -112,7 +112,7 @@ impl Hybrid {
             view_formats: &[],
         });
         let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let hscene = vello_hybrid::Scene::new(WIDTH as u16, HEIGHT as u16);
+        let hscene = vello_hybrid::Scene::new(width() as u16, height() as u16);
         (
             Self {
                 scene,
@@ -142,8 +142,8 @@ impl Hybrid {
                 &self.gpu.queue,
                 &mut encoder,
                 &RenderSize {
-                    width: WIDTH,
-                    height: HEIGHT,
+                    width: width(),
+                    height: height(),
                 },
                 &self.view,
                 &TextureBindings::new(),
@@ -171,8 +171,8 @@ pub fn encode(h: &mut vello_hybrid::Scene, scene: &Scene, view: View, lift: bool
     h.reset();
     h.set_transform(Affine::IDENTITY);
     h.set_paint(color(scene, ColorToken::Surface));
-    h.fill_rect(&KRect::new(0.0, 0.0, f64::from(WIDTH), f64::from(HEIGHT)));
-    h.set_transform(Affine::translate((view.dx, 0.0)) * Affine::scale(view.zoom));
+    h.fill_rect(&KRect::new(0.0, 0.0, f64::from(width()), f64::from(height())));
+    h.set_transform(Affine::scale(f64::from(crate::scene::scale())) * Affine::translate((view.dx, 0.0)) * Affine::scale(view.zoom));
     let edited = Scene::edited_index();
     for (index, ops) in scene.segments.iter().enumerate() {
         let ops = if lift && index == edited {
@@ -235,11 +235,11 @@ impl Backend for Hybrid {
     }
 
     fn read_back(&mut self) -> Vec<u8> {
-        let bytes_per_row = (WIDTH * 4).next_multiple_of(256);
+        let bytes_per_row = (width() * 4).next_multiple_of(256);
         let device = &self.gpu.device;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("readback"),
-            size: u64::from(bytes_per_row) * u64::from(HEIGHT),
+            size: u64::from(bytes_per_row) * u64::from(height()),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -260,8 +260,8 @@ impl Backend for Hybrid {
                 },
             },
             wgpu::Extent3d {
-                width: WIDTH,
-                height: HEIGHT,
+                width: width(),
+                height: height(),
                 depth_or_array_layers: 1,
             },
         );
@@ -273,9 +273,9 @@ impl Backend for Hybrid {
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("poll");
         let mapped = buffer.slice(..).get_mapped_range();
-        let mut out = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
+        let mut out = Vec::with_capacity((width() * height() * 4) as usize);
         for row in mapped.chunks_exact(bytes_per_row as usize) {
-            out.extend_from_slice(&row[..(WIDTH * 4) as usize]);
+            out.extend_from_slice(&row[..(width() * 4) as usize]);
         }
         out
     }

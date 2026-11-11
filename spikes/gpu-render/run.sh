@@ -27,13 +27,16 @@ for variant in cpu gpu hybrid; do
     cp target/release/gpu-render "$out/bin/gpu-render-$variant"
 done
 
-# Each invocation measures its backends one per fresh process (see `bench` in main.rs).
-"$out/bin/gpu-render-cpu" bench tiny-skia vello-cpu vello-cpu-mt --frames "$frames" --out "$out"
-"$out/bin/gpu-render-gpu" bench vello --frames "$frames" --out "$out"
-"$out/bin/gpu-render-hybrid" bench hybrid --frames "$frames" --out "$out"
-# The GL backend: vello needs compute shaders, vello_hybrid should not. A failure is a result too.
-WGPU_BACKEND=gl "$out/bin/gpu-render-hybrid" bench hybrid --frames "$frames" --out "$out" || true
-WGPU_BACKEND=gl "$out/bin/gpu-render-gpu" bench vello --frames "$frames" --out "$out" || true
+# Each invocation measures its backends one per fresh process (see `bench` in main.rs). Scale 1 is
+# the reference 1080p screen; scale 2 is 3840 × 2160 (a 4K screen, or 1080p at 200 %).
+for scale in 1 2; do
+    "$out/bin/gpu-render-cpu" bench tiny-skia vello-cpu vello-cpu-mt --scale "$scale" --frames "$frames" --out "$out"
+    "$out/bin/gpu-render-gpu" bench vello --scale "$scale" --frames "$frames" --out "$out"
+    "$out/bin/gpu-render-hybrid" bench hybrid --scale "$scale" --frames "$frames" --out "$out"
+    # The GL backend: vello needs compute shaders, vello_hybrid does not. A failure is a result too.
+    WGPU_BACKEND=gl "$out/bin/gpu-render-hybrid" bench hybrid --scale "$scale" --frames "$frames" --out "$out" || true
+    WGPU_BACKEND=gl "$out/bin/gpu-render-gpu" bench vello --scale "$scale" --frames "$frames" --out "$out" || true
+done
 
 echo
 echo "Window mode, to judge by eye (Esc closes):"

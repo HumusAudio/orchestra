@@ -4100,7 +4100,7 @@ pub enum Op {
 
 `gpu-render bench` measures, for each renderer in a fresh process, the start-up (opening the GPU,
 compiling the shaders, the first frame), memory, and three cases of 300 frames: the whole frame,
-one note moving, and scrolling with zoom. It writes a PNG per renderer, to check that they all
+one note moving, and scrolling with zoom, at 1920 × 1080 and, with `--scale 2`, at 3840 × 2160 (a 4K screen). It writes a PNG per renderer, to check that they all
 draw the same picture. `vello` and `vello_hybrid` need two different major versions of `wgpu`, so
 `run.sh` builds three variants of the binary and runs them all; `gpu-render window` opens a
 window that scrolls continuously, to judge smoothness by eye:

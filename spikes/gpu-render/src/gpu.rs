@@ -14,7 +14,7 @@ use vello::wgpu;
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
 
 use crate::Backend;
-use crate::scene::{HEIGHT, Op, Scene, View, WIDTH, ellipse_cubics};
+use crate::scene::{Op, Scene, View, ellipse_cubics, height, width};
 
 /// The GPU objects shared by the headless bench and the window.
 pub struct Gpu {
@@ -92,8 +92,8 @@ impl Vello {
         let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("target"),
             size: wgpu::Extent3d {
-                width: WIDTH,
-                height: HEIGHT,
+                width: width(),
+                height: height(),
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -126,7 +126,7 @@ impl Vello {
                 &self.gpu.queue,
                 &self.vscene,
                 &self.view,
-                &params(&self.scene, WIDTH, HEIGHT),
+                &params(&self.scene, width(), height()),
             )
             .expect("vello render");
         self.gpu
@@ -171,7 +171,7 @@ fn krect(r: crate::scene::Rect) -> KRect {
 /// Encodes the whole scene into `vscene` (reset first) under `view`.
 pub fn encode(vscene: &mut vello::Scene, scene: &Scene, view: View, lift: bool) {
     vscene.reset();
-    let t = Affine::translate((view.dx, 0.0)) * Affine::scale(view.zoom);
+    let t = Affine::scale(f64::from(crate::scene::scale())) * Affine::translate((view.dx, 0.0)) * Affine::scale(view.zoom);
     let edited = Scene::edited_index();
     for (index, ops) in scene.segments.iter().enumerate() {
         let ops = if lift && index == edited {
@@ -249,10 +249,10 @@ impl Backend for Vello {
 
 /// Copies an `Rgba8Unorm` texture of the frame size back to memory, tightly packed.
 fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture) -> Vec<u8> {
-    let bytes_per_row = (WIDTH * 4).next_multiple_of(256);
+    let bytes_per_row = (width() * 4).next_multiple_of(256);
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("readback"),
-        size: u64::from(bytes_per_row) * u64::from(HEIGHT),
+        size: u64::from(bytes_per_row) * u64::from(height()),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -273,8 +273,8 @@ fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Text
             },
         },
         wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
+            width: width(),
+            height: height(),
             depth_or_array_layers: 1,
         },
     );
@@ -286,9 +286,9 @@ fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Text
         .poll(wgpu::PollType::wait_indefinitely())
         .expect("poll");
     let mapped = buffer.slice(..).get_mapped_range().expect("mapped range");
-    let mut out = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
+    let mut out = Vec::with_capacity((width() * height() * 4) as usize);
     for row in mapped.chunks_exact(bytes_per_row as usize) {
-        out.extend_from_slice(&row[..(WIDTH * 4) as usize]);
+        out.extend_from_slice(&row[..(width() * 4) as usize]);
     }
     out
 }

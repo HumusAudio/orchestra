@@ -4349,7 +4349,7 @@ pub enum Op {
 
 `gpu-render bench` misura, per ogni renderer in un processo nuovo, l'avvio (apertura della GPU,
 compilazione degli shader, primo fotogramma), la memoria e tre casi da 300 fotogrammi: il
-fotogramma intero, una nota che si sposta, lo scorrimento con zoom. Scrive un PNG per renderer,
+fotogramma intero, una nota che si sposta, lo scorrimento con zoom, a 1920 × 1080 e, con `--scale 2`, a 3840 × 2160 (uno schermo 4K). Scrive un PNG per renderer,
 per controllare che disegnino tutti la stessa immagine. `vello` e `vello_hybrid` vogliono due
 versioni principali diverse di `wgpu`, quindi `run.sh` compila tre varianti del binario e le
 esegue tutte; `gpu-render window` apre una finestra che scorre di continuo, per giudicare la

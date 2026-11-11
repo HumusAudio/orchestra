@@ -13,7 +13,7 @@
 //! `vello` and `vello_hybrid` need different `wgpu` majors, so they are built separately.
 //!
 //! # Commands
-//! - `gpu-render bench [BACKEND…] [--frames N] [--out DIR]` — headless, no window and no
+//! - `gpu-render bench [BACKEND…] [--frames N] [--scale 1|2] [--out DIR]` — headless, no window and no
 //!   display: for each backend, start-up costs, then three cases of N frames each (default 300):
 //!   `full` (the whole static frame), `edit` (one note moves back and forth), `scroll` (scroll and
 //!   zoom every frame). Prints a Markdown table and writes it, plus one PNG per backend, to DIR
@@ -39,7 +39,7 @@ mod window;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use scene::{HEIGHT, Scene, View, WIDTH};
+use scene::{Scene, View, height, width};
 
 /// One renderer under test. Every method draws a complete frame into the backend's own target.
 pub trait Backend {
@@ -50,7 +50,7 @@ pub trait Backend {
     /// The steady state of editing: the edited note is lifted (`true`) or back (`false`), at the
     /// identity view. Backends with retained segments redraw only the damage.
     fn draw_edit(&mut self, lift: bool);
-    /// The last frame as premultiplied RGBA8 bytes, `WIDTH × HEIGHT × 4` (opaque scene, so
+    /// The last frame as premultiplied RGBA8 bytes, `width() × height() × 4` (opaque scene, so
     /// premultiplied equals straight).
     fn read_back(&mut self) -> Vec<u8>;
     /// The CPU backends' frame, premultiplied RGBA8, without a copy (for the window). `None` on
@@ -150,7 +150,7 @@ fn memory_mib() -> Option<(f64, f64)> {
 
 /// Writes premultiplied, opaque RGBA8 pixels as a PNG (through tiny-skia's encoder).
 fn write_png(path: &Path, rgba: Vec<u8>) {
-    let size = tiny_skia::IntSize::from_wh(WIDTH, HEIGHT).expect("size");
+    let size = tiny_skia::IntSize::from_wh(width(), height()).expect("size");
     let pixmap = tiny_skia::Pixmap::from_vec(rgba, size).expect("pixel count");
     pixmap.save_png(path).expect("write png");
 }
@@ -163,7 +163,7 @@ fn bench_one(name: &str, frames: usize, out: &Path) -> (String, String) {
     backend.draw_full(View::IDENTITY);
     let first_frame = first.elapsed();
     let to_first_frame = process_start.elapsed();
-    write_png(&out.join(format!("{name}.png")), backend.read_back());
+    write_png(&out.join(format!("{name}-x{}.png", scene::scale())), backend.read_back());
 
     let full = time_frames(frames, |_| backend.draw_full(View::IDENTITY));
     let edit = time_frames(frames, |i| backend.draw_edit(i % 2 == 0));
@@ -210,6 +210,7 @@ fn bench(args: &[String]) {
             "--frames" => frames = it.next().and_then(|n| n.parse().ok()).expect("--frames N"),
             "--out" => out = PathBuf::from(it.next().expect("--out DIR")),
             "--child" => child = true,
+            "--scale" => scene::set_scale(it.next().and_then(|n| n.parse().ok()).expect("--scale 1|2")),
             name => names.push(name.to_owned()),
         }
     }
@@ -231,7 +232,7 @@ fn bench(args: &[String]) {
     for name in &names {
         eprintln!("measuring {name} ({frames} frames per case)…");
         let output = std::process::Command::new(&exe)
-            .args(["bench", "--child", "--frames", &frames.to_string(), "--out"])
+            .args(["bench", "--child", "--scale", &scene::scale().to_string(), "--frames", &frames.to_string(), "--out"])
             .arg(&out)
             .arg(name)
             .output()
@@ -248,11 +249,13 @@ fn bench(args: &[String]) {
     }
 
     let report = format!(
-        "## gpu-render bench — {frames} frames per case, {WIDTH} × {HEIGHT}, {ops} ops\n\n\
+        "## gpu-render bench — {frames} frames per case, {w} × {h}, {ops} ops\n\n\
          {system}\n\n\
          Times in ms: median / 95th percentile / worst.\n\n\
          | Backend | full frame | edit one note | scroll + zoom |\n|---|---|---|---|\n{rows}\n\n{details}\n",
         ops = Scene::new().op_count(),
+        w = width(),
+        h = height(),
         system = system_line(),
         rows = rows.join("\n"),
         details = details.join("\n"),
@@ -288,7 +291,7 @@ fn main() {
         Some("window") => window::run(args.get(1).map(String::as_str).expect("window BACKEND")),
         _ => {
             eprintln!(
-                "usage: gpu-render bench [BACKEND…] [--frames N] [--out DIR]\n       \
+                "usage: gpu-render bench [BACKEND…] [--frames N] [--scale 1|2] [--out DIR]\n       \
                  gpu-render window BACKEND   (built with --features gpu or hybrid)\n\
                  backends here: {:?}",
                 available()

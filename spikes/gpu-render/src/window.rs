@@ -24,7 +24,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::Backend;
-use crate::scene::{HEIGHT, Scene, View, WIDTH};
+use crate::scene::{Scene, View, height, width};
 
 /// How the frame reaches the screen.
 enum Presenter {
@@ -199,11 +199,11 @@ impl App {
                 let pixels = backend.cpu_pixels().expect("cpu backend");
                 // Copy the top-left part that fits, converting RGBA to softbuffer's 0RGB.
                 let (cw, ch) = (
-                    size.width.min(WIDTH) as usize,
-                    size.height.min(HEIGHT) as usize,
+                    size.width.min(width()) as usize,
+                    size.height.min(height()) as usize,
                 );
                 for y in 0..ch {
-                    let src = &pixels[y * WIDTH as usize * 4..][..cw * 4];
+                    let src = &pixels[y * width() as usize * 4..][..cw * 4];
                     let dst = &mut buffer[y * size.width as usize..][..cw];
                     for (d, s) in dst.iter_mut().zip(src.chunks_exact(4)) {
                         *d = (u32::from(s[0]) << 16) | (u32::from(s[1]) << 8) | u32::from(s[2]);
@@ -265,7 +265,7 @@ impl ApplicationHandler for App {
         }
         let attributes = Window::default_attributes()
             .with_title(format!("gpu-render — {}", self.name))
-            .with_inner_size(winit::dpi::PhysicalSize::new(WIDTH, HEIGHT));
+            .with_inner_size(winit::dpi::PhysicalSize::new(width(), height()));
         let window = Arc::new(event_loop.create_window(attributes).expect("window"));
         self.presenter = Some(self.create_presenter(&window));
         self.window = Some(window.clone());

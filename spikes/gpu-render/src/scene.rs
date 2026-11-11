@@ -3,7 +3,7 @@
 //! The reference scene of F2.03 (`crates/ui/benches/draw.rs`), described ONCE as plain drawing
 //! operations, so that every renderer draws exactly the same thing.
 //!
-//! - 10 staves × 20 measures at 1920 × 1080, 8 px per staff space: every symbol is visible, the
+//! - 10 staves × 20 measures at 1920 × 1080 logical pixels (× `--scale`), 8 px per staff space: every symbol is visible, the
 //!   worst case for a full frame. Staff lines, barlines and stems are 1 px snapped rectangles
 //!   (what our renderer's snapping turns a 1 px line into); the 2000 noteheads are filled ellipses
 //!   of four cubic Béziers (glyphs come in F2.07, so paths are the honest stand-in).
@@ -32,10 +32,35 @@ const MEASURE_WIDTH: f64 = 10.0 * PX_PER_SP;
 const CLEF_WIDTH: f64 = 4.0 * PX_PER_SP;
 /// Margin around the score.
 const MARGIN: f64 = 16.0;
-/// Frame width in device pixels (scale 1, the reference 1080p screen).
-pub const WIDTH: u32 = 1920;
-/// Frame height.
-pub const HEIGHT: u32 = 1080;
+/// Frame width in logical pixels (the reference 1080p screen).
+const LOGICAL_WIDTH: u32 = 1920;
+/// Frame height in logical pixels.
+const LOGICAL_HEIGHT: u32 = 1080;
+
+/// Device pixels per logical pixel: 1 (a 1080p screen) or 2 (a 4K screen, or 1080p at scale 2).
+/// Set once from `--scale` before anything is drawn; every backend reads it.
+static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+/// Sets the scale (1 or 2) for the whole process.
+pub fn set_scale(scale: u32) {
+    assert!(scale == 1 || scale == 2, "--scale must be 1 or 2");
+    SCALE.store(scale, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The scale factor.
+pub fn scale() -> u32 {
+    SCALE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Frame width in device pixels.
+pub fn width() -> u32 {
+    LOGICAL_WIDTH * scale()
+}
+
+/// Frame height in device pixels.
+pub fn height() -> u32 {
+    LOGICAL_HEIGHT * scale()
+}
 /// The staff and measure of the edited note (the middle of the frame, as in F2.03's benchmark).
 pub const EDITED: (usize, usize) = (4, 9);
 

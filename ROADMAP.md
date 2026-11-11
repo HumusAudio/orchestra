@@ -901,7 +901,7 @@ the reference hardware; the Claude Code sandbox has no GPU (wgpu falls back to s
 so GPU runs are made outside it; Mesa's shader cache hides `vello`'s cold start (1.1 s of shaders
 on Vulkan, 3.2–4.2 s on GL). Headline figures (median ms, full / edit / scroll): `tiny-skia`
 21.4 / 0.1 / 19.4, `vello_cpu` ×3 7.1 / 7.3 / 6.8, `vello` Vulkan 9.7 / 12.3 / 14.4,
-`vello_hybrid` Vulkan 11.5 / 11.8 / 12.7. GPU variants add about 40 crates, 2 minutes of clean
+`vello_hybrid` Vulkan 11.5 / 11.8 / 12.7; at 3840 × 2160 (added on the owner's request) `tiny-skia` 68.2 / 0.1 / 64.3, `vello_cpu` ×3 15.7 / 16.2 / 15.0, `vello` GL 11.4 / 12.8 / 15.0. GPU variants add about 40 crates, 2 minutes of clean
 build and 8–9 MB of binary. **Still open:** the owner's window check, ADR-0042, documentation of
 the result, PR.
 

@@ -9,7 +9,7 @@ Iris Xe, 80 EU): what holds here holds there. Versions checked on crates.io the 
 
 ```sh
 cd spikes
-./gpu-render/run.sh 300          # builds 3 variants, measures every backend, appends to out/gpu-render/results.md
+./gpu-render/run.sh 300          # builds 3 variants, measures every backend at scale 1 and 2, appends to out/gpu-render/results.md
 out/gpu-render/bin/gpu-render-gpu window vello        # by eye: tiny-skia | vello-cpu | vello-cpu-mt | vello
 out/gpu-render/bin/gpu-render-hybrid window hybrid
 ```
@@ -54,7 +54,26 @@ throughput can be better (see the window mode).
 | `vello_hybrid` (GL 4.6) | 12.0 / 15.6 / 17.9 | 10.9 / 15.7 / 16.5 | 10.9 / 15.5 / 16.8 |
 
 Budgets (CLAUDE.md §5): scrolling ≥ 30 fps in software (33 ms) and 60 fps with the GPU (16.7 ms);
-input to frame ≤ 50 ms.
+input to frame ≤ 50 ms. A second full run gave the same figures within ±1 ms.
+
+### At 3840 × 2160 (`--scale 2`: a 4K screen, or 1080p at 200 %)
+
+The same scene, four times the pixels (the renderers draw at scale 2, so lines stay 2 px crisp).
+
+| Backend | full frame | edit one note | scroll + zoom |
+|---|---|---|---|
+| `tiny-skia` (our `CpuRenderer`) | 68.2 / 78.0 / 78.8 | **0.1** / 0.1 / 0.2 | 64.3 / 94.7 / 105.9 |
+| `vello_cpu` 1 thread | 26.0 / 37.7 / 44.9 | 26.0 / 27.9 / 29.6 | 23.5 / 28.6 / 32.0 |
+| `vello_cpu` 3 worker threads | 15.7 / 18.1 / 26.9 | 16.2 / 18.3 / 20.8 | 15.0 / 17.8 / 20.4 |
+| `vello` (Vulkan) | 19.4 / 21.6 / 24.2 | 19.0 / 19.8 / 23.4 | 19.7 / 21.0 / 22.4 |
+| `vello` (GL 4.6) | **11.4** / 12.3 / 14.5 | 12.8 / 14.0 / 16.7 | 15.0 / 16.3 / 17.3 |
+| `vello_hybrid` (Vulkan) | 21.0 / 27.9 / 31.0 | 29.4 / 31.8 / 32.8 | 25.0 / 29.7 / 32.5 |
+| `vello_hybrid` (GL 4.6) | 25.6 / 28.8 / 32.2 | 26.0 / 29.7 / 34.9 | 24.9 / 30.3 / 34.6 |
+
+At 4K our `tiny-skia` path no longer reaches 30 fps on a full frame (68 ms) while editing stays at
+0.1 ms; `vello_cpu` on 3 threads stays near 60 fps (15–16 ms); only `vello` on GL is clearly
+faster than it (11–15 ms). Peak memory roughly doubles for the CPU paths (≈ 100 MiB: the frame
+alone is 32 MiB) and grows by 50–60 MiB for the GPU ones.
 
 ## Start-up and memory
 
@@ -68,12 +87,13 @@ so the first start (or the first after a driver update) is **cold**; cold runs b
 | `vello_cpu` 1 thread | — | 3 ms | 11 ms | 15 ms | 16 / 31 MiB |
 | `vello_cpu` 3 threads | — | 4 ms | 6 ms | 11 ms | 20 / 32 MiB |
 | `vello` (Vulkan) | 35 ms | **1120 ms** / 30 ms | 160–220 ms | **1.4 s** / 0.34 s | 74–139 / 89–149 MiB |
-| `vello` (GL) | 15 ms | **4200 ms / 3200 ms** | 140 ms | **4.4 s / 3.4 s** | 143–180 / 197–235 MiB |
+| `vello` (GL) | 8–15 ms | **4200 ms** / 105 ms | 135 ms | **4.4 s** / 0.27 s | 84–180 / 100–235 MiB |
 | `vello_hybrid` (Vulkan) | 35 ms | 165 ms / 14 ms | 50 ms | 0.28 s / 0.12 s | 67–76 / 82–91 MiB |
-| `vello_hybrid` (GL) | 14 ms | 335 ms | 20 ms | 0.39 s / 0.48 s | 104 / 119 MiB |
+| `vello_hybrid` (GL) | 8–14 ms | 335 ms / 44 ms | 20 ms | 0.39 s / 0.09 s | 74–104 / 90–119 MiB |
 
-`vello` on GL has no working shader cache here: even warm it needs 3.2 s of pipelines, beyond the
-3 s start-up budget on its own.
+Cold, `vello` on GL needs 4.2 s of pipelines, beyond the 3 s start-up budget on its own; on Vulkan
+1.1 s, more than a third of it. Warm, every GPU variant starts in 0.1–0.35 s. (A first reading of
+"3.2 s warm" on GL was wrong: it ran right after the cold runs, which do not fill the cache.)
 
 ## Size, crates, build time
 

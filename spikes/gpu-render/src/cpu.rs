@@ -14,7 +14,7 @@ use vello_cpu::kurbo::{
 use vello_cpu::{Pixmap, RenderContext, RenderSettings, Resources};
 
 use crate::Backend;
-use crate::scene::{HEIGHT, Op, Scene, View, WIDTH, ellipse_cubics};
+use crate::scene::{Op, Scene, View, ellipse_cubics, height, width};
 
 // ------------------------------------------------------------------------------------------------
 // orchestra-ui (tiny-skia)
@@ -37,7 +37,7 @@ impl OrchestraUi {
             scene,
             list: DisplayList::new(),
             renderer: CpuRenderer::new(),
-            image: Image::new(WIDTH, HEIGHT).expect("valid size"),
+            image: Image::new(width(), height()).expect("valid size"),
             recorded_view: None,
         }
     }
@@ -128,7 +128,7 @@ impl Backend for OrchestraUi {
                 &self.list,
                 &self.scene.theme,
                 &Damage::all(),
-                1.0,
+                crate::scene::scale() as f32,
                 &mut self.image,
             )
             .expect("render");
@@ -143,7 +143,7 @@ impl Backend for OrchestraUi {
                     &self.list,
                     &self.scene.theme,
                     &Damage::all(),
-                    1.0,
+                    crate::scene::scale() as f32,
                     &mut self.image,
                 )
                 .expect("render");
@@ -158,7 +158,7 @@ impl Backend for OrchestraUi {
         record_segment(&mut self.list, index, ops, Transform::IDENTITY);
         let damage = self.list.take_damage();
         self.renderer
-            .render(&self.list, &self.scene.theme, &damage, 1.0, &mut self.image)
+            .render(&self.list, &self.scene.theme, &damage, crate::scene::scale() as f32, &mut self.image)
             .expect("render");
     }
 
@@ -194,9 +194,9 @@ impl VelloCpu {
         };
         Self {
             scene,
-            ctx: RenderContext::new_with(WIDTH as u16, HEIGHT as u16, settings),
+            ctx: RenderContext::new_with(width() as u16, height() as u16, settings),
             resources: Resources::new(),
-            pixmap: Pixmap::new(WIDTH as u16, HEIGHT as u16),
+            pixmap: Pixmap::new(width() as u16, height() as u16),
             threads,
         }
     }
@@ -208,13 +208,13 @@ impl VelloCpu {
 
     fn encode_and_render(&mut self, view: View, lift: bool) {
         self.ctx.reset();
-        let root = Affine::translate((view.dx, 0.0)) * Affine::scale(view.zoom);
+        let root = Affine::scale(f64::from(crate::scene::scale())) * Affine::translate((view.dx, 0.0)) * Affine::scale(view.zoom);
         // Background: the theme's surface, as our renderer clears to.
         self.ctx.set_transform(Affine::IDENTITY);
         self.ctx
             .set_paint(color(&self.scene, orchestra_ui::ColorToken::Surface));
         self.ctx
-            .fill_rect(&KRect::new(0.0, 0.0, f64::from(WIDTH), f64::from(HEIGHT)));
+            .fill_rect(&KRect::new(0.0, 0.0, f64::from(width()), f64::from(height())));
         self.ctx.set_transform(root);
         let edited = Scene::edited_index();
         for (index, ops) in self.scene.segments.iter().enumerate() {
