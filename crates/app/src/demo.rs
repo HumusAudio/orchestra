@@ -39,7 +39,7 @@ const DISC: f32 = 14.0;
 
 /// The demonstration view's state.
 #[derive(Debug, Default)]
-pub(crate) struct Demo {
+pub struct Demo {
     /// The window's size, logical pixels.
     bounds: Rect,
     /// Where the pointer is, if it is inside the window.

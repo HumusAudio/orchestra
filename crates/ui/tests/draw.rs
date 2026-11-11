@@ -27,7 +27,8 @@ use orchestra_ui::{
     Transform,
 };
 
-/// The theme of most tests: Studio, light (the guides' theme, ADR-0037 T10).
+/// The theme of most tests: Studio, light (the default pair, ADR-0037 T1; the guides' screenshots
+/// use its dark half since ADR-0041).
 fn light() -> Theme {
     *BuiltInTheme::Studio.pair().instance(Appearance::Light)
 }
@@ -813,7 +814,48 @@ fn errors_are_reported() {
             height: 1,
         },
         DrawError::TooManyImages,
+        DrawError::PngEncoding {
+            message: "x".to_owned(),
+        },
     ] {
         assert_ne!(error.to_string(), "");
+    }
+}
+
+/// PNG encoding (ADR-0041): an opaque image survives the round trip byte for byte, and a
+/// translucent pixel comes back demultiplied and re-premultiplied within one unit.
+///
+/// Decoding uses `tiny-skia`'s own decoder (a dependency of the crate, so visible to its tests):
+/// it premultiplies again, which is what makes the comparison with our premultiplied bytes direct.
+#[test]
+fn png_encoding_round_trips() {
+    // An opaque scene with anti-aliased edges, so the image is not a single colour.
+    let mut list = DisplayList::new();
+    list.record(SegmentId(1), |r| {
+        r.fill_rect(Rect::new(0.0, 0.0, 40.0, 30.0), ColorToken::Surface);
+        r.fill_rounded_rect(
+            RoundedRect::new(Rect::new(5.0, 5.0, 35.0, 25.0), 6.0),
+            ColorToken::Accent,
+        );
+    });
+    let image = draw(&list, &dark(), 40, 30, 1.0);
+    let bytes = image.encode_png().unwrap();
+    // The PNG signature: the file really is a PNG.
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+    let decoded = tiny_skia::Pixmap::decode_png(&bytes).unwrap();
+    assert_eq!((decoded.width(), decoded.height()), (40, 30));
+    assert_eq!(decoded.data(), image.data());
+
+    // A translucent pixel: premultiplied [64, 32, 0, 128] is straight [127.5…, 63.7…, 0] — the
+    // division rounds, so the round trip may be one unit off, never more.
+    let translucent = Image::from_premultiplied_rgba(1, 1, vec![64, 32, 0, 128]).unwrap();
+    let decoded = tiny_skia::Pixmap::decode_png(&translucent.encode_png().unwrap()).unwrap();
+    for (a, b) in decoded.data().iter().zip(translucent.data()) {
+        assert!(
+            a.abs_diff(*b) <= 1,
+            "{:?} vs {:?}",
+            decoded.data(),
+            translucent.data()
+        );
     }
 }

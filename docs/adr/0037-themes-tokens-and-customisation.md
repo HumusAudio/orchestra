@@ -1,6 +1,7 @@
 # ADR-0037 — Themes: tokens, ten built-in pairs, user customisation
 
-- **Status:** Accepted (owner, 2026-11-10; T9 changed by the owner from light to dark)
+- **Status:** Accepted (owner, 2026-11-10; T9 changed by the owner from light to dark). **T10 §7
+  amended by ADR-0041** (2026-11-11): the guides' screenshots use Studio's dark half.
 - **Date:** 2026-11-10
 - **Amends:** ADR-0014, "Light and dark themes" §1, §3 and §7 (details in T10). Everything else in
   ADR-0014 is unchanged: no hard-coded colour, semantic tokens, WCAG 2.2 AA, the score page
@@ -160,7 +161,7 @@ the tests use.
 If the operating system's preference cannot be read (no portal, an old system, F2.02b), the
 **dark** instance is used (owner's choice, 2026-11-10): the default pair, Studio, is designed dark
 first, as a studio tool. The guides' screenshots still use the light instance (T10), chosen
-explicitly rather than through the system.
+explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark instance.)*
 
 ### T10 — Amendments to ADR-0014
 
@@ -171,7 +172,7 @@ explicitly rather than through the system.
   theme is checked and warned about, never blocked (T8). Adding a high-contrast theme later still
   only means adding a pair.
 - **§7:** the guides' screenshots use **Studio's light instance** (the default pair in light
-  mode).
+  mode). *Amended by ADR-0041 S3 (owner, 2026-11-11): Studio's **dark** instance.*
 
 ### T11 — Where the rest goes
 

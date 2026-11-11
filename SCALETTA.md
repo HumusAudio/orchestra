@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.55, approvata dal proprietario il 2026-11-10.**
+> **Stato di questo documento: v0.56, approvata dal proprietario il 2026-11-11.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -690,7 +690,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.03 | **Astrazione di disegno**: lista di comandi di disegno, backend `tiny-skia`, ridisegno delle sole aree cambiate; rendering headless su immagine | ✅ ADR-0039 | 2–3 |
 | F2.04a | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ✅ ADR-0040 | 2 |
 | F2.04b | **Tema di sistema su Windows e macOS** con `winit` (ADR-0038 S3) e **cambi di tema seguiti** a programma aperto: la callback del portale Linux portata al ciclo eventi con `EventLoopProxy` (ADR-0040 W3) | ✅ | 1 |
-| F2.05 | **`cargo xtask screenshots`** (prima versione, tema chiaro, en-US) | ⬜ | 1 |
+| F2.05 | **`cargo xtask screenshots`** (prima versione, tema scuro, en-US) | ✅ ADR-0041 | 1 |
 | F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ⬜ | 2–3 |
 | F2.07 | **Testo**: font inclusi, shaping, cache dei glifi, misure; Bravura per i simboli musicali | ⬜ | 3 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ⬜ | 2 |
@@ -754,6 +754,13 @@ controllo completo. Va fatta bene una volta sola.
   intera dopo `Occluded(false)`). `tiny-skia` riportato al requisito caret (ADR-0036 B1).
 - **F2.05** Da ADR-0039 D8: scrittura PNG con la feature `png-format` di `tiny-skia`, e il
   doppione di `miniz_oxide` in `skip` di `deny.toml` come prevede ADR-0036 B7.
+  **Fatto il 2026-11-11 (PR #61, ADR-0041 Accepted):** il proprietario ha approvato S1–S8 e ha
+  scelto la **metà scura di Studio** per gli screenshot (emenda ADR-0014 §7 e ADR-0037 T10). Un
+  binario per sviluppatori, `orchestra-screenshots`, mai distribuito, disegna il catalogo di scene
+  `SCENES` della libreria di `orchestra-app` a scala 2; i PNG vanno in `dist/screenshots/`, non si
+  committano mai e `cargo xtask guides` li ricrea ogni volta (artefatto `screenshots` nella CI).
+  Generati su Linux, controllati in memoria sulle tre piattaforme, niente immagini di riferimento.
+  La finestra di prova non entra nelle guide (S7).
 - **F2.04b** **Fatto il 2026-11-10 (PR #60, nessun ADR nuovo):** come previsto da ADR-0038 S3 e
   ADR-0040 W3. Il proprietario ha approvato **una sola strada** per i cambi su tutte le
   piattaforme: su Windows e macOS una sorgente **alimentata dal ciclo eventi** (`system_theme()`
@@ -793,6 +800,9 @@ controllo completo. Va fatta bene una volta sola.
   torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
   Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
   barra del titolo, lì il problema sparisce su Linux.
+- **F2.15** Da ADR-0041: i primi screenshot veri nelle guide, una voce nuova in `SCENES` per ogni
+  vista mostrata; con le viste vere si riconsiderano i confronti con immagini di riferimento
+  (ADR-0041 S5).
 - **F2.14** Proposta di Claude, **confermata dal proprietario il 2026-11-08** (D13 chiusa):
   anticiparlo qui perché un musicista che perde lavoro smette di usare il programma.
 
@@ -1080,3 +1090,4 @@ raccomandato.
 | 2026-11-10 | 0.53 | F2.03 fatto (ADR-0039 Accepted, D6 emendato: ombra a 12 campioni misurati); note in F2.04 (presentazione con `softbuffer`), F2.05 (PNG e `miniz_oxide`), F2.07 (budget del fotogramma intero con la cache dei glifi); prossimo passo F2.04 | proprietario |
 | 2026-11-10 | 0.54 | F2.04 diviso in F2.04a (fatto, ADR-0040: finestra, ciclo eventi, input; tre errori trovati dal proprietario e corretti) e F2.04b (tema di sistema su Windows e macOS, cambi di tema seguiti); note di F2.04 spostate in F2.04b; nota in F2.08 (AccessKit nel punto di preparazione); prossimo passo F2.04b | proprietario |
 | 2026-11-10 | 0.55 | F2.04b fatto (PR #60): tema di sistema su Windows e macOS con `winit`, cambi seguiti a programma aperto su una sola strada (`EventLoopProxy`); nota di zbus 6 spostata in F2.08; nota in F2.12 (barra del titolo con un modo forzato); prossimo passo F2.05 | proprietario |
+| 2026-11-11 | 0.56 | F2.05 fatto (PR #61, ADR-0041 Accepted: screenshot senza finestra da un binario per sviluppatori, catalogo di scene, metà scura di Studio che emenda ADR-0014 §7 e ADR-0037 T10, mai committati); nota in F2.15 (primi screenshot veri, immagini di riferimento); prossimo passo F2.06 | proprietario |

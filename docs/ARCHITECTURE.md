@@ -26,7 +26,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 | `crates/i18n` | `orchestra-i18n` | Fluent catalogs for 6 languages, parity tests |
 | `crates/ui` | `orchestra-ui` | Our own UI layer (ADR-0012), light/dark themes (ADR-0014), notation/DAW/video views, input → commands, headless screenshots |
 | `crates/video` | `orchestra-video` | Video tracks (last phase; empty for now) |
-| `crates/app` | `orchestra-app` (binary `orchestra`) | Wiring only |
+| `crates/app` | `orchestra-app` (binaries `orchestra` and the developer tool `orchestra-screenshots`, ADR-0041) | Wiring only; the views shared by both binaries; the screenshot scene catalogue |
 | `crates/test-support` | `orchestra-test-support` | Test-only helpers: per-thread allocation-counting global allocator (ADR-0016); `[dev-dependencies]` only |
 | `crates/test-scores` | `orchestra-test-scores` | Test-only deterministic generators of the reference scores (ADR-0031); `[dev-dependencies]` only |
 | `xtask` | `xtask` | Automation: `cargo xtask check/guides/screenshots/bench/setup` |

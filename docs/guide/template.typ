@@ -5,8 +5,8 @@
 // Both guides import this file, so the look is defined in exactly one place and the two PDFs can
 // only differ in their text (ADR-0009). Compiled by `cargo xtask guides` with:
 //   typst compile --root <repo> --ignore-system-fonts --font-path <repo>/assets/fonts …
-// `--root` is the repository, so absolute paths like "/assets/screenshots/x.png" work from every
-// chapter; `--ignore-system-fonts` guarantees the same PDF on every machine.
+// `--root` is the repository, so absolute paths like "/dist/screenshots/x.png" work from every
+// chapter (the screenshots are rendered there first, never committed: ADR-0041); `--ignore-system-fonts` guarantees the same PDF on every machine.
 
 // ------------------------------------------------------------------------------------------------
 // Design tokens
@@ -89,9 +89,10 @@
 /// "Warning" box.
 #let warning(label, body) = callout(label, body, bg: palette.warn-bg, bar: palette.warn-bar, label-fill: palette.accent-text)
 
-/// A screenshot generated headless by `cargo xtask screenshots` (always in en-US, shared by both
-/// guides): framed, with a soft shadow-like border and a caption. `path` is absolute from the
-/// repository root, e.g. "/assets/screenshots/main-window.png".
+/// A screenshot generated headless by `cargo xtask screenshots` (always in en-US and Studio's dark
+/// theme, shared by both guides, ADR-0041): framed, with a soft shadow-like border and a caption.
+/// `path` is absolute from the repository root, e.g. "/dist/screenshots/main-window.png" (the
+/// file name is the scene's name in the catalogue of `orchestra-app`).
 #let screenshot(path, caption, width: 100%) = figure(
   block(
     radius: 4pt,

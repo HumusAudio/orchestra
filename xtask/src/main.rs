@@ -10,8 +10,8 @@
 //! |---|---|
 //! | `setup` | Points git at the versioned hooks (`git config core.hooksPath .githooks`). |
 //! | `check` | Everything CI checks: fmt, clippy, tests (nextest), cargo-deny, documentation parity, guide parity, test-only crates kept out of normal dependencies. Translation parity runs inside the tests. |
-//! | `guides` | Builds `dist/GUIDA.pdf` (it) and `dist/GUIDE.pdf` (en-US) with Typst. |
-//! | `screenshots` | Placeholder until our UI layer exists (ADR-0012: no toolkit, headless rendering to a pixmap). |
+//! | `guides` | Renders the screenshots, then builds `dist/GUIDA.pdf` (it) and `dist/GUIDE.pdf` (en-US) with Typst. |
+//! | `screenshots` | Renders the guides' screenshots headless into `dist/screenshots/` with `orchestra-screenshots` (ADR-0041). |
 //! | `bench` | Instruction-count benchmarks with Gungraun under Valgrind on Linux; compile-only elsewhere (ADR-0016). With `--compare <rev>`, also the regression gate against the merge base with `<rev>` (ADR-0017). |
 //!
 //! Every command prints what it runs, stops at the first failure and exits with a non-zero code,
@@ -51,8 +51,9 @@ commands:
   setup        configure git to use the versioned hooks in .githooks/
   check        fmt, clippy, tests, cargo-deny, documentation and guide parity,
                test-only crates kept out of normal dependencies
-  guides       build dist/GUIDA.pdf and dist/GUIDE.pdf with Typst
-  screenshots  (not implemented yet: needs our UI layer, ADR-0012)
+  guides       render the screenshots, then build dist/GUIDA.pdf and
+               dist/GUIDE.pdf with Typst
+  screenshots  render the guides' screenshots into dist/screenshots/
   bench        instruction-count benchmarks (Gungraun + Valgrind, Linux);
                on Windows and macOS the benchmarks are only compiled
   bench --compare <rev>
@@ -250,12 +251,15 @@ fn check() -> TaskResult {
     Ok(())
 }
 
-/// `cargo xtask guides`: builds both user guides into `dist/`.
+/// `cargo xtask guides`: renders the screenshots, then builds both user guides into `dist/`.
 ///
-/// Typst is run with the repository as root (so chapters can use absolute paths like
+/// The screenshots come first because the guides include them from `dist/screenshots/` and they
+/// are never committed (ADR-0041 S4): building them every time means a guide can never show a
+/// picture older than the code. Typst is run with the repository as root (so chapters can use absolute paths like
 /// `/docs/guide/template.typ`) and with `--ignore-system-fonts`, so only the fonts bundled in
 /// `assets/fonts` are used and the PDFs are identical on every machine (ADR-0009).
 fn guides() -> TaskResult {
+    screenshots()?;
     let root = root();
     let dist = root.join("dist");
     std::fs::create_dir_all(&dist)
@@ -285,18 +289,66 @@ fn guides() -> TaskResult {
     Ok(())
 }
 
-/// `cargo xtask screenshots`: not implemented yet.
+/// `cargo xtask screenshots`: renders the guides' screenshots into `dist/screenshots/` (ADR-0041).
 ///
-/// Screenshots for the guides are rendered headless by the application itself, always in en-US
-/// (ADR-0009). That needs our own UI layer (ADR-0012: no toolkit), which will render the interface
-/// into an off-screen pixmap with the same renderer it uses on screen.
-/// It fails rather than silently succeeding, so nobody mistakes it for a working step.
+/// # How
+/// xtask stays dependency-free (std only), so it cannot draw by itself: it runs the developer tool
+/// `orchestra-screenshots` of the `orchestra-app` crate, which renders every scene of the
+/// catalogue headless with the program's own views and renderer and writes one PNG per scene.
+/// A debug build is enough: one frame per scene takes a fraction of a second even unoptimised,
+/// and the debug profile shares its build with `cargo xtask check`.
+///
+/// # Stale files
+/// Before rendering, every `.png` already in `dist/screenshots/` is deleted, so a scene removed or
+/// renamed in the catalogue cannot leave an old picture behind for the guides to include. Only
+/// `.png` files directly in that directory are touched: it is our generated output (ignored by
+/// git, ADR-0009 §4), and anything else someone put there is left alone.
 fn screenshots() -> TaskResult {
-    Err(TaskError(
-        "screenshots: not implemented yet — headless rendering arrives with our UI layer \
-         (ADR-0012); guides use screenshot placeholders until then"
-            .to_owned(),
-    ))
+    let out = root().join("dist").join("screenshots");
+    remove_pngs(&out)?;
+    run(
+        "cargo",
+        [
+            OsStr::new("run"),
+            OsStr::new("--locked"),
+            OsStr::new("--package"),
+            OsStr::new("orchestra-app"),
+            OsStr::new("--bin"),
+            OsStr::new("orchestra-screenshots"),
+            OsStr::new("--"),
+            out.as_os_str(),
+        ],
+    )?;
+    println!("\nscreenshots written to {}", out.display());
+    Ok(())
+}
+
+/// Deletes the `.png` files directly inside `dir` (not in subdirectories). A missing `dir` is not
+/// an error: there is simply nothing to delete yet.
+///
+/// # Errors
+/// Fails if the directory exists but cannot be listed, or a file cannot be deleted.
+fn remove_pngs(dir: &Path) -> TaskResult {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(TaskError(format!("cannot list {}: {e}", dir.display()))),
+    };
+    for entry in entries {
+        let path = entry
+            .map_err(|e| TaskError(format!("cannot list {}: {e}", dir.display())))?
+            .path();
+        // The extension is compared case-insensitively ("x.PNG" too), because Windows and macOS
+        // file systems usually are; files without an extension are kept.
+        let is_png = path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("png"));
+        if is_png && path.is_file() {
+            std::fs::remove_file(&path)
+                .map_err(|e| TaskError(format!("cannot delete {}: {e}", path.display())))?;
+        }
+    }
+    Ok(())
 }
 
 /// Workspace crates that may appear only in `[dev-dependencies]` (ADR-0016 §6, ADR-0031 §2).

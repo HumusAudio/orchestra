@@ -48,3 +48,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0038](0038-system-theme-detection.md) | Reading the system light/dark preference: our portal code on Linux, winit elsewhere | Accepted |
 | [0039](0039-drawing-abstraction.md) | The drawing abstraction: a segmented display list of themed commands | Accepted |
 | [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted |
+| [0041](0041-headless-screenshots.md) | Headless screenshots: a scene catalogue, rendered by the app, never committed (amends ADR-0014 §7, ADR-0037 T10) | Accepted |

@@ -28,7 +28,7 @@
 //! - The only logo is `assets/logo/orchestra-logo.svg`, recoloured per theme, never reshaped.
 //! - Drawing through a display list of themed commands in segments, redrawn only where damaged,
 //!   with a `tiny-skia` backend that also renders headless into an image (ADR-0039, private module
-//!   `draw`); PNG encoding for `cargo xtask screenshots` comes in F2.05.
+//!   `draw`), and encodes an image as PNG for `cargo xtask screenshots` (ADR-0041).
 //! - The window and the event loop on `winit` + `softbuffer` (ADR-0040, private module `window`):
 //!   frames on demand, our own input events with an abstract primary modifier, scale and resize;
 //!   the interface implements `WindowApp` and never sees `winit`.

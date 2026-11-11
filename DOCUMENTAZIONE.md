@@ -242,6 +242,9 @@ sandbox di Claude Code è in sola lettura.
 - `[bans] skip`: `syn` 2, un doppione solo di compilazione accanto a `syn` 3. Viene da due macro
   procedurali di `zbus` 5 (`enumflags2_derive`, `tracing-attributes`), come prevedeva ADR-0036 B7.
   Uscita: quelle macro che passano a syn 3, oppure zbus 6.
+- `[bans] skip`: `miniz_oxide` 0.8, accanto alla 0.9. `png` 0.18 (portato dalla feature
+  `png-format` di `tiny-skia` per gli screenshot, ADR-0041) usa la 0.8 direttamente e la 0.9
+  attraverso `flate2`, come prevedeva ADR-0036 B7. Uscita: un `png` nuovo.
 - `[advisories] ignore`: RUSTSEC-2026-0370, -0371 e -0372, gli avvisi "non più mantenuto" di
   `zvariant`, `zbus_names` e `zvariant_derive`. zbus 6 li ha incorporati in `zbus` stesso. Non
   sono vulnerabilità, e sono ignorati solo questi tre ID, quindi un vero avviso di sicurezza sugli
@@ -2696,7 +2699,8 @@ possono contenere codice `unsafe`, sempre con un commento `// SAFETY:`.
 `io` gestisce il file di progetto versionato con migrazioni (ADR-0010), MIDI e MusicXML. `ui`
 disegna le viste e trasforma l'input in comandi (senza toolkit grafico: widget e disegno sono nostri, ADR-0012). `video` è vuoto di
 proposito fino all'ultima fase. `app` produce l'eseguibile `orchestra` e si limita a collegare
-gli altri.
+gli altri; da F2.05 è una libreria più due binari, `orchestra` e lo strumento per sviluppatori
+`orchestra-screenshots` (ADR-0041), così entrambi disegnano le stesse viste.
 
 #### Il file di progetto
 
@@ -3316,16 +3320,20 @@ quattro gli errori arrivavano a 3,5 gradini di colore a 8 bit vicino agli angoli
 massimo 0,84.
 
 **Senza finestra.** `CpuRenderer::render_to_image` disegna una lista in un'immagine RGBA in memoria
-(il tipo `Image`, alfa premoltiplicata), senza finestra e senza display. I file PNG arrivano con gli
-screenshot, in F2.05.
+(il tipo `Image`, alfa premoltiplicata), senza finestra e senza display. `Image::encode_png` la
+trasforma in un file PNG in memoria (F2.05, ADR-0041): il codificatore di `tiny-skia` stesso, con la
+feature `png-format`, divide ogni colore per l'alfa (il PNG vuole l'alfa non premoltiplicata) e
+comprime le righe. Un'immagine opaca torna identica byte per byte quando la si decodifica; un pixel
+semitrasparente può differire di un'unità, cosa che a nessuno screenshot capita (sono tutti
+opachi). Un errore è la nuova variante `DrawError::PngEncoding`.
 
-**Test.** `tests/draw.rs` (24 test) controlla i pixel in modo esatto dove il risultato è esatto per
+**Test.** `tests/draw.rs` (25 test) controlla i pixel in modo esatto dove il risultato è esatto per
 costruzione: rettangoli e linee allineati (spessori pari e dispari, estremità piatte e quadrate),
 linee sottilissime che non spariscono mai, il fattore di scala, i token di due temi, l'opacità,
 l'ordine dei segmenti, il danno dopo una nuova registrazione e una rimozione, il ridisegno delle
 sole aree danneggiate (un pixel segnaposto fuori dal danno sopravvive), la regola di metà
 fotogramma, i ritagli annidati, le trasformazioni chiuse da sole, gli ingombri con bordo e ombra,
-le ombre (scure dentro, simmetriche, sfumate), le immagini, gli errori. Due controlli non dipendono
+le ombre (scure dentro, simmetriche, sfumate), le immagini, gli errori, l'andata e ritorno in PNG. Due controlli non dipendono
 dalla logica del codice: l'area di un cerchio con anti-aliasing è π·r² entro lo 0,5 %, e disegnare
 una scena con tutti i comandi solo attraverso i suoi danni dà la stessa immagine che disegnarla
 intera. `tests/draw_no_alloc.rs` dimostra che registrare di nuovo e calcolare i danni non allocano
@@ -3370,7 +3378,7 @@ let options = WindowOptions {
     width: 960.0,
     height: 600.0,
 };
-orchestra_ui::run(demo::Demo::default(), options)?;
+orchestra_ui::run(Demo::default(), options)?;
 ```
 
 **Fotogrammi su richiesta.** Il ciclo dorme finché non arriva un evento. Si disegna un fotogramma
@@ -3423,7 +3431,8 @@ prima dimensione; l'adapter di AccessKit con i primi widget, che va in panic se 
 finestra è stata mostrata), e solo allora mostrata. `window/order.rs` lo fa in una funzione
 generica sul tipo di finestra, così un test verifica l'ordine con una finestra finta.
 
-**La finestra di prova.** `cargo run -p orchestra-app` apre `crates/app/src/demo.rs`: un pannello
+**La finestra di prova.** `cargo run -p orchestra-app` apre `crates/app/src/demo.rs` (nella libreria
+del crate da F2.05, così gli screenshot disegnano proprio la stessa vista): un pannello
 in rilievo con la sua ombra e tre controlli, un rigo di cinque linee da 1 px con delle teste di
 nota (che devono restare nitide a ogni scala), quattro quadrati che si accendono con il
 modificatore primario e il secondario, Shift e Alt, e un disco che segue il puntatore (colore
@@ -3449,6 +3458,57 @@ quando la creazione fallisce), i temi di `winit` tradotti nei nostri, e `ThemeSt
 *Sistema* segue ogni risposta e chiede un ridisegno solo quando la metà cambia; *Chiaro* e *Scuro*
 ignorano il sistema). La finestra vera la verifica a mano il proprietario su Linux; su Windows e
 macOS il codice del tema è compilato e provato dalla CI ma nessuno lo guarda (ADR-0040 W9).
+
+#### Gli screenshot
+
+Il passo F2.05 (ADR-0041) disegna gli screenshot delle guide con le viste e il renderer del
+programma stesso, senza finestra. Lavorano insieme tre pezzi.
+
+**Un catalogo di scene.** `crates/app/src/screenshots.rs` elenca ogni screenshot in `SCENES`: un
+nome in kebab case (il nome del file), una dimensione in pixel logici e una funzione che porta una
+vista nello stato da mostrare, esattamente come farebbe una finestra: `layout` per la dimensione
+della scena, poi eventuali eventi di input. Oggi c'è una sola scena, la finestra di prova a riposo
+con il puntatore a destra del pannello:
+
+```rust
+pub const SCENES: &[Scene] = &[Scene {
+    name: "demo-window",
+    width: 640.0,
+    height: 330.0,
+    record: record_demo_window,
+}];
+
+fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
+    let mut demo = Demo::default();
+    demo.layout(bounds, list);
+    demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
+}
+```
+
+`render` disegna una scena con `CpuRenderer::render_to_image` a **scala 2** (una scena larga 640
+pixel diventa di 1280, circa 200 dpi sulla larghezza del testo di una pagina A4) nella **metà scura
+di Studio**, impostata in modo esplicito e mai letta dal sistema (scelta del proprietario; modifica
+ADR-0014 §7 e ADR-0037 T10, che dicevano chiara). La lingua sarà en-US quando ci sarà del testo.
+
+**Un binario per sviluppatori.** `orchestra-app` ora è una libreria (`src/lib.rs`, con `demo` e
+`screenshots`) e due binari: `orchestra`, il programma, e `orchestra-screenshots <OUT_DIR>`, che
+disegna ogni scena e scrive `<OUT_DIR>/<nome>.png`. Non si distribuisce mai. Un'opzione nascosta in
+`orchestra` è stata scartata: codice e messaggi per sviluppatori starebbero dentro il programma che
+usano gli utenti.
+
+**`cargo xtask screenshots`.** Cancella i file `.png` già presenti in `dist/screenshots/` (così una
+scena rinominata non lascia avanzi; gli altri file restano) ed esegue lo strumento con
+`cargo run`. Le immagini non si committano mai, come i PDF: `cargo xtask guides` le disegna per
+prime, così una guida non mostra mai un'immagine più vecchia del codice, e le include come
+`/dist/screenshots/<nome>.png`. Le guide non mostrano la finestra di prova: è una vista provvisoria,
+quindi tengono i loro segnaposto finché non esistono le viste vere.
+
+**Test.** `crates/app/tests/screenshots.rs` (4 test) gira sulle tre piattaforme, in memoria: i nomi
+sono nomi di file unici in kebab case; ogni scena ha la sua dimensione per la scala, è del tutto
+opaca, si codifica in PNG e si disegna identica due volte; ogni scena usa Studio scuro; una
+dimensione sbagliata è un errore tipizzato (`ScreenshotError::Size`), non un panic. Non si
+chiedono immagini identiche al pixel fra piattaforme (`tiny-skia` esegue codice diverso su x86 e su
+ARM) e per ora non ci sono immagini di riferimento: i file delle guide li genera la CI su Linux.
 
 ### orchestra-test-support: contare le allocazioni nei test
 
@@ -3776,8 +3836,8 @@ chiavi di messaggio, non stringhe qualsiasi.
 ```sh
 cargo xtask setup        # use the versioned git hooks (once per clone)
 cargo xtask check        # everything CI checks
-cargo xtask guides       # build dist/GUIDA.pdf and dist/GUIDE.pdf
-cargo xtask screenshots  # not implemented yet (needs the UI layer, ADR-0012)
+cargo xtask guides       # render the screenshots, then build dist/GUIDA.pdf and dist/GUIDE.pdf
+cargo xtask screenshots  # render the guides' screenshots into dist/screenshots/ (ADR-0041)
 cargo xtask bench        # instruction-count benchmarks (Linux; compile-only elsewhere)
 cargo xtask bench --compare main  # same, plus the regression gate against main (ADR-0017)
 ```
@@ -3799,8 +3859,9 @@ contenuto esatto dei blocchi di codice. Per le guide richiedono anche gli stessi
 `docs/guide/it/` e `docs/guide/en/`, e in ogni coppia di file Typst gli stessi titoli, gli stessi
 `#include` e gli stessi screenshot. Se falliscono, indicano la prima differenza.
 
-`screenshots` fallisce di proposito con una spiegazione invece di non fare niente, così nessuno
-lo scambia per un passaggio funzionante.
+`screenshots` esegue lo strumento per sviluppatori `orchestra-screenshots` (la sezione "Gli
+screenshot" sopra); `guides` esegue prima `screenshots`, perché le guide includono le immagini da
+`dist/screenshots/`.
 
 ### Benchmark e test di proprietà
 
@@ -4034,8 +4095,9 @@ I job:
   versione di `rust-version`), ripristina la cache di compilazione, installa `cargo-nextest` e
   `cargo-deny` già compilati ed esegue `cargo xtask check`. Le tre piattaforme girano in modo
   indipendente (`fail-fast: false`), così un errore su Windows non nasconde quello su macOS;
-- **guides**, su Linux: installa Typst 0.15.1, esegue `cargo xtask guides` e carica `GUIDA.pdf` e
-  `GUIDE.pdf` come artefatto `user-guides`, conservato per 30 giorni;
+- **guides**, su Linux: installa Typst 0.15.1, esegue `cargo xtask guides` (che prima compila
+  `orchestra-app` e disegna gli screenshot) e carica `GUIDA.pdf` e `GUIDE.pdf` come artefatto
+  `user-guides` e i file PNG come artefatto `screenshots`, entrambi conservati per 30 giorni;
 - **bench**, su Linux: installa Valgrind (`apt-get`) e il `gungraun-runner` già compilato della
   versione fissata, esegue `cargo xtask bench`, scrive i numeri nella pagina di riepilogo
   dell'esecuzione e li carica (con un `summary.json` per benchmark) come artefatto `benchmarks`. Su
@@ -4044,7 +4106,7 @@ I job:
   base comune); la pagina di riepilogo mostra allora solo il confronto. Su Windows e macOS anche il job **check** esegue `cargo xtask bench`, che lì si
   limita a compilare i benchmark.
 
-Ogni job ha un `timeout-minutes` (check 45, guides 20, bench 90): senza, GitHub aspetta sei ore
+Ogni job ha un `timeout-minutes` (check 45, guides 30, bench 90): senza, GitHub aspetta sei ore
 prima di fermare un job bloccato (un test chiuso in un ciclo, un runner che non risponde più). I
 valori sono qualche volta la durata normale più lunga (circa 10 minuti per un check su Windows senza
 cache, 20 per il confronto dei benchmark), così un runner lento finisce comunque e uno bloccato si
@@ -4084,12 +4146,13 @@ un'immagine e aggiunge la didascalia. Le due guide si limitano a importarlo:
 ```
 
 `docs/guide/it/` e `docs/guide/en/` contengono gli stessi file con gli stessi capitoli. Gli
-screenshot saranno generati senza display dall'applicazione, sempre in inglese, e condivisi dalle
-due guide; finché il nostro strato di interfaccia non esiste, i capitoli usano `screenshot-placeholder`, che
-ha la stessa cornice e la stessa didascalia di uno screenshot vero. Le parole di Typst ("Figura",
+screenshot sono generati senza display dall'applicazione (`cargo xtask screenshots`, ADR-0041), in
+inglese e nel tema scuro di Studio, condivisi dalle due guide e inclusi come
+`/dist/screenshots/<nome>.png`; finché non esistono le viste vere, i capitoli usano
+`screenshot-placeholder`, che ha la stessa cornice e la stessa didascalia di uno screenshot vero. Le parole di Typst ("Figura",
 "Indice") seguono l'impostazione `lang`, quindi il template non contiene testo in nessuna lingua.
 
-`cargo xtask guides` compila entrambi i PDF in `dist/` con `--ignore-system-fonts`, così vengono
+`cargo xtask guides` disegna gli screenshot, poi compila entrambi i PDF in `dist/` con `--ignore-system-fonts`, così vengono
 usati solo i font di `assets/fonts/` e il risultato è identico su ogni macchina. I PDF non si
 committano mai: la CI li pubblica come artefatti.
 

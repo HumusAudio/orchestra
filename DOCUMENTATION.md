@@ -227,6 +227,9 @@ Claude Code sandbox.
 - `[bans] skip`: `syn` 2, a build-time duplicate next to `syn` 3. It comes from two proc macros of
   `zbus` 5 (`enumflags2_derive`, `tracing-attributes`), as ADR-0036 B7 foresaw. Exit: those macros
   moving to syn 3, or zbus 6.
+- `[bans] skip`: `miniz_oxide` 0.8, next to 0.9. `png` 0.18 (brought by `tiny-skia`'s
+  `png-format` feature for the screenshots, ADR-0041) uses 0.8 directly and 0.9 through `flate2`,
+  as ADR-0036 B7 foresaw. Exit: a new `png`.
 - `[advisories] ignore`: RUSTSEC-2026-0370, -0371 and -0372, the "unmaintained" notices of
   `zvariant`, `zbus_names` and `zvariant_derive`. zbus 6 merged them into `zbus` itself. They are
   not vulnerabilities, and only these three IDs are ignored, so a real security advisory on the
@@ -2522,7 +2525,9 @@ under the strict rules of ADR-0007 and offers a null/offline backend for tests. 
 
 `io` handles the versioned project file with migrations (ADR-0010), MIDI and MusicXML. `ui` draws
 the views and turns input into commands (no GUI toolkit: widgets and drawing are ours, ADR-0012). `video` is intentionally empty until
-the last phase. `app` builds the `orchestra` executable and only wires the others together.
+the last phase. `app` builds the `orchestra` executable and only wires the others together; since F2.05 it is a
+library plus two binaries, `orchestra` and the developer tool `orchestra-screenshots` (ADR-0041),
+so both draw the same views.
 
 #### The project file
 
@@ -3106,15 +3111,18 @@ about 65 ms to 16 ms). Twelve samples were chosen by measuring against a brute-f
 four gave errors of 3.5 steps of 8-bit colour near the corners, twelve give at most 0.84.
 
 **Headless.** `CpuRenderer::render_to_image` draws a list into an in-memory RGBA image (the
-`Image` type, premultiplied alpha), with no window and no display. PNG files come with the
-screenshots, in F2.05.
+`Image` type, premultiplied alpha), with no window and no display. `Image::encode_png` turns it
+into a PNG file in memory (F2.05, ADR-0041): `tiny-skia`'s own encoder, with the `png-format`
+feature, divides each colour by alpha (PNG wants straight alpha) and compresses the rows. An
+opaque image comes back byte for byte when decoded; a translucent pixel may be one unit off,
+which no screenshot has (they are all opaque). A failure is the new `DrawError::PngEncoding`.
 
-**Tests.** `tests/draw.rs` (24 tests) checks pixels exactly where the result is exact by design:
+**Tests.** `tests/draw.rs` (25 tests) checks pixels exactly where the result is exact by design:
 snapped rectangles and lines (odd and even widths, butt and square caps), hairlines that never
 vanish, the scale factor, the tokens of two themes, opacity, the order of segments, damage after
 re-recording and removing, redrawing only the damage (a marker pixel outside it survives), the
 half-frame rule, nested clips, transforms closed automatically, bounds with stroke and shadow
-reach, shadows (shaded inside, symmetric, fading), images, errors. Two checks are independent of
+reach, shadows (shaded inside, symmetric, fading), images, errors, the PNG round trip. Two checks are independent of
 the code's own logic: the area of an anti-aliased circle equals π·r² within 0.5 %, and drawing a
 scene with every command only through its damage gives the same picture as drawing it whole.
 `tests/draw_no_alloc.rs` proves that recording again and computing damage never allocate. Six
@@ -3156,7 +3164,7 @@ let options = WindowOptions {
     width: 960.0,
     height: 600.0,
 };
-orchestra_ui::run(demo::Demo::default(), options)?;
+orchestra_ui::run(Demo::default(), options)?;
 ```
 
 **Frames on demand.** The loop sleeps until an event arrives. A frame is drawn only when the list
@@ -3205,7 +3213,8 @@ size; AccessKit's adapter with the first widgets, which panics if it arrives aft
 shown), and only then shown. `window/order.rs` does this in a function generic over the window, so
 a test checks the order with a fake window.
 
-**The demonstration window.** `cargo run -p orchestra-app` opens `crates/app/src/demo.rs`: a raised
+**The demonstration window.** `cargo run -p orchestra-app` opens `crates/app/src/demo.rs` (in the
+crate's library since F2.05, so the screenshots draw the very same view): a raised
 panel with its shadow and three controls, a staff of five 1 px lines with noteheads (which must
 stay sharp at every scale), four squares that light up with the primary and secondary modifiers,
 Shift and Alt, and a disc that follows the pointer (accent colour while a button is held). Moving
@@ -3229,6 +3238,57 @@ presented rectangles in device pixels, the order of window creation (also when c
 redraw only when the half changes; *Light* and *Dark* ignore the system). The window itself is
 checked by hand by the owner on Linux; on Windows and macOS the theme code is compiled and tested
 by CI but not looked at (ADR-0040 W9).
+
+#### The screenshots
+
+Step F2.05 (ADR-0041) renders the guides' screenshots with the program's own views and renderer,
+without a window. Three pieces work together.
+
+**A catalogue of scenes.** `crates/app/src/screenshots.rs` lists every screenshot in `SCENES`: a
+name in kebab case (the file name), a size in logical pixels and a function that brings a view
+into the state to show, exactly as a window would: `layout` for the scene's size, then any input
+events. Today there is one scene, the demonstration window at rest with the pointer to the right
+of the panel:
+
+```rust
+pub const SCENES: &[Scene] = &[Scene {
+    name: "demo-window",
+    width: 640.0,
+    height: 330.0,
+    record: record_demo_window,
+}];
+
+fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
+    let mut demo = Demo::default();
+    demo.layout(bounds, list);
+    demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
+}
+```
+
+`render` draws a scene with `CpuRenderer::render_to_image` at **scale 2** (a 640-pixel-wide scene
+becomes 1280 pixels, about 200 dpi across the text width of an A4 page) in **Studio's dark half**,
+set explicitly and never read from the system (the owner's choice; it amends ADR-0014 §7 and
+ADR-0037 T10, which said light). The language will be en-US once there is text.
+
+**A developer binary.** `orchestra-app` is now a library (`src/lib.rs`, with `demo` and
+`screenshots`) and two binaries: `orchestra`, the program, and `orchestra-screenshots <OUT_DIR>`,
+which renders every scene and writes `<OUT_DIR>/<name>.png`. It is never distributed. A hidden
+option in `orchestra` was rejected: developer code and messages would live inside the program users
+run.
+
+**`cargo xtask screenshots`.** It deletes the `.png` files already in `dist/screenshots/` (so a
+renamed scene leaves nothing behind; other files are left alone) and runs the tool with
+`cargo run`. The pictures are never committed, like the PDFs: `cargo xtask guides` renders them
+first, so a guide never shows a picture older than the code, and includes them as
+`/dist/screenshots/<name>.png`. The guides do not show the demonstration window: it is a
+throw-away view, so they keep their placeholders until the real views exist.
+
+**Tests.** `crates/app/tests/screenshots.rs` (4 tests) runs on the three platforms, in memory:
+names are unique kebab-case file names; every scene has its size times the scale, is fully opaque,
+encodes as PNG and renders identically twice; every scene uses Studio dark; a bad size is a typed
+error (`ScreenshotError::Size`), not a panic. Pixel-identical pictures across platforms are not
+required (`tiny-skia` runs different code on x86 and ARM), and there are no reference images yet:
+the guides' files are generated on Linux by CI.
 
 ### orchestra-test-support: counting allocations in tests
 
@@ -3548,8 +3608,8 @@ guarantee: their label APIs will accept only message keys, not arbitrary strings
 ```sh
 cargo xtask setup        # use the versioned git hooks (once per clone)
 cargo xtask check        # everything CI checks
-cargo xtask guides       # build dist/GUIDA.pdf and dist/GUIDE.pdf
-cargo xtask screenshots  # not implemented yet (needs the UI layer, ADR-0012)
+cargo xtask guides       # render the screenshots, then build dist/GUIDA.pdf and dist/GUIDE.pdf
+cargo xtask screenshots  # render the guides' screenshots into dist/screenshots/ (ADR-0041)
 cargo xtask bench        # instruction-count benchmarks (Linux; compile-only elsewhere)
 cargo xtask bench --compare main  # same, plus the regression gate against main (ADR-0017)
 ```
@@ -3572,8 +3632,9 @@ of code blocks. For the guides they also require the same files in `docs/guide/i
 `docs/guide/en/`, and in each pair of Typst files the same headings, `#include`s and screenshots.
 On failure they point at the first difference.
 
-`screenshots` deliberately fails with an explanation instead of doing nothing, so nobody
-mistakes it for a working step.
+`screenshots` runs the developer tool `orchestra-screenshots` (the section "The screenshots"
+above); `guides` runs `screenshots` first, because the guides include the pictures from
+`dist/screenshots/`.
 
 ### Benchmarks and property tests
 
@@ -3798,8 +3859,9 @@ The jobs:
   same version as `rust-version`), restores the build cache, installs prebuilt `cargo-nextest` and
   `cargo-deny`, and runs `cargo xtask check`. The three platforms run independently
   (`fail-fast: false`), so a Windows failure does not hide a macOS one;
-- **guides**, on Linux: installs Typst 0.15.1, runs `cargo xtask guides` and uploads
-  `GUIDA.pdf` and `GUIDE.pdf` as the `user-guides` artifact, kept for 30 days;
+- **guides**, on Linux: installs Typst 0.15.1, runs `cargo xtask guides` (which builds
+  `orchestra-app` and renders the screenshots first) and uploads `GUIDA.pdf` and `GUIDE.pdf` as the
+  `user-guides` artifact and the PNG files as the `screenshots` artifact, both kept for 30 days;
 - **bench**, on Linux: installs Valgrind (`apt-get`) and the prebuilt `gungraun-runner` of the
   pinned version, runs `cargo xtask bench`, writes the numbers into the run's summary page and
   uploads them (with one `summary.json` per benchmark) as the `benchmarks` artifact. On every
@@ -3808,7 +3870,7 @@ The jobs:
   available); the summary page then shows only the comparison. On Windows and macOS the **check** job runs `cargo xtask bench` too, which there only compiles
   the benchmarks.
 
-Every job has a `timeout-minutes` (check 45, guides 20, bench 90): without one, GitHub waits six
+Every job has a `timeout-minutes` (check 45, guides 30, bench 90): without one, GitHub waits six
 hours before stopping a job that hangs (a test stuck in a loop, a runner that stops answering). The
 values are a few times the longest normal run (about 10 minutes for a cold Windows check, 20 for
 the benchmark comparison), so a slow runner still finishes and a stuck one is stopped early.
@@ -3845,12 +3907,13 @@ that frames an image and adds a caption. The two guides only import it:
 ```
 
 `docs/guide/it/` and `docs/guide/en/` contain the same files with the same chapters. Screenshots
-will be generated headless by the application, always in English, and shared by both guides;
-until our UI layer exists, chapters use `screenshot-placeholder`, which has the same frame
-and caption as a real screenshot. Typst's own words ("Figure", "Contents") follow the `lang`
+are generated headless by the application (`cargo xtask screenshots`, ADR-0041), in English and in
+Studio's dark theme, shared by both guides and included as `/dist/screenshots/<name>.png`; until
+the real views exist, chapters use `screenshot-placeholder`, which has the same frame and caption
+as a real screenshot. Typst's own words ("Figure", "Contents") follow the `lang`
 setting, so the template contains no text in any language.
 
-`cargo xtask guides` compiles both PDFs into `dist/` with `--ignore-system-fonts`, so only the
+`cargo xtask guides` renders the screenshots, then compiles both PDFs into `dist/` with `--ignore-system-fonts`, so only the
 fonts in `assets/fonts/` are used and the output is identical on every machine. The PDFs are never
 committed; CI publishes them as artifacts.
 
