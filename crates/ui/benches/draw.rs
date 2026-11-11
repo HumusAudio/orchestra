@@ -141,7 +141,10 @@ fn drawn() -> Drawn {
     let mut list = DisplayList::new();
     record_all(&mut list);
     let theme = theme();
-    let mut renderer = CpuRenderer::new();
+    // Single-threaded (ADR-0042, F2.06b): Callgrind counts the instructions of every thread, and
+    // worker threads would add scheduling noise; the multi-threaded speed is measured with the
+    // `gpu-render` spike instead.
+    let mut renderer = CpuRenderer::with_threads(0);
     let mut image = Image::new(WIDTH, HEIGHT).unwrap();
     let damage = list.take_damage();
     renderer

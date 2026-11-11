@@ -3307,6 +3307,34 @@ reattivo); ora un movimento costa circa 0,5 ms. I bordi dritti vengono **allinea
 rigo da 1 px o il bordo di un widget cade su esattamente una fila di pixel, mai su due
 semitrasparenti. Tracciati e angoli arrotondati restano con l'anti-aliasing.
 
+**Il backend `vello_cpu` (F2.06b, in corso).** ADR-0042 sostituisce `tiny-skia` con `vello_cpu`
+dietro la stessa lista. `draw/vello.rs` contiene il nuovo `CpuRenderer`: per ogni regione
+danneggiata codifica una scena `vello_cpu` grande quanto la regione (solo i segmenti e i comandi
+che la toccano) e la rasterizza direttamente nel fotogramma allo spostamento della regione, senza
+buffer d'appoggio; le regioni piccole usano un contesto a un thread, quelle grandi un contesto con
+thread di lavoro (`default_render_threads()`: i core meno uno, così un core resta libero per
+l'audio). Le regole di allineamento ai pixel sono passate in `draw/snap.rs`, condiviso dai due
+backend; il vecchio renderer resta, come `TinySkiaRenderer`, solo finché il passo confronta i due.
+La finestra prende il numero di thread da
+`WindowOptions::render_threads` (`None` = il valore predefinito) finché non lo imposteranno le
+Preferenze (F2.12).
+
+Strada facendo sono emerse e si sono risolte tre cose. **Curve:** `vello_cpu` trasforma le curve in
+segmenti con una tolleranza fissa di 0,25 px, quindi le forme rotonde piccole perdevano area (una
+testa di nota a zoom 1: −4,4 %, contro −0,8 % con `tiny-skia`); il proprietario ha scelto di
+spezzare noi ogni tracciato, in pixel del dispositivo, con `FLATTEN_TOLERANCE` = 0,05 px (−1,1 %), e
+il test `small_noteheads_keep_their_area` lo sorveglia. **Ombre:** la sfocatura di `vello_cpu`
+distava 28–40 gradini su 255 dalla nostra formula (il suo parametro si comporta come il nostro
+diviso per √2, e si ferma a 2,5σ), quindi, come dice ADR-0042 R4, resta la nostra:
+`compute_shadow` riempie una piccola immagine premoltiplicata con `shadow::coverage`, tenuta in
+cache fra un fotogramma e l'altro, che `vello_cpu` compone al posto dell'ombra nell'ordine di
+disegno. **Alfa:** la composizione a 8 bit può lasciare alfa 254 sotto una vernice semitrasparente;
+con una superficie opaca il fotogramma è opaco per costruzione, quindi `make_opaque` riporta 255 in
+ogni regione ridisegnata. Nuovi test verificano che 0, 1 e 3 thread, eseguiti due volte, diano gli
+stessi byte, che un ridisegno parziale con i thread sia uguale a uno completo e che le ombre restino
+entro 2,5 gradini dalla formula (un arrotondamento in più della miscela in virgola mobile di
+`tiny-skia`, che misurava 0,61).
+
 **Ombre.** `tiny-skia` non sa sfocare, quindi `draw/shadow.rs` calcola per ogni pixel la copertura
 di un rettangolo arrotondato sfocato. In orizzontale l'integrale è esatto (due `erf` sulla riga,
 accorciata dal cerchio dell'angolo); in verticale usa dodici campioni su ±3σ, divisi per la parte

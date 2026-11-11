@@ -69,7 +69,10 @@ pub use draw::geometry::{Point, Rect, RoundedRect, Transform};
 pub use draw::image::{DrawError, Image, ImageId};
 pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
 pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
-pub use draw::skia::CpuRenderer;
+// The CPU renderer is `vello_cpu` behind our display list since F2.06b (ADR-0042).
+pub use draw::vello::{CpuRenderer, default_render_threads};
+// The previous `tiny-skia` renderer, public only while F2.06b compares the two (ADR-0042 R5).
+pub use draw::skia::TinySkiaRenderer;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
 pub use window::input::{

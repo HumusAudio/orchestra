@@ -38,16 +38,14 @@ use super::image::{DrawError, Image};
 use super::list::{DisplayList, SHADOW_REACH_SIGMAS, Segment};
 use super::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 use super::shadow;
+use super::snap::{KAPPA, snap_rect as snap, snapped_line};
 use crate::{ColorToken, Theme};
 
-/// The control-point distance of a cubic Bézier approximating a quarter circle of radius 1:
-/// 4/3 · (√2 − 1) ≈ 0.552 285 (the standard value; error below 0.03 % of the radius).
-const KAPPA: f32 = 0.552_284_8;
-
-/// The `tiny-skia` renderer. Keep one per window (or per headless job) and reuse it: its buffers
+/// The `tiny-skia` renderer, kept during F2.06b only to compare it with the `vello_cpu` backend
+/// (ADR-0042 R5); it leaves the workspace at the end of the step. Keep one per window (or per headless job) and reuse it: its buffers
 /// are what makes later frames allocation-free in our code.
 #[derive(Default)]
-pub struct CpuRenderer {
+pub struct TinySkiaRenderer {
     /// Pixels of a partial region, reused between frames.
     scratch: Vec<u8>,
     /// A path builder whose buffers are reused from path to path.
@@ -60,17 +58,17 @@ pub struct CpuRenderer {
     masks: Vec<Mask>,
 }
 
-impl std::fmt::Debug for CpuRenderer {
+impl std::fmt::Debug for TinySkiaRenderer {
     /// Only the sizes of the reusable buffers.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CpuRenderer")
+        f.debug_struct("TinySkiaRenderer")
             .field("scratch_bytes", &self.scratch.capacity())
             .field("spare_masks", &self.mask_pool.len())
             .finish_non_exhaustive()
     }
 }
 
-impl CpuRenderer {
+impl TinySkiaRenderer {
     /// A renderer with empty buffers.
     #[must_use]
     pub fn new() -> Self {
@@ -377,30 +375,17 @@ impl CpuRenderer {
             LineCap::Square => Some(width * 0.5),
             LineCap::Round => None,
         };
-        let horizontal = (a.y - b.y).abs() < f32::EPSILON;
-        let vertical = (a.x - b.x).abs() < f32::EPSILON;
         if let Some(extend) = extend
-            && (horizontal || vertical)
+            && let Some(rect) = snapped_line((a.x, a.y), (b.x, b.y), width, extend)
+                .and_then(|r| SkiaRect::from_ltrb(r.x0, r.y0, r.x1, r.y1))
         {
-            let band = width.round().max(1.0);
-            let rect = if horizontal {
-                let (start, end) = (a.x.min(b.x) - extend, a.x.max(b.x) + extend);
-                let top = band_start(a.y, band);
-                SkiaRect::from_ltrb(start.round(), top, end.round(), top + band)
-            } else {
-                let (start, end) = (a.y.min(b.y) - extend, a.y.max(b.y) + extend);
-                let left = band_start(a.x, band);
-                SkiaRect::from_ltrb(left, start.round(), left + band, end.round())
-            };
-            if let Some(rect) = rect {
-                let skia_paint = skia_paint(frame.theme, paint, false);
-                frame.pixmap.fill_rect(
-                    rect,
-                    &skia_paint,
-                    SkiaTransform::identity(),
-                    self.masks.last(),
-                );
-            }
+            let skia_paint = skia_paint(frame.theme, paint, false);
+            frame.pixmap.fill_rect(
+                rect,
+                &skia_paint,
+                SkiaTransform::identity(),
+                self.masks.last(),
+            );
             return;
         }
         let mut builder = self.builder.take().unwrap_or_default();
@@ -684,7 +669,7 @@ impl CpuRenderer {
     }
 }
 
-impl Renderer for CpuRenderer {
+impl Renderer for TinySkiaRenderer {
     /// Draws the damaged parts of `list` into `target` (see the module documentation).
     fn render(
         &mut self,
@@ -817,45 +802,16 @@ fn skia_color(theme: &Theme, paint: Paint) -> SkiaColor {
     SkiaColor::from_rgba8(color.r, color.g, color.b, alpha)
 }
 
+/// [`snap`] as a `tiny-skia` rectangle.
+fn snap_rect(rect: &Rect) -> Option<SkiaRect> {
+    snap(rect).and_then(|r| SkiaRect::from_ltrb(r.x0, r.y0, r.x1, r.y1))
+}
+
 /// Our fill rule as `tiny-skia`'s.
 const fn skia_fill_rule(rule: FillRule) -> SkiaFillRule {
     match rule {
         FillRule::NonZero => SkiaFillRule::Winding,
         FillRule::EvenOdd => SkiaFillRule::EvenOdd,
-    }
-}
-
-/// Snaps a device rectangle to whole pixels (D7): each edge to the nearest pixel boundary; a
-/// non-empty rectangle thinner than half a pixel keeps one pixel, so a hairline never vanishes.
-/// `None` for an empty or invalid rectangle.
-fn snap_rect(rect: &Rect) -> Option<SkiaRect> {
-    if rect.is_empty() {
-        return None;
-    }
-    let (mut x0, mut x1) = (rect.x0.round(), rect.x1.round());
-    let (mut y0, mut y1) = (rect.y0.round(), rect.y1.round());
-    if x1 <= x0 {
-        // Keep one pixel, the one containing the rectangle's centre.
-        x0 = f32::midpoint(rect.x0, rect.x1).floor();
-        x1 = x0 + 1.0;
-    }
-    if y1 <= y0 {
-        y0 = f32::midpoint(rect.y0, rect.y1).floor();
-        y1 = y0 + 1.0;
-    }
-    SkiaRect::from_ltrb(x0, y0, x1, y1)
-}
-
-/// The first pixel row (or column) of a snapped line of `band` whole pixels centred on `centre`
-/// (device pixels): an odd band is centred on the pixel containing `centre`; an even band on the
-/// pixel boundary nearest to it (D7).
-fn band_start(centre: f32, band: f32) -> f32 {
-    // `band` is a whole number ≥ 1; its parity decides where the middle falls.
-    let odd = (band % 2.0 - 1.0).abs() < 0.5;
-    if odd {
-        centre.floor() - (band - 1.0) * 0.5
-    } else {
-        centre.round() - band * 0.5
     }
 }
 

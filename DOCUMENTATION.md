@@ -3100,6 +3100,30 @@ owner as a sluggish pointer); now a pointer move costs about 0.5 ms. Straight ed
 device pixels: a 1 px staff line or a widget border falls on exactly one row of pixels, never on
 two half-transparent ones. Paths and rounded corners keep their anti-aliasing.
 
+**The `vello_cpu` backend (F2.06b, in progress).** ADR-0042 replaces `tiny-skia` with
+`vello_cpu` behind the same list. `draw/vello.rs` holds the new `CpuRenderer`: for each damaged
+region it encodes a `vello_cpu` scene the size of the region (only the segments and commands that
+meet it) and rasterises it directly into the frame at the region's offset, with no scratch buffer;
+small regions use a single-threaded context, large ones a context with worker threads
+(`default_render_threads()`: the cores minus one, so a core stays free for audio). The snapping
+rules moved to `draw/snap.rs`, shared by both backends; the old renderer stays, as
+`TinySkiaRenderer`, only while the step compares the two. The window takes the number of threads from
+`WindowOptions::render_threads` (`None` = the default) until the Preferences set it (F2.12).
+
+Three things were found and settled on the way. **Curves:** `vello_cpu` turns curves into segments
+with a fixed 0.25 px tolerance, so small round shapes lost area (a notehead at zoom 1: −4.4 %,
+against −0.8 % with `tiny-skia`); the owner chose to flatten every path ourselves, in device
+pixels, at `FLATTEN_TOLERANCE` = 0.05 px (−1.1 %), and the test `small_noteheads_keep_their_area`
+guards it. **Shadows:** `vello_cpu`'s blur was 28–40 steps of 255 away from our formula (its
+parameter behaves like ours divided by √2, and it stops at 2.5σ), so, as ADR-0042 R4 says, ours
+stays: `compute_shadow` fills a small premultiplied image with `shadow::coverage`, cached between
+frames, which `vello_cpu` composites at the shadow's place in the drawing order. **Alpha:** the
+8-bit compositing can leave alpha 254 under a translucent paint; with an opaque surface the frame
+is opaque by construction, so `make_opaque` restores 255 in each redrawn region. New tests check
+that 0, 1 and 3 threads, run twice, give the same bytes, that a partial redraw with threads equals
+a full one, and that shadows stay within 2.5 steps of the formula (one rounding more than
+`tiny-skia`'s floating-point blend, which measured 0.61).
+
 **Shadows.** `tiny-skia` cannot blur, so `draw/shadow.rs` computes the coverage of a blurred
 rounded rectangle for each pixel. Along x the integral is exact (two `erf` over the row, shortened
 by the corner's circle); along y it uses twelve samples over ±3σ, divided by the share of the

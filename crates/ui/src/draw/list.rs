@@ -213,6 +213,12 @@ impl DisplayList {
         &self.segments
     }
 
+    /// Every picture slot, indexed by `ImageId` (`None` for a removed picture): for backends
+    /// that convert pictures once and keep them between frames.
+    pub(crate) fn images(&self) -> &[Option<Image>] {
+        &self.images
+    }
+
     /// A stored picture, if it still exists.
     pub(crate) fn image(&self, id: ImageId) -> Option<&Image> {
         self.images.get(id.0 as usize).and_then(Option::as_ref)

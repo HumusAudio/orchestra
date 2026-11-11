@@ -39,7 +39,9 @@
 //! - `damage`: the damaged rectangles of a frame;
 //! - `device`: the damage in device pixels, shared by the renderer and the window;
 //! - `shadow`: the analytic blurred rounded rectangle;
-//! - `skia`: the `tiny-skia` backend, the only file that knows `tiny-skia`.
+//! - `skia`: the `tiny-skia` backend, the only file that knows `tiny-skia`;
+//! - `snap`: pixel snapping (D7), shared by the backends;
+//! - `vello`: the `vello_cpu` backend (ADR-0042), the only file that knows `vello_cpu`.
 
 pub(crate) mod command;
 pub(crate) mod damage;
@@ -50,6 +52,8 @@ pub(crate) mod list;
 pub(crate) mod paint;
 pub(crate) mod shadow;
 pub(crate) mod skia;
+pub(crate) mod snap;
+pub(crate) mod vello;
 
 use crate::Theme;
 
