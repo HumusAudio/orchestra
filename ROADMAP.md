@@ -932,7 +932,7 @@ step, the owner asked how much the cached shadow still cost: blending the whole 
 shadow already coloured (13.0 ms, 1.57 steps off the formula) and chose to fill the
 full-coverage inside from a per-channel table and blend only the soft band, plus rounding with
 `+ 0.5` and a saturating cast instead of `round()` (a library call on baseline x86-64): 7.3 ms
-for the dialog, 3.8 ms for the menu, still within one step of the formula (K2 unchanged).
+for the dialog, 3.8 ms for the menu, still within one step of the formula (K2 unchanged). PR #63; SCALETTA v0.58 closes F2.06b.
 
 | Step | What | Status |
 |---|---|---|
