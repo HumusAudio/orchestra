@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now, `vello_cpu` behind our display list); next F2.06b (the `vello_cpu` backend).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); next F2.07 (text).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -909,6 +909,30 @@ now; `vello_cpu` becomes the rasteriser behind our display list, keeping segment
 redraw (new step F2.06b); worker threads configurable, at least one core left for audio, measured
 in F3; the GPU is re-evaluated with the same spike when a budget is missed with `vello_cpu` or
 `vello`'s costs drop. Amends ADR-0039 D9, ADR-0036 B1/B10, ADR-0012's block table.
+
+Step **F2.06b** (`feature/f2-06b-vello-cpu`, 2026-11-11), planned as the `vello_cpu` backend of
+ADR-0042, ended by **dropping it** (ADR-0043, Accepted by the owner). Before starting the owner
+approved V1–V9. The backend was written and passed the pixel tests, with three findings settled
+on the way: `vello_cpu` flattens curves at a fixed 0.25 px, shrinking noteheads by 4.4 % (9.8 % at
+zoom 0.5), so the owner chose to flatten them ourselves at 0.05 px (option A); its blur was 28–40
+steps off our formula, so ours was kept (ADR-0042 R4); its 8-bit compositing left alpha 254 under
+translucent paints. Measuring the threads' threshold then showed that in the product `vello_cpu`
+was no faster than `tiny-skia`: the spike had compared `tiny-skia` **recomputing the panel's shadow
+at every frame** (25.8 ms vs 11.1 ms without it at 1080p; 83.5 vs 23.8 at 4K) with `vello_cpu`'s
+cheap blur. ADR-0043 supersedes ADR-0042 R1, R3, R5, R6: `tiny-skia` stays, the shadow's coverage
+is cached between frames (32 shadows, LRU), `vello_cpu`, its threads and `render_threads` leave;
+no GPU still stands (R2), and a rule for comparing renderers like for like is recorded (K4). Kept
+from the step: `draw/snap.rs`, the tests (busy scene partial redraw, repeated renders, small
+noteheads' area, shadow accuracy computed and cached), a new benchmark
+`draw_shadowed_panel_frame`, the correction section of `spikes/gpu-render/RESULTS.md`. Closing the
+step, the owner asked how much the cached shadow still cost: blending the whole cached area took
+31.6 ms for a full 1080p frame with a 1400 × 800 dialog against 3.8 ms without the shadow (a
+240 × 320 menu: 5.9 against 3.3). The owner compared screenshots with and without the shadow
+(kept: in the light themes a menu over a staff reads worse without it), rejected storing the
+shadow already coloured (13.0 ms, 1.57 steps off the formula) and chose to fill the
+full-coverage inside from a per-channel table and blend only the soft band, plus rounding with
+`+ 0.5` and a saturating cast instead of `round()` (a library call on baseline x86-64): 7.3 ms
+for the dialog, 3.8 ms for the menu, still within one step of the formula (K2 unchanged). PR #63; SCALETTA v0.58 closes F2.06b.
 
 | Step | What | Status |
 |---|---|---|

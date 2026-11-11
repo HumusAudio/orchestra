@@ -136,6 +136,25 @@ The first attempt of the two GPU windows panicked: the spike's offscreen targets
 `TEXTURE_BINDING`, which the blitter needs (a spike bug, fixed; the bench figures do not use the
 blitter and are unchanged).
 
+## Correction (F2.06b, ADR-0043)
+
+The `tiny-skia` rows above are **not like for like**. Our `CpuRenderer` computed the panel's
+shadow pixel by pixel with our analytic formula at every frame; the vello family used its own
+cheap blur, which is 28–40 steps of 255 off our formula and could not be kept. Measured again in
+the product (step F2.06b), on this scene, full frames in ms:
+
+| | 1080p, with shadow | 1080p, without | 4K, with shadow | 4K, without |
+|---|---|---|---|---|
+| `tiny-skia` (shadow recomputed every frame) | 25.8 | **11.1** | 83.5 | **23.8** |
+| `vello_cpu`, curves flattened by us at 0.05 px, 3 threads | 10.7 | 11.7 | 24.9 | 24.6 |
+| `vello_cpu`, its own 0.25 px flattening, 3 threads | 7.3 | 6.8 | 19.4 | 21.0 |
+
+Without the shadow, `tiny-skia` is as fast as `vello_cpu` at the accuracy the owner chose (its own
+0.25 px flattening shrank noteheads by 4.4 % at zoom 1). ADR-0043 therefore keeps `tiny-skia` and
+caches shadow coverage; the GPU conclusions below are unaffected in substance (the GPU was not
+faster than the best CPU renderer at 1080p either way), but any future comparison separates such
+costs first (ADR-0043 K4).
+
 ## What the numbers say
 
 Facts only; the decision is ADR-0042.

@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.57, approvata dal proprietario il 2026-11-11.**
+> **Stato di questo documento: v0.58, approvata dal proprietario il 2026-11-11.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -692,7 +692,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.04b | **Tema di sistema su Windows e macOS** con `winit` (ADR-0038 S3) e **cambi di tema seguiti** a programma aperto: la callback del portale Linux portata al ciclo eventi con `EventLoopProxy` (ADR-0040 W3) | ✅ | 1 |
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema scuro, en-US) | ✅ ADR-0041 | 1 |
 | F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ✅ ADR-0042 | 2–3 |
-| F2.06b | **Backend `vello_cpu`** (ADR-0042): `Renderer` su `vello_cpu` con ridisegno delle sole aree cambiate e thread configurabili; collaudo con i test di pixel; benchmark e confronto con `tiny-skia`; poi `tiny-skia` esce e il PNG passa a `png` | ⬜ | 2 |
+| F2.06b | **Backend `vello_cpu`** (ADR-0042): `Renderer` su `vello_cpu` con ridisegno delle sole aree cambiate e thread configurabili; collaudo con i test di pixel; benchmark e confronto con `tiny-skia`; poi `tiny-skia` esce e il PNG passa a `png` | ✅ ADR-0043 | 2 |
 | F2.07 | **Testo**: font inclusi, shaping, cache dei glifi, misure; Bravura per i simboli musicali | ⬜ | 3 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ⬜ | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
@@ -786,6 +786,19 @@ controllo completo. Va fatta bene una volta sola.
   `vello_hybrid` un po' a scatti. Scelta **B** con i punti 1–6: niente GPU per ora, `vello_cpu`
   dietro la nostra lista di disegno con segmenti e ridisegno parziale (F2.06b), un core sempre
   libero per l'audio, GPU da rimisurare con lo stesso spike alle condizioni di ADR-0042 R2.
+- **F2.06b** **Fatto il 2026-11-11 (PR #63, ADR-0043 Accepted, sostituisce ADR-0042 R1, R3, R5,
+  R6):** il backend `vello_cpu` è stato scritto e ha passato i test di pixel, ma misurandolo nel
+  prodotto si è visto che il confronto dello spike era falsato: `tiny-skia` ricalcolava l'ombra del
+  pannello a ogni fotogramma. A parità di condizioni `tiny-skia` è veloce quanto `vello_cpu` con la
+  precisione delle curve scelta dal proprietario, su un solo thread: **`tiny-skia` resta**,
+  `vello_cpu` e i suoi thread escono, niente GPU resta valido (R2), e una regola per confrontare i
+  renderer a parità di condizioni (K4). La copertura delle ombre va in cache (32, LRU). Chiudendo il
+  passo il proprietario ha visto gli screenshot con e senza ombra e l'ha tenuta (nei temi chiari un
+  menu sopra lo spartito si legge peggio senza); ha scartato l'ombra già colorata (13,0 ms, 1,57
+  gradini dalla formula) e scelto di riempire l'interno a copertura piena con una tabella per
+  canale, miscelando solo la fascia sfumata: fotogramma a 1080p con un dialogo 1400 × 800 da 31,6 a
+  7,3 ms (3,8 senza ombra), `draw_shadowed_panel_frame` 17,7 M istruzioni. Il PNG resta con
+  `tiny-skia` (ADR-0039 D8).
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
 - **F2.08** Da ADR-0038 S7 (era una nota di F2.04b): quando entra AccessKit, ricontrollare se è
@@ -793,8 +806,8 @@ controllo completo. Va fatta bene una volta sola.
   `deny.toml` le tre eccezioni RustSec e `syn` 2.
 - **F2.08** Da ADR-0040 W7: l'adapter di AccessKit si aggancia al punto di preparazione già pronto
   (finestra creata invisibile, preparata, poi mostrata), provato da un test in F2.04a.
-- **F2.07** Da ADR-0042 R6: la cache dei glifi si costruisce per `vello_cpu` (backend di F2.06b),
-  e qui si decide se usare la sua feature `text` o i nostri glifi.
+- **F2.07** Da ADR-0043 (che sostituisce ADR-0042 R6): la cache dei glifi si costruisce per
+  `tiny-skia`, come previsto prima di ADR-0042.
 - **F2.07** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
   della scena di riferimento deve rientrare nei 33 M istruzioni (30 fps in software con la regola
   di F1.16c); se non ci rientra, si apre un ADR sul budget.
@@ -1111,3 +1124,4 @@ raccomandato.
 | 2026-11-10 | 0.55 | F2.04b fatto (PR #60): tema di sistema su Windows e macOS con `winit`, cambi seguiti a programma aperto su una sola strada (`EventLoopProxy`); nota di zbus 6 spostata in F2.08; nota in F2.12 (barra del titolo con un modo forzato); prossimo passo F2.05 | proprietario |
 | 2026-11-11 | 0.56 | F2.05 fatto (PR #61, ADR-0041 Accepted: screenshot senza finestra da un binario per sviluppatori, catalogo di scene, metà scura di Studio che emenda ADR-0014 §7 e ADR-0037 T10, mai committati); nota in F2.15 (primi screenshot veri, immagini di riferimento); prossimo passo F2.06 | proprietario |
 | 2026-11-11 | 0.57 | F2.06 fatto (ADR-0042 Accepted: GPU misurata a 1080p e 4K, niente GPU per ora, `vello_cpu` dietro la nostra lista di disegno); nuovo F2.06b (backend `vello_cpu`); note in F2.07 (glifi per `vello_cpu`), F2.23 (rimisura della GPU), F3.04 (xrun con i thread di disegno); prossimo passo F2.06b | proprietario |
+| 2026-11-11 | 0.58 | F2.06b fatto (PR #63, ADR-0043 Accepted: `tiny-skia` resta, `vello_cpu` scartato dopo un confronto falsato, ombre in cache con l'interno riempito da tabella); nota in F2.07 (cache dei glifi per `tiny-skia`); prossimo passo F2.07 | proprietario |

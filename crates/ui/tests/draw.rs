@@ -859,3 +859,158 @@ fn png_encoding_round_trips() {
         );
     }
 }
+
+/// A notehead, the shape the score is made of: an ellipse of 5 × 4 px (zoom 1) as four cubics.
+fn notehead(r: &mut orchestra_ui::Recorder<'_>, cx: f32, cy: f32, a: f32, b: f32) {
+    let (ka, kb) = (a * 0.552_284_8, b * 0.552_284_8);
+    r.fill_path(FillRule::NonZero, ColorToken::Text, |p| {
+        p.move_to(cx + a, cy);
+        p.cubic_to(cx + a, cy + kb, cx + ka, cy + b, cx, cy + b);
+        p.cubic_to(cx - ka, cy + b, cx - a, cy + kb, cx - a, cy);
+        p.cubic_to(cx - a, cy - kb, cx - ka, cy - b, cx, cy - b);
+        p.cubic_to(cx + ka, cy - b, cx + a, cy - kb, cx + a, cy);
+        p.close();
+    });
+}
+
+/// Small round shapes keep their area: a notehead at zoom 1 (5 × 4 px) and at zoom 0.5
+/// (2.5 × 2 px) lose at most 1.5 % and 3 % of the exact ellipse area (measured in F2.06b: 0.8 %
+/// and 2.8 %). A renderer that flattens curves coarsely fails it: `vello_cpu` 0.3, with its fixed
+/// 0.25 px tolerance, lost 4.4 % and 9.8 % (ADR-0043). The centre is off the pixel grid on purpose.
+#[test]
+fn small_noteheads_keep_their_area() {
+    let theme = light();
+    let text = opaque(&theme, ColorToken::Text);
+    let surface = opaque(&theme, ColorToken::Surface);
+    let span = f64::from(surface[0]) - f64::from(text[0]);
+    for (a, b, limit) in [(5.0_f32, 4.0_f32, 0.015), (2.5, 2.0, 0.03)] {
+        let mut list = DisplayList::new();
+        list.record(SegmentId(1), |r| notehead(r, 25.3, 25.6, a, b));
+        let image = draw(&list, &theme, 50, 50, 1.0);
+        let mut area = 0.0;
+        for y in 0..50 {
+            for x in 0..50 {
+                area += (f64::from(surface[0]) - f64::from(px(&image, x, y)[0])) / span;
+            }
+        }
+        let expected = std::f64::consts::PI * f64::from(a) * f64::from(b);
+        let loss = 1.0 - area / expected;
+        assert!(
+            loss.abs() <= limit,
+            "{a} × {b}: {:.2} % of the area lost",
+            loss * 100.0
+        );
+    }
+}
+
+/// A scene of staves and noteheads with a shadowed panel and a rounded clip: what the determinism
+/// and partial-redraw tests draw.
+fn busy_scene() -> DisplayList {
+    let mut list = DisplayList::new();
+    for staff in 0..6_u64 {
+        for measure in 0..8_u64 {
+            list.record(SegmentId(staff * 8 + measure), |r| {
+                let top = 20.0 + staff as f32 * 60.0;
+                let left = 20.0 + measure as f32 * 70.0;
+                for line in 0..5 {
+                    let y = top + line as f32 * 8.0;
+                    r.line(
+                        Point::new(left, y),
+                        Point::new(left + 70.0, y),
+                        StrokeStyle::new(1.0),
+                        ColorToken::Text,
+                    );
+                }
+                for note in 0..8 {
+                    let step = (note * 3 + staff as usize + measure as usize) % 9;
+                    notehead(
+                        r,
+                        left + 6.0 + note as f32 * 8.0 + 0.3,
+                        top + 32.0 - step as f32 * 4.0,
+                        5.0,
+                        4.0,
+                    );
+                }
+            });
+        }
+    }
+    list.record(SegmentId(100), |r| {
+        let panel = RoundedRect::new(Rect::new(420.0, 60.0, 600.0, 300.0), 10.0);
+        r.shadow(
+            RoundedRect::new(Rect::new(420.0, 64.0, 600.0, 304.0), 10.0),
+            8.0,
+            ColorToken::Shadow,
+        );
+        r.fill_rounded_rect(panel, ColorToken::SurfaceRaised);
+        r.push_clip(panel);
+        r.fill_rect(Rect::new(400.0, 40.0, 620.0, 100.0), ColorToken::Accent);
+        r.pop_clip();
+    });
+    list
+}
+
+/// The same list gives the same bytes every time: twice with one renderer (its shadow cache is
+/// then warm) and once with a fresh one, at scale 1 and 2.
+#[test]
+fn repeated_renders_give_the_same_pixels() {
+    let theme = light();
+    let list = busy_scene();
+    for scale in [1.0, 2.0] {
+        let size = |n: f32| (n * scale) as u32;
+        let reference = CpuRenderer::new()
+            .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
+            .unwrap();
+        let mut renderer = CpuRenderer::new();
+        for _ in 0..2 {
+            let image = renderer
+                .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
+                .unwrap();
+            assert!(
+                image == reference,
+                "scale {scale}: differs by up to {}",
+                max_difference(&image, &reference)
+            );
+        }
+    }
+}
+
+/// Partial redraw of a busy scene: after moving notes in a small damaged region and in a large
+/// one, and moving the shadowed panel (whose shadow comes from the cache, ADR-0043), the frame
+/// equals a full redraw.
+#[test]
+fn partial_redraw_of_a_busy_scene_equals_a_full_redraw() {
+    let theme = light();
+    let mut list = busy_scene();
+    let mut renderer = CpuRenderer::new();
+    let mut frame = Image::new(640, 400).unwrap();
+    renderer
+        .render(&list, &theme, &Damage::all(), 1.0, &mut frame)
+        .unwrap();
+    let _ = list.take_damage();
+    // A small edit (one measure) and a large one (a whole staff and the panel).
+    list.record(SegmentId(3), |r| notehead(r, 250.0, 30.0, 5.0, 4.0));
+    for measure in 0..8 {
+        list.record(SegmentId(16 + measure), |r| {
+            notehead(r, 30.0 + measure as f32 * 70.0, 150.0, 5.0, 4.0);
+        });
+    }
+    list.record(SegmentId(100), |r| {
+        r.shadow(
+            RoundedRect::new(Rect::new(400.0, 80.0, 580.0, 320.0), 10.0),
+            8.0,
+            ColorToken::Shadow,
+        );
+    });
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme, &damage, 1.0, &mut frame)
+        .unwrap();
+    let full = CpuRenderer::new()
+        .render_to_image(&list, &theme, 640, 400, 1.0)
+        .unwrap();
+    assert!(
+        frame == full,
+        "partial redraw differs by up to {}",
+        max_difference(&frame, &full)
+    );
+}

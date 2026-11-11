@@ -11,7 +11,8 @@
 //!   with a software rendering fallback when no GPU is available.
 //! - Our own widgets, layout, focus, text editing and menus (ADR-0012: no GUI toolkit), built on
 //!   low-level blocks behind our traits: `winit` (windows, input, IME), `softbuffer`/`wgpu`
-//!   (presenting), `tiny-skia`/`vello` (drawing), our text shaping, `accesskit` (every widget
+//!   (presenting), `tiny-skia` (drawing; a GPU renderer is postponed, ADR-0042/ADR-0043), our
+//!   text shaping, `accesskit` (every widget
 //!   publishes an accessibility node from day one), `rfd` (native file dialogs).
 //! - Bundled fonts: same look and behaviour on every platform, while
 //!   respecting system conventions (primary modifier Ctrl/Cmd, global menu bar on macOS, native

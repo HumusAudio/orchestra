@@ -16,6 +16,9 @@
 //! - `draw_full_frame`: drawing the whole recorded scene into a 1920 × 1080 image (scrolling).
 //! - `edit_one_note`: one note moves: its measure is re-recorded and only the damage is drawn
 //!   (the steady state of editing).
+//! - `draw_shadowed_panel_frame`: a 960 × 600 frame with a large panel and its shadow, drawn
+//!   whole with the shadow's coverage already cached (ADR-0043): what a repaint of a window with
+//!   panels costs once the shadows have been computed.
 //!
 //! # Budgets (ADR-0039 D10, with the rule of F1.16c: 1 instruction per nanosecond)
 //! Scrolling in software at ≥ 30 fps allows 33 ms a frame: ≤ 33 M instructions for
@@ -47,8 +50,8 @@ use std::hint::black_box;
 
 use gungraun::prelude::*;
 use orchestra_ui::{
-    Appearance, BuiltInTheme, ColorToken, CpuRenderer, DisplayList, FillRule, Image, Point,
-    Renderer, SegmentId, StrokeStyle, Theme,
+    Appearance, BuiltInTheme, ColorToken, CpuRenderer, DisplayList, FillRule, Image, Point, Rect,
+    Renderer, RoundedRect, SegmentId, StrokeStyle, Theme,
 };
 
 // The scene's geometry, from `spikes/scene` (staff spaces, then pixels at zoom 1).
@@ -192,9 +195,60 @@ fn edit_one_note(input: Drawn) -> Drawn {
     (list, renderer, image, theme)
 }
 
+// A panel of 880 × 520 with its shadow (blur 8) and three controls, as the demonstration window
+// shows, recorded and drawn once so the shadow's coverage is in the renderer's cache.
+fn shadowed_panel() -> Drawn {
+    let mut list = DisplayList::new();
+    list.record(SegmentId(1), |r| {
+        let panel = RoundedRect::new(Rect::new(40.0, 40.0, 920.0, 560.0), 10.0);
+        r.shadow(
+            RoundedRect::new(Rect::new(40.0, 44.0, 920.0, 564.0), 10.0),
+            8.0,
+            ColorToken::Shadow,
+        );
+        r.fill_rounded_rect(panel, ColorToken::SurfaceRaised);
+        r.stroke_rounded_rect(panel, StrokeStyle::new(1.0), ColorToken::Border);
+        for i in 0..3 {
+            let x = 60.0 + i as f32 * 110.0;
+            let control = RoundedRect::new(Rect::new(x, 60.0, x + 96.0, 92.0), 6.0);
+            r.fill_rounded_rect(control, ColorToken::Control);
+            r.stroke_rounded_rect(control, StrokeStyle::new(1.0), ColorToken::ControlBorder);
+        }
+    });
+    let theme = theme();
+    let mut renderer = CpuRenderer::new();
+    let mut image = Image::new(960, 600).unwrap();
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme, &damage, 1.0, &mut image)
+        .unwrap();
+    (list, renderer, image, theme)
+}
+
+#[library_benchmark]
+#[bench::panel(shadowed_panel())]
+fn draw_shadowed_panel_frame(input: Drawn) -> Drawn {
+    let (list, mut renderer, mut image, theme) = input;
+    renderer
+        .render(
+            black_box(&list),
+            &theme,
+            &orchestra_ui::Damage::all(),
+            1.0,
+            black_box(&mut image),
+        )
+        .unwrap();
+    (list, renderer, image, theme)
+}
+
 library_benchmark_group!(
     name = draw,
-    benchmarks = [record_scene, draw_full_frame, edit_one_note]
+    benchmarks = [
+        record_scene,
+        draw_full_frame,
+        edit_one_note,
+        draw_shadowed_panel_frame
+    ]
 );
 
 main!(library_benchmark_groups = draw);
