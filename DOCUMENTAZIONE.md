@@ -4326,6 +4326,46 @@ alla lettura della preferenza chiaro/scuro del sistema: `theme-zbus` (il nostro 
 `theme-darklight` e `theme-mundy`. `gui-blocks theme` stampa la preferenza, poi ogni cambio. I
 numeri sono nello stesso `RESULTS.md`, la scelta in ADR-0038.
 
+### Lo spike del renderer GPU
+
+`spikes/gpu-render` (passo F2.06) risponde a una domanda prima che codice GPU entri nel workspace:
+un renderer GPU vale il suo costo, e quale? Disegna la scena di riferimento di F2.03 (10 righi ×
+20 battute a 1920 × 1080, più un pannello di widget con l'ombra) con quattro renderer: il nostro
+`CpuRenderer` su `tiny-skia` (con segmenti e danni, esattamente come lo usa il prodotto),
+`vello_cpu` (su un thread e su più), `vello` su `wgpu` 30 (compute shader sulla GPU) e
+`vello_hybrid` su `wgpu` 29 (strisce sulla CPU, riempimento sulla GPU). La scena è descritta una
+volta sola come elenco di operazioni semplici, così ogni renderer disegna esattamente la stessa
+cosa:
+
+```rust
+pub enum Op {
+    Rect(Rect, ColorToken),
+    RoundRect(Rect, f64, ColorToken),
+    StrokeRoundRect(Rect, f64, f64, ColorToken),
+    Ellipse { cx: f64, cy: f64, a: f64, b: f64, color: ColorToken },
+    Shadow(Rect, f64, f64, ColorToken),
+}
+```
+
+`gpu-render bench` misura, per ogni renderer in un processo nuovo, l'avvio (apertura della GPU,
+compilazione degli shader, primo fotogramma), la memoria e tre casi da 300 fotogrammi: il
+fotogramma intero, una nota che si sposta, lo scorrimento con zoom. Scrive un PNG per renderer,
+per controllare che disegnino tutti la stessa immagine. `vello` e `vello_hybrid` vogliono due
+versioni principali diverse di `wgpu`, quindi `run.sh` compila tre varianti del binario e le
+esegue tutte; `gpu-render window` apre una finestra che scorre di continuo, per giudicare la
+fluidità a occhio:
+
+```sh
+cd spikes
+./gpu-render/run.sh 300
+out/gpu-render/bin/gpu-render-gpu window vello
+out/gpu-render/bin/gpu-render-hybrid window hybrid
+```
+
+Le misure GPU vanno prese fuori dalla sandbox di Claude Code, che non ha GPU (lì wgpu ripiega su
+un driver software; il rapporto stampa il nome dell'adattatore). I numeri sono in
+`spikes/gpu-render/RESULTS.md`; la decisione sarà un ADR.
+
 ## Lezioni della Fase 0
 
 Cose non ovvie che fanno perdere tempo la prima volta che le si incontra:

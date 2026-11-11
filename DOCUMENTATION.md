@@ -4078,6 +4078,44 @@ the system's light/dark preference: `theme-zbus` (our own code on `zbus`), `them
 `theme-mundy`. `gui-blocks theme` prints the preference, then every change. The figures are in
 the same `RESULTS.md`, the choice in ADR-0038.
 
+### The GPU renderer spike
+
+`spikes/gpu-render` (step F2.06) answers one question before any GPU code enters the workspace:
+is a GPU renderer worth its cost, and which one? It draws the reference scene of F2.03 (10 staves
+× 20 measures at 1920 × 1080, plus a widget panel with a shadow) with four renderers: our own
+`CpuRenderer` on `tiny-skia` (with segments and damage, exactly as the product uses it),
+`vello_cpu` (on one thread and on several), `vello` on `wgpu` 30 (compute shaders on the GPU) and
+`vello_hybrid` on `wgpu` 29 (strips on the CPU, filling on the GPU). The scene is described once
+as a list of plain operations, so every renderer draws exactly the same thing:
+
+```rust
+pub enum Op {
+    Rect(Rect, ColorToken),
+    RoundRect(Rect, f64, ColorToken),
+    StrokeRoundRect(Rect, f64, f64, ColorToken),
+    Ellipse { cx: f64, cy: f64, a: f64, b: f64, color: ColorToken },
+    Shadow(Rect, f64, f64, ColorToken),
+}
+```
+
+`gpu-render bench` measures, for each renderer in a fresh process, the start-up (opening the GPU,
+compiling the shaders, the first frame), memory, and three cases of 300 frames: the whole frame,
+one note moving, and scrolling with zoom. It writes a PNG per renderer, to check that they all
+draw the same picture. `vello` and `vello_hybrid` need two different major versions of `wgpu`, so
+`run.sh` builds three variants of the binary and runs them all; `gpu-render window` opens a
+window that scrolls continuously, to judge smoothness by eye:
+
+```sh
+cd spikes
+./gpu-render/run.sh 300
+out/gpu-render/bin/gpu-render-gpu window vello
+out/gpu-render/bin/gpu-render-hybrid window hybrid
+```
+
+The GPU numbers must be taken outside the Claude Code sandbox, which has no GPU (there wgpu falls
+back to a software driver; the report prints the adapter's name). The figures are in
+`spikes/gpu-render/RESULTS.md`; the decision will be an ADR.
+
 ## Lessons from Phase 0
 
 Things that are not obvious and cost time when you meet them for the first time:
