@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); next F2.05 (`cargo xtask screenshots`).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); next F2.06 (the GPU path, measured with the owner).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -874,6 +874,23 @@ exactly where `winit` is the source. The owner checked it on KDE Plasma, Wayland
 against `main` (same debug build): identical. Windows and macOS: not compiled locally (no targets
 in the sandbox), only by CI.
 
+Step **F2.05** (`feature/f2-05-screenshots`, 2026-11-11), `cargo xtask screenshots`, with
+**ADR-0041** (Accepted by the owner the same day). Before starting, the owner approved S1–S8 and
+changed S3: the screenshots use **Studio's dark half**, which amends ADR-0014 §7 and ADR-0037 T10
+(both stay Accepted, with a note). `orchestra-app` is now a library (`demo`, `screenshots`) and two
+binaries, `orchestra` and the developer tool `orchestra-screenshots <OUT_DIR>` (never
+distributed). The catalogue `SCENES` has one scene, `demo-window` (640 × 330 logical, scale 2,
+1280 × 660 PNG of about 17 KB). `cargo xtask screenshots` deletes the old `.png` files in
+`dist/screenshots/` and runs the tool; `cargo xtask guides` runs it first. The PNGs are never
+committed; the CI `guides` job builds them, uploads them as the `screenshots` artifact, and its
+timeout grows to 30 minutes. `orchestra-ui`: `Image::encode_png` (tiny-skia's `png-format`) and
+`DrawError::PngEncoding`; `png` 0.18.1 and six more small crates enter the tree, `miniz_oxide` 0.8 in
+`deny.toml` `skip` (ADR-0036 B7). The guides are unchanged: the demonstration window is not shown
+to readers (S7), so `User-visible: no`. Tests: PNG round trip in `orchestra-ui`, 4 catalogue tests
+in `orchestra-app` (names, size, opaque, deterministic, Studio dark, bad sizes), all in memory on
+the three platforms. Checked locally: `cargo xtask check`, `cargo xtask guides` end to end with a
+stale PNG removed and another file kept.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -907,7 +924,7 @@ Summary only; the detailed plan (steps, estimates, acceptance criteria) is `SCAL
    colour tokens, light and dark themes, WCAG contrast test, system light/dark detection): window + input (winit), renderer (tiny-skia, then a measured GPU
    path with wgpu/vello), text shaping and glyph cache, widgets with **AccessKit nodes from day
    one**, focus, text fields with IME, menus (our menu bar on Linux/Windows, muda on macOS),
-   native dialogs (rfd), headless rendering → `cargo xtask screenshots`. Then incremental
+   native dialogs (rfd), headless rendering → `cargo xtask screenshots` (done, F2.05). Then incremental
    engraving of single- and multi-voice staves with Bravura, and the notation view.
 3. **Phase 3 — audio engine and timeline:** null/offline backend, real device backends behind
    traits, the reference project and its benchmarks, the unrolled DAW timeline.

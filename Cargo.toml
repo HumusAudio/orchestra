@@ -107,9 +107,11 @@ futures-lite = "2.6.1"
 # tiny-skia: the CPU 2D renderer of the interface (ADR-0012, ADR-0036, ADR-0039; BSD-3-Clause,
 # 0.12.0 of 2026-02-02, still the latest on 2026-11-10). A caret requirement on the verified
 # version, as ADR-0036 B1 asks for the UI blocks (for a 0.x crate that accepts 0.12 patches only).
-# Features: `std` and `simd` (fast pipelines on SSE2/AVX2/NEON); NOT `png-format`, which comes
-# with the screenshots in F2.05 (ADR-0039 D8), together with the png/miniz_oxide duplicate.
-tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }
+# Features: `std` and `simd` (fast pipelines on SSE2/AVX2/NEON), and `png-format` for the headless
+# screenshots of `cargo xtask screenshots` (F2.05, ADR-0039 D8, ADR-0041). `png-format` brings
+# `png` 0.18 (MIT OR Apache-2.0, 0.18.1 checked on crates.io on 2026-11-11) and, through it, the
+# `miniz_oxide` duplicate ADR-0036 B7 foresaw (listed in `deny.toml`).
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd", "png-format"] }
 # winit: windows, the event loop and input (ADR-0012, ADR-0036, ADR-0040; Apache-2.0; 0.30.13
 # checked again on 2026-11-10, 0.31 is still a beta). Features from ADR-0036 B2: X11 and Wayland,
 # both loaded with dlopen (no system library linked at build time), raw-window-handle 0.6 for

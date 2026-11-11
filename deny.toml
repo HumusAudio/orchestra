@@ -100,6 +100,9 @@ skip = [
     { crate = "thiserror-impl@1.0.69", reason = "the derive of thiserror 1, same as above; exit: winit 0.31" },
     { crate = "tiny-skia@0.11.4", reason = "sctk-adwaita, winit's Wayland decorations (ADR-0036 B6); exit: our title bar (F2.11b)" },
     { crate = "tiny-skia-path@0.11.4", reason = "tiny-skia 0.11 of sctk-adwaita, same as above; exit: F2.11b" },
+    # png 0.18 (tiny-skia's `png-format`, for the headless screenshots of F2.05, ADR-0041) uses
+    # miniz_oxide 0.8 directly and 0.9 through flate2, as ADR-0036 B7 foresaw. Exit: a new png.
+    { crate = "miniz_oxide@0.8.9", reason = "png 0.18 directly, next to 0.9 through flate2 (ADR-0036 B7); exit: a new png" },
 ]
 skip-tree = []
 deny = []

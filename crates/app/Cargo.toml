@@ -26,8 +26,20 @@ orchestra-video.workspace = true
 [lints]
 workspace = true
 
+# The library shares the views between the two executables below (ADR-0041 S1). Not a public API:
+# nothing outside this crate depends on it.
+[lib]
+name = "orchestra_app"
+path = "src/lib.rs"
+
 # The executable is called `orchestra` (not `orchestra-app`): that is the name users type and the
 # name packagers expect.
 [[bin]]
 name = "orchestra"
 path = "src/main.rs"
+
+# The developer tool that renders the guides' screenshots headless (ADR-0041), run by
+# `cargo xtask screenshots`. Never distributed: packaging (F6) ships `orchestra` only.
+[[bin]]
+name = "orchestra-screenshots"
+path = "src/bin/orchestra-screenshots.rs"

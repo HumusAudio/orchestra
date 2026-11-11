@@ -8,8 +8,9 @@
 //! the library crates, so that it can be tested without starting the program.
 //!
 //! ## Today
-//! It opens the demonstration window of ADR-0040 W8 (`demo`), which checks presentation, damage,
-//! input and scale by eye until the real views exist.
+//! It opens the demonstration window of ADR-0040 W8 ([`orchestra_app::Demo`], in the crate's
+//! library so that `orchestra-screenshots` draws the very same view, ADR-0041), which checks
+//! presentation, damage, input and scale by eye until the real views exist.
 //!
 //! ## What this crate must NOT do
 //! - Contain business logic: if something here grows beyond wiring, it belongs in a library crate.
@@ -25,10 +26,9 @@
               the library crates must not print (workspace lints)"
 )]
 
-mod demo;
-
 use std::process::ExitCode;
 
+use orchestra_app::Demo;
 use orchestra_i18n::{Locale, Localizer};
 use orchestra_ui::{BuiltInTheme, ThemeMode, WindowOptions};
 
@@ -54,7 +54,7 @@ fn main() -> ExitCode {
         width: 960.0,
         height: 600.0,
     };
-    match orchestra_ui::run(demo::Demo::default(), options) {
+    match orchestra_ui::run(Demo::default(), options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("orchestra: {error}");
