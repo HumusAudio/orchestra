@@ -121,8 +121,37 @@ time, like `winit` and `softbuffer` (ADR-0036 B8).
 
 ## Window mode (by eye, owner)
 
-OWNER_WINDOW
+Run by the owner on 2026-11-11 on their KDE Plasma desktop (Wayland), 1920 × 1080 window,
+`AutoVsync`, scrolling and zooming continuously (the scroll advances 4 px **per frame**, so a
+faster renderer also scrolls faster). Seconds 2 onwards:
+
+| Backend | fps | our work per frame (average / worst) | RSS | first frame presented | Owner's impression |
+|---|---|---|---|---|---|
+| `tiny-skia` | 37–50 | 21–27 / 25–36 ms | 32 MiB | 49 ms | smooth |
+| `vello_cpu` 3 threads | 99–108 | 9.2–10.1 / 13–15 ms | 40 MiB | 60 ms | smooth, clearly the fastest |
+| `vello` (Vulkan) | 68–95 | 10.5–14.7 / 13–17 ms | 80 MiB | 308 ms | faster than tiny-skia, slower than vello_cpu |
+| `vello_hybrid` (Vulkan) | 61–98 | 9.7–16.3 / 15–18 ms | 70 MiB | 177 ms | a little faster than vello, **a little jerky** |
+
+The first attempt of the two GPU windows panicked: the spike's offscreen targets lacked
+`TEXTURE_BINDING`, which the blitter needs (a spike bug, fixed; the bench figures do not use the
+blitter and are unchanged).
 
 ## What the numbers say
 
-CONCLUSIONS
+Facts only; the decision is ADR-0042.
+
+1. **On this hardware the GPU does not beat a good CPU renderer at 1080p.** `vello_cpu` on 3
+   threads draws the full frame in 7 ms (bench) and runs the window at ~105 fps; `vello` needs
+   9–14 ms and `vello_hybrid` 8–16 ms with more jitter.
+2. **At 4K the picture shifts only a little.** Our `tiny-skia` path falls to 68 ms per full frame
+   (below 30 fps); `vello_cpu` on 3 threads stays at 15–16 ms; only `vello` on GL is clearly faster
+   (11–15 ms), and it is the variant with the worst cold start (4.4 s).
+3. **Editing is where our current design wins.** Segments + damage redraw one note in 0.1 ms at
+   both scales; every vello variant redraws the whole frame (7–30 ms). Any change of rasteriser
+   should keep the display list and the damage.
+4. **The GPU costs a lot outside the frame:** +40 crates, +2 min of clean build, +8–9 MB of
+   binary, +50–150 MiB of RAM, 0.3–4.4 s of start-up depending on the shader cache and the API,
+   and Windows/macOS (DX12/Metal) still unmeasured (D18).
+5. `vello_cpu` adds ~25 small crates (part of them, `skrifa`/`read-fonts`, come with F2.07 anyway)
+   and 3 worker threads: their interplay with the audio thread on a 4-core machine must be looked
+   at before it ships (CLAUDE.md §5).
