@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.56, approvata dal proprietario il 2026-11-11.**
+> **Stato di questo documento: v0.57, approvata dal proprietario il 2026-11-11.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -691,7 +691,8 @@ controllo completo. Va fatta bene una volta sola.
 | F2.04a | **Finestra, ciclo eventi, input**: `winit` + `softbuffer`, "modificatore primario" astratto, DPI/scala, ridimensionamento | ✅ ADR-0040 | 2 |
 | F2.04b | **Tema di sistema su Windows e macOS** con `winit` (ADR-0038 S3) e **cambi di tema seguiti** a programma aperto: la callback del portale Linux portata al ciclo eventi con `EventLoopProxy` (ADR-0040 W3) | ✅ | 1 |
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema scuro, en-US) | ✅ ADR-0041 | 1 |
-| F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ⬜ | 2–3 |
+| F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ✅ ADR-0042 | 2–3 |
+| F2.06b | **Backend `vello_cpu`** (ADR-0042): `Renderer` su `vello_cpu` con ridisegno delle sole aree cambiate e thread configurabili; collaudo con i test di pixel; benchmark e confronto con `tiny-skia`; poi `tiny-skia` esce e il PNG passa a `png` | ⬜ | 2 |
 | F2.07 | **Testo**: font inclusi, shaping, cache dei glifi, misure; Bravura per i simboli musicali | ⬜ | 3 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ⬜ | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
@@ -774,6 +775,17 @@ controllo completo. Va fatta bene una volta sola.
   forzato è rimandato (nota in F2.12).
 - **F2.06** viene presto apposta: è il rischio aperto più grosso della UI (la sandbox non ha GPU).
   Richiede che il proprietario esegua i test sul proprio schermo.
+  **Fatto il 2026-11-11 (ADR-0042 Accepted):** il proprietario ha approvato G1–G8 con tutti e
+  quattro i candidati e ha chiesto anche la misura a 4K. Lo spike `spikes/gpu-render` disegna la
+  scena di riferimento con `tiny-skia` (il nostro `CpuRenderer`), `vello_cpu`, `vello` e
+  `vello_hybrid`, a 1920 × 1080 e 3840 × 2160. La macchina di sviluppo è un Intel N150, più debole
+  del riferimento; le misure GPU vanno prese fuori dalla sandbox (dentro c'è solo Vulkan
+  software). A 1080p la GPU non batte `vello_cpu` su 3 thread (7 ms a fotogramma intero); a 4K
+  `tiny-skia` scende a 68 ms, `vello_cpu` resta a 16 ms; `vello` su GL è il più veloce a 4K ma parte
+  in 4,4 s a cache fredda. Prova a occhio del proprietario: `vello_cpu` il più fluido (≈ 105 fps),
+  `vello_hybrid` un po' a scatti. Scelta **B** con i punti 1–6: niente GPU per ora, `vello_cpu`
+  dietro la nostra lista di disegno con segmenti e ridisegno parziale (F2.06b), un core sempre
+  libero per l'audio, GPU da rimisurare con lo stesso spike alle condizioni di ADR-0042 R2.
 - **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
 - **F2.08** Da ADR-0038 S7 (era una nota di F2.04b): quando entra AccessKit, ricontrollare se è
@@ -781,6 +793,8 @@ controllo completo. Va fatta bene una volta sola.
   `deny.toml` le tre eccezioni RustSec e `syn` 2.
 - **F2.08** Da ADR-0040 W7: l'adapter di AccessKit si aggancia al punto di preparazione già pronto
   (finestra creata invisibile, preparata, poi mostrata), provato da un test in F2.04a.
+- **F2.07** Da ADR-0042 R6: la cache dei glifi si costruisce per `vello_cpu` (backend di F2.06b),
+  e qui si decide se usare la sua feature `text` o i nostri glifi.
 - **F2.07** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
   della scena di riferimento deve rientrare nei 33 M istruzioni (30 fps in software con la regola
   di F1.16c); se non ci rientra, si apre un ADR sul budget.
@@ -828,6 +842,8 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 
 - ❓ **Decisione F2.18:** algoritmo di spaziatura (esistono approcci noti in letteratura, es.
   quelli basati sulle durate e sulle "molle"): Claude fa una ricerca e propone.
+- **F2.23** Da ADR-0042 R2: se un budget sfora anche con `vello_cpu`, si rimisura il percorso GPU
+  con `spikes/gpu-render` sulle versioni del momento.
 - **F2.23** Da F1.11c (ADR-0026 §11 R11): misurare in tempo reale sul portatile di riferimento il
   cambio di metro `Rewrite` di una sezione lunga della partitura pesante (60 battute × 41 voci,
   ≈ 118 milioni di istruzioni); se supera i 16 ms, ottimizzarlo (per esempio con uno spostamento in
@@ -898,6 +914,9 @@ DAW srotolata collegata allo spartito, mixer essenziale, tracce audio.
 - ❓ **Decisione F3.04:** crate esistente (es. `cpal`, da verificare) o backend nostri (ALSA /
   PipeWire / JACK, WASAPI, CoreAudio); su Linux il kernel del proprietario è PREEMPT_RT, utile
   per le misure ma non rappresentativo dell'utente medio.
+- **F3.04** Da ADR-0042 R3: con il progetto di riferimento, zero xrun in 10 minuti **mentre la
+  partitura scorre** con i thread di disegno di `vello_cpu` attivi; solo dopo questa misura il
+  numero predefinito di thread di disegno è definitivo.
 - ❓ **Decisione F3.07:** decodifica dei formati audio (es. `symphonia`, da verificare).
 - La scelta del termine "region"/"clip" (glossario) va chiusa **prima di F3.06**.
 
@@ -1091,3 +1110,4 @@ raccomandato.
 | 2026-11-10 | 0.54 | F2.04 diviso in F2.04a (fatto, ADR-0040: finestra, ciclo eventi, input; tre errori trovati dal proprietario e corretti) e F2.04b (tema di sistema su Windows e macOS, cambi di tema seguiti); note di F2.04 spostate in F2.04b; nota in F2.08 (AccessKit nel punto di preparazione); prossimo passo F2.04b | proprietario |
 | 2026-11-10 | 0.55 | F2.04b fatto (PR #60): tema di sistema su Windows e macOS con `winit`, cambi seguiti a programma aperto su una sola strada (`EventLoopProxy`); nota di zbus 6 spostata in F2.08; nota in F2.12 (barra del titolo con un modo forzato); prossimo passo F2.05 | proprietario |
 | 2026-11-11 | 0.56 | F2.05 fatto (PR #61, ADR-0041 Accepted: screenshot senza finestra da un binario per sviluppatori, catalogo di scene, metà scura di Studio che emenda ADR-0014 §7 e ADR-0037 T10, mai committati); nota in F2.15 (primi screenshot veri, immagini di riferimento); prossimo passo F2.06 | proprietario |
+| 2026-11-11 | 0.57 | F2.06 fatto (ADR-0042 Accepted: GPU misurata a 1080p e 4K, niente GPU per ora, `vello_cpu` dietro la nostra lista di disegno); nuovo F2.06b (backend `vello_cpu`); note in F2.07 (glifi per `vello_cpu`), F2.23 (rimisura della GPU), F3.04 (xrun con i thread di disegno); prossimo passo F2.06b | proprietario |
