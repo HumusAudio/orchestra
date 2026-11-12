@@ -235,4 +235,6 @@ tells them when the theme's text tokens changed. `Label` and `Button` (plain or 
 by a click released over it, Enter, Space or AccessKit; disabled state) are the first widgets.
 **Measured:** a click on a real button costs 2.7 M instructions with its three redraws (≈ 0.9 M
 each, mostly `tiny-skia` filling and stroking the anti-aliased rounded rectangle), above this ADR's
-0.5 M target per event; the decision is the owner's.
+0.5 M target per event. **The owner chose (F2.09b2) to cache the coverage of rounded rectangles
+in the renderer** (ADR-0043, precision of F2.09b2): the click fell to 1.12 M for three redraws,
+≈ 0.37 M per event, within the target.

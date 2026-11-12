@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The glyph cache of the CPU renderer (ADR-0044 TX8, TC5): rasterised glyphs kept between
-//! frames as 8-bit coverage masks, bounded in memory.
+//! The mask caches of the CPU renderer: rasterised glyphs (ADR-0044 TX8, TC5) and, since
+//! F2.09b2, anti-aliased rounded rectangles, kept between frames as 8-bit coverage masks, each
+//! cache bounded in memory. [`MaskCache`] is generic over its key; the glyphs' key is
+//! [`GlyphKey`], the shapes' is defined by the renderer.
 //!
 //! # Why a cache
 //! The ADR-0012 spike measured 243 ms for 2000 glyphs shaped and filled at every frame, 28.8 ms
@@ -30,8 +32,12 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 use orchestra_text::{FaceId, GlyphId};
 
-/// The memory bound of the cache, in bytes of masks (ADR-0044 TX8: 8 MB).
+/// The memory bound of the glyph cache, in bytes of masks (ADR-0044 TX8: 8 MB).
 pub(crate) const GLYPH_CACHE_BYTES: usize = 8 * 1024 * 1024;
+
+/// The memory bound of the shape cache (F2.09b2): 4 MB, enough for hundreds of control-sized
+/// rounded rectangles in every state.
+pub(crate) const SHAPE_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
 /// The largest mask side that is cached, device pixels (TX8). A glyph larger than this (a
 /// strong zoom on the score) is filled as a path at every frame instead: such a glyph is rare,
@@ -60,12 +66,12 @@ pub(crate) enum Raster {
     /// measure the outline again before filling it.
     Large,
     /// A coverage mask.
-    Mask(GlyphMask),
+    Mask(CoverageMask),
 }
 
 /// A glyph's coverage mask, placed relative to its rounded origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct GlyphMask {
+pub(crate) struct CoverageMask {
     /// Device pixels from the rounded origin's column (the whole part of the quantised x) to
     /// the mask's left column.
     pub(crate) left: i32,
@@ -92,11 +98,11 @@ impl Raster {
     }
 }
 
-/// One entry of the cache.
+/// One entry of a cache.
 #[derive(Debug)]
-struct Entry {
+struct Entry<K> {
     /// What it is.
-    key: GlyphKey,
+    key: K,
     /// The rasterised glyph.
     raster: Raster,
     /// The frame it was last used in.
@@ -154,18 +160,34 @@ impl Hasher for KeyHasher {
     }
 }
 
-/// The cache: entries in a vector, found through a hash map from key to index.
-#[derive(Debug, Default)]
-pub(crate) struct GlyphCache {
+/// A cache: entries in a vector, found through a hash map from key to index, bounded by
+/// `budget` bytes.
+#[derive(Debug)]
+pub(crate) struct MaskCache<K> {
     /// The entries, in no particular order.
-    entries: Vec<Entry>,
+    entries: Vec<Entry<K>>,
     /// From a key to its entry's index.
-    index: HashMap<GlyphKey, usize, BuildHasherDefault<KeyHasher>>,
-    /// The bytes of all entries, against [`GLYPH_CACHE_BYTES`].
+    index: HashMap<K, usize, BuildHasherDefault<KeyHasher>>,
+    /// The bytes of all entries, against `budget`.
     bytes: usize,
+    /// The memory bound, bytes.
+    budget: usize,
 }
 
-impl GlyphCache {
+/// The glyph cache (ADR-0044 TX8).
+pub(crate) type GlyphCache = MaskCache<GlyphKey>;
+
+impl<K: Copy + Eq + std::hash::Hash> MaskCache<K> {
+    /// An empty cache bounded by `budget` bytes.
+    pub(crate) fn new(budget: usize) -> Self {
+        Self {
+            entries: Vec::new(),
+            index: HashMap::default(),
+            bytes: 0,
+            budget,
+        }
+    }
+
     /// The rasterised glyph of `key`, rasterising it with `rasterise` if it is not cached (and
     /// evicting old entries if the bound would be exceeded). `frame` is the current frame's
     /// number, for the eviction.
@@ -175,7 +197,7 @@ impl GlyphCache {
     /// insertion, and now and then a batch eviction, O(n log n) in the entries.
     pub(crate) fn get_or_rasterise(
         &mut self,
-        key: GlyphKey,
+        key: K,
         frame: u64,
         rasterise: impl FnOnce() -> Raster,
     ) -> Option<&Raster> {
@@ -186,8 +208,8 @@ impl GlyphCache {
         }
         let raster = rasterise();
         let bytes = raster.bytes();
-        if self.bytes + bytes > GLYPH_CACHE_BYTES {
-            self.evict(GLYPH_CACHE_BYTES / 4 * 3 - bytes.min(GLYPH_CACHE_BYTES / 4 * 3));
+        if self.bytes + bytes > self.budget {
+            self.evict(self.budget / 4 * 3 - bytes.min(self.budget / 4 * 3));
         }
         let index = self.entries.len();
         self.entries.push(Entry {
@@ -220,8 +242,8 @@ impl GlyphCache {
         }
     }
 
-    /// The bytes the cache holds now (masks and bookkeeping), always ≤ [`GLYPH_CACHE_BYTES`]
-    /// after an insertion.
+    /// The bytes the cache holds now (masks and bookkeeping), always within its budget after an
+    /// insertion.
     pub(crate) const fn bytes(&self) -> usize {
         self.bytes
     }
@@ -248,7 +270,7 @@ mod tests {
 
     /// A mask of `side × side` pixels.
     fn mask(side: u32) -> Raster {
-        Raster::Mask(GlyphMask {
+        Raster::Mask(CoverageMask {
             left: 0,
             top: 0,
             width: side,
@@ -259,7 +281,7 @@ mod tests {
 
     #[test]
     fn a_hit_does_not_rasterise_again() {
-        let mut cache = GlyphCache::default();
+        let mut cache = GlyphCache::new(GLYPH_CACHE_BYTES);
         let mut calls = 0;
         for frame in 0..3 {
             cache.get_or_rasterise(key(1), frame, || {
@@ -273,7 +295,7 @@ mod tests {
 
     #[test]
     fn the_bound_is_kept_and_the_oldest_go_first() {
-        let mut cache = GlyphCache::default();
+        let mut cache = GlyphCache::new(GLYPH_CACHE_BYTES);
         // 64 × 64 masks: 4 KiB + overhead each, so the 8 MiB bound is reached near 2000.
         let side = 64;
         for n in 0..3000 {
@@ -312,7 +334,7 @@ mod tests {
             },
             GlyphKey { quarter: 1, ..base },
         ];
-        let mut cache = GlyphCache::default();
+        let mut cache = GlyphCache::new(GLYPH_CACHE_BYTES);
         cache.get_or_rasterise(base, 0, || mask(4));
         for other in others {
             let mut rasterised = false;

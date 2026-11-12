@@ -3584,7 +3584,22 @@ frame with the whole accessibility tree 63.3 M instructions; the whole tree agai
 a button (the pointer entering, the press, the release, three redraws of the button, and the
 accessibility update) **2.7 M**, about 0.9 M per redraw, almost all of it `tiny-skia` filling and
 stroking the anti-aliased rounded rectangle. That is above ADR-0045's target of 0.5 M per event;
-the owner decides what to do (see the ROADMAP).
+the owner chose to cache shapes (below).
+
+**The shape cache** (F2.09b2, owner's choice after the measurement). Anti-aliased rounded
+rectangles, filled or stroked, are drawn from a second mask cache (`MaskCache<ShapeKey>`, 4 MB, the
+same code as the glyph cache made generic over its key): the key is the size, radius and stroke
+width in device pixels, the stroke's join and the sub-pixel phase of the corner, as exact `f32`
+bits, and the mask is rasterised from those numbers only (a stroke turned into a fillable outline
+by `tiny-skia`), so two shapes with the same key always get the same pixels. Shapes wider or taller
+than 512 device pixels (a large panel at a high scale) are still filled as paths. Every control is
+a rounded rectangle, and filling it as a path was most of a redraw: a click on a real button went
+from 2.7 M to **1.12 M instructions** for its three redraws, about 0.37 M each, within ADR-0045's
+0.5 M; the shadowed panel frame improved by 2%. `tests/draw.rs` compares cached shapes with
+`tiny-skia` drawing them directly at fractional positions and three scales (within 3 steps of 255,
+but for a few corner pixels of curved strokes whose outline `tiny-skia` subdivides slightly
+differently at other absolute coordinates) and checks the clip; seven injected bugs, all caught
+(one after the clip test written for it).
 
 #### The window and the event loop
 

@@ -3828,7 +3828,24 @@ pulsanti): primo fotogramma con l'albero accessibile intero 63,3 M istruzioni; l
 nuovo 0,34 M; un clic su un pulsante (il puntatore che entra, la pressione, il rilascio, tre
 ridisegni del pulsante e l'aggiornamento accessibile) **2,7 M**, circa 0,9 M per ridisegno, quasi
 tutto in `tiny-skia` che riempie e traccia il rettangolo arrotondato con antialiasing. È sopra
-l'obiettivo di 0,5 M per evento di ADR-0045; decide il proprietario cosa fare (vedi la ROADMAP).
+l'obiettivo di 0,5 M per evento di ADR-0045; il proprietario ha scelto di mettere in cache le forme (qui sotto).
+
+**La cache delle forme** (F2.09b2, scelta del proprietario dopo la misura). I rettangoli
+arrotondati con antialiasing, riempiti o con bordo, si disegnano da una seconda cache di maschere
+(`MaskCache<ShapeKey>`, 4 MB, lo stesso codice della cache dei glifi reso generico sulla chiave):
+la chiave è dimensione, raggio e spessore del bordo in pixel del dispositivo, il tipo di giunzione
+del bordo e la fase sub-pixel dell'angolo, come bit esatti di `f32`, e la maschera si rasterizza solo
+da quei numeri (un bordo trasformato da `tiny-skia` in un contorno da riempire), così due forme con
+la stessa chiave hanno sempre gli stessi pixel. Le forme più larghe o più alte di 512 pixel del
+dispositivo (un pannello grande a una scala alta) si riempiono ancora come tracciati. Ogni controllo
+è un rettangolo arrotondato, e riempirlo come tracciato era la maggior parte di un ridisegno: un clic
+su un pulsante vero è passato da 2,7 M a **1,12 M istruzioni** per i suoi tre ridisegni, circa 0,37 M
+l'uno, dentro lo 0,5 M di ADR-0045; il fotogramma del pannello con l'ombra è migliorato del 2%.
+`tests/draw.rs` confronta le forme dalla cache con `tiny-skia` che le disegna direttamente, in
+posizioni frazionarie e a tre scale (entro 3 passi su 255, salvo pochi pixel d'angolo dei bordi
+curvi, il cui contorno `tiny-skia` suddivide in modo leggermente diverso con altre coordinate
+assolute) e verifica la clip; sette difetti iniettati, tutti presi (uno dopo il test sulla clip
+scritto apposta).
 
 #### La finestra e il ciclo degli eventi
 
