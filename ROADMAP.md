@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); next F2.07 (text).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Proposed, awaiting acceptance.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -933,6 +933,21 @@ shadow already coloured (13.0 ms, 1.57 steps off the formula) and chose to fill 
 full-coverage inside from a per-channel table and blend only the soft band, plus rounding with
 `+ 0.5` and a saturating cast instead of `round()` (a library call on baseline x86-64): 7.3 ms
 for the dialog, 3.8 ms for the menu, still within one step of the formula (K2 unchanged). PR #63; SCALETTA v0.58 closes F2.06b.
+
+**Step F2.07 in progress** (`feature/f2-07-text`, 2026-11-12), split as proposed in the briefing
+into the ADR (F2.07), the implementation (F2.07b) and the text tokens with the budget (F2.07c).
+Checked on crates.io that day: `skrifa` 0.50 and `harfrust` 0.16 (published that day) replace
+ADR-0036's 0.49 + 0.15, both on `read-fonts` 0.47. The owner approved the outline TX1–TX12 and the
+draft **ADR-0044** (Proposed) was written: a new bottom crate `orchestra-text` (faces, shaping,
+layout, wrapping, metrics, outlines; `notation-layout` will use it for Bravura) with rasterising
+and the glyph cache in `ui/draw`; Inter Regular/SemiBold/Bold, Bravura and JetBrains Mono Regular
+embedded (≈ 3.0 MB); no fallback font and left-to-right only (recorded limits); unhinted grayscale
+anti-aliasing, gamma chosen by eye in F2.07b; quarter-pixel positions, baseline on whole pixels;
+an 8 MB LRU cache of 8-bit masks, glyphs above 256 px drawn as paths; shaping once into a
+reusable `TextLayout`, recorded as a `GlyphRun` command with a glyph arena; UAX #14 wrapping with
+the crate chosen in F2.07b (`unicode-linebreak` is unmaintained since 2023); text tokens (four
+families, sizes 11–22, three weights). **Open:** the owner's acceptance of ADR-0044, and
+confirmation to add the crate to CLAUDE.md §2.
 
 | Step | What | Status |
 |---|---|---|
