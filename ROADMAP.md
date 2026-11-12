@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 (widget architecture, D12) in progress: spike done, choices WA1–WA8 awaiting the owner.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 (widget architecture, D12) in progress: ADR-0045 Proposed, awaiting acceptance.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1024,7 +1024,12 @@ spike, as proposed in the briefing). Checked on crates.io: `accesskit` 0.25.2, `
 immediate (every segment re-recorded, the whole panel redrawn; B1 also reshapes 132 texts);
 AccessKit updates are one node retained, the whole tree immediate. `taffy` lays the panel out in
 1.6 M (0.31 M after one change, +362 KB) against 3 300 for a column of our own. **Open:** the
-owner's choices WA1–WA8, then the ADR draft (session 2).
+owner's choices WA1–WA8, then the ADR draft (session 2). The owner approved WA1–WA8 the same day and
+the draft **ADR-0045** (Proposed) was written: a retained widget tree in an arena with stable
+`WidgetId`s, our own two-pass layout (stack, row, column, grid; fixed, content, fill; incremental),
+hit testing with capture, keyboard to the focused widget with bubbling, Tab order and modal
+focus traps, one AccessKit node per widget with incremental updates, one segment per widget,
+typed messages to the application, the clipboard left to F2.10. **Open:** the owner's acceptance.
 
 | Step | What | Status |
 |---|---|---|
