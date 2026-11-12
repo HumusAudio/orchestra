@@ -3,7 +3,8 @@
 # Evaluation spikes (time-boxed prototypes, NOT product code): Phase 0, Step 13 (GUI and plugin
 # hosting), SCALETTA F1.06 (`model`, the storage of the document model), F1.15 (`fileformat`,
 # the encodings of the project file), F2.01 (`gui-blocks`, the UI building blocks together) and
-# F2.06 (`gpu-render`, four renderers measured on the reference scene).
+# F2.06 (`gpu-render`, four renderers measured on the reference scene) and F2.08 (`widgets`,
+# retained against immediate widgets, taffy, AccessKit).
 #
 # A separate workspace on purpose: nothing here is ever built by the main workspace, by CI's
 # `cargo xtask check`, or into a release. The goal is to measure and decide (ADR-0011, ADR-0012),
@@ -12,7 +13,7 @@
 
 [workspace]
 resolver = "3"
-members = ["scene", "gui-own", "gui-iced", "gui-egui", "gui-slint", "plugin-host", "model", "fileformat", "gui-blocks", "gpu-render"]
+members = ["scene", "gui-own", "gui-iced", "gui-egui", "gui-slint", "plugin-host", "model", "fileformat", "gui-blocks", "gpu-render", "widgets"]
 
 [workspace.package]
 version = "0.0.0"

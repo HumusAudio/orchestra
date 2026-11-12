@@ -52,3 +52,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0042](0042-cpu-renderer-vello-cpu.md) | The interface renderer: `vello_cpu` behind our display list, no GPU for now (amends ADR-0039 D9, ADR-0036, ADR-0012) | Accepted; R1, R3, R5, R6 superseded by ADR-0043 |
 | [0043](0043-keep-tiny-skia-cache-shadows.md) | Keep `tiny-skia`, cache shadows; `vello_cpu` is dropped (supersedes part of ADR-0042) | Accepted |
 | [0044](0044-text-fonts-shaping-glyph-cache.md) | Text: bundled fonts, shaping, measuring and a glyph cache (amends ADR-0036 B1, ADR-0039 D4) | Accepted |
+| [0045](0045-widget-architecture.md) | Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget | Accepted |

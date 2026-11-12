@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "widgets"
+description = "Spike F2.08: retained against immediate widgets on our display list, taffy, AccessKit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+orchestra-ui = { path = "../../crates/ui" }
+orchestra-text = { path = "../../crates/text" }
+# Checked on crates.io on 2026-11-12: taffy 0.15.1 (MIT), accesskit 0.25.2 (MIT OR Apache-2.0).
+taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox"] }
+accesskit = "0.25.2"
+
+[dev-dependencies]
+gungraun = "=0.20.0"
+
+[[bench]]
+name = "widgets"
+harness = false

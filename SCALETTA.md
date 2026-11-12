@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.61, approvata dal proprietario il 2026-11-12.**
+> **Stato di questo documento: v0.62, approvata dal proprietario il 2026-11-12.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -696,7 +696,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.07 | **ADR del testo**: font inclusi, shaping, cache dei glifi, misure, a capo, token del testo; Bravura per i simboli musicali | ✅ ADR-0044 | 1 |
 | F2.07b | **Testo, realizzazione** (ADR-0044): crate `orchestra-text` (font, shaping, `TextLayout`, a capo, metriche, profili), comando `GlyphRun`, cache dei glifi per `tiny-skia`, scelta della gamma a occhio, scelta fra `icu_segmenter` e il sottoinsieme nostro per l'a capo | ✅ | 2 |
 | F2.07c | **Token del testo** (ADR-0044 TX11) nel tema, testo nella scena di riferimento e nel catalogo degli screenshot, budget del fotogramma intero (33 M istruzioni) | ✅ | 1 |
-| F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ⬜ | 2 |
+| F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ✅ ADR-0045 | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
@@ -801,7 +801,12 @@ controllo completo. Va fatta bene una volta sola.
   canale, miscelando solo la fascia sfumata: fotogramma a 1080p con un dialogo 1400 × 800 da 31,6 a
   7,3 ms (3,8 senza ombra), `draw_shadowed_panel_frame` 17,7 M istruzioni. Il PNG resta con
   `tiny-skia` (ADR-0039 D8).
-- **F2.08** ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
+- **F2.08** **Fatto il 2026-11-12 (ADR-0045 Accepted, D12 chiusa):** dopo lo spike `spikes/widgets`
+  (un clic su 198 widget: 0,17 M istruzioni ritenuto contro 27–33 M immediato), widget ritenuti in
+  un'arena, layout nostro a due passate (pila, riga, colonna, griglia), eventi con cattura e
+  risalita, focus con trappola modale, un nodo AccessKit e un segmento per widget, messaggi tipizzati
+  all'applicazione. AccessKit resta su zbus 5.19: le eccezioni di `deny.toml` restano.
+- **F2.08** (testo originale) ❓ **Decisioni:** retained vs immediato; layout nostro o crate esistente (es.
   `taffy`, da verificare); crate per gli appunti (es. `arboard`, da verificare) in F2.10.
 - **F2.08** Da ADR-0038 S7 (era una nota di F2.04b): quando entra AccessKit, ricontrollare se è
   passato a zbus 6; in quel caso ci passiamo anche noi nello stesso passo e togliamo da
@@ -835,8 +840,14 @@ controllo completo. Va fatta bene una volta sola.
   di F1.16c); se non ci rientra, si apre un ADR sul budget.
 - **F2.07c** Da ADR-0037: qui si definiscono anche i **token del testo** (carattere fra i font
   inclusi, scala delle dimensioni, pesi), personalizzabili come gli altri.
+- **F2.09** Da ADR-0045: AccessKit (`accesskit` 0.25, `accesskit_winit` 0.34) entra nel workspace
+  qui, agganciato al punto di preparazione della finestra (ADR-0040 W7). Obiettivo dai benchmark: un
+  evento su un pannello di 200 widget sotto 0,5 M istruzioni, disegno compreso; la finestra
+  dimostrativa viene sostituita dai widget veri.
 - **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
   del tema.
+- **F2.10** Da ADR-0045 WA8 (parte di D12): qui si sceglie il crate degli appunti; candidato
+  `arboard` 3.7.0 (2026-10-15, MIT OR Apache-2.0), da misurare (dipendenze native, Wayland).
 - **F2.10** Da F2.07b (scelta TB4): le funzioni per il cursore e il clic sul testo
   (`caret_x`, `hit_test`) si costruiscono sui cluster che `TextLayout` già registra (offset in byte
   UTF-8 per ogni glifo).
@@ -1076,7 +1087,7 @@ modifica.
 | D09 | Soglia di tolleranza di default; variante in ms | F1.14 | **chiusa** 2026-11-06: ADR-0028 (1/32, variante in ms) |
 | D10 | Formato concreto del file, contenitore, `serde`, estensione | F1.15 | **chiusa** 2026-11-06: ADR-0029 (JSON semplice, `serde` solo in `io`, `.orchestra`) |
 | D11 | Esportazione MIDI anticipata (F1.18) | fine F1-B | **chiusa** 2026-10-30: sì |
-| D12 | Widget retained o immediato; layout; appunti | F2.08 | aperta |
+| D12 | Widget retained o immediato; layout; appunti | F2.08 | **chiusa** 2026-11-12: ADR-0045 (ritenuti, layout nostro); appunti in F2.10 |
 | D13 | Salvataggio automatico già in F2A | F2.14 | **chiusa** 2026-11-08: sì |
 | D14 | Algoritmo di spaziatura orizzontale | F2.18 | aperta |
 | D15 | Strumenti interni e suoni | F3.03 | aperta |
@@ -1162,3 +1173,4 @@ raccomandato.
 | 2026-11-12 | 0.59 | F2.07 diventa l'ADR del testo (fatto, ADR-0044 Accepted: crate `orchestra-text`, cinque font inclusi, cache dei glifi da 8 MB, `GlyphRun`, a capo secondo UAX #14, token del testo); nuovi F2.07b (realizzazione) e F2.07c (token, scena di riferimento, budget); note di F2.07 spostate in F2.07b e F2.07c; un'unica PR per l'intero passo; prossimo passo F2.07b | proprietario |
 | 2026-11-12 | 0.60 | F2.07b fatto (glyph run e cache dei glifi, contrasto del testo γ = 1,45 scelto dal proprietario); note in F2.07b (risultati), F2.10 (cursore sui cluster), F2.17 (SMuFL solo in Bravura), F2.07c (fusione dei pixel prima di un ADR sul budget); prossimo passo F2.07c | proprietario |
 | 2026-11-12 | 0.61 | F2.07c fatto e con esso F2.07 (token del testo, `Faces::glyph_box`, scena di riferimento con glifi a 18,3 M istruzioni entro il budget di 33 M); note in F2.07c (risultati), F2.17 (riquadri SMuFL), F2.12b (cambiare un token del testo reimpagina); prossimo passo F2.08 | proprietario |
+| 2026-11-12 | 0.62 | F2.08 fatto (ADR-0045 Accepted, D12 chiusa: widget ritenuti, layout nostro, eventi, focus, AccessKit per widget); note in F2.09 (AccessKit, obiettivo 0,5 M per evento) e F2.10 (appunti, `arboard`); prossimo passo F2.09 | proprietario |
