@@ -41,6 +41,22 @@ pub trait WindowApp {
 
     /// Handles one input event, re-recording the segments it changes. Only their area is redrawn.
     fn input(&mut self, event: &input::InputEvent, list: &mut DisplayList);
+
+    /// The accessibility tree's update (ADR-0045 WA5, WC6): the whole tree when `full` (an
+    /// assistive technology just connected), otherwise what changed since the last call. An app
+    /// built on [`Ui`](crate::Ui) answers with [`Ui::take_access_update`](crate::Ui), after
+    /// [`Ui::reset_access`](crate::Ui) when `full`. The default (`None`) leaves a tree with only
+    /// the window in it.
+    fn access_update(&mut self, full: bool) -> Option<crate::AccessUpdate> {
+        let _ = full;
+        None
+    }
+
+    /// Carries out an assistive technology's request, re-recording what it changes (an app built
+    /// on [`Ui`](crate::Ui) calls [`Ui::access_action`](crate::Ui)). The default ignores it.
+    fn access_action(&mut self, action: crate::AccessAction, list: &mut DisplayList) {
+        let _ = (action, list);
+    }
 }
 
 /// How to open the window.

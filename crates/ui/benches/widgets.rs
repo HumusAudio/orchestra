@@ -13,6 +13,10 @@
 //! - `click`: a press and a release on one leaf: routing, the leaf re-recorded, the damage drawn.
 //! - `grow_one`: one leaf grows: the incremental layout, the moved siblings re-recorded and drawn.
 //! - `relayout_all`: the density changes: everything laid out and recorded again (not drawn).
+//! - `real_*` (F2.09b): the same panel with real widgets, a label and four buttons per row, all
+//!   with text: the first frame (with the whole accessibility tree), a click (hover, press,
+//!   release, the button re-recorded and drawn, the accessibility update), and the whole
+//!   accessibility tree built again (an assistive technology connecting).
 //!
 //! # Target (ADR-0045, SCALETTA F2.09)
 //! An event under 0.5 M instructions with drawing; the spike's retained click was 0.17 M.
@@ -37,8 +41,8 @@ use std::hint::black_box;
 
 use gungraun::prelude::*;
 use orchestra_ui::{
-    Appearance, BuiltInTheme, ButtonState, ColorToken, Constraints, CpuRenderer, Density,
-    DisplayList, EventCx, Flex, Handled, Image, InputEvent, LayoutCx, LayoutProps, Point,
+    Appearance, BuiltInTheme, Button, ButtonState, ColorToken, Constraints, CpuRenderer, Density,
+    DisplayList, EventCx, Flex, Handled, Image, InputEvent, Label, LayoutCx, LayoutProps, Point,
     PointerButton, RecordCx, Recorder, Rect, Renderer, Size, Space, Theme, Ui, Widget, WidgetEvent,
     WidgetId,
 };
@@ -91,7 +95,11 @@ struct Panel {
 
 // The panel built, not yet laid out.
 fn built() -> Panel {
-    let mut ui = Ui::new(Flex::column(Space::Xs, Space::M), &theme());
+    let mut ui = Ui::new(
+        Flex::column(Space::Xs, Space::M),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let mut leaves = Vec::new();
     for _ in 0..40 {
@@ -196,9 +204,126 @@ fn relayout_all(mut panel: Panel) -> Panel {
     panel
 }
 
+// The same panel with real widgets (F2.09b): each row a label and four buttons, all with text,
+// laid out, recorded, drawn once and its accessibility tree handed out once.
+struct Real {
+    ui: Ui<usize>,
+    list: DisplayList,
+    renderer: CpuRenderer,
+    image: Image,
+    buttons: Vec<WidgetId>,
+}
+
+fn real_built() -> Real {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(Flex::column(Space::Xs, Space::M), &theme(), faces.clone());
+    ui.set_title("Benchmark");
+    let root = ui.root();
+    let mut buttons = Vec::new();
+    for row_index in 0..40 {
+        let row = ui
+            .add(
+                root,
+                Flex::row(Space::S, Space::None),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        ui.add(
+            row,
+            Label::new(format!("Track {row_index}: Violin I")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        for column in 0..4 {
+            let id = ui
+                .add(
+                    row,
+                    Button::new(format!("Action {column}"), row_index * 4 + column),
+                    LayoutProps::default(),
+                )
+                .unwrap();
+            buttons.push(id);
+        }
+    }
+    Real {
+        ui,
+        list: DisplayList::new(),
+        renderer: CpuRenderer::new(faces),
+        image: Image::new(1000, 1600).unwrap(),
+        buttons,
+    }
+}
+
+fn real_shown() -> Real {
+    let mut real = real_built();
+    real.ui
+        .layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut real.list);
+    real_draw(&mut real);
+    let _ = real.ui.take_access_update();
+    real
+}
+
+fn real_draw(real: &mut Real) {
+    let damage = real.list.take_damage();
+    real.renderer
+        .render(&real.list, &theme(), &damage, 1.0, &mut real.image)
+        .unwrap();
+}
+
+#[library_benchmark]
+#[bench::panel(real_built())]
+fn real_first_frame(mut real: Real) -> Real {
+    real.ui.layout(
+        black_box(Rect::new(0.0, 0.0, 1000.0, 1600.0)),
+        &mut real.list,
+    );
+    real_draw(&mut real);
+    black_box(real.ui.take_access_update());
+    real
+}
+
+#[library_benchmark]
+#[bench::panel(real_shown())]
+fn real_click(mut real: Real) -> Real {
+    let rect = real.ui.rect(real.buttons[77]).unwrap();
+    let position = Point::new(
+        f32::midpoint(rect.x0, rect.x1),
+        f32::midpoint(rect.y0, rect.y1),
+    );
+    real.ui
+        .input(&InputEvent::PointerMoved { position }, &mut real.list);
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        real.ui.input(
+            black_box(&InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state,
+                position,
+            }),
+            &mut real.list,
+        );
+    }
+    black_box(real.ui.take_messages().count());
+    real_draw(&mut real);
+    black_box(real.ui.take_access_update());
+    real
+}
+
+#[library_benchmark]
+#[bench::panel(real_shown())]
+fn real_access_full(mut real: Real) -> Real {
+    real.ui.reset_access();
+    black_box(real.ui.take_access_update());
+    real
+}
+
 library_benchmark_group!(
     name = core,
     benchmarks = [first_frame, click, grow_one, relayout_all]
 );
 
-main!(library_benchmark_groups = core);
+library_benchmark_group!(
+    name = controls,
+    benchmarks = [real_first_frame, real_click, real_access_full]
+);
+
+main!(library_benchmark_groups = core, controls);

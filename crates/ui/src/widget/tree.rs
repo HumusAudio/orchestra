@@ -26,9 +26,14 @@ use std::num::NonZeroU64;
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::glyph_cache::KeyHasher;
 use crate::draw::list::Recorder;
+use orchestra_text::{Faces, Shaper, TextError, TextLayout};
+
 use crate::theme::density::Spacing;
+use crate::theme::text::{FamilyToken, SizeToken, Typography, Weight};
+use crate::theme::token::Shape;
 use crate::window::input::{ButtonState, Key, Modifiers, PointerButton, WheelDelta};
 
+use super::access::{AccessInfo, AccessRole};
 use super::layout::{Constraints, LayoutProps, Size};
 
 /// The stable name of a widget: from one counter, never reused (WB2). It is also the widget's
@@ -40,6 +45,17 @@ impl WidgetId {
     /// The largest ID: never handed out in practice (the counter starts at 1), used for the
     /// impossible error paths.
     pub(crate) const MAX: Self = Self(NonZeroU64::MAX);
+
+    /// The ID with this number, if it is one (not zero). For AccessKit's action requests, which
+    /// name their target by the number (WC5); an ID that no widget has is answered "unknown" by
+    /// the interface.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Option<Self> {
+        match NonZeroU64::new(raw) {
+            Some(raw) => Some(Self(raw)),
+            None => None,
+        }
+    }
 
     /// The number, for the display list's segment and AccessKit's node.
     #[must_use]
@@ -120,6 +136,9 @@ pub enum WidgetEvent<'a> {
     FocusGained,
     /// This widget lost the keyboard focus.
     FocusLost,
+    /// An assistive technology asked to activate this widget (AccessKit's click, WC5): a button
+    /// acts as if clicked.
+    Activate,
 }
 
 /// What a widget needs to record its segment: its rectangle, its focus, the theme's spacing.
@@ -131,6 +150,8 @@ pub struct RecordCx {
     pub focused: bool,
     /// The spacing of the theme's density.
     pub spacing: Spacing,
+    /// The theme's shape tokens (corner radius, line width, focus width).
+    pub shape: Shape,
 }
 
 /// One widget of the interface (ADR-0045 WA1, WB3). `M` is the application's message type
@@ -161,6 +182,17 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     fn focusable(&self) -> bool {
         false
     }
+
+    /// The widget's role for assistive technologies (ADR-0045 WA5, WC2); a container by default.
+    fn access_role(&self) -> AccessRole {
+        AccessRole::Group
+    }
+
+    /// What the widget tells assistive technologies besides its role: its name, its state, its
+    /// value. Nothing by default.
+    fn access_info(&self, info: &mut AccessInfo) {
+        let _ = info;
+    }
 }
 
 /// What a widget can do while handling an event (WB6): send messages to the application and ask
@@ -169,6 +201,8 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
 pub struct EventCx<'a, M> {
     /// The widget receiving the event.
     pub(crate) id: WidgetId,
+    /// Its rectangle from the last layout.
+    pub(crate) rect: Rect,
     /// The application's message queue.
     pub(crate) messages: &'a mut Vec<M>,
     /// Lay this widget out again (its size may have changed).
@@ -184,6 +218,12 @@ impl<M> EventCx<'_, M> {
     #[must_use]
     pub const fn id(&self) -> WidgetId {
         self.id
+    }
+
+    /// The widget's rectangle from the last layout (to know whether a release happened over it).
+    #[must_use]
+    pub const fn rect(&self) -> Rect {
+        self.rect
     }
 
     /// Sends `message` to the application (WA7), after the event.
@@ -229,6 +269,8 @@ pub(crate) struct Slot<M> {
     pub(crate) needs_layout: bool,
     /// Must be recorded again.
     pub(crate) needs_record: bool,
+    /// Its accessibility node must be sent again (WC3).
+    pub(crate) needs_access: bool,
 }
 
 /// The arena (WB2).
@@ -244,17 +286,34 @@ pub(crate) struct WidgetTree<M> {
     next: u64,
     /// The spacing of the theme's density, for layout.
     pub(crate) spacing: Spacing,
+    /// The bundled faces, for the widgets that lay text out (WC7).
+    pub(crate) faces: Faces,
+    /// The shaper those widgets share (its working memory is reused, ADR-0044 TX9).
+    pub(crate) shaper: Shaper,
+    /// The theme's text tokens.
+    pub(crate) typography: Typography,
+    /// Grows each time the text tokens change, so widgets know their laid-out texts are stale.
+    pub(crate) text_generation: u64,
 }
 
 impl<M: 'static> WidgetTree<M> {
     /// A tree whose root is `root` (slot 0).
-    pub(crate) fn new(root: Box<dyn Widget<M>>, spacing: Spacing) -> Self {
+    pub(crate) fn new(
+        root: Box<dyn Widget<M>>,
+        spacing: Spacing,
+        faces: Faces,
+        typography: Typography,
+    ) -> Self {
         let mut tree = Self {
             slots: Vec::new(),
             free: Vec::new(),
             index: HashMap::default(),
             next: 1,
             spacing,
+            faces,
+            shaper: Shaper::new(),
+            typography,
+            text_generation: 0,
         };
         tree.insert(None, root, LayoutProps::default());
         tree
@@ -296,6 +355,7 @@ impl<M: 'static> WidgetTree<M> {
             measured: None,
             needs_layout: true,
             needs_record: true,
+            needs_access: true,
         };
         let index = if let Some(index) = self.free.pop() {
             if let Some(place) = self.slots.get_mut(index) {
@@ -311,6 +371,8 @@ impl<M: 'static> WidgetTree<M> {
             && let Some(parent) = self.slot_mut(parent)
         {
             parent.children.push(index);
+            // Its list of children changed: its accessibility node too (WC3).
+            parent.needs_access = true;
         }
         self.invalidate_layout(index);
         index
@@ -322,6 +384,7 @@ impl<M: 'static> WidgetTree<M> {
         if let Some(parent) = parent {
             if let Some(slot) = self.slot_mut(parent) {
                 slot.children.retain(|&child| child != index);
+                slot.needs_access = true;
             }
             self.invalidate_layout(parent);
         }
@@ -476,5 +539,32 @@ impl<M: 'static> LayoutCx<'_, M> {
     #[must_use]
     pub const fn spacing(&self) -> Spacing {
         self.tree.spacing
+    }
+
+    /// A number that changes whenever the theme's text tokens change: a widget keeps the number
+    /// its text was laid out with, and lays it out again when it differs (ADR-0044 TX9).
+    #[must_use]
+    pub const fn text_generation(&self) -> u64 {
+        self.tree.text_generation
+    }
+
+    /// Lays `text` out into `layout` in the theme's style for `family`, `size` and `weight`,
+    /// wrapping at `max_width` if given (WC7). The faces and the shaper are the interface's own,
+    /// shared by every widget, so laying out allocates nothing once the layout has its capacity.
+    ///
+    /// # Errors
+    /// As [`Shaper::layout`].
+    pub fn lay_out_text(
+        &mut self,
+        text: &str,
+        style: (FamilyToken, SizeToken, Weight),
+        max_width: Option<f32>,
+        layout: &mut TextLayout,
+    ) -> Result<(), TextError> {
+        let (family, size, weight) = style;
+        let style = self.tree.typography.text_style(family, size, weight);
+        let tree = &mut *self.tree;
+        tree.shaper
+            .layout(&tree.faces, text, style, max_width, layout)
     }
 }

@@ -3485,7 +3485,7 @@ widgets**: objects that live between frames with their state, their rectangle an
 the display list. The application keeps one `Ui<M>` per window, where `M` is its own message type:
 
 ```rust
-let mut ui = Ui::new(Flex::column(Space::M, Space::L), &theme);
+let mut ui = Ui::new(Flex::column(Space::M, Space::L), &theme, faces.clone());
 let row = ui.add(ui.root(), Flex::row(Space::S, Space::None), LayoutProps::default())?;
 let ok = ui.add(row, my_button, LayoutProps::default().width(Length::Fill(1.0)))?;
 ui.layout(window_bounds, &mut list);      // on every size change
@@ -3528,6 +3528,63 @@ allocation while routing. Fourteen bugs were injected: all caught, one after a t
 it (the drawing order). **Benchmarks** (`benches/widgets.rs`, 200 leaves in 40 rows, drawing
 included): first frame 3.4 M instructions, a click **63 000**, a leaf that grows 116 000, a density
 change laying everything out again 0.86 M. The target of ADR-0045 is 0.5 M per event.
+
+#### Accessibility, labels and buttons
+
+Step F2.09b (ADR-0045 WA5, choices WC1–WC10), in `src/widget/access.rs`, `label.rs`, `button.rs`
+and the window. **AccessKit** (`accesskit` 0.25.2, `accesskit_winit` 0.34.2) enters the workspace
+here, only in `orchestra-ui`.
+
+**Widgets describe themselves in our own types.** A widget answers an `AccessRole` (group, label,
+button, checkbox, switch, slider) and fills an `AccessInfo` (name, on/off, value, disabled,
+clickable); `access.rs` is the only file that builds AccessKit's nodes, as `orchestra-text` keeps
+`skrifa` out of the interface, so an AccessKit update touches one file. The tree has a window node
+(ID 0, named after the window's title, `Ui::set_title`) whose child is the root widget, then one
+node per widget with its role, bounds and children.
+
+**Incremental updates.** `Ui::take_access_update()` gives the whole tree the first time (or after
+`Ui::reset_access`, when an assistive technology connects), then only the nodes of widgets that
+were re-recorded or moved, and of parents whose children changed, always with the focus. Actions
+come back through `Ui::access_action`: a click becomes `WidgetEvent::Activate` for the target, a
+focus request moves the focus.
+
+**The window.** `WindowApp` gains `access_update(full)` and `access_action(action, list)`, with
+defaults (a window-only tree, nothing done). The shell creates the adapter in the preparation hook
+of ADR-0040 W7 (it panics if the window was ever shown), with its requests arriving through our
+`EventLoopProxy` (`ShellEvent::Access`); it passes every window event to the adapter, sends the
+whole tree when asked, and after every damaging event sends the changes, only while an assistive
+technology listens. This part cannot be tried in the sandbox (no display): the owner checks it
+with Orca once real widgets are in the window (F2.09c).
+
+**Label.** Text already localised by the application, in the theme's text tokens (family, size,
+weight), `text` or `text-muted`, optionally wrapping at its parent's width. It is laid out again
+only when its text, its wrapping width or the theme's text tokens change (a text generation counter
+that `Ui::set_theme` advances). The interface owns the faces and one shaper (`Ui::new(root, &theme,
+faces)`), reached by widgets through `LayoutCx::lay_out_text`.
+
+**Button.** `Button::new(text, message)`, plain or primary (accent). Height `control-height`,
+padding `control-padding`, radius and focus ring from the shape tokens (now in `RecordCx`). A press
+captures the pointer and shows it pressed; the release activates it only over the button; Enter or
+Space activate it when focused; AccessKit's click too. Disabled, it handles nothing, takes no focus
+and uses `text-disabled`.
+
+```rust
+let ok = ui.add(row, Button::new(localizer.format("dialog-ok", None)?, Msg::Ok)
+    .kind(ButtonKind::Primary), LayoutProps::default())?;
+```
+
+**Tests** (`tests/controls.rs`, 12 cases): label size, wrapping, new text, new text tokens; button
+size, click, cancel by dragging out, Enter and Space, disabled, the looks of normal, pressed and
+primary, the focus ring; the whole accessibility tree, incremental updates (nothing, a focus, a
+disabled button, a reset), children in order and an addition resending the parent, AccessKit's
+click and focus. Fourteen injected bugs, all caught (two after the test written for them).
+
+**Benchmarks** (`benches/widgets.rs`, group `controls`: 40 rows of a label and four buttons): first
+frame with the whole accessibility tree 63.3 M instructions; the whole tree again 0.34 M; a click on
+a button (the pointer entering, the press, the release, three redraws of the button, and the
+accessibility update) **2.7 M**, about 0.9 M per redraw, almost all of it `tiny-skia` filling and
+stroking the anti-aliased rounded rectangle. That is above ADR-0045's target of 0.5 M per event;
+the owner decides what to do (see the ROADMAP).
 
 #### The window and the event loop
 

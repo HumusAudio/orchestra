@@ -78,6 +78,9 @@ pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
+pub use widget::access::{AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate};
+pub use widget::button::{Button, ButtonKind};
+pub use widget::label::Label;
 pub use widget::layout::{
     Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,
 };

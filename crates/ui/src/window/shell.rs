@@ -35,6 +35,8 @@ struct Open {
     frame: Option<Image>,
     /// Device pixels per logical pixel.
     scale: f64,
+    /// AccessKit's adapter (ADR-0045 WA5), created before the window was shown (W7).
+    access: accesskit_winit::Adapter,
 }
 
 /// The handler of the event loop.
@@ -152,16 +154,22 @@ impl<A: WindowApp> Shell<A> {
                         detail: error.to_string(),
                     })
             },
-            // The setup hook (ADR-0040 W7): the surface now; AccessKit's adapter in F2.08–F2.09.
+            // The setup hook (ADR-0040 W7): the surface and AccessKit's adapter, which panics if
+            // the window was ever shown, so it is created here, between creation and showing.
             |window| -> Result<_, WindowError> {
                 let context =
                     Context::new(Rc::clone(window)).map_err(|error| surface_error(&error))?;
                 let surface = Surface::new(&context, Rc::clone(window))
                     .map_err(|error| surface_error(&error))?;
-                Ok((context, surface))
+                let access = accesskit_winit::Adapter::with_event_loop_proxy(
+                    event_loop,
+                    window,
+                    self.proxy.clone(),
+                );
+                Ok((context, surface, access))
             },
         )?;
-        let (context, surface) = surface?;
+        let (context, surface, access) = surface?;
         // The system may have changed between `system_theme()` and the window's creation, and no
         // `ThemeChanged` is promised for that moment: the window's own theme (Windows, macOS,
         // which follow the system because we never call `set_theme`) closes the gap. A repeat is
@@ -178,6 +186,7 @@ impl<A: WindowApp> Shell<A> {
             surface,
             frame: None,
             scale,
+            access,
         });
         self.resize(size)?;
         Ok(())
@@ -261,6 +270,41 @@ impl<A: WindowApp> Shell<A> {
         self.app.input(event, &mut self.list);
     }
 
+    /// Sends AccessKit what changed in the interface, if an assistive technology is listening
+    /// (WC6). The app is asked only then: without a listener its marks just wait (WC3).
+    fn push_access(&mut self, full: bool) {
+        let Some(open) = self.open.as_mut() else {
+            return;
+        };
+        let app = &mut self.app;
+        let title = &self.options.title;
+        open.access.update_if_active(|| {
+            app.access_update(full).map_or_else(
+                || crate::widget::access::window_only(title),
+                crate::AccessUpdate::into_tree_update,
+            )
+        });
+    }
+
+    /// An AccessKit request (WC5, WC6).
+    fn handle_access(&mut self, event: accesskit_winit::WindowEvent) {
+        match event {
+            accesskit_winit::WindowEvent::InitialTreeRequested => self.push_access(true),
+            accesskit_winit::WindowEvent::ActionRequested(request) => {
+                if let Some(action) = crate::widget::access::action_from(&request) {
+                    self.app.access_action(action, &mut self.list);
+                    self.push_access(false);
+                    if !self.list.damage().is_empty()
+                        && let Some(open) = self.open.as_ref()
+                    {
+                        open.window.request_redraw();
+                    }
+                }
+            }
+            accesskit_winit::WindowEvent::AccessibilityDeactivated => {}
+        }
+    }
+
     /// The scale in effect, 1 before the window exists.
     fn scale(&self) -> f64 {
         self.open.as_ref().map_or(1.0, |open| open.scale)
@@ -283,6 +327,10 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
 
     /// Translates one window event, and asks for a frame if anything is damaged (W2).
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        // AccessKit's adapter follows the window's focus and size itself (WC6).
+        if let Some(open) = self.open.as_mut() {
+            open.access.process_event(&open.window, &event);
+        }
         let scale = self.scale();
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
@@ -363,6 +411,8 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
             && let Some(open) = self.open.as_ref()
         {
             open.window.request_redraw();
+            // Something changed in the interface: AccessKit may need to know (WC3).
+            self.push_access(false);
         }
     }
 
@@ -370,6 +420,7 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ShellEvent) {
         match event {
             ShellEvent::SystemAppearance(system) => self.apply_system_appearance(system),
+            ShellEvent::Access(event) => self.handle_access(event),
         }
     }
 }

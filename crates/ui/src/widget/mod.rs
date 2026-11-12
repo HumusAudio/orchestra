@@ -5,10 +5,15 @@
 //!
 //! - `tree`: the arena, the [`Widget`] trait, the contexts a widget receives;
 //! - `layout`: sizes, constraints, size rules, and the containers [`Flex`], [`Stack`], [`Grid`];
-//! - `ui`: [`Ui`], the interface of one window: routing, focus, modals, frames.
+//! - `ui`: [`Ui`], the interface of one window: routing, focus, modals, frames;
+//! - `access`: how widgets describe themselves to assistive technologies, and AccessKit's tree;
+//! - `label`, `button`: the first widgets.
 //!
-//! The first concrete widgets (label, button…) come in F2.09b and F2.09c, AccessKit in F2.09b.
+//! More widgets (checkbox, switch, slider, scroll area, splitter) come in F2.09c–d.
 
+pub(crate) mod access;
+pub(crate) mod button;
+pub(crate) mod label;
 pub(crate) mod layout;
 pub(crate) mod tree;
 pub(crate) mod ui;

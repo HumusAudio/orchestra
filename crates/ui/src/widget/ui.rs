@@ -26,9 +26,15 @@
 
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::list::{DisplayList, SegmentId};
-use crate::theme::token::Theme;
+use orchestra_text::Faces;
+
+use crate::theme::token::{Shape, Theme};
 use crate::window::input::{ButtonState, InputEvent, Key, NamedKey};
 
+use super::access::{
+    AccessAction, AccessActionKind, AccessInfo, AccessUpdate, WINDOW_NODE, empty_update,
+    widget_node, window_node,
+};
 use super::layout::{Constraints, LayoutProps, Size};
 use super::tree::{EventCx, Handled, RecordCx, Widget, WidgetEvent, WidgetId, WidgetTree};
 
@@ -75,16 +81,27 @@ pub struct Ui<M> {
     stack: Vec<usize>,
     /// IDs removed by the last removal, to drop their segments (reused).
     removed: Vec<WidgetId>,
+    /// The theme's shape tokens, for recording (WC8).
+    shape: Shape,
+    /// The window's title, the name of the accessibility tree's window node (WC4).
+    title: String,
+    /// `false` until the whole accessibility tree has been handed out (and again when an
+    /// assistive technology asks for it from the start).
+    access_sent: bool,
 }
 
 /// The root slot (always 0).
 const ROOT: usize = 0;
 
 impl<M: 'static> Ui<M> {
-    /// An interface whose root is `root` (usually a container), laid out with `theme`'s density.
-    pub fn new(root: impl Widget<M>, theme: &Theme) -> Self {
+    /// An interface whose root is `root` (usually a container), laid out with `theme`'s density
+    /// and text tokens, its texts laid out with `faces` (the application's copy, ADR-0044 TB2).
+    pub fn new(root: impl Widget<M>, theme: &Theme, faces: Faces) -> Self {
         Self {
-            tree: WidgetTree::new(Box::new(root), theme.spacing()),
+            tree: WidgetTree::new(Box::new(root), theme.spacing(), faces, theme.typography()),
+            shape: theme.shape(),
+            title: String::new(),
+            access_sent: false,
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -226,11 +243,35 @@ impl<M: 'static> Ui<M> {
     }
 
     /// Uses `theme`'s density from now on: everything is laid out again (WB10).
+    ///
+    /// A change of density or of text tokens lays everything out again; a change of shape tokens
+    /// records everything again; colours need nothing here (the renderer resolves them, ADR-0039
+    /// D3).
     pub fn set_theme(&mut self, theme: &Theme) {
         let spacing = theme.spacing();
-        if spacing != self.tree.spacing {
+        let typography = theme.typography();
+        if spacing != self.tree.spacing || typography != self.tree.typography {
+            if typography != self.tree.typography {
+                self.tree.text_generation = self.tree.text_generation.wrapping_add(1);
+            }
             self.tree.spacing = spacing;
+            self.tree.typography = typography;
             self.invalidate_all();
+        }
+        if theme.shape() != self.shape {
+            self.shape = theme.shape();
+            for slot in self.tree.slots.iter_mut().flatten() {
+                slot.needs_record = true;
+            }
+        }
+    }
+
+    /// Names the window for assistive technologies (its title, already localised).
+    pub fn set_title(&mut self, title: &str) {
+        if title != self.title {
+            title.clone_into(&mut self.title);
+            // The window node is rebuilt with every full tree; a changed title needs one.
+            self.access_sent = false;
         }
     }
 
@@ -266,6 +307,7 @@ impl<M: 'static> Ui<M> {
         // Record in tree order (pre-order, children in order), so a segment recorded for the
         // first time lands above its parent's.
         let spacing = self.tree.spacing;
+        let shape = self.shape;
         let focused = self.focused;
         self.stack.clear();
         self.stack.push(ROOT);
@@ -279,10 +321,14 @@ impl<M: 'static> Ui<M> {
                 continue;
             }
             slot.needs_record = false;
+            // A widget that looks different (or moved) may describe itself differently: its
+            // accessibility node is sent again (WC3).
+            slot.needs_access = true;
             let cx = RecordCx {
                 rect: slot.rect,
                 focused: focused == Some(index),
                 spacing,
+                shape,
             };
             if let Some(widget) = slot.widget.as_deref() {
                 list.record(SegmentId(slot.id.get()), |recorder| {
@@ -418,12 +464,13 @@ impl<M: 'static> Ui<M> {
         let Some(slot) = self.tree.slot_mut(index) else {
             return (Handled::No, None);
         };
-        let (id, parent) = (slot.id, slot.parent);
+        let (id, parent, rect) = (slot.id, slot.parent, slot.rect);
         let Some(mut widget) = slot.widget.take() else {
             return (Handled::No, parent);
         };
         let mut cx = EventCx {
             id,
+            rect,
             messages: &mut self.messages,
             relayout: false,
             rerecord: false,
@@ -636,6 +683,85 @@ impl<M: 'static> Ui<M> {
             current = self.tree.slot(at).and_then(|slot| slot.parent);
         }
         false
+    }
+}
+
+impl<M: 'static> Ui<M> {
+    /// The accessibility update to send (ADR-0045 WA5, WC3): the whole tree the first time (or
+    /// after [`Ui::reset_access`]), then only the widgets whose node changed, always with the
+    /// focus. Call it after [`Ui::frame`] (directly or through `layout` and `input`).
+    ///
+    /// # Cost
+    /// One pass over the widgets to find the marked ones (O(widgets), a flag test each), plus the
+    /// nodes built, which allocate (AccessKit's nodes, WC10).
+    pub fn take_access_update(&mut self) -> AccessUpdate {
+        let full = !self.access_sent;
+        let mut update = empty_update(self.focused(), full);
+        if full {
+            update
+                .nodes
+                .push((WINDOW_NODE, window_node(&self.title, self.root())));
+        }
+        for index in 0..self.tree.slots.len() {
+            let Some(slot) = self.tree.slot(index) else {
+                continue;
+            };
+            if !(full || slot.needs_access) {
+                continue;
+            }
+            let Some(widget) = slot.widget.as_deref() else {
+                continue;
+            };
+            let mut info = AccessInfo::default();
+            widget.access_info(&mut info);
+            let children = slot
+                .children
+                .iter()
+                .filter_map(|&child| self.tree.slot(child).map(|child| child.id));
+            let node = widget_node(
+                widget.access_role(),
+                slot.rect,
+                children,
+                &info,
+                widget.focusable(),
+            );
+            update.nodes.push((accesskit::NodeId(slot.id.get()), node));
+        }
+        for slot in self.tree.slots.iter_mut().flatten() {
+            slot.needs_access = false;
+        }
+        self.access_sent = true;
+        AccessUpdate(update)
+    }
+
+    /// Makes the next [`Ui::take_access_update`] carry the whole tree (an assistive technology
+    /// just connected and asked for it).
+    pub const fn reset_access(&mut self) {
+        self.access_sent = false;
+    }
+
+    /// Carries out an assistive technology's request (WC5): a click activates the widget (it
+    /// receives [`WidgetEvent::Activate`]), a focus request moves the focus. Then runs a frame.
+    ///
+    /// # Errors
+    /// [`UiError::UnknownWidget`] if the target does not exist.
+    pub fn access_action(
+        &mut self,
+        action: AccessAction,
+        list: &mut DisplayList,
+    ) -> Result<(), UiError> {
+        let slot = self
+            .tree
+            .slot_of(action.target)
+            .ok_or(UiError::UnknownWidget(action.target))?;
+        match action.kind {
+            AccessActionKind::Click => {
+                self.deliver(slot, &WidgetEvent::Activate, false);
+            }
+            AccessActionKind::Focus => self.set_focus_slot(Some(slot)),
+        }
+        self.frame(list);
+        Ok(())
     }
 }
 

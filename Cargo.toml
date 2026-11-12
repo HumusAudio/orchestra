@@ -122,6 +122,14 @@ winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "
 # softbuffer: presenting CPU pixels in the window (ADR-0036, ADR-0040 W4; MIT OR Apache-2.0;
 # 0.4.8 checked again on 2026-11-10). X11 and Wayland with dlopen; no `kms` (B2).
 softbuffer = { version = "0.4.8", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"] }
+# AccessKit: the accessibility tree of the interface (ADR-0036 B1-B2, ADR-0045 WA5; entered in
+# F2.09b). accesskit 0.25.2 (MIT OR Apache-2.0) and accesskit_winit 0.34.2 (Apache-2.0), checked
+# again on crates.io on 2026-11-12, updated together with winit. accesskit_winit's features:
+# the Linux adapter (AT-SPI over zbus, pure Rust) with the async-io executor (not tokio) and
+# raw-window-handle 0.6, as ADR-0036 B2 fixed them; Windows and macOS adapters are chosen inside
+# by target. zbus 5 stays (ADR-0038 S7's exceptions in deny.toml). Only `orchestra-ui` uses them.
+accesskit = "0.25.2"
+accesskit_winit = { version = "0.34.2", default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
 # skrifa + harfrust: reading fonts and drawing their outlines, and shaping text (ADR-0012,
 # ADR-0036 B1-B3, ADR-0044 TX1). Versions checked on crates.io on 2026-11-12 (skrifa 0.50.0 of
 # 2026-11-10, MIT OR Apache-2.0; harfrust 0.16.0 of 2026-11-12, MIT): both are built on

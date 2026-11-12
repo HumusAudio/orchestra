@@ -221,3 +221,18 @@ this ADR:
   that grows 116 000; a full re-layout 0.86 M.
 
 The owner noted that these values and behaviours can be adjusted later as real panels show.
+
+**F2.09b, WC1–WC10 (approved by the owner on 2026-11-12).** AccessKit 0.25.2 and
+`accesskit_winit` 0.34.2 entered the workspace. Widgets describe themselves with our own
+`AccessRole` and `AccessInfo`, translated in one file; the tree has a window node (ID 0, named after
+the window's title) above the root widget; updates are the whole tree first, then the nodes of
+re-recorded or moved widgets and of parents whose children changed; AccessKit's click reaches the
+widget as `WidgetEvent::Activate`, its focus request moves the focus. `WindowApp` gained
+`access_update` and `access_action` with defaults; the window creates the adapter in the
+preparation hook (W7) and sends changes only while an assistive technology listens. `Ui::new` takes
+the faces; widgets lay text out through `LayoutCx::lay_out_text`, and a text generation counter
+tells them when the theme's text tokens changed. `Label` and `Button` (plain or primary; activation
+by a click released over it, Enter, Space or AccessKit; disabled state) are the first widgets.
+**Measured:** a click on a real button costs 2.7 M instructions with its three redraws (≈ 0.9 M
+each, mostly `tiny-skia` filling and stroking the anti-aliased rounded rectangle), above this ADR's
+0.5 M target per event; the decision is the owner's.
