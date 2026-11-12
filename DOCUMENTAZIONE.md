@@ -4041,7 +4041,9 @@ nell'immagine.
 
 **Un binario per sviluppatori.** `orchestra-app` ora è una libreria (`src/lib.rs`, con `demo` e
 `screenshots`) e due binari: `orchestra`, il programma, e `orchestra-screenshots <OUT_DIR>`, che
-disegna ogni scena e scrive `<OUT_DIR>/<nome>.png`. Non si distribuisce mai. Un'opzione nascosta in
+disegna ogni scena e scrive `<OUT_DIR>/<nome>.png`. Non si distribuisce mai. Il
+`default-run = "orchestra"` del manifest fa sì che `cargo run -p orchestra-app` avvii il programma
+(F2.09c). Un'opzione nascosta in
 `orchestra` è stata scartata: codice e messaggi per sviluppatori starebbero dentro il programma che
 usano gli utenti.
 

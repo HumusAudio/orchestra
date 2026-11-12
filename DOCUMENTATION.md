@@ -3783,7 +3783,8 @@ Playback preview with the focus on its first control (a Tab), so the focus ring 
 
 **A developer binary.** `orchestra-app` is now a library (`src/lib.rs`, with `demo` and
 `screenshots`) and two binaries: `orchestra`, the program, and `orchestra-screenshots <OUT_DIR>`,
-which renders every scene and writes `<OUT_DIR>/<name>.png`. It is never distributed. A hidden
+which renders every scene and writes `<OUT_DIR>/<name>.png`. It is never distributed. The manifest's
+`default-run = "orchestra"` keeps `cargo run -p orchestra-app` starting the program (F2.09c). A hidden
 option in `orchestra` was rejected: developer code and messages would live inside the program users
 run.
 

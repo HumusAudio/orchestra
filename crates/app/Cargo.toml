@@ -9,6 +9,9 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+# `cargo run -p orchestra-app` starts the program, not the developer's screenshot tool (the crate
+# has two binaries since ADR-0041; found by the owner on 2026-11-12, F2.09c).
+default-run = "orchestra"
 
 # Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards").
 [dependencies]
