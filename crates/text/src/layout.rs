@@ -10,7 +10,7 @@
 
 use std::ops::Range;
 
-use crate::{FaceId, LineMetrics};
+use crate::{FaceId, GlyphBox, LineMetrics};
 
 /// A glyph of a face: the index of an outline in the font file.
 ///
@@ -80,6 +80,8 @@ pub struct TextLayout {
     pub(crate) metrics: LineMetrics,
     /// The widest line's [`Line::width`].
     pub(crate) width: f32,
+    /// The box enclosing the glyphs, `None` when there are none (TC3).
+    pub(crate) bounds: Option<GlyphBox>,
 }
 
 impl Default for TextLayout {
@@ -105,6 +107,7 @@ impl TextLayout {
                 line_gap: 0.0,
             },
             width: 0.0,
+            bounds: None,
         }
     }
 
@@ -144,6 +147,39 @@ impl TextLayout {
         self.width
     }
 
+    /// The box enclosing every glyph of the layout, logical pixels from its top-left corner:
+    /// each glyph's origin widened by the face's bounding box ([`GlyphBox`] explains why the
+    /// face's box). `None` when the layout has no glyph (an empty text, or only line breaks).
+    ///
+    /// This is what a glyph run records as its bounds in the display list (ADR-0044 TX9).
+    #[must_use]
+    pub const fn bounds(&self) -> Option<GlyphBox> {
+        self.bounds
+    }
+
+    /// Computes [`TextLayout::bounds`] from the glyphs and the face's box, in one pass.
+    pub(crate) fn compute_bounds(&mut self, face_box: GlyphBox) {
+        // The extremes of the glyph origins: O(glyphs), no allocation.
+        self.bounds = self
+            .glyphs
+            .iter()
+            .fold(None, |extent, glyph| {
+                let [x0, y0, x1, y1] = extent.unwrap_or([glyph.x, glyph.y, glyph.x, glyph.y]);
+                Some([
+                    x0.min(glyph.x),
+                    y0.min(glyph.y),
+                    x1.max(glyph.x),
+                    y1.max(glyph.y),
+                ])
+            })
+            .map(|[x0, y0, x1, y1]| GlyphBox {
+                left: x0 + face_box.left,
+                top: y0 + face_box.top,
+                right: x1 + face_box.right,
+                bottom: y1 + face_box.bottom,
+            });
+    }
+
     /// The height of the layout, logical pixels: one line height per line.
     #[must_use]
     pub fn height(&self) -> f32 {
@@ -161,5 +197,6 @@ impl TextLayout {
         self.glyphs.clear();
         self.lines.clear();
         self.width = 0.0;
+        self.bounds = None;
     }
 }

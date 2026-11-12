@@ -303,3 +303,35 @@ The tokens are introduced in F2.07c; the widgets (F2.09) use them.
   text in the reference scene and the screenshot catalogue, the 33 M-instruction budget.
 - F2B uses `orchestra-text` for Bravura; Bravura's SMuFL metadata file (`bravura_metadata.json`)
   enters in F2.17, not here.
+
+## Precisions of the implementation (F2.07b, approved by the owner on 2026-11-12)
+
+**Part 1 (`orchestra-text`), TB1–TB8.** `icu_segmenter` 2.4 without dictionaries was measured
+(+52 KB stripped, +14 crates, +2.6 s of clean build) and chosen over our own subset (TX10). The
+crate has one module per responsibility; the faces live in an explicit `Faces` value, with no
+global state; layouts are in logical pixels, y down, unrounded; each glyph carries the UTF-8 byte
+offset of its cluster (caret functions come in F2.10); lines are filled greedily; at a soft hyphen
+where a line breaks, the face's U+2010 (or U+002D) glyph is appended without reshaping. Found while
+implementing: `icu_segmenter` exposes which breaks are mandatory only behind its `unstable`
+feature, so mandatory breaks are derived from UAX #14 LB4–LB5 (right after a hard line break
+character); white space inside a word cut by the last resort of TX10 hangs like any space; Inter
+maps some Private Use Area code points to glyphs of its own, so SMuFL symbols are looked up in
+Bravura only.
+
+**Part 2 (glyph runs and the cache), TC1–TC10.** The renderer owns a copy of the faces
+(`CpuRenderer::new(faces)`), and the window receives them in `WindowOptions::faces`. The recorder
+has `text(&TextLayout, origin, paint)` and `glyphs(face, size, face_box, glyphs, paint)`, both
+recording `GlyphRun` into a per-segment glyph arena; the run's bounds come from
+`TextLayout::bounds` (the glyph origins widened by the face's box, `GlyphBox`) or from the box the
+caller passes. The cache's key is (face, glyph, size in 1/64 device pixel, quarter); its masks are
+`tiny-skia` anti-aliased fills of the shifted outline; lookups use a small FxHash-style hasher;
+when the 8 MB bound would be exceeded, the least recently used masks are evicted in one batch down
+to three quarters of it. Masks are blended with the paint and the clip with one rounding per
+channel, as shadows are; fully covered pixels of an opaque colour are copied with the same bytes.
+Positions are rounded in the frame's device coordinates, so partial redraws equal full frames byte
+for byte. A glyph whose mask would exceed 256 × 256 device pixels is filled as a path, and since
+that depends on the scale, a glyph run always counts as a shape a partial redraw includes whole.
+
+**Text contrast (TX6).** A 256-entry table maps a glyph pixel's coverage `c` to `c^(1/γ)`; the
+owner chooses γ by eye among 1 (plain), 1.2 and 1.45, on screenshots of Studio light and dark at
+scales 1 and 2. *Pending at the time of writing.*

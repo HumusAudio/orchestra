@@ -183,3 +183,35 @@ fn a_bravura_notehead_is_centred_on_the_baseline() {
         "{x_min} {x_max}"
     );
 }
+
+/// A layout's bounds enclose every glyph origin widened by the face's box, and contain the
+/// actual ink of its glyphs; an empty layout has none (TC3).
+#[test]
+fn a_layout_s_bounds_enclose_its_ink() {
+    use orchestra_text::{Shaper, TextLayout, TextStyle};
+    let faces = Faces::bundled().unwrap();
+    let style = TextStyle::new(FaceId::InterRegular, 13.0);
+    let mut shaper = Shaper::new();
+    let mut layout = TextLayout::new();
+    shaper
+        .layout(&faces, "Ágfj\nsecond line", style, None, &mut layout)
+        .unwrap();
+    let bounds = layout.bounds().unwrap();
+    let face_box = faces.bounds(FaceId::InterRegular, 13.0).unwrap();
+    for glyph in layout.glyphs() {
+        // The ink of each glyph, from its outline, lies inside the layout's bounds.
+        let mut recorder = Recorder::default();
+        faces
+            .draw_outline(FaceId::InterRegular, glyph.glyph, 13.0, &mut recorder)
+            .unwrap();
+        if let Some([x0, y0, x1, y1]) = recorder.extent {
+            assert!(glyph.x + x0 >= bounds.left && glyph.x + x1 <= bounds.right);
+            assert!(glyph.y + y0 >= bounds.top && glyph.y + y1 <= bounds.bottom);
+        }
+    }
+    // Exactly the origins' extent widened by the face's box.
+    let first = layout.glyphs()[0];
+    assert!((bounds.left - (first.x + face_box.left)).abs() < 1e-4);
+    shaper.layout(&faces, "", style, None, &mut layout).unwrap();
+    assert_eq!(layout.bounds(), None);
+}

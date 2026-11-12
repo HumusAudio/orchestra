@@ -1523,6 +1523,7 @@ dependencies = [
  "orchestra-notation-layout",
  "orchestra-playback",
  "orchestra-plugin-host",
+ "orchestra-text",
  "orchestra-ui",
  "orchestra-video",
 ]
@@ -1649,6 +1650,7 @@ dependencies = [
  "orchestra-notation-layout",
  "orchestra-playback",
  "orchestra-test-support",
+ "orchestra-text",
  "orchestra-video",
  "proptest",
  "softbuffer",

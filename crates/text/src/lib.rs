@@ -14,7 +14,7 @@
 //!   the break opportunities of the Unicode line breaking algorithm, UAX #14, from
 //!   `icu_segmenter` ([`Shaper`], [`TextLayout`]; TX9, TX10).
 //! - **Measures**: line metrics, face bounds, single advances ([`LineMetrics`],
-//!   [`FaceBounds`], [`Faces::advance`]).
+//!   [`GlyphBox`], [`Faces::advance`]).
 //! - Delivers **glyph outlines** to an [`OutlineSink`], unhinted, y down (TX2, TX6).
 //! - Finds a **SMuFL glyph** by its code point without shaping ([`Faces::glyph_for_char`]).
 //!
@@ -60,7 +60,7 @@ mod wrap;
 pub use error::TextError;
 pub use face::{FaceId, Faces};
 pub use layout::{GlyphId, Line, PositionedGlyph, TextLayout};
-pub use metrics::{FaceBounds, LineMetrics};
+pub use metrics::{GlyphBox, LineMetrics};
 pub use outline::OutlineSink;
 pub use shape::Shaper;
 pub use style::{Features, TextStyle};

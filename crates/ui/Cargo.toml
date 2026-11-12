@@ -18,6 +18,9 @@ orchestra-playback.workspace = true
 orchestra-notation-layout.workspace = true
 orchestra-i18n.workspace = true
 orchestra-video.workspace = true
+# Fonts, shaping, measuring and glyph outlines (ADR-0044): the renderer rasterises glyphs from
+# its outlines into the glyph cache, and glyph runs carry its face and glyph types.
+orchestra-text.workspace = true
 # The CPU backend of the drawing abstraction (ADR-0039 D9), on every platform.
 tiny-skia.workspace = true
 # The window, the event loop, input, and presenting pixels (ADR-0040), on every platform.

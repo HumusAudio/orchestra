@@ -31,21 +31,29 @@ impl LineMetrics {
     }
 }
 
-/// The box enclosing every glyph of a face, relative to a glyph's origin on the baseline, in
-/// logical pixels, y down.
+/// A box that encloses glyphs, in logical pixels, y down.
 ///
-/// The bounds of a glyph run (ADR-0044 TX9 point 3) are its advance extent widened by this box,
-/// so a partial redraw never cuts an overhanging glyph (an italic `f`, an accent above a
-/// capital, a Bravura symbol drawn far above its baseline).
+/// Two uses: [`Faces::bounds`] gives the box enclosing **every glyph of a face**, relative to a
+/// glyph's origin on the baseline; [`TextLayout::bounds`](crate::TextLayout::bounds) gives the
+/// box enclosing **a layout's glyphs**, relative to the layout's top-left corner (the glyphs'
+/// origins widened by the face's box). The second is what a glyph run records as its bounds
+/// (ADR-0044 TX9 point 3), so a partial redraw never cuts an overhanging glyph (an italic `f`,
+/// an accent above a capital, a Bravura symbol drawn far above its baseline).
+///
+/// # Why the face's box and not each glyph's
+/// The exact box of a glyph needs its outline (for CFF fonts there is no per-glyph box in the
+/// tables), which would make every layout as expensive as drawing. The face's box is a single
+/// read and never too small; it may be larger than the ink by up to the widest glyph of the
+/// face, which only enlarges a partial redraw a little.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FaceBounds {
-    /// Leftmost extent, relative to the glyph origin (usually ≤ 0).
+pub struct GlyphBox {
+    /// Leftmost extent (for a face, relative to the glyph origin: usually ≤ 0).
     pub left: f32,
-    /// Topmost extent, relative to the baseline (negative: above it).
+    /// Topmost extent (for a face, relative to the baseline: negative, above it).
     pub top: f32,
-    /// Rightmost extent, relative to the glyph origin.
+    /// Rightmost extent.
     pub right: f32,
-    /// Bottom extent, relative to the baseline (positive: below it).
+    /// Bottom extent (for a face, relative to the baseline: positive, below it).
     pub bottom: f32,
 }
 
@@ -103,10 +111,10 @@ impl Faces {
     ///
     /// # Errors
     /// [`TextError::InvalidSize`] if `size` is not finite and positive.
-    pub fn bounds(&self, face: FaceId, size: f32) -> Result<FaceBounds, TextError> {
+    pub fn bounds(&self, face: FaceId, size: f32) -> Result<GlyphBox, TextError> {
         let scale = crate::style::checked_scale(self, face, size)?;
         let bounds = self.font(face).metrics().bounds;
-        Ok(FaceBounds {
+        Ok(GlyphBox {
             left: to_f32(bounds.x_min.to_f64()) * scale,
             // y up → y down: the top of the box is its largest y, negated.
             top: -to_f32(bounds.y_max.to_f64()) * scale,

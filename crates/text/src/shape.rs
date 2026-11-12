@@ -130,6 +130,7 @@ impl Shaper {
             return Err(TextError::TextTooLong);
         }
         let metrics = faces.line_metrics(style.face, style.size)?;
+        let face_box = faces.bounds(style.face, style.size)?;
 
         // --- 1. Shape --------------------------------------------------------------------
         self.shape(faces, text, style, scale)?;
@@ -157,6 +158,7 @@ impl Shaper {
             hyphen,
             layout,
         );
+        layout.compute_bounds(face_box);
         Ok(())
     }
 

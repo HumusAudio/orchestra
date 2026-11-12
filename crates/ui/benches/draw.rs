@@ -144,7 +144,7 @@ fn drawn() -> Drawn {
     let mut list = DisplayList::new();
     record_all(&mut list);
     let theme = theme();
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     let mut image = Image::new(WIDTH, HEIGHT).unwrap();
     let damage = list.take_damage();
     renderer
@@ -216,7 +216,7 @@ fn shadowed_panel() -> Drawn {
         }
     });
     let theme = theme();
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     let mut image = Image::new(960, 600).unwrap();
     let damage = list.take_damage();
     renderer
@@ -241,13 +241,70 @@ fn draw_shadowed_panel_frame(input: Drawn) -> Drawn {
     (list, renderer, image, theme)
 }
 
+// 200 interface labels (50 rows of 4 columns, Inter 13 px, each with its own text) recorded
+// into one segment, with a renderer that has drawn them once (`warm`) or never (`cold`): what a
+// frame of a busy window costs once its glyphs are cached, and what the first frame pays to
+// fill the cache (ADR-0044 TX12, TC10).
+fn labels(warm: bool) -> Drawn {
+    use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+    let faces = Faces::bundled().unwrap();
+    let mut shaper = Shaper::new();
+    let style = TextStyle::new(FaceId::InterRegular, 13.0);
+    let layouts: Vec<TextLayout> = (0..200)
+        .map(|i| {
+            let mut layout = TextLayout::new();
+            let text = format!("Track {i}: Violin I · Viertelnote");
+            shaper
+                .layout(&faces, &text, style, None, &mut layout)
+                .unwrap();
+            layout
+        })
+        .collect();
+    let mut list = DisplayList::new();
+    list.record(SegmentId(1), |r| {
+        for (i, layout) in layouts.iter().enumerate() {
+            let x = 20.0 + (i % 4) as f32 * 470.0;
+            let y = 20.0 + (i / 4) as f32 * 20.5;
+            r.text(layout, Point::new(x, y), ColorToken::Text);
+        }
+    });
+    let theme = theme();
+    let mut renderer = CpuRenderer::new(faces);
+    let mut image = Image::new(WIDTH, HEIGHT).unwrap();
+    let damage = list.take_damage();
+    if warm {
+        renderer
+            .render(&list, &theme, &damage, 1.0, &mut image)
+            .unwrap();
+    }
+    (list, renderer, image, theme)
+}
+
+#[library_benchmark]
+#[bench::warm(labels(true))]
+#[bench::cold(labels(false))]
+fn draw_labels_frame(input: Drawn) -> Drawn {
+    let (list, mut renderer, mut image, theme) = input;
+    renderer
+        .render(
+            black_box(&list),
+            &theme,
+            &orchestra_ui::Damage::all(),
+            1.0,
+            black_box(&mut image),
+        )
+        .unwrap();
+    (list, renderer, image, theme)
+}
+
 library_benchmark_group!(
     name = draw,
     benchmarks = [
         record_scene,
         draw_full_frame,
         edit_one_note,
-        draw_shadowed_panel_frame
+        draw_shadowed_panel_frame,
+        draw_labels_frame
     ]
 );
 

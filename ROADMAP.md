@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07b part 1 done (`orchestra-text`); next F2.07b part 2 (glyph runs and the glyph cache), on the same branch.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07b done but for the owner's gamma choice (glyph runs and the glyph cache); next F2.07c, on the same branch.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -975,8 +975,25 @@ no allocation on a second round of layouts); twelve injected bugs, eleven caught
 (`hhea` and the typographic metrics hold the same values in all five faces). Benchmarks
 (`benches/text.rs`): a 40-character line ≈ 89 400 instructions, a 400-character paragraph at
 300 px ≈ 731 000, 27 outlines ≈ 359 000. Size: +4.64 MB stripped (3.03 MB of fonts), 69 s clean
-release build. **Next:** F2.07b part 2 (the `GlyphRun` command, the glyph cache for `tiny-skia`,
-pixel and allocation tests, the gamma screenshots for the owner).
+release build. CI of part 1: green on Linux, macOS, benchmarks and guides; the Windows job was
+cancelled after 15 minutes without a runner (a GitHub queue problem, no step ran) and was re-run.
+
+**F2.07b part 2 done but for the gamma choice** (2026-11-12, same branch). Before coding, the owner
+approved TC1–TC10 and the method for the gamma (three screenshots variants). `orchestra-text`:
+`FaceBounds` renamed `GlyphBox`, `TextLayout::bounds` added. `orchestra-ui` (now depending on
+`orchestra-text`): the `GlyphRun` command with a per-segment glyph arena, `Recorder::text` and
+`Recorder::glyphs`, the module `draw/glyph_cache.rs` (8 MB, batch LRU eviction, no `tiny-skia`),
+glyph drawing in `skia.rs` (quarter-pixel phase, whole-pixel baseline, masks blended with one
+rounding, an exact copy for fully covered opaque pixels, paths above 256 px), `CpuRenderer::new`
+takes the faces (21 callers in 7 files updated), `WindowOptions::faces`, the app parses the faces
+once. Tests: `tests/text.rs` (14 cases, among them partial redraws byte for byte equal to full
+frames with cached and large glyphs), a warm-cache no-allocation test, the cache's unit tests;
+twelve injected bugs, eleven caught (three after tests written for them), one equivalent while
+γ = 1. Benchmarks: 200 labels at 1080p ≈ 15.5 M instructions warm, ≈ 20.2 M cold (the exact
+full-coverage copy saved 4%; most of the cost is the per-pixel blend); every other drawing
+benchmark unchanged. `clippy.toml` gains FreeType, SipHash, FxHash. **Open:** the owner's choice of
+γ (screenshots in the session's scratchpad), then the constant, ADR-0044's precision and the
+contrast-table test. **Next:** F2.07c.
 
 | Step | What | Status |
 |---|---|---|

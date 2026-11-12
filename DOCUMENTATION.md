@@ -2635,8 +2635,9 @@ text ending with a line feed gets an empty last line, as a text editor shows it.
 the face asks for them (`USE_TYPO_METRICS`, set in Inter and JetBrains Mono), otherwise `hhea`: a
 line of Inter is 1.21 em, as in a web page. All values are turned to y down: an ascent is a positive
 distance above the baseline, a bounding box has a negative top. `Faces::bounds` is the face's
-bounding box, which the renderer will use to widen the bounds of a glyph run so that a partial
-redraw never cuts an overhanging glyph. `Faces::draw_outline` delivers a glyph's unhinted outline,
+bounding box (a `GlyphBox`), which widens the bounds of a glyph run so that a partial redraw never
+cuts an overhanging glyph; `TextLayout::bounds` is the same kind of box for a whole layout (its
+glyph origins widened by the face's box), computed once when the layout is built. `Faces::draw_outline` delivers a glyph's unhinted outline,
 scaled to the size and flipped to y down, to our own `OutlineSink` trait, so that neither `skrifa`
 leaks into `ui` nor `tiny-skia` into this crate.
 
@@ -3221,7 +3222,8 @@ list.record(SegmentId(1), |r| {
     r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
 });
 let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
-let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+let faces = orchestra_text::Faces::bundled()?;
+let image = CpuRenderer::new(faces).render_to_image(&list, &theme, 120, 50, 1.0)?;
 ```
 
 **Tokens, not colours.** Every paint is a theme token (`ColorToken`), with an optional extra
@@ -3351,6 +3353,76 @@ the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs
 cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
 and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.
 
+#### Text in the display list: glyph runs and the glyph cache
+
+Step F2.07b, part 2 (ADR-0044 TX6–TX9, choices TC1–TC10). Text reaches the screen in two steps:
+`orchestra-text` shapes it into a `TextLayout` once (see that crate), and the recorder copies the
+layout's glyphs into the segment as a **glyph run**, a new command of the list. Symbols placed one
+by one (the noteheads of a measure) take the same road without shaping:
+
+```rust
+list.record(SegmentId(1), |r| {
+    r.text(&layout, Point::new(20.0, 30.0), ColorToken::Text);
+    r.glyphs(
+        FaceId::Bravura,
+        32.0,
+        faces.bounds(FaceId::Bravura, 32.0)?,
+        [(notehead, Point::new(40.0, 90.0))],
+        ColorToken::Text,
+    );
+});
+```
+
+**Recording** (`draw/list.rs`, `draw/command.rs`). Every segment has a glyph arena next to its
+path arena: one vector of glyph and position for all its runs, emptied and refilled at each
+recording, so recording text does not allocate once it has grown (tested). A run's bounds come from
+the layout (`TextLayout::bounds`: the glyph origins widened by the face's box) or, for `glyphs`,
+from the box the caller passes, because the recorder has no fonts. An empty layout, a size that is
+not finite and positive, or no glyph records nothing.
+
+**Drawing** (`draw/skia.rs`, `draw/glyph_cache.rs`). The renderer now owns a copy of the faces,
+`CpuRenderer::new(faces)` (the copy is a reference count), and reads the outline of a glyph it has
+not seen yet. For each glyph it computes the origin in the frame's device pixels, rounds it to a
+quarter of a pixel across and to a whole pixel down (TX7), and asks the cache for the mask of
+(face, glyph, size in 1/64 px, quarter). A miss turns the outline, shifted by the quarter, into a
+`tiny-skia` path filled with anti-aliasing into a mask just large enough; a hit is a hash lookup
+with a small hasher of our own. The mask is then blended pixel by pixel with the paint's colour and
+the clip in effect, rounded once per channel like the shadows; fully covered pixels of an opaque
+colour are copied directly, with the same bytes. The rounding is done in the **frame's**
+coordinates: a partial region starts at a whole pixel, so a glyph has the same pixels in a partial
+redraw as in a full frame (tested byte for byte).
+
+The cache holds at most 8 MB. When a new mask would exceed it, the least recently used masks go in
+one batch, down to three quarters of the bound, so eviction (a sort) stays rare. A glyph whose mask
+would be larger than 256 × 256 device pixels (a strong zoom) is not cached but filled as a path
+every time; whether that happens depends on the scale, unknown at recording, so a glyph run always
+counts as a shape to redraw whole in a partial region (`needs_whole_shape`), which is exact and,
+for text, cheap. `glyph_cache.rs` knows nothing of `tiny-skia`: the renderer passes it the function
+that rasterises, so `skia.rs` stays the only file that knows the library.
+
+**The window** receives the faces through `WindowOptions::faces`: the application parses them once
+and keeps its own copy to lay out its texts with the same fonts.
+
+**Text contrast (TX6).** A table of 256 entries turns a glyph pixel's coverage into the cover the
+blend uses, `c^(1/γ)` with γ = `TEXT_CONTRAST`. It is 1 (plain coverage) until the owner chooses by
+eye between the variants of ADR-0044 TX6.
+
+**Tests** (`tests/text.rs`, `tests/draw_no_alloc.rs`, the unit tests of `glyph_cache.rs`): ink only
+inside the run's bounds and the text colour at the darkest pixel; 200 labels drawn again from the
+cache with the same bytes as a fresh renderer; a quarter pixel across changes the mask, half a
+pixel down does not move the baseline; partial redraws equal to full frames, with glyphs from the
+cache and with G clefs too large for it (a disc moving over them at 4× scale); clips; a theme change
+that recolours the same coverage; the scale factor and scaling transforms; free glyphs drawn like
+text; a glyph's ink where its outline is; the recorded bounds; no allocation when re-recording and
+drawing from a warm cache; the cache's bound and eviction order. Twelve bugs were injected: eleven
+were caught (three after the tests written for them), the twelfth, ignoring the contrast table, is
+equivalent while γ is 1.
+
+**Benchmarks** (`benches/draw.rs`): a 1920 × 1080 frame with 200 labels (about 6 600 glyphs) costs
+≈ 15.5 M instructions with the cache warm and ≈ 20.2 M when the first frame fills it; most of it is
+the blend, about 25 instructions a glyph pixel. The budget is checked on the reference scene in
+F2.07c.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
@@ -3370,6 +3442,7 @@ let options = WindowOptions {
     mode: ThemeMode::System,
     width: 960.0,
     height: 600.0,
+    faces,
 };
 orchestra_ui::run(Demo::default(), options)?;
 ```

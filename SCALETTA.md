@@ -808,6 +808,11 @@ controllo completo. Va fatta bene una volta sola.
   `deny.toml` le tre eccezioni RustSec e `syn` 2.
 - **F2.08** Da ADR-0040 W7: l'adapter di AccessKit si aggancia al punto di preparazione già pronto
   (finestra creata invisibile, preparata, poi mostrata), provato da un test in F2.04a.
+- **F2.07b** **Parte 1 fatta il 2026-11-12** (branch `feature/f2-07-text`): il crate
+  `orchestra-text` (cinque font inclusi, shaping con `harfrust`, a capo con `icu_segmenter` scelto
+  dal proprietario dopo la misura, metriche, profili). Resta la parte 2: il comando `GlyphRun`, la
+  cache dei glifi per `tiny-skia`, i test di pixel e di allocazione, gli screenshot per la scelta
+  della gamma.
 - **F2.07b** Da ADR-0043 (che sostituisce ADR-0042 R6): la cache dei glifi si costruisce per
   `tiny-skia`, come previsto prima di ADR-0042.
 - **F2.07c** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
@@ -817,6 +822,9 @@ controllo completo. Va fatta bene una volta sola.
   inclusi, scala delle dimensioni, pesi), personalizzabili come gli altri.
 - **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
   del tema.
+- **F2.10** Da F2.07b (scelta TB4): le funzioni per il cursore e il clic sul testo
+  (`caret_x`, `hit_test`) si costruiscono sui cluster che `TextLayout` già registra (offset in byte
+  UTF-8 per ogni glifo).
 - **F2.12** Da ADR-0037: i nomi delle dieci coppie e le parole *Sistema / Chiaro / Scuro* nei sei
   cataloghi (con il glossario), e il **file delle impostazioni** con versione e migrazioni (CLAUDE.md
   §9) che salva coppia, modo e temi personalizzati.
@@ -857,6 +865,9 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 
 - ❓ **Decisione F2.18:** algoritmo di spaziatura (esistono approcci noti in letteratura, es.
   quelli basati sulle durate e sulle "molle"): Claude fa una ricerca e propone.
+- **F2.17** Da F2.07b (2026-11-12): i simboli SMuFL si cercano **solo** in Bravura
+  (`Faces::glyph_for_char` con `FaceId::Bravura`), perché Inter usa gli stessi punti di codice
+  dell'area a uso privato per glifi suoi.
 - **F2.23** Da ADR-0042 R2: se un budget sfora anche con `vello_cpu`, si rimisura il percorso GPU
   con `spikes/gpu-render` sulle versioni del momento.
 - **F2.23** Da F1.11c (ADR-0026 §11 R11): misurare in tempo reale sul portatile di riferimento il

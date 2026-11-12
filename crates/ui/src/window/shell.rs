@@ -76,6 +76,7 @@ pub(crate) struct Shell<A> {
 impl<A: WindowApp> Shell<A> {
     /// A handler for `app`, with no window yet. `proxy` belongs to the event loop that will run it.
     pub(crate) fn new(app: A, options: WindowOptions, proxy: EventLoopProxy<ShellEvent>) -> Self {
+        let renderer = CpuRenderer::new(options.faces.clone());
         Self {
             app,
             theme: ThemeState::new(options.pair, options.mode),
@@ -84,7 +85,7 @@ impl<A: WindowApp> Shell<A> {
             appearance: None,
             appearance_feed: None,
             list: DisplayList::new(),
-            renderer: CpuRenderer::new(),
+            renderer,
             open: None,
             modifiers: Modifiers::default(),
             pointer: Point::default(),

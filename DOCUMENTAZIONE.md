@@ -2813,9 +2813,10 @@ editor di testo.
 quando il font le chiede (`USE_TYPO_METRICS`, impostato in Inter e JetBrains Mono), altrimenti
 `hhea`: una riga di Inter è 1,21 em, come in una pagina web. Tutti i valori sono girati con la y
 verso il basso: un'ascendente è una distanza positiva sopra la linea di base, un riquadro ha il
-bordo superiore negativo. `Faces::bounds` è il riquadro del font, che il renderer userà per
-allargare i limiti di una sequenza di glifi, così un ridisegno parziale non taglia mai un glifo che
-sporge. `Faces::draw_outline` consegna il profilo di un glifo senza hinting, scalato alla dimensione
+bordo superiore negativo. `Faces::bounds` è il riquadro del font (un `GlyphBox`), che allarga i
+limiti di una sequenza di glifi, così un ridisegno parziale non taglia mai un glifo che sporge;
+`TextLayout::bounds` è lo stesso tipo di riquadro per un intero layout (le origini dei suoi glifi
+allargate dal riquadro del font), calcolato una volta quando il layout viene costruito. `Faces::draw_outline` consegna il profilo di un glifo senza hinting, scalato alla dimensione
 e girato con la y verso il basso, al nostro trait `OutlineSink`, così né `skrifa` finisce in `ui` né
 `tiny-skia` in questo crate.
 
@@ -3432,7 +3433,8 @@ list.record(SegmentId(1), |r| {
     r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
 });
 let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
-let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+let faces = orchestra_text::Faces::bundled()?;
+let image = CpuRenderer::new(faces).render_to_image(&list, &theme, 120, 50, 1.0)?;
 ```
 
 **Token, non colori.** Ogni pittura è un token del tema (`ColorToken`), con un'opacità in più
@@ -3576,6 +3578,81 @@ l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella part
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
 fotogramma intero si rimisura lì e in F2.23.
 
+#### Il testo nella lista di disegno: sequenze di glifi e cache dei glifi
+
+Passo F2.07b, parte 2 (ADR-0044 TX6–TX9, scelte TC1–TC10). Il testo arriva sullo schermo in due
+passi: `orchestra-text` ne fa una volta lo shaping in un `TextLayout` (vedi quel crate), e il
+registratore copia i glifi del layout nel segmento come **sequenza di glifi** (glyph run), un nuovo
+comando della lista. I simboli piazzati uno a uno (le teste di nota di una battuta) fanno la stessa
+strada senza shaping:
+
+```rust
+list.record(SegmentId(1), |r| {
+    r.text(&layout, Point::new(20.0, 30.0), ColorToken::Text);
+    r.glyphs(
+        FaceId::Bravura,
+        32.0,
+        faces.bounds(FaceId::Bravura, 32.0)?,
+        [(notehead, Point::new(40.0, 90.0))],
+        ColorToken::Text,
+    );
+});
+```
+
+**Registrazione** (`draw/list.rs`, `draw/command.rs`). Ogni segmento ha un archivio di glifi
+accanto all'archivio dei tracciati: un unico vettore di glifo e posizione per tutte le sue sequenze,
+svuotato e riempito a ogni registrazione, così registrare testo non alloca dopo che è cresciuto
+(testato). I limiti di una sequenza vengono dal layout (`TextLayout::bounds`: le origini dei glifi
+allargate dal riquadro del font) oppure, per `glyphs`, dal riquadro che passa il chiamante, perché il
+registratore non ha i font. Un layout vuoto, una dimensione non finita o non positiva, o nessun
+glifo non registrano nulla.
+
+**Disegno** (`draw/skia.rs`, `draw/glyph_cache.rs`). Il renderer ora possiede una copia dei font,
+`CpuRenderer::new(faces)` (la copia è un contatore di riferimenti), e legge il profilo di un glifo
+che non ha ancora visto. Per ogni glifo calcola l'origine in pixel del dispositivo del fotogramma, la
+arrotonda al quarto di pixel in orizzontale e al pixel intero in verticale (TX7), e chiede alla cache
+la maschera di (font, glifo, dimensione in 1/64 di pixel, quarto). Se manca, il profilo, spostato del
+quarto, diventa un tracciato `tiny-skia` riempito con antialiasing in una maschera grande quanto
+basta; se c'è, basta una ricerca in una tabella hash con una piccola funzione di hash nostra. La
+maschera si fonde poi pixel per pixel con il colore e con il clip in vigore, arrotondando una volta
+per canale come per le ombre; i pixel a copertura piena di un colore opaco si copiano direttamente,
+con gli stessi byte. L'arrotondamento si fa nelle coordinate del **fotogramma**: una regione parziale
+comincia a un pixel intero, quindi un glifo ha gli stessi pixel in un ridisegno parziale e in un
+fotogramma intero (testato byte per byte).
+
+La cache contiene al massimo 8 MB. Quando una maschera nuova li supererebbe, se ne vanno in blocco
+quelle usate meno di recente, fino a tre quarti del limite, così lo sgombero (un ordinamento) resta
+raro. Un glifo la cui maschera supererebbe 256 × 256 pixel del dispositivo (uno zoom forte) non va in
+cache ma si riempie come tracciato ogni volta; se succeda dipende dalla scala, sconosciuta quando si
+registra, quindi una sequenza di glifi conta sempre come forma da ridisegnare intera in una regione
+parziale (`needs_whole_shape`), cosa esatta e, per il testo, poco costosa. `glyph_cache.rs` non sa
+nulla di `tiny-skia`: il renderer gli passa la funzione che rasterizza, così `skia.rs` resta l'unico
+file che conosce la libreria.
+
+**La finestra** riceve i font attraverso `WindowOptions::faces`: l'applicazione li analizza una
+volta e ne tiene una copia per impaginare i suoi testi con gli stessi font.
+
+**Contrasto del testo (TX6).** Una tabella di 256 voci trasforma la copertura di un pixel di glifo
+nella copertura usata per la fusione, `c^(1/γ)` con γ = `TEXT_CONTRAST`. Vale 1 (copertura semplice)
+finché il proprietario non sceglie a occhio fra le varianti di ADR-0044 TX6.
+
+**Test** (`tests/text.rs`, `tests/draw_no_alloc.rs`, i test unitari di `glyph_cache.rs`): inchiostro
+solo dentro i limiti della sequenza e il colore del testo nel pixel più scuro; 200 etichette
+ridisegnate dalla cache con gli stessi byte di un renderer nuovo; un quarto di pixel in orizzontale
+cambia la maschera, mezzo pixel in verticale non sposta la linea di base; ridisegni parziali uguali
+ai fotogrammi interi, con glifi dalla cache e con chiavi di violino troppo grandi per essa (un disco
+che si muove sopra di loro a scala 4×); clip; un cambio di tema che ricolora la stessa copertura; la
+scala della finestra e le trasformazioni di scala; glifi liberi disegnati come il testo;
+l'inchiostro di un glifo dove sta il suo profilo; i limiti registrati; nessuna allocazione
+registrando di nuovo e disegnando dalla cache calda; il limite della cache e l'ordine dello sgombero.
+Dodici difetti iniettati: undici presi (tre dopo i test scritti apposta), il dodicesimo, ignorare la
+tabella del contrasto, è equivalente finché γ vale 1.
+
+**Benchmark** (`benches/draw.rs`): un fotogramma 1920 × 1080 con 200 etichette (circa 6 600 glifi)
+costa ≈ 15,5 M istruzioni con la cache calda e ≈ 20,2 M quando il primo fotogramma la riempie; la
+maggior parte è la fusione, circa 25 istruzioni per pixel di glifo. Il budget si verifica sulla scena
+di riferimento in F2.07c.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
@@ -3595,6 +3672,7 @@ let options = WindowOptions {
     mode: ThemeMode::System,
     width: 960.0,
     height: 600.0,
+    faces,
 };
 orchestra_ui::run(Demo::default(), options)?;
 ```

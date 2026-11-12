@@ -47,12 +47,21 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // The bundled faces are parsed once here and lent to the window (ADR-0044 TB2).
+    let faces = match orchestra_text::Faces::bundled() {
+        Ok(faces) => faces,
+        Err(error) => {
+            eprintln!("orchestra: the bundled fonts could not be read: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
     let options = WindowOptions {
         title,
         pair: *BuiltInTheme::Studio.pair(),
         mode: ThemeMode::System,
         width: 960.0,
         height: 600.0,
+        faces,
     };
     match orchestra_ui::run(Demo::default(), options) {
         Ok(()) => ExitCode::SUCCESS,

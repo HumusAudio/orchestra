@@ -2,7 +2,8 @@
 
 //! The CPU backend on `tiny-skia` (ADR-0039 D9): turns a display list into pixels of an
 //! [`Image`], redrawing only the damage (D5), resolving theme tokens at draw time (D3), snapping
-//! straight edges to device pixels (D7) and drawing shadows analytically (D6).
+//! straight edges to device pixels (D7), drawing shadows analytically (D6) and glyphs from a
+//! cache of coverage masks (ADR-0044 TX6–TX8).
 //!
 //! This is the only file of the crate that knows about `tiny-skia`.
 //!
@@ -29,11 +30,14 @@ use tiny_skia::{
     PixmapPaint, PixmapRef, Rect as SkiaRect, Shader, Stroke, Transform as SkiaTransform,
 };
 
+use orchestra_text::{FaceId, Faces, GlyphId, OutlineSink};
+
 use super::Renderer;
-use super::command::{Command, PathElement};
+use super::command::{Command, GlyphPlacement, PathElement};
 use super::damage::Damage;
 use super::device::{DeviceRect, DeviceRegions, device_region, pixel_span, to_f32};
 use super::geometry::{Point, Rect, RoundedRect, Transform};
+use super::glyph_cache::{GlyphCache, GlyphKey, GlyphMask, MAX_CACHED_SIDE, Raster};
 use super::image::{DrawError, Image};
 use super::list::{DisplayList, SHADOW_REACH_SIGMAS, Segment};
 use super::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
@@ -41,10 +45,17 @@ use super::shadow;
 use super::snap::{KAPPA, snap_rect as snap, snapped_line};
 use crate::{ColorToken, Theme};
 
-/// The `tiny-skia` renderer (ADR-0039 D9, confirmed by ADR-0043). Keep one per window (or per headless job) and reuse it: its buffers
-/// are what makes later frames allocation-free in our code.
-#[derive(Default)]
+/// The `tiny-skia` renderer (ADR-0039 D9, confirmed by ADR-0043). Keep one per window (or per
+/// headless job) and reuse it: its buffers and caches are what makes later frames
+/// allocation-free in our code.
 pub struct CpuRenderer {
+    /// The bundled faces, for the outlines of glyphs that are not cached yet (ADR-0044 TC1).
+    faces: Faces,
+    /// Rasterised glyphs kept between frames (ADR-0044 TX8).
+    glyphs: GlyphCache,
+    /// The coverage of a glyph pixel (0–255) turned into the blend's cover (0–1), with the text
+    /// contrast of [`TEXT_CONTRAST`] applied (ADR-0044 TX6). Built once, read per pixel.
+    text_cover: [f32; 256],
     /// Pixels of a partial region, reused between frames.
     scratch: Vec<u8>,
     /// A path builder whose buffers are reused from path to path.
@@ -117,21 +128,52 @@ const FULL_COVERAGE: f32 = 1.0 - 0.25 / 255.0;
 /// The most shadows kept between frames: a window shows a handful (panels, menus, dialogs).
 const MAX_CACHED_SHADOWS: usize = 32;
 
+/// The text contrast exponent γ of ADR-0044 TX6: a glyph pixel of coverage `c` is blended with
+/// cover `c^(1/γ)`. 1 is plain coverage; above 1 the edges of the strokes are strengthened,
+/// which makes light text on a dark surface look less thin (the effect FreeType's and Skia's
+/// text gamma aim at). Chosen by the owner by eye in F2.07b part 2 (ADR-0044 precisions).
+const TEXT_CONTRAST: f32 = 1.0;
+
+/// The cover table of [`TEXT_CONTRAST`]: entry `c` is `(c / 255)^(1/γ)`.
+fn text_cover_table() -> [f32; 256] {
+    let mut table = [0.0; 256];
+    for (value, entry) in (0_u16..).zip(table.iter_mut()) {
+        *entry = (f32::from(value) / 255.0).powf(1.0 / TEXT_CONTRAST);
+    }
+    table
+}
+
 impl std::fmt::Debug for CpuRenderer {
     /// Only the sizes of the reusable buffers.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CpuRenderer")
             .field("scratch_bytes", &self.scratch.capacity())
             .field("spare_masks", &self.mask_pool.len())
+            .field("cached_glyphs", &self.glyphs.len())
+            .field("cached_glyph_bytes", &self.glyphs.bytes())
             .finish_non_exhaustive()
     }
 }
 
 impl CpuRenderer {
-    /// A renderer with empty buffers.
+    /// A renderer with empty buffers and caches, drawing glyphs from `faces` (ADR-0044 TC1:
+    /// the renderer keeps them, a reference-count increment, to read the outlines of glyphs it
+    /// has not cached yet).
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(faces: Faces) -> Self {
+        Self {
+            faces,
+            glyphs: GlyphCache::default(),
+            text_cover: text_cover_table(),
+            scratch: Vec::new(),
+            builder: None,
+            mask_pool: Vec::new(),
+            transforms: Vec::new(),
+            masks: Vec::new(),
+            shadows: Vec::new(),
+            frame_number: 0,
+            surface: (0, 0),
+        }
     }
 
     /// Draws the whole `list` into a new image of `width × height` device pixels at `scale`
@@ -334,6 +376,15 @@ impl CpuRenderer {
                 }
                 Command::Shadow { shape, blur, paint } => {
                     self.shadow(frame, &transform, shape, *blur, *paint);
+                }
+                Command::GlyphRun {
+                    face,
+                    size,
+                    glyphs,
+                    paint,
+                } => {
+                    let glyphs = segment.glyphs.get(glyphs.clone()).unwrap_or(&[]);
+                    self.glyph_run(frame, &transform, *face, *size, glyphs, *paint);
                 }
                 Command::Image { image, dest } => self.image(frame, &transform, *image, dest),
                 Command::PushClip { shape } => self.push_clip(frame, &transform, shape),
@@ -717,6 +768,138 @@ impl CpuRenderer {
         self.shadows.len() - 1
     }
 
+    /// Draws a glyph run (ADR-0044 TX6–TX8): each glyph from its cached coverage mask, placed at
+    /// a quarter of a device pixel across and a whole pixel down (TX7), or filled as a path when
+    /// it is larger than the cache takes.
+    ///
+    /// # Why positions are rounded in the frame's coordinates
+    /// The quarter-pixel phase is computed from the glyph's position in the whole frame, not in
+    /// the pixmap being drawn: a partial region's pixmap starts at a whole device pixel of the
+    /// frame, so the phase, the mask and the pixels it gives are the same in a partial redraw as
+    /// in a full frame.
+    fn glyph_run(
+        &mut self,
+        frame: &mut Frame<'_, '_>,
+        transform: &Transform,
+        face: FaceId,
+        size: f32,
+        glyphs: &[GlyphPlacement],
+        paint: Paint,
+    ) {
+        // The size in device pixels, quantised to 1/64 of a pixel (TX8): the cache's key and the
+        // size the outline is drawn at.
+        let ppem = size * transform.scale * frame.scale;
+        let ppem_64 = (ppem * 64.0).round();
+        if !(1.0..16_777_216.0).contains(&ppem_64) {
+            // Not finite, not positive, or absurdly large (beyond f32's exact integers).
+            return;
+        }
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a whole number in 1..2^24, checked just above"
+        )]
+        let ppem_key = ppem_64 as u32;
+        let ppem = ppem_64 / 64.0;
+        let source = premultiplied(frame.theme, paint);
+        for placement in glyphs {
+            // The origin in the frame's device pixels.
+            let list = transform.apply(placement.at);
+            let device_x = list.x * frame.scale;
+            let device_y = list.y * frame.scale;
+            let quarters = (device_x * 4.0).round();
+            let column = (quarters / 4.0).floor();
+            let row = device_y.round();
+            if !(column.is_finite() && row.is_finite()) {
+                continue;
+            }
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "the remainder of a division by 4 of a whole number: 0, 1, 2 or 3"
+            )]
+            let quarter = (quarters - column * 4.0).clamp(0.0, 3.0) as u8;
+            let key = GlyphKey {
+                face,
+                glyph: placement.glyph,
+                ppem_64: ppem_key,
+                quarter,
+            };
+            let faces = &self.faces;
+            let builder = &mut self.builder;
+            let raster = self.glyphs.get_or_rasterise(key, self.frame_number, || {
+                rasterise(faces, builder, key, ppem)
+            });
+            match raster {
+                None | Some(Raster::Empty) => {}
+                Some(Raster::Mask(mask)) => {
+                    // The mask's top-left corner in the pixmap: the rounded origin, plus the
+                    // mask's offset, minus the pixmap's corner in the frame.
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        reason = "device coordinates of a frame, far inside i64"
+                    )]
+                    let (x, y) = (
+                        column as i64 + i64::from(mask.left) - i64::from(frame.corner.0),
+                        row as i64 + i64::from(mask.top) - i64::from(frame.corner.1),
+                    );
+                    blit_glyph(
+                        &mut frame.pixmap,
+                        mask,
+                        x,
+                        y,
+                        self.masks.last(),
+                        &source,
+                        &self.text_cover,
+                    );
+                }
+                Some(Raster::Large) => {
+                    // Drawn where it is, unrounded, as any path: `needs_whole_shape` makes a
+                    // partial redraw include the whole run, so its pixels match the full frame.
+                    let at = Point::new(device_x - frame.origin.x, device_y - frame.origin.y);
+                    self.fill_large_glyph(frame, face, placement.glyph, ppem, at, paint);
+                }
+            }
+        }
+    }
+
+    /// Fills a glyph too large for the cache as an anti-aliased path, at `at` (pixmap device
+    /// pixels, its origin on the baseline).
+    fn fill_large_glyph(
+        &mut self,
+        frame: &mut Frame<'_, '_>,
+        face: FaceId,
+        glyph: GlyphId,
+        ppem: f32,
+        at: Point,
+        paint: Paint,
+    ) {
+        let mut sink = SkiaSink {
+            builder: self.builder.take().unwrap_or_default(),
+            dx: 0.0,
+        };
+        if self
+            .faces
+            .draw_outline(face, glyph, ppem, &mut sink)
+            .is_err()
+        {
+            self.builder = Some(sink.builder);
+            return;
+        }
+        let Some(path) = sink.builder.finish() else {
+            return;
+        };
+        let skia_paint = skia_paint(frame.theme, paint, true);
+        frame.pixmap.fill_path(
+            &path,
+            &skia_paint,
+            SkiaFillRule::Winding,
+            SkiaTransform::from_translate(at.x, at.y),
+            self.masks.last(),
+        );
+        self.builder = Some(path.clear());
+    }
+
     /// Draws a stored picture stretched into `dest`, with bilinear filtering.
     fn image(
         &self,
@@ -856,7 +1039,11 @@ fn needs_whole_shape(command: &Command) -> bool {
         Command::FillPath { .. }
         | Command::StrokePath { .. }
         | Command::Image { .. }
-        | Command::PushClip { .. } => true,
+        | Command::PushClip { .. }
+        // Cached glyphs are blended from masks placed on whole pixels of the frame, the same in
+        // any area; but a glyph too large for the cache is filled as a path, and whether it is
+        // depends on the scale, unknown here. Conservative, and cheap: text runs are small.
+        | Command::GlyphRun { .. } => true,
         Command::FillRect { .. }
         | Command::StrokeRect { .. }
         | Command::PopClip
@@ -1210,6 +1397,193 @@ fn push_elements(builder: &mut SkiaPathBuilder, elements: &[PathElement]) {
     }
 }
 
+/// Receives a glyph's outline from `orchestra-text` into a `tiny-skia` path builder, shifted by
+/// `dx` device pixels (the quarter-pixel phase of TX7).
+struct SkiaSink {
+    /// The path being built.
+    builder: SkiaPathBuilder,
+    /// Horizontal shift, device pixels.
+    dx: f32,
+}
+
+impl OutlineSink for SkiaSink {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.builder.move_to(x + self.dx, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.builder.line_to(x + self.dx, y);
+    }
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.builder.quad_to(cx + self.dx, cy, x + self.dx, y);
+    }
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        self.builder
+            .cubic_to(c1x + self.dx, c1y, c2x + self.dx, c2y, x + self.dx, y);
+    }
+    fn close(&mut self) {
+        self.builder.close();
+    }
+}
+
+/// Rasterises the glyph of `key` at `ppem` device pixels per em into a coverage mask (ADR-0044
+/// TC6): its outline, shifted by its quarter-pixel phase, filled with anti-aliasing (non-zero
+/// rule, as fonts require) into a mask just large enough for it. `builder` lends its buffers and
+/// gets them back.
+///
+/// # Cost
+/// The outline (≈ 13 000 instructions for a letter, `benches/text.rs` of `orchestra-text`) plus
+/// the fill, once per glyph, size and phase; it allocates the mask.
+fn rasterise(
+    faces: &Faces,
+    builder: &mut Option<SkiaPathBuilder>,
+    key: GlyphKey,
+    ppem: f32,
+) -> Raster {
+    let mut sink = SkiaSink {
+        builder: builder.take().unwrap_or_default(),
+        dx: f32::from(key.quarter) / 4.0,
+    };
+    if !matches!(
+        faces.draw_outline(key.face, key.glyph, ppem, &mut sink),
+        Ok(true)
+    ) {
+        *builder = Some(sink.builder);
+        return Raster::Empty;
+    }
+    // An outline with no segment (a space) gives no path: no ink.
+    let Some(path) = sink.builder.finish() else {
+        return Raster::Empty;
+    };
+    let bounds = path.bounds();
+    // Whole pixels enclosing the path: anti-aliased coverage never leaves the path's bounds.
+    let (left, top) = (bounds.left().floor(), bounds.top().floor());
+    let (right, bottom) = (bounds.right().ceil(), bounds.bottom().ceil());
+    let (width, height) = (right - left, bottom - top);
+    let limit = f32::from(u16::try_from(MAX_CACHED_SIDE).unwrap_or(u16::MAX));
+    let raster = if width > limit || height > limit {
+        Raster::Large
+    } else {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "whole numbers between 0 and MAX_CACHED_SIDE, and a glyph's offsets,                       small whole numbers"
+        )]
+        let (left_px, top_px, width_px, height_px) =
+            (left as i32, top as i32, width as u32, height as u32);
+        match Mask::new(width_px, height_px) {
+            Some(mut mask) => {
+                mask.fill_path(
+                    &path,
+                    SkiaFillRule::Winding,
+                    true,
+                    SkiaTransform::from_translate(-left, -top),
+                );
+                Raster::Mask(GlyphMask {
+                    left: left_px,
+                    top: top_px,
+                    width: width_px,
+                    height: height_px,
+                    coverage: mask.take(),
+                })
+            }
+            // A zero-sized mask: a degenerate outline with no area.
+            None => Raster::Empty,
+        }
+    };
+    *builder = Some(path.clear());
+    raster
+}
+
+/// The premultiplied colour of a paint, channels 0–255, for our own blending (glyphs, shadows).
+fn premultiplied(theme: &Theme, paint: Paint) -> [f32; 4] {
+    let color = theme.color(paint.token);
+    let alpha = f32::from(color.a) * f32::from(paint.opacity) / (255.0 * 255.0);
+    [
+        f32::from(color.r) * alpha,
+        f32::from(color.g) * alpha,
+        f32::from(color.b) * alpha,
+        255.0 * alpha,
+    ]
+}
+
+/// Blends a glyph's coverage `mask`, its top-left corner at pixmap pixel `(x, y)` (possibly
+/// outside the pixmap), with `source` over the pixmap, scaled by the clip mask in effect, through
+/// the text cover table (TX6). One rounding per channel, as for shadows ([`blend_over`]).
+///
+/// # Complexity
+/// O(pixels of the mask inside the pixmap), no allocation.
+fn blit_glyph(
+    pixmap: &mut PixmapMut<'_>,
+    mask: &GlyphMask,
+    x: i64,
+    y: i64,
+    clip: Option<&Mask>,
+    source: &[f32; 4],
+    cover: &[f32; 256],
+) {
+    let (width, height) = (i64::from(pixmap.width()), i64::from(pixmap.height()));
+    let (mask_width, mask_height) = (i64::from(mask.width), i64::from(mask.height));
+    // The part of the mask inside the pixmap, in pixmap columns and rows.
+    let (col0, col1) = (x.max(0), (x + mask_width).min(width));
+    let (row0, row1) = (y.max(0), (y + mask_height).min(height));
+    if col0 >= col1 || row0 >= row1 {
+        return;
+    }
+    let clip = clip.map(Mask::data);
+    // An opaque source at full coverage and no clip gives exactly the source's bytes:
+    // `blend_over` keeps nothing of the old pixel and rounds whole numbers (the colour channels
+    // times an alpha of exactly 1). The fully covered pixels are the insides of the strokes,
+    // often a third of a glyph's pixels, so copying them skips most of the arithmetic, with the
+    // same bytes (the pixel tests compare cached and fresh drawing byte for byte).
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "whole numbers in 0..=255 (a byte times an alpha of exactly 1)"
+    )]
+    let solid = (source[3] >= 255.0 && cover[255] >= 1.0)
+        .then(|| source.map(|channel| (channel + 0.5) as u8));
+    let data = pixmap.data_mut();
+    for row in row0..row1 {
+        // Offsets: the mask's row and the pixmap's, both as indices of whole pixels. Every value
+        // is non-negative and inside its buffer by the clamping above.
+        let mask_row = usize::try_from((row - y) * mask_width + (col0 - x)).unwrap_or(0);
+        let pixel_row = usize::try_from(row * width + col0).unwrap_or(0);
+        let count = usize::try_from(col1 - col0).unwrap_or(0);
+        let Some(coverage) = mask.coverage.get(mask_row..mask_row + count) else {
+            continue;
+        };
+        let Some(pixels) = data.get_mut(pixel_row * 4..(pixel_row + count) * 4) else {
+            continue;
+        };
+        let clip_row = clip.and_then(|clip| clip.get(pixel_row..pixel_row + count));
+        for (index, (pixel, &value)) in pixels
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(coverage)
+            .enumerate()
+        {
+            if value == 0 {
+                continue;
+            }
+            if value == 255
+                && clip_row.is_none()
+                && let Some(solid) = solid
+            {
+                pixel.copy_from_slice(&solid);
+                continue;
+            }
+            let mut amount = cover.get(usize::from(value)).copied().unwrap_or(1.0);
+            if let Some(clip_row) = clip_row {
+                amount *= f32::from(clip_row.get(index).copied().unwrap_or(0)) / 255.0;
+            }
+            if amount > 0.0 {
+                blend_over(pixel, source, amount);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Tests that need the crate's private shadow formula; the pixel tests of the backend are in
@@ -1247,7 +1621,7 @@ mod tests {
                     r.shadow(RoundedRect::new(rect, radius), sigma, ColorToken::Text);
                 });
                 let side = (120.0 * scale) as u32;
-                let mut renderer = CpuRenderer::new();
+                let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
                 for pass in ["computed", "cached"] {
                     let image = renderer
                         .render_to_image(&list, &theme, side, side, scale)
@@ -1309,7 +1683,7 @@ mod tests {
                 }
             });
             let (width, height) = (320_u32, 240_u32);
-            let mut renderer = CpuRenderer::new();
+            let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
             for pass in ["computed", "cached"] {
                 let image = renderer
                     .render_to_image(&list, &theme, width, height, 1.0)

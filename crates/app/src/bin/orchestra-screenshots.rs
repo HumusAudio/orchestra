@@ -54,8 +54,10 @@ fn main() -> ExitCode {
 fn write_all(out_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(out_dir)
         .map_err(|e| format!("cannot create {}: {e}", out_dir.display()))?;
-    // One renderer for the whole catalogue: it reuses its scratch buffers between scenes.
-    let mut renderer = CpuRenderer::new();
+    // One renderer for the whole catalogue: it reuses its scratch buffers and its glyph cache
+    // between scenes.
+    let faces = orchestra_text::Faces::bundled().map_err(|e| e.to_string())?;
+    let mut renderer = CpuRenderer::new(faces);
     for scene in SCENES {
         let image = render(scene, &mut renderer).map_err(|e| e.to_string())?;
         let png = image

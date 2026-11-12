@@ -21,6 +21,8 @@ orchestra-plugin-host.workspace = true
 orchestra-io.workspace = true
 orchestra-i18n.workspace = true
 orchestra-ui.workspace = true
+# The bundled faces, created once and lent to the window and the renderers (ADR-0044 TB2).
+orchestra-text.workspace = true
 orchestra-video.workspace = true
 
 [lints]
