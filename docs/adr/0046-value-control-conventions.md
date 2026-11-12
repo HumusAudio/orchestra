@@ -1,7 +1,6 @@
 # ADR-0046 — Value-control conventions: wheel, double click to the default, fine adjustment
 
-- **Status:** Proposed (owner's outline WE1–WE7 approved on 2026-11-12; this text awaits
-  acceptance).
+- **Status:** Accepted (owner, 2026-11-12; outline WE1–WE7 approved first, then the text).
 - **Date:** 2026-11-12
 - **Implements:** ADR-0045 (the widget tree: routed events, bubbling, capture), ADR-0040 W5 (our
   input events), ADR-0007 (budgets).

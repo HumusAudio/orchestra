@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Proposed) done on its branch; next F2.09d.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; next F2.09d.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1093,7 +1093,7 @@ responsive"); `cargo run -p orchestra-app` starts the program (`default-run`). M
 **F2.09c2** (2026-11-12, `feature/f2-09c2-value-controls`), asked by the owner after trying the
 preview: every slider and knob, everywhere, changes with the wheel under the pointer, goes back to
 its default with a double click, and adjusts finely with Ctrl. Outline WE1–WE7 approved; **ADR-0046
-Proposed** (value-control conventions V1–V7), awaiting acceptance. In `orchestra-ui`: the window
+Accepted** (value-control conventions V1–V7). In `orchestra-ui`: the window
 counts clicks (`ClickCounter`, 400 ms, 4 px, same button) and `InputEvent::PointerButton` /
 `WidgetEvent::PointerButton` carry `clicks` (every constructor and pattern updated); `Ui` keeps the
 modifiers (modifier and key events, forgotten on focus loss) and `EventCx::modifiers()` gives them
@@ -1104,8 +1104,8 @@ the modifier changes), `default_value` and the double click, and the arrows by t
 Tests: 24 in `tests/controls.rs` (+6) and the click counter's unit test; twenty-five injected bugs,
 twenty-four caught (three after tests written for them), one equivalent (a redundant line, removed).
 Benchmark `slider_wheel_notch`: 0.36 M instructions per notch. Guides: a new section "Adjusting
-values". **Open:** ADR-0046's acceptance; the owner's request that every keyboard shortcut be
-customisable (to plan in SCALETTA, see "Open decisions").
+values". SCALETTA v0.65: F2.09c2 recorded, the shortcut registry noted in F2.11 and the new step F2.12c
+(shortcut editor).
 
 | Step | What | Status |
 |---|---|---|
@@ -1168,12 +1168,12 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 ## Open decisions and open items
 
 - **Customisable keyboard shortcuts (owner's request, 2026-11-12, with F2.09c2):** "every keyboard
-  shortcut must be customisable by the user". Proposed reading, awaiting the owner's ok: every
+  shortcut must be customisable by the user". Reading approved by the owner the same day: every
   *command* shortcut is remappable through a command registry with per-platform default bindings,
   user overrides in the settings file, conflict detection and import/export; widget navigation keys
   (Tab, arrows, Space, Enter, Escape) follow the platform and accessibility conventions and stay
-  fixed; the fine-adjustment modifier of ADR-0046 V3 may become a preference. To plan in SCALETTA
-  with the menus and the settings.
+  fixed; the fine-adjustment modifier of ADR-0046 V3 may become a preference. Planned in SCALETTA
+  v0.65: the registry's ADR in F2.11, the shortcut editor in F2.12c.
 - **Repeats after a jump, in documents with several movements (seen in F1.16b, owner asked to
   record it on 2026-11-07):** after a jump with `RepeatsAfterJump::Skip` (the default), the
   unrolling skips **every** later repeat to the end of the document, even after the coda

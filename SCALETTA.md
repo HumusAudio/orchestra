@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.64, approvata dal proprietario il 2026-11-12.**
+> **Stato di questo documento: v0.65, approvata dal proprietario il 2026-11-12.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -702,6 +702,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
+| F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
 | F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ⬜ | 2 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto) | ⬜ | 1–2 |
@@ -860,6 +861,15 @@ controllo completo. Va fatta bene una volta sola.
   presi.
 - **F2.09c** Da F2.09b: la prova a mano dell'adapter AccessKit con Orca su KDE (proprietario), quando
   la finestra mostra widget veri; nella sandbox non si può (niente schermo).
+- **F2.09c2** (aggiunto il 2026-11-12, richiesta del proprietario dopo la prova della demo)
+  **Fatto:** convenzioni dei controlli di valore, **ADR-0046 Accepted** (scelte WE1–WE7): rotella
+  sotto il puntatore (passo grosso = 2% dell'intervallo), regolazione fine con il modificatore
+  primario (Ctrl, ⌘ su macOS), doppio clic al valore predefinito, Maiusc+rotella lasciata
+  all'area scorrevole; conteggio dei clic nella finestra e modificatori in ogni evento. Uno scatto
+  0,36 M istruzioni; 25 difetti iniettati, 24 presi e uno equivalente (riga superflua tolta).
+- **Ogni nuovo controllo di valore** (manopole, fader, parametri dei plugin, campi numerici
+  trascinabili) segue l'ADR-0046 V1–V6; i suoi test coprono rotella, regolazione fine e doppio
+  clic.
 - **F2.09d** Da F2.09a (scelta WB5): i rettangoli dei widget sono in pixel logici della finestra e i
   segmenti si registrano senza trasformazioni; l'area scorrevole deve decidere come spostare i
   figli (una trasformazione con clip per il suo contenuto, rettangoli e test del puntatore nello
@@ -887,6 +897,14 @@ controllo completo. Va fatta bene una volta sola.
   torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
   Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
   barra del titolo, lì il problema sparisce su Linux.
+- **F2.11** Richiesta del proprietario del 2026-11-12: **tutte le scorciatoie dei comandi sono
+  personalizzabili**. Qui un ADR fissa il registro unico dei comandi con le scorciatoie predefinite
+  per piattaforma (menu e scorciatoie nascono insieme) e il salvataggio delle modifiche
+  dell'utente nelle impostazioni. Restano fissi i tasti di navigazione dei widget (Tab, frecce,
+  Spazio, Invio, Esc: convenzioni di sistema e accessibilità); il modificatore della regolazione
+  fine (ADR-0046 V3) può diventare un'opzione.
+- **F2.12c** L'editor delle scorciatoie usa il registro di F2.11; approvato dal proprietario il
+  2026-11-12.
 - **F2.12b** Da F2.07c (2026-11-12): cambiare un token del testo (famiglia o dimensione) vuol dire
   impaginare di nuovo i testi e registrare di nuovo i loro segmenti, non solo ridisegnare
   (ADR-0044 TX9): l'editor dei temi deve farlo.
