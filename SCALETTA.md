@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.58, approvata dal proprietario il 2026-11-11.**
+> **Stato di questo documento: v0.59, approvata dal proprietario il 2026-11-12.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -693,7 +693,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.05 | **`cargo xtask screenshots`** (prima versione, tema scuro, en-US) | ✅ ADR-0041 | 1 |
 | F2.06 | **Misura del percorso GPU** (`wgpu` + `vello`) fuori dalla sandbox, con il proprietario; ADR sul renderer GPU | ✅ ADR-0042 | 2–3 |
 | F2.06b | **Backend `vello_cpu`** (ADR-0042): `Renderer` su `vello_cpu` con ridisegno delle sole aree cambiate e thread configurabili; collaudo con i test di pixel; benchmark e confronto con `tiny-skia`; poi `tiny-skia` esce e il PNG passa a `png` | ✅ ADR-0043 | 2 |
-| F2.07 | **Testo**: font inclusi, shaping, cache dei glifi, misure; Bravura per i simboli musicali | ⬜ | 3 |
+| F2.07 | **ADR del testo**: font inclusi, shaping, cache dei glifi, misure, a capo, token del testo; Bravura per i simboli musicali | ✅ ADR-0044 | 1 |
+| F2.07b | **Testo, realizzazione** (ADR-0044): crate `orchestra-text` (font, shaping, `TextLayout`, a capo, metriche, profili), comando `GlyphRun`, cache dei glifi per `tiny-skia`, scelta della gamma a occhio, scelta fra `icu_segmenter` e il sottoinsieme nostro per l'a capo | ⬜ | 2 |
+| F2.07c | **Token del testo** (ADR-0044 TX11) nel tema, testo nella scena di riferimento e nel catalogo degli screenshot, budget del fotogramma intero (33 M istruzioni) | ⬜ | 1 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ⬜ | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
@@ -806,12 +808,12 @@ controllo completo. Va fatta bene una volta sola.
   `deny.toml` le tre eccezioni RustSec e `syn` 2.
 - **F2.08** Da ADR-0040 W7: l'adapter di AccessKit si aggancia al punto di preparazione già pronto
   (finestra creata invisibile, preparata, poi mostrata), provato da un test in F2.04a.
-- **F2.07** Da ADR-0043 (che sostituisce ADR-0042 R6): la cache dei glifi si costruisce per
+- **F2.07b** Da ADR-0043 (che sostituisce ADR-0042 R6): la cache dei glifi si costruisce per
   `tiny-skia`, come previsto prima di ADR-0042.
-- **F2.07** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
+- **F2.07c** Da ADR-0039 D10: con i glifi presi da una cache, il benchmark del fotogramma intero
   della scena di riferimento deve rientrare nei 33 M istruzioni (30 fps in software con la regola
   di F1.16c); se non ci rientra, si apre un ADR sul budget.
-- **F2.07** Da ADR-0037: qui si definiscono anche i **token del testo** (carattere fra i font
+- **F2.07c** Da ADR-0037: qui si definiscono anche i **token del testo** (carattere fra i font
   inclusi, scala delle dimensioni, pesi), personalizzabili come gli altri.
 - **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
   del tema.
@@ -1125,3 +1127,4 @@ raccomandato.
 | 2026-11-11 | 0.56 | F2.05 fatto (PR #61, ADR-0041 Accepted: screenshot senza finestra da un binario per sviluppatori, catalogo di scene, metà scura di Studio che emenda ADR-0014 §7 e ADR-0037 T10, mai committati); nota in F2.15 (primi screenshot veri, immagini di riferimento); prossimo passo F2.06 | proprietario |
 | 2026-11-11 | 0.57 | F2.06 fatto (ADR-0042 Accepted: GPU misurata a 1080p e 4K, niente GPU per ora, `vello_cpu` dietro la nostra lista di disegno); nuovo F2.06b (backend `vello_cpu`); note in F2.07 (glifi per `vello_cpu`), F2.23 (rimisura della GPU), F3.04 (xrun con i thread di disegno); prossimo passo F2.06b | proprietario |
 | 2026-11-11 | 0.58 | F2.06b fatto (PR #63, ADR-0043 Accepted: `tiny-skia` resta, `vello_cpu` scartato dopo un confronto falsato, ombre in cache con l'interno riempito da tabella); nota in F2.07 (cache dei glifi per `tiny-skia`); prossimo passo F2.07 | proprietario |
+| 2026-11-12 | 0.59 | F2.07 diventa l'ADR del testo (fatto, ADR-0044 Accepted: crate `orchestra-text`, cinque font inclusi, cache dei glifi da 8 MB, `GlyphRun`, a capo secondo UAX #14, token del testo); nuovi F2.07b (realizzazione) e F2.07c (token, scena di riferimento, budget); note di F2.07 spostate in F2.07b e F2.07c; un'unica PR per l'intero passo; prossimo passo F2.07b | proprietario |
