@@ -113,6 +113,9 @@ pub enum WidgetEvent<'a> {
         state: ButtonState,
         /// Where.
         position: Point,
+        /// Which click of a series (1 single, 2 double…, ADR-0046 V4); a release carries its
+        /// press's count.
+        clicks: u8,
     },
     /// The wheel or the touchpad.
     Wheel {
@@ -217,6 +220,8 @@ pub struct EventCx<'a, M> {
     pub(crate) rerecord: bool,
     /// Give this widget the focus.
     pub(crate) focus: bool,
+    /// The modifiers held when the event arrived (ADR-0046 V3: the fine adjustment).
+    pub(crate) modifiers: Modifiers,
 }
 
 impl<M> EventCx<'_, M> {
@@ -230,6 +235,13 @@ impl<M> EventCx<'_, M> {
     #[must_use]
     pub const fn rect(&self) -> Rect {
         self.rect
+    }
+
+    /// The modifiers held when the event arrived: a value control adjusts finely while the
+    /// primary modifier is held (ADR-0046 V3), also for pointer events, which carry no modifiers.
+    #[must_use]
+    pub const fn modifiers(&self) -> Modifiers {
+        self.modifiers
     }
 
     /// Sends `message` to the application (WA7), after the event.

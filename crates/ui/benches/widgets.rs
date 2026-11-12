@@ -19,6 +19,8 @@
 //!   accessibility tree built again (an assistive technology connecting).
 //! - `slider_drag_move` (F2.09c): 40 rows of a label and a slider, one move while a slider is
 //!   dragged (its value changes, it is re-recorded and drawn, its node is sent).
+//! - `slider_wheel_notch` (F2.09c2, ADR-0046 V2): the same rows, one wheel notch over the 20th
+//!   slider under the pointer (the value moves the coarse step, re-recorded, drawn, sent).
 //!
 //! # Target (ADR-0045, SCALETTA F2.09)
 //! An event under 0.5 M instructions with drawing; the spike's retained click was 0.17 M.
@@ -46,7 +48,7 @@ use orchestra_ui::{
     Appearance, BuiltInTheme, Button, ButtonState, ColorToken, Constraints, CpuRenderer, Density,
     DisplayList, EventCx, Flex, Handled, Image, InputEvent, Label, LayoutCx, LayoutProps, Length,
     Point, PointerButton, RecordCx, Recorder, Rect, Renderer, Size, Slider, Space, Theme, Ui,
-    Widget, WidgetEvent, WidgetId,
+    WheelDelta, Widget, WidgetEvent, WidgetId,
 };
 
 // A button-like leaf whose width can change.
@@ -174,6 +176,7 @@ fn click(mut panel: Panel) -> Panel {
                 button: PointerButton::Left,
                 state,
                 position,
+                clicks: 1,
             }),
             &mut panel.list,
         );
@@ -300,6 +303,7 @@ fn real_click(mut real: Real) -> Real {
                 button: PointerButton::Left,
                 state,
                 position,
+                clicks: 1,
             }),
             &mut real.list,
         );
@@ -379,6 +383,7 @@ fn sliders_dragging() -> Sliders {
             button: PointerButton::Left,
             state: ButtonState::Pressed,
             position: Point::new(f32::midpoint(target.x0, target.x1), y),
+            clicks: 1,
         },
         &mut list,
     );
@@ -418,13 +423,56 @@ fn slider_drag_move(mut sliders: Sliders) -> Sliders {
     sliders
 }
 
+// The same rows with the 20th slider hovered, not dragged: its press is released, so the wheel
+// finds it under the pointer (F2.09c2).
+fn sliders_hovered() -> Sliders {
+    let mut sliders = sliders_dragging();
+    let y = f32::midpoint(sliders.target.y0, sliders.target.y1);
+    sliders.ui.input(
+        &InputEvent::PointerButton {
+            button: PointerButton::Left,
+            state: ButtonState::Released,
+            position: Point::new(f32::midpoint(sliders.target.x0, sliders.target.x1), y),
+            clicks: 1,
+        },
+        &mut sliders.list,
+    );
+    let damage = sliders.list.take_damage();
+    sliders
+        .renderer
+        .render(&sliders.list, &theme(), &damage, 1.0, &mut sliders.image)
+        .unwrap();
+    let _ = sliders.ui.take_access_update();
+    sliders
+}
+
+#[library_benchmark]
+#[bench::panel(sliders_hovered())]
+fn slider_wheel_notch(mut sliders: Sliders) -> Sliders {
+    sliders.ui.input(
+        black_box(&InputEvent::Wheel {
+            delta: WheelDelta::Lines { x: 0.0, y: 1.0 },
+        }),
+        &mut sliders.list,
+    );
+    black_box(sliders.ui.take_messages().count());
+    let damage = sliders.list.take_damage();
+    sliders
+        .renderer
+        .render(&sliders.list, &theme(), &damage, 1.0, &mut sliders.image)
+        .unwrap();
+    black_box(sliders.ui.take_access_update());
+    sliders
+}
+
 library_benchmark_group!(
     name = controls,
     benchmarks = [
         real_first_frame,
         real_click,
         real_access_full,
-        slider_drag_move
+        slider_drag_move,
+        slider_wheel_notch
     ]
 );
 

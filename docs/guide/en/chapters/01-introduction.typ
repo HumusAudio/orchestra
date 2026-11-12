@@ -41,6 +41,23 @@ Orchestra will have a light and a dark appearance. By default it follows the set
 operating system and changes with it; you can also choose light or dark yourself. The score can
 follow the dark appearance or always stay on white paper, as you prefer.
 
+== Adjusting values
+
+Every slider and knob in Orchestra works the same way, wherever it is:
+
+- *Drag* it, or click where you want the value.
+- *Turn the mouse wheel* with the pointer over it: no need to click it first. Each notch moves
+  the value by a small amount; on a touchpad, swipe up or down.
+- *Hold Ctrl* (⌘ on macOS) while dragging, turning the wheel or pressing the arrow keys for a
+  finer adjustment: a drag moves ten times more slowly, a notch or an arrow by the smallest step.
+- *Double-click* it to go back to its default value.
+- With the keyboard, once it is selected: the arrow keys, Page Up and Page Down, Home and End.
+
+#tip("Tip")[
+  Hold Shift while turning the wheel to scroll the panel instead of changing the control under
+  the pointer.
+]
+
 == Status of this guide
 
 Orchestra is at a very early stage of development. This preview edition explains the ideas

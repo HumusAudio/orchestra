@@ -53,3 +53,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0043](0043-keep-tiny-skia-cache-shadows.md) | Keep `tiny-skia`, cache shadows; `vello_cpu` is dropped (supersedes part of ADR-0042) | Accepted |
 | [0044](0044-text-fonts-shaping-glyph-cache.md) | Text: bundled fonts, shaping, measuring and a glyph cache (amends ADR-0036 B1, ADR-0039 D4) | Accepted |
 | [0045](0045-widget-architecture.md) | Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget | Accepted |
+| [0046](0046-value-control-conventions.md) | Value-control conventions: wheel, double click to the default, fine adjustment | Proposed |

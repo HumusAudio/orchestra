@@ -3616,7 +3616,7 @@ ring (`look.rs`, shared with buttons) surrounds the box or the track.
 
 **Slider**: a value from a minimum to a maximum by a step, always on the grid and in the range.
 A press moves the value under the pointer and captures it; the drag follows the pointer also
-outside the slider; the arrows move one step, Page Up/Down ten, Home/End to the ends; AccessKit's
+outside the slider; the arrows move one step (the coarse step since F2.09c2, below), Page Up/Down ten, Home/End to the ends; AccessKit's
 increase, decrease and set value work too (new `WidgetEvent::Increment`, `Decrement`, `SetValue`,
 and `AccessInfo::range`). A slider has no text of its own, so `labelled(name)` gives it the name of
 the label shown next to it, which a screen reader announces. Each change sends `fn(f64) -> M`.
@@ -3648,6 +3648,55 @@ cancel by dragging out; slider drag, snap and clamp; keyboard and AccessKit valu
 nodes' roles, names, values and ranges) and `crates/app/tests/demo.rs` (every control named in the
 accessibility tree; *Restore defaults*). Fourteen injected bugs, all caught (one after the cancel
 test written for it). The window side of AccessKit is checked by the owner with Orca.
+
+#### Value-control conventions: wheel, double click, fine adjustment
+
+Step F2.09c2 (ADR-0046, choices WE1–WE7), asked by the owner for **every** slider and knob of the
+program: in `src/widget/slider.rs`, `src/widget/ui.rs`, `src/widget/tree.rs` and
+`src/window/input.rs`.
+
+- **Wheel** (V2): with the pointer over a slider, without the focus, each notch moves the *coarse
+  step*, 2% of the range rounded to whole steps (at least one). A touchpad's pixels count 40 to a
+  notch and the remainder is kept; turning the other way drops it. The slider keeps the wheel even
+  at its ends, so the area around never scrolls under it, except with **Shift**: Shift+wheel
+  bubbles to the scroll area (V5).
+- **Fine adjustment** (V3): with the primary modifier (Ctrl, ⌘ on macOS) a notch or an arrow
+  moves one step, and a drag moves a tenth as fast without jumping to the pointer on the press. The
+  drag is relative to an anchor; pressing or releasing the modifier mid-drag re-anchors it at the
+  last position and the value reached, so the value never jumps.
+- **Double click** (V4): back to the default value, the initial one or the one given with
+  `default_value`. The second press starts no drag.
+- **Keyboard** (V6): the arrows now move the coarse step (one step with the modifier); Page Up/Down
+  ten steps, Home/End to the ends, as before.
+
+Two pieces of the toolkit make it possible. The window counts clicks with a `ClickCounter` (same
+button, within 400 ms and 4 logical pixels) and every `PointerButton` event carries `clicks` (a
+release carries its press's count). The interface keeps the modifiers held, from the window's
+modifier and key events, and hands them to every event's context, pointer events included; it
+forgets them when the window loses the focus, so a Ctrl held during an Alt+Tab does not stay
+"stuck":
+
+```rust
+WidgetEvent::Wheel { delta, .. } => self.wheel(cx, delta),
+// ...
+fn wheel(&mut self, cx: &mut EventCx<'_, M>, delta: WheelDelta) -> Handled {
+    let modifiers = cx.modifiers();
+    if modifiers.shift {
+        return Handled::No;
+    }
+    let notches = self.notches(delta);
+    if notches != 0.0 {
+        let target = self.value + f64::from(notches) * self.notch(modifiers.primary);
+        self.change(cx, target);
+    }
+    Handled::Yes
+}
+```
+
+**Tests**: `tests/controls.rs` (wheel by notches and pixels, remainder and reversal, the modifier,
+Shift; the coarse step's rounding; double click with and without `default_value`; fine drag speed
+and re-anchoring both ways; modifiers forgotten on focus loss) and the click counter's unit test.
+Twenty-five injected bugs: twenty-four caught (three after the tests written for them), one equivalent (a redundant line, removed). The benchmark `slider_wheel_notch` measures one notch: **0.36 M instructions** with drawing and the accessibility update (the slider is focused by its earlier press, so its focus ring is drawn again too), within the 0.5 M of ADR-0045; a drag move stays at 0.22 M.
 
 #### The window and the event loop
 

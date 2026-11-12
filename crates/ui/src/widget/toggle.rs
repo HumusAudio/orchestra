@@ -289,6 +289,7 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Toggle<M> {
                 button: PointerButton::Left,
                 state: ButtonState::Released,
                 position,
+                ..
             } => {
                 let rect = cx.rect();
                 let inside = position.x >= rect.x0

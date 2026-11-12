@@ -100,6 +100,7 @@ fn routing_never_allocates() {
                         button: PointerButton::Left,
                         state,
                         position,
+                        clicks: 1,
                     },
                     list,
                 );
