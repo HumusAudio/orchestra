@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "orchestra-text"
+description = "Bundled fonts, text shaping, line breaking, measuring and glyph outlines"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+# Allowed internal dependencies are listed in docs/ARCHITECTURE.md (only "downwards"): none for
+# this crate, which sits at the bottom next to `orchestra-core-time` (ADR-0044 TX2).
+[dependencies]
+# Font reading and outlines (ADR-0036 B3).
+skrifa.workspace = true
+# Text shaping, a port of HarfBuzz (ADR-0036 B1).
+harfrust.workspace = true
+# Line break opportunities, UAX #14 (ADR-0044 TX10).
+icu_segmenter.workspace = true
+
+[dev-dependencies]
+# The allocation counter of the "rebuilding a layout does not allocate" test (ADR-0016).
+orchestra-test-support.workspace = true
+# Property tests of line breaking (ADR-0016).
+proptest.workspace = true
+# Instruction-count benchmarks (ADR-0016, ADR-0044 TX12).
+gungraun.workspace = true
+# The wrapping property test asks UAX #14 for the break opportunities on its own, to check that
+# every line ends at one of them (the same crate as the library, used directly).
+icu_segmenter.workspace = true
+
+# Instruction-count benchmarks of shaping, wrapping and outlines (ADR-0044 TX12, SCALETTA F2.07b).
+[[bench]]
+name = "text"
+harness = false
+
+[lints]
+workspace = true

@@ -18,6 +18,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 |---|---|---|
 | `crates/core-time` | `orchestra-core-time` | Rational musical time, tempo/meter map, conversions to seconds, samples, video frames |
 | `crates/core-model` | `orchestra-core-model` | The single document: tracks, two-layer notes, form (repeats/jumps), commands (including the DAW move with its tolerance threshold, ADR-0028), undo/redo |
+| `crates/text` | `orchestra-text` | Bundled fonts, shaping, line breaking, measuring, glyph outlines (ADR-0044); no rasterising, which is `ui`'s |
 | `crates/playback` | `orchestra-playback` | Written intent → performance; unrolled timeline; inline and pass-specific offsets applied |
 | `crates/notation-layout` | `orchestra-notation-layout` | Incremental engraving into positioned glyphs (no drawing) |
 | `crates/plugin-host` | `orchestra-plugin-host` | Our `PluginHost` interface; out-of-process CLAP/VST3/LV2 (+AU) |
@@ -47,6 +48,9 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
  video core-model
    │  │
    core-time
+
+   text (bottom crate, no internal dependency, ADR-0044: `ui` will use it from step F2.07b part 2,
+         `notation-layout` from phase F2B; each gains the permission below when it does)
 ```
 
 Allowed internal dependencies, exhaustively (enforced today by the `[dependencies]` sections; a
@@ -56,6 +60,7 @@ future `cargo xtask check` step may verify this table automatically):
 |---|---|
 | core-time | — |
 | core-model | core-time |
+| text | — (external: `skrifa`, `harfrust`, `icu_segmenter`, ADR-0044) |
 | playback | core-time, core-model |
 | notation-layout | core-time, core-model |
 | plugin-host | core-time |

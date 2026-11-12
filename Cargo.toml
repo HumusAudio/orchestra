@@ -20,6 +20,7 @@ resolver = "3"
 members = [
     "crates/core-time",
     "crates/core-model",
+    "crates/text",
     "crates/playback",
     "crates/notation-layout",
     "crates/audio-engine",
@@ -55,6 +56,7 @@ publish = false
 [workspace.dependencies]
 orchestra-core-time = { path = "crates/core-time" }
 orchestra-core-model = { path = "crates/core-model" }
+orchestra-text = { path = "crates/text" }
 orchestra-playback = { path = "crates/playback" }
 orchestra-notation-layout = { path = "crates/notation-layout" }
 orchestra-audio-engine = { path = "crates/audio-engine" }
@@ -120,6 +122,22 @@ winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "
 # softbuffer: presenting CPU pixels in the window (ADR-0036, ADR-0040 W4; MIT OR Apache-2.0;
 # 0.4.8 checked again on 2026-11-10). X11 and Wayland with dlopen; no `kms` (B2).
 softbuffer = { version = "0.4.8", default-features = false, features = ["x11", "x11-dlopen", "wayland", "wayland-dlopen"] }
+# skrifa + harfrust: reading fonts and drawing their outlines, and shaping text (ADR-0012,
+# ADR-0036 B1-B3, ADR-0044 TX1). Versions checked on crates.io on 2026-11-12 (skrifa 0.50.0 of
+# 2026-11-10, MIT OR Apache-2.0; harfrust 0.16.0 of 2026-11-12, MIT): both are built on
+# `read-fonts` 0.47 and take the same font object, so one parsed font serves shaping and drawing.
+# They publish a breaking minor version every 2-4 weeks: always update them TOGETHER, never one
+# alone (ADR-0036 B1). Default features off, `std` only: no autohinting (ADR-0036 B2), no ICU
+# normalisation tables in harfrust (it has its own composition data). Only `orchestra-text` uses
+# them.
+skrifa = { version = "0.50.0", default-features = false, features = ["std"] }
+harfrust = { version = "0.16.0", default-features = false, features = ["std"] }
+# icu_segmenter: the Unicode line breaking algorithm, UAX #14 (ADR-0044 TX10, chosen by the owner
+# on 2026-11-12 after the measurement: +52 KB stripped, +14 crates, +2.6 s of clean build).
+# 2.4.0 of 2026-10-22, Unicode-3.0 (allowed by deny.toml), maintained by the ICU4X project.
+# `compiled_data` only: the rules are baked into the binary; no `auto`/`lstm` and no
+# dictionaries, so Thai, Lao, Khmer and Burmese break only where UAX #14 alone allows it.
+icu_segmenter = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
 
 # ------------------------------------------------------------------------------------------------
 # Lints shared by every library crate (`[lints] workspace = true` in each member). `xtask` is a

@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted; next F2.07b (the implementation), on the same branch.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07b part 1 done (`orchestra-text`); next F2.07b part 2 (glyph runs and the glyph cache), on the same branch.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -952,7 +952,31 @@ graphemes) and the comparison of the three candidates were added, and **ADR-0044
 (2026-11-12). In F2.07b `icu_segmenter` is measured without dictionaries and the owner chooses
 between it and our own subset. The owner confirmed the crate in CLAUDE.md §2 and approved SCALETTA
 v0.59 (F2.07b the implementation, F2.07c the text tokens and the budget), with **one PR for the
-whole step** on this branch. **Next:** F2.07b.
+whole step** on this branch. F2.07b was split in two parts in the briefing.
+
+**F2.07b part 1 done** (2026-11-12, same branch). Versions checked again that day (unchanged:
+`skrifa` 0.50.0, `harfrust` 0.16.0, `read-fonts` 0.47.0). `icu_segmenter` 2.4.0 was measured
+without dictionaries (+52 KB stripped, +14 crates in our lock, +2.6 s of clean build; Unicode-3.0)
+and **chosen by the owner** over our own subset; with it the owner approved TB1–TB8 (modules by
+responsibility, no global state, logical pixels y down with no rounding in the layout, clusters as
+UTF-8 byte offsets with caret functions left to F2.10, the greedy filling, the hyphen glyph added
+at a soft hyphen, the tests, the benchmarks). Implemented: the new crate **`orchestra-text`**
+(`crates/text`: `FaceId`, `Faces` with the five embedded faces, `TextStyle`/`Features`, `Shaper`,
+`TextLayout`/`Line`/`PositionedGlyph`/`GlyphId`, `LineMetrics`, `FaceBounds`, `OutlineSink`,
+`TextError`), in the workspace, `docs/ARCHITECTURE.md` and both documentation files; `clippy.toml`
+gains the proper nouns SemiBold, JetBrains, TrueType, OpenType. Findings: `icu_segmenter`'s
+`is_mandatory` needs its `unstable` feature, so mandatory breaks are derived from UAX #14's rule (the
+character before); Inter maps some Private Use Area code points to its own glyphs, so SMuFL symbols
+are looked up in Bravura only; harfrust composes `e` + U+0301 into one glyph, so the tests use a
+`q` with an accent for a mark kept separate. The property test found two real bugs (spaces did not
+hang in an emergency cut; a no-break space inside a cut word went to the next line). Tests: five
+files (shaping, metrics, wrap cases, a 600-case wrapping property test passed at 5 000 cases too,
+no allocation on a second round of layouts); twelve injected bugs, eleven caught, one equivalent
+(`hhea` and the typographic metrics hold the same values in all five faces). Benchmarks
+(`benches/text.rs`): a 40-character line ≈ 89 400 instructions, a 400-character paragraph at
+300 px ≈ 731 000, 27 outlines ≈ 359 000. Size: +4.64 MB stripped (3.03 MB of fonts), 69 s clean
+release build. **Next:** F2.07b part 2 (the `GlyphRun` command, the glyph cache for `tiny-skia`,
+pixel and allocation tests, the gamma screenshots for the owner).
 
 | Step | What | Status |
 |---|---|---|

@@ -2509,6 +2509,170 @@ let offsets = with_pass(first_note.offsets(), passes.get(first_note.id(), first.
 bar repeat told from its source, a tie chain) and DAW moves of every pass and of one pass among the
 random commands of `tests/update_props.rs`. Four injected bugs were caught.
 
+### orchestra-text
+
+The crate every other crate goes through to put letters and musical symbols on the screen
+(ADR-0044). It sits at the very bottom of the workspace, next to `orchestra-core-time`, with no
+internal dependency, so that both the interface (`orchestra-ui`) and the engraving
+(`orchestra-notation-layout`, phase F2B) can use the same fonts and the same measurements. It
+does **not** turn glyphs into pixels: rasterising and the glyph cache belong to `orchestra-ui`,
+the only crate that knows `tiny-skia` (ADR-0044 TX2, TX8; step F2.07b part 2). Its external
+dependencies are `skrifa` 0.50 (reading fonts, outlines), `harfrust` 0.16 (shaping, a port of
+HarfBuzz) and `icu_segmenter` 2.4 (the Unicode line breaking rules); the first two are always
+updated together, because they share `read-fonts`.
+
+This is how a caller uses it:
+
+```rust
+use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+
+let faces = Faces::bundled()?;
+let mut shaper = Shaper::new();
+let mut layout = TextLayout::new();
+let style = TextStyle::new(FaceId::InterRegular, 13.0);
+shaper.layout(&faces, "Quarter note · Crotchet · Viertelnote", style, Some(120.0), &mut layout)?;
+assert!(layout.lines().len() > 1);
+```
+
+Three objects, three roles: `Faces` holds the fonts, `Shaper` holds the working memory of shaping,
+`TextLayout` holds the result. The caller keeps all three and reuses them, which is what makes a
+second layout of the same size free of allocations.
+
+#### The bundled faces
+
+`src/face.rs`. Five faces are inside the program, embedded with `include_bytes!` straight from
+`assets/fonts/`, never modified (the OFL forbids modified copies under the fonts' names): Inter
+Regular, SemiBold and Bold for the interface, Bravura for musical symbols, JetBrains Mono Regular
+for code-like text. About 3.0 MB of the binary. Inter Italic, Bravura Text and Source Serif stay
+for the guides only (TX3).
+
+A face is a closed enum, `FaceId`, one byte, `Copy`: it will sit in every glyph run and every cache
+key. `Faces::bundled()` parses all five once; parsing reads only each file's table directory
+(tables are read lazily), so it costs microseconds. There is no global state: the application owns
+the `Faces` and lends it (owner's choice TB2). Even the lookup of a parsed font avoids any index
+that could panic, by destructuring the array:
+
+```rust
+let [inter_regular, inter_semibold, inter_bold, bravura, mono] = &self.fonts;
+match face {
+    FaceId::InterRegular => inter_regular,
+    FaceId::InterSemiBold => inter_semibold,
+    FaceId::InterBold => inter_bold,
+    FaceId::Bravura => bravura,
+    FaceId::JetBrainsMono => mono,
+}
+```
+
+`Faces::glyph_for_char` is a plain `cmap` lookup, without shaping: it is how SMuFL symbols are found
+in Bravura by their code points (a black notehead is U+E0A4). A finding of the tests: Inter maps
+some Private Use Area code points to glyphs of its own, so a SMuFL code point means a musical
+symbol **only** in Bravura, and symbols are always looked up there.
+
+#### Shaping and the layout
+
+`src/shape.rs`, `src/layout.rs`, `src/style.rs`. A `TextStyle` is a face, a size in logical pixels
+per em and the optional features (today only tabular figures, `tnum`, for counters and bar
+numbers). `Shaper::layout` checks its inputs first (a size that is not finite and positive, a
+negative width, a text over 4 GiB are typed errors, never NaN positions travelling to the
+renderer), then shapes the whole text once with `harfrust`, as one run, left to right. The
+direction is set **before** the shaper guesses the other properties, because the guess only fills
+what is unset: a Hebrew text would otherwise turn right to left, and ADR-0044 TX5 keeps everything
+left to right for now.
+
+```rust
+self.buffer.clear();
+self.buffer.push_str(text);
+self.buffer.set_direction(Direction::LeftToRight);
+self.buffer.guess_segment_properties();
+```
+
+The compiled shape plans are kept, up to 32, replaced in turn when full (compiling one again
+costs microseconds). `harfrust` gives advances in font units; they are scaled to logical pixels
+(`size / units_per_em`) as they are copied into our own glyph list. Fluent's isolation marks
+U+2068 and U+2069 come out as invisible glyphs with no advance, as HarfBuzz does with every
+default-ignorable character; control characters (a tab, a line feed) are hidden by us, because
+fonts have no glyph for them and would draw `.notdef` boxes.
+
+The result, a `TextLayout`, has the positioned glyphs (`PositionedGlyph`: glyph, x and y in logical
+pixels from the layout's top left, and the byte offset of its **cluster** in the text), the lines
+(`Line`: the range of glyphs, the range of text, the baseline, the content width, whether a hyphen
+was added) and the extent. Positions are not rounded: drawing will round to a quarter of a device
+pixel across and a whole pixel down (TX7). An empty text still has one empty line, so a caret can
+stand there (F2.10).
+
+#### Line breaking
+
+`src/wrap.rs`. The break opportunities come from `icu_segmenter`, configured without dictionaries
+(chosen by the owner after the measurement: +52 KB, +14 crates, +2.6 s of clean build), and are
+the ones of the Unicode standard, UAX #14: no break before a French `?` written after a no-break
+space, a break after `pre-`, one at each soft hyphen of `Takt­art­wechsel`, one between two Chinese
+characters. Which breaks are **mandatory** (after a line feed) is not in the stable API of
+`icu_segmenter`, so we derive it from the standard's own rule: a mandatory break comes right after
+a hard line break character.
+
+```rust
+mandatory: before.chars().next_back().is_some_and(is_hard_break),
+soft_hyphen: before.ends_with('\u{AD}'),
+```
+
+The lines are filled greedily, as browsers do for interface text: at every opportunity the line so
+far is a candidate; when a candidate no longer fits, the line is cut at the previous one. Spaces at
+the end of a line hang past the width and are not counted. A soft hyphen becomes a visible hyphen
+(U+2010, from the same face) only where the line breaks, and its width counts. A word wider than the
+line is cut at the last cluster that fits, never between a letter and its accent; a run of spaces
+inside it (a no-break space) always fits, because at the end of the piece it hangs too:
+
+```rust
+let hangs = cluster.iter().all(|glyph| glyph.space);
+```
+
+That last rule was found by the property test, like the hanging of spaces in an emergency cut. A
+text ending with a line feed gets an empty last line, as a text editor shows it.
+
+#### Metrics and outlines
+
+`src/metrics.rs`, `src/outline.rs`. `Faces::line_metrics` takes the `OS/2` typographic metrics when
+the face asks for them (`USE_TYPO_METRICS`, set in Inter and JetBrains Mono), otherwise `hhea`: a
+line of Inter is 1.21 em, as in a web page. All values are turned to y down: an ascent is a positive
+distance above the baseline, a bounding box has a negative top. `Faces::bounds` is the face's
+bounding box, which the renderer will use to widen the bounds of a glyph run so that a partial
+redraw never cuts an overhanging glyph. `Faces::draw_outline` delivers a glyph's unhinted outline,
+scaled to the size and flipped to y down, to our own `OutlineSink` trait, so that neither `skrifa`
+leaks into `ui` nor `tiny-skia` into this crate.
+
+#### How it is tested
+
+- `tests/shaping.rs`: the five faces parse; **every character of every catalogue** of the six
+  languages exists in the three Inter faces (the catalogues are read as files, since this crate
+  must not depend on `orchestra-i18n`); a sentence per language without `.notdef`; kerning (AV);
+  tabular figures; isolation marks invisible and without width; a missing character as `.notdef`;
+  hidden tabs; clusters in order, with a combining accent kept in its letter's cluster; Hebrew
+  laid out left to right; SMuFL lookups (a black notehead is 0.295 em wide, 1.18 staff spaces as in
+  Bravura's metadata); refused sizes and widths; the empty text.
+- `tests/metrics.rs`: Inter's and JetBrains Mono's line metrics against the values read from the
+  files; outlines (a capital A of Inter above the baseline, cubic, closed; JetBrains Mono quadratic;
+  a space empty; a Bravura notehead centred on the baseline).
+- `tests/wrap_cases.rs`: every row of the table of ADR-0044 TX10, mandatory breaks, hanging spaces,
+  the distance between baselines.
+- `tests/wrap_props.rs`: random texts and widths against an oracle that does not re-implement the
+  algorithm but checks what a correct greedy wrapping must satisfy (the lines cover the text, fit or
+  hold one cluster, end at a UAX #14 opportunity asked from `icu_segmenter` directly or else at an
+  emergency cut with no opportunity inside, and could not have taken the next piece). Passed with
+  5 000 cases.
+- `tests/no_alloc.rs`: a second round of layouts (five texts, three styles, with and without a
+  width) and every measurement allocate nothing.
+
+Twelve bugs were injected on purpose: eleven were caught (two only after strengthening a test: the
+Hebrew text now comes first, and the accent is on a `q`, which has no precomposed form, so it stays
+a separate glyph); the twelfth, reading `hhea` before the typographic metrics, is equivalent, since
+the two tables hold the same values in all five faces.
+
+**Benchmarks** (`benches/text.rs`, instruction counts): one 40-character line ≈ 89 400, a
+400-character paragraph wrapped at 300 px ≈ 731 000, the outlines of 26 letters and a G clef
+≈ 359 000 (≈ 13 000 a glyph). With the rule of 1 instruction per nanosecond, a line costs about
+0.09 ms and a paragraph about 0.7 ms. **Size:** the crate adds 4.64 MB to a stripped release binary,
+3.03 MB of which are the fonts; a clean release build of it takes 69 s on four cores.
+
 ### orchestra-notation-layout
 
 Incremental engraving into positioned glyphs: plain geometry, no drawing, so it can be tested

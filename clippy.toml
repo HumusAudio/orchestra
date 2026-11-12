@@ -16,4 +16,4 @@ allow-print-in-tests = true
 allow-dbg-in-tests = false
 # Proper nouns of our domain that `clippy::doc_markdown` (pedantic) would otherwise want in
 # backticks. ".." keeps clippy's built-in list (GitHub, macOS, …) and appends ours.
-doc-valid-idents = ["..", "SMuFL", "MusicXML", "PipeWire", "CoreAudio", "XEmbed", "XWayland", "WASAPI", "ALSA", "JACK"]
+doc-valid-idents = ["..", "SMuFL", "MusicXML", "PipeWire", "CoreAudio", "XEmbed", "XWayland", "WASAPI", "ALSA", "JACK", "SemiBold", "JetBrains", "TrueType", "OpenType"]

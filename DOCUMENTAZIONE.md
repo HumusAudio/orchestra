@@ -2682,6 +2682,178 @@ un segno % distinto dalla sua battuta d'origine, una catena di legature) e spost
 i passaggi e di uno solo tra i comandi casuali di `tests/update_props.rs`. Quattro bug iniettati
 sono stati presi.
 
+### orchestra-text
+
+Il crate da cui passano tutti gli altri per mettere lettere e simboli musicali sullo schermo
+(ADR-0044). Sta proprio in fondo al workspace, accanto a `orchestra-core-time`, senza dipendenze
+interne, così sia l'interfaccia (`orchestra-ui`) sia l'incisione (`orchestra-notation-layout`, fase
+F2B) possono usare gli stessi font e le stesse misure. **Non** trasforma i glifi in pixel: la
+rasterizzazione e la cache dei glifi sono di `orchestra-ui`, l'unico crate che conosce `tiny-skia`
+(ADR-0044 TX2, TX8; passo F2.07b parte 2). Le sue dipendenze esterne sono `skrifa` 0.50 (lettura dei
+font, profili), `harfrust` 0.16 (shaping, un port di HarfBuzz) e `icu_segmenter` 2.4 (le regole
+Unicode per andare a capo); le prime due si aggiornano sempre insieme, perché condividono
+`read-fonts`.
+
+Ecco come lo usa chi lo chiama:
+
+```rust
+use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+
+let faces = Faces::bundled()?;
+let mut shaper = Shaper::new();
+let mut layout = TextLayout::new();
+let style = TextStyle::new(FaceId::InterRegular, 13.0);
+shaper.layout(&faces, "Quarter note · Crotchet · Viertelnote", style, Some(120.0), &mut layout)?;
+assert!(layout.lines().len() > 1);
+```
+
+Tre oggetti, tre ruoli: `Faces` contiene i font, `Shaper` la memoria di lavoro dello shaping,
+`TextLayout` il risultato. Chi chiama li tiene tutti e tre e li riusa: è questo che rende un
+secondo layout della stessa dimensione libero da allocazioni.
+
+#### I font inclusi
+
+`src/face.rs`. Nel programma ci sono cinque font, inclusi con `include_bytes!` direttamente da
+`assets/fonts/`, mai modificati (l'OFL vieta copie modificate con i nomi dei font): Inter Regular,
+SemiBold e Bold per l'interfaccia, Bravura per i simboli musicali, JetBrains Mono Regular per il
+testo tipo codice. Circa 3,0 MB del binario. Inter Italic, Bravura Text e Source Serif restano solo
+per le guide (TX3).
+
+Un font è un enum chiuso, `FaceId`, di un byte, `Copy`: starà in ogni sequenza di glifi e in ogni
+chiave di cache. `Faces::bundled()` li analizza tutti e cinque una volta; l'analisi legge solo
+l'indice delle tabelle di ogni file (le tabelle si leggono quando servono), quindi costa
+microsecondi. Non c'è stato globale: l'applicazione possiede il `Faces` e lo presta (scelta del
+proprietario TB2). Anche la ricerca di un font analizzato evita qualunque indice che possa andare in
+panico, destrutturando l'array:
+
+```rust
+let [inter_regular, inter_semibold, inter_bold, bravura, mono] = &self.fonts;
+match face {
+    FaceId::InterRegular => inter_regular,
+    FaceId::InterSemiBold => inter_semibold,
+    FaceId::InterBold => inter_bold,
+    FaceId::Bravura => bravura,
+    FaceId::JetBrainsMono => mono,
+}
+```
+
+`Faces::glyph_for_char` è una semplice ricerca nella tabella `cmap`, senza shaping: è così che si
+trovano i simboli SMuFL in Bravura dal loro punto di codice (una testa di nota nera è U+E0A4). Una
+scoperta dei test: Inter associa alcuni punti di codice dell'area a uso privato a glifi suoi, quindi
+un punto di codice SMuFL vuol dire un simbolo musicale **solo** in Bravura, e i simboli si cercano
+sempre lì.
+
+#### Lo shaping e il layout
+
+`src/shape.rs`, `src/layout.rs`, `src/style.rs`. Un `TextStyle` è un font, una dimensione in pixel
+logici per em e le feature facoltative (oggi solo le cifre tabulari, `tnum`, per contatori e numeri
+di battuta). `Shaper::layout` controlla prima gli ingressi (una dimensione non finita o non
+positiva, una larghezza negativa, un testo oltre i 4 GiB sono errori tipizzati, mai posizioni NaN
+che viaggiano fino al renderer), poi fa lo shaping dell'intero testo una volta sola con `harfrust`,
+come un'unica sequenza, da sinistra a destra. La direzione si imposta **prima** che lo shaper
+indovini le altre proprietà, perché l'ipotesi riempie solo ciò che non è impostato: un testo ebraico
+diventerebbe altrimenti da destra a sinistra, e ADR-0044 TX5 tiene tutto da sinistra a destra per
+ora.
+
+```rust
+self.buffer.clear();
+self.buffer.push_str(text);
+self.buffer.set_direction(Direction::LeftToRight);
+self.buffer.guess_segment_properties();
+```
+
+I piani di shaping compilati si tengono, fino a 32, sostituiti a turno quando sono pieni
+(ricompilarne uno costa microsecondi). `harfrust` dà gli avanzamenti in unità del font; si scalano in
+pixel logici (`size / units_per_em`) mentre si copiano nel nostro elenco di glifi. I marcatori di
+isolamento di Fluent U+2068 e U+2069 escono come glifi invisibili senza avanzamento, come fa HarfBuzz
+con ogni carattere da ignorare; i caratteri di controllo (una tabulazione, un a capo) li nascondiamo
+noi, perché i font non hanno glifi per loro e disegnerebbero i quadratini `.notdef`.
+
+Il risultato, un `TextLayout`, ha i glifi posizionati (`PositionedGlyph`: glifo, x e y in pixel
+logici dall'angolo in alto a sinistra del layout, e l'offset in byte del suo **cluster** nel testo),
+le righe (`Line`: l'intervallo di glifi, l'intervallo di testo, la linea di base, la larghezza del
+contenuto, se è stato aggiunto un trattino) e l'estensione. Le posizioni non sono arrotondate: il
+disegno arrotonderà a un quarto di pixel del dispositivo in orizzontale e al pixel intero in
+verticale (TX7). Un testo vuoto ha comunque una riga vuota, così un cursore ha dove stare (F2.10).
+
+#### Andare a capo
+
+`src/wrap.rs`. I punti in cui si può andare a capo vengono da `icu_segmenter`, configurato senza
+dizionari (scelto dal proprietario dopo la misura: +52 KB, +14 crate, +2,6 s di compilazione da
+zero), e sono quelli dello standard Unicode, UAX #14: niente a capo prima di un `?` francese scritto
+dopo uno spazio non divisibile, un a capo dopo `pre-`, uno a ogni trattino morbido di
+`Takt­art­wechsel`, uno fra due caratteri cinesi. Quali a capo siano **obbligatori** (dopo un
+ritorno a capo) non è nell'API stabile di `icu_segmenter`, quindi lo ricaviamo dalla regola stessa
+dello standard: un a capo obbligatorio viene subito dopo un carattere di fine riga.
+
+```rust
+mandatory: before.chars().next_back().is_some_and(is_hard_break),
+soft_hyphen: before.ends_with('\u{AD}'),
+```
+
+Le righe si riempiono in modo avido, come fanno i browser per i testi dell'interfaccia: a ogni punto
+ammesso la riga fin lì è una candidata; quando una candidata non ci sta più, la riga si taglia alla
+precedente. Gli spazi a fine riga sporgono oltre la larghezza e non contano. Un trattino morbido
+diventa un trattino visibile (U+2010, dallo stesso font) solo dove la riga si spezza, e la sua
+larghezza conta. Una parola più larga della riga si taglia all'ultimo cluster che ci sta, mai fra
+una lettera e il suo accento; una sequenza di spazi al suo interno (uno spazio non divisibile) ci sta
+sempre, perché a fine pezzo sporge anch'essa:
+
+```rust
+let hangs = cluster.iter().all(|glyph| glyph.space);
+```
+
+Quest'ultima regola l'ha trovata il test di proprietà, come lo sporgere degli spazi in un taglio di
+emergenza. Un testo che finisce con un ritorno a capo ha un'ultima riga vuota, come la mostra un
+editor di testo.
+
+#### Metriche e profili
+
+`src/metrics.rs`, `src/outline.rs`. `Faces::line_metrics` prende le metriche tipografiche di `OS/2`
+quando il font le chiede (`USE_TYPO_METRICS`, impostato in Inter e JetBrains Mono), altrimenti
+`hhea`: una riga di Inter è 1,21 em, come in una pagina web. Tutti i valori sono girati con la y
+verso il basso: un'ascendente è una distanza positiva sopra la linea di base, un riquadro ha il
+bordo superiore negativo. `Faces::bounds` è il riquadro del font, che il renderer userà per
+allargare i limiti di una sequenza di glifi, così un ridisegno parziale non taglia mai un glifo che
+sporge. `Faces::draw_outline` consegna il profilo di un glifo senza hinting, scalato alla dimensione
+e girato con la y verso il basso, al nostro trait `OutlineSink`, così né `skrifa` finisce in `ui` né
+`tiny-skia` in questo crate.
+
+#### Come è testato
+
+- `tests/shaping.rs`: i cinque font si analizzano; **ogni carattere di ogni catalogo** delle sei
+  lingue esiste nei tre Inter (i cataloghi si leggono come file, perché questo crate non deve
+  dipendere da `orchestra-i18n`); una frase per lingua senza `.notdef`; la crenatura (AV); le cifre
+  tabulari; marcatori di isolamento invisibili e senza larghezza; un carattere mancante come
+  `.notdef`; tabulazioni nascoste; cluster in ordine, con un accento combinato tenuto nel cluster
+  della sua lettera; l'ebraico da sinistra a destra; le ricerche SMuFL (una testa di nota nera è
+  larga 0,295 em, 1,18 spazi di rigo come nei metadati di Bravura); dimensioni e larghezze rifiutate;
+  il testo vuoto.
+- `tests/metrics.rs`: le metriche di riga di Inter e JetBrains Mono confrontate con i valori letti
+  dai file; i profili (una A maiuscola di Inter sopra la linea di base, cubica, chiusa; JetBrains Mono
+  quadratico; uno spazio vuoto; una testa di nota di Bravura centrata sulla linea di base).
+- `tests/wrap_cases.rs`: ogni riga della tabella di ADR-0044 TX10, gli a capo obbligatori, gli spazi
+  che sporgono, la distanza fra le linee di base.
+- `tests/wrap_props.rs`: testi e larghezze casuali contro un oracolo che non riscrive l'algoritmo ma
+  controlla ciò che un a capo avido corretto deve soddisfare (le righe coprono il testo, ci stanno o
+  contengono un solo cluster, finiscono in un punto di UAX #14 chiesto direttamente a
+  `icu_segmenter` oppure in un taglio di emergenza senza punti ammessi al suo interno, e non
+  avrebbero potuto prendere il pezzo successivo). Superato con 5 000 casi.
+- `tests/no_alloc.rs`: un secondo giro di layout (cinque testi, tre stili, con e senza larghezza) e
+  ogni misura non allocano nulla.
+
+Dodici difetti iniettati apposta: undici presi (due solo dopo aver rinforzato un test: il testo
+ebraico ora viene per primo, e l'accento sta su una `q`, che non ha una forma precomposta e quindi
+resta un glifo a sé); il dodicesimo, leggere `hhea` prima delle metriche tipografiche, è
+equivalente, perché le due tabelle hanno gli stessi valori in tutti e cinque i font.
+
+**Benchmark** (`benches/text.rs`, conteggio di istruzioni): una riga di 40 caratteri ≈ 89 400, un
+paragrafo di 400 caratteri spezzato a 300 px ≈ 731 000, i profili di 26 lettere e una chiave di
+violino ≈ 359 000 (≈ 13 000 a glifo). Con la regola di 1 istruzione per nanosecondo, una riga costa
+circa 0,09 ms e un paragrafo circa 0,7 ms. **Dimensione:** il crate aggiunge 4,64 MB a un binario di
+rilascio strippato, di cui 3,03 MB sono i font; compilarlo da zero in rilascio richiede 69 s su
+quattro core.
+
 ### orchestra-notation-layout
 
 L'incisione (engraving) incrementale in glifi posizionati: pura geometria, nessun disegno, così
