@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done; next F2.09b (AccessKit, label, button).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b (AccessKit, label, button) and F2.09b2 (the shape cache) done; next F2.09c.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1046,7 +1046,33 @@ recorded among ADR-0045's precisions. In `orchestra-ui`: `src/theme/density.rs` 
 removal, `UiError`). Tests: `tests/widgets.rs` (16 cases), `tests/widgets_no_alloc.rs`, a density
 test; fourteen injected bugs, all caught (one after a test written for it). Benchmarks
 `benches/widgets.rs`: first frame of 241 widgets 3.4 M, a click 63 000 with drawing (target 0.5 M),
-a growing leaf 116 000, a full re-layout 0.86 M. **Next:** F2.09b.
+a growing leaf 116 000, a full re-layout 0.86 M. Merged with PR #66.
+
+**F2.09b** (2026-11-12, `feature/f2-09b-access-label-button`): before coding the owner approved
+WC1–WC10 (ADR-0045 precisions). AccessKit (`accesskit` 0.25.2, `accesskit_winit` 0.34.2) entered
+the workspace; `cargo deny` stays green. In `orchestra-ui`: `src/widget/access.rs` (`AccessRole`,
+`AccessInfo`, `AccessAction`, `AccessActionKind`, `AccessUpdate`, the translation into AccessKit),
+`Ui::take_access_update`/`reset_access`/`access_action`/`set_title`, `WidgetEvent::Activate`,
+`WindowApp::access_update`/`access_action` (defaults), the adapter in the window's preparation hook
+and `ShellEvent::Access`, `Ui::new(root, theme, faces)` with `LayoutCx::lay_out_text` and a text
+generation counter, `RecordCx::shape`, `EventCx::rect`; the widgets `Label` and `Button`
+(`ButtonKind`). Tests: `tests/controls.rs` (12 cases); fourteen injected bugs, all caught.
+Benchmarks (group `controls`, 40 rows of a label and four buttons): first frame 63.3 M, the whole
+accessibility tree 0.34 M, **a click on a button 2.7 M** (three redraws of ≈ 0.9 M, mostly
+`tiny-skia` filling and stroking the anti-aliased rounded rectangle), above ADR-0045's 0.5 M target
+per event. CI of F2.09b green on Linux, Windows, benchmarks and guides (macOS: no runner, GitHub's
+macOS arm64 capacity constraints, annotated on the jobs).
+
+**F2.09b2** (2026-11-12, `feature/f2-09b2-shape-cache`, on top of F2.09b): the owner chose to cache
+rounded rectangles instead of revising the target. The glyph cache's code became `MaskCache<K>`;
+the renderer keeps a second cache (4 MB) of rounded-rectangle coverage keyed by device size,
+radius, stroke, join and sub-pixel phase, rasterised from the key alone; shapes over 512 device
+pixels are still filled as paths. A click on a real button: **1.12 M** instructions for three
+redraws (from 2.7 M), ≈ 0.37 M per event, within ADR-0045's target; shadowed panel −2%, nothing else
+changed. Tests: cached shapes against `tiny-skia`'s direct drawing (fractional positions, three
+scales, fill and two strokes) and against a clip; seven injected bugs, all caught. Recorded as a
+precision of ADR-0043 and in ADR-0045. **Open:** the adapter's manual check with Orca (F2.09c);
+macOS green on `main` once GitHub has runners again.
 
 | Step | What | Status |
 |---|---|---|

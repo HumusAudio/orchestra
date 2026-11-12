@@ -1014,3 +1014,118 @@ fn partial_redraw_of_a_busy_scene_equals_a_full_redraw() {
         max_difference(&frame, &full)
     );
 }
+
+/// Rounded rectangles drawn from the shape cache (F2.09b2) match `tiny-skia` filling and
+/// stroking the same shape directly, at fractional positions and several scales: the cache's
+/// geometry (size, radius, sub-pixel phase, margin, stroke) is the shape's.
+#[test]
+fn cached_rounded_rectangles_match_direct_drawing() {
+    use tiny_skia::{
+        Color, FillRule as SkiaFill, Paint as SkiaPaint, PathBuilder, Pixmap, Stroke,
+        Transform as SkiaTransform,
+    };
+    let theme = light();
+    let ink = theme.color(ColorToken::Text);
+    for &scale in &[1.0_f32, 1.5, 2.0] {
+        for &(x, y) in &[(10.0_f32, 10.0_f32), (10.3, 7.7), (12.75, 9.5)] {
+            for stroke in [None, Some(1.0_f32), Some(2.5)] {
+                let shape = RoundedRect::new(Rect::from_origin_size(x, y, 60.0, 24.0), 6.0);
+                let mut list = DisplayList::new();
+                list.record(SegmentId(1), |r| match stroke {
+                    None => r.fill_rounded_rect(shape, ColorToken::Text),
+                    Some(width) => {
+                        r.stroke_rounded_rect(shape, StrokeStyle::new(width), ColorToken::Text);
+                    }
+                });
+                let (w, h) = ((90.0 * scale) as u32, (45.0 * scale) as u32);
+                let ours = draw(&list, &theme, w, h, scale);
+                // The reference: tiny-skia directly. The same rounded rectangle (four sides and
+                // four quarter circles as cubics with the KAPPA control distance, as the renderer
+                // builds it), scaled to device pixels, then filled, or stroked into an outline and
+                // filled, with anti-aliasing.
+                let surface = theme.color(ColorToken::Surface);
+                let mut reference = Pixmap::new(w, h).unwrap();
+                reference.fill(Color::from_rgba8(surface.r, surface.g, surface.b, 255));
+                let (x1, y1, rr) = (x + 60.0, y + 24.0, 6.0_f32);
+                let k = 0.552_284_8 * rr;
+                let mut pb = PathBuilder::new();
+                pb.move_to(x + rr, y);
+                pb.line_to(x1 - rr, y);
+                pb.cubic_to(x1 - rr + k, y, x1, y + rr - k, x1, y + rr);
+                pb.line_to(x1, y1 - rr);
+                pb.cubic_to(x1, y1 - rr + k, x1 - rr + k, y1, x1 - rr, y1);
+                pb.line_to(x + rr, y1);
+                pb.cubic_to(x + rr - k, y1, x, y1 - rr + k, x, y1 - rr);
+                pb.line_to(x, y + rr);
+                pb.cubic_to(x, y + rr - k, x + rr - k, y, x + rr, y);
+                pb.close();
+                let device = pb
+                    .finish()
+                    .unwrap()
+                    .transform(SkiaTransform::from_scale(scale, scale))
+                    .unwrap();
+                let filled = match stroke {
+                    None => device,
+                    Some(width) => device
+                        .stroke(
+                            &Stroke {
+                                width: width * scale,
+                                ..Stroke::default()
+                            },
+                            1.0,
+                        )
+                        .unwrap(),
+                };
+                let mut paint = SkiaPaint::default();
+                paint.set_color_rgba8(ink.r, ink.g, ink.b, 255);
+                paint.anti_alias = true;
+                reference.fill_path(
+                    &filled,
+                    &paint,
+                    SkiaFill::Winding,
+                    SkiaTransform::identity(),
+                    None,
+                );
+                // Per pixel, the largest channel difference. The anti-aliased edges agree within 3
+                // steps of 255; a stroked curve's outline is computed by tiny-skia from absolute
+                // coordinates (ours in the mask, the reference in the frame), and its corner
+                // subdivision can differ slightly with them: a few corner pixels may be off by more
+                // (measured: 2 pixels, 13 steps, at scale 1.5 with a 2.5 px stroke), never by much.
+                let differences: Vec<u8> = ours
+                    .data()
+                    .chunks(4)
+                    .zip(reference.data().chunks(4))
+                    .map(|(a, b)| a.iter().zip(b).map(|(p, q)| p.abs_diff(*q)).max().unwrap())
+                    .collect();
+                let worst = differences.iter().copied().max().unwrap();
+                let outliers = differences.iter().filter(|&&d| d > 3).count();
+                assert!(
+                    worst <= 16 && outliers <= 4,
+                    "scale {scale}, at ({x}, {y}), stroke {stroke:?}: {outliers} pixels over 3 steps, worst {worst}"
+                );
+            }
+        }
+    }
+}
+
+/// A rounded rectangle drawn from the shape cache respects the clip in effect (F2.09b2).
+#[test]
+fn cached_rounded_rectangles_respect_the_clip() {
+    let theme = light();
+    let mut list = DisplayList::new();
+    list.record(SegmentId(1), |r| {
+        r.push_clip_rect(Rect::new(0.0, 0.0, 40.0, 60.0));
+        r.fill_rounded_rect(
+            RoundedRect::new(Rect::new(10.0, 10.0, 90.0, 50.0), 8.0),
+            ColorToken::Accent,
+        );
+        r.pop_clip();
+    });
+    let image = draw(&list, &theme, 100, 60, 1.0);
+    let accent = opaque(&theme, ColorToken::Accent);
+    let surface = opaque(&theme, ColorToken::Surface);
+    assert_eq!(px(&image, 30, 30), accent, "inside the clip");
+    for x in 41..100 {
+        assert_eq!(px(&image, x, 30), surface, "outside the clip at x = {x}");
+    }
+}

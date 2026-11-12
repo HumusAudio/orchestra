@@ -34,10 +34,22 @@ use crate::{Appearance, Theme, ThemeMode, ThemePair};
 /// (ADR-0040 W3). Later variants will carry the audio engine's meters and transport.
 ///
 /// Exhaustive (ADR-0034 D2), and crate-private: only the window module sends and receives it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Not `Clone`: AccessKit's event is not.
+#[derive(Debug)]
 pub(crate) enum ShellEvent {
     /// The system's preference changed to this answer (`None`: the system stopped answering).
     SystemAppearance(Option<Appearance>),
+    /// AccessKit's adapter needs something (ADR-0045 WA5, WC6): the whole tree, an action carried
+    /// out, or nothing more (assistive technology gone).
+    Access(accesskit_winit::WindowEvent),
+}
+
+/// AccessKit's adapter sends its requests through our proxy (`with_event_loop_proxy` requires
+/// this conversion). There is one window, so the window ID is not kept.
+impl From<accesskit_winit::Event> for ShellEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Access(event.window_event)
+    }
 }
 
 /// The theme the window draws with, and how it follows the system (ADR-0037 T1, ADR-0038).

@@ -37,7 +37,10 @@ use super::command::{Command, GlyphPlacement, PathElement};
 use super::damage::Damage;
 use super::device::{DeviceRect, DeviceRegions, device_region, pixel_span, to_f32};
 use super::geometry::{Point, Rect, RoundedRect, Transform};
-use super::glyph_cache::{GlyphCache, GlyphKey, GlyphMask, MAX_CACHED_SIDE, Raster};
+use super::glyph_cache::{
+    CoverageMask, GLYPH_CACHE_BYTES, GlyphCache, GlyphKey, MAX_CACHED_SIDE, MaskCache, Raster,
+    SHAPE_CACHE_BYTES,
+};
 use super::image::{DrawError, Image};
 use super::list::{DisplayList, SHADOW_REACH_SIGMAS, Segment};
 use super::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
@@ -53,6 +56,11 @@ pub struct CpuRenderer {
     faces: Faces,
     /// Rasterised glyphs kept between frames (ADR-0044 TX8).
     glyphs: GlyphCache,
+    /// Rasterised anti-aliased rounded rectangles kept between frames (F2.09b2, ADR-0043
+    /// precision): every control is one, and filling it as a path cost most of a redraw.
+    shapes: MaskCache<ShapeKey>,
+    /// The identity cover table (coverage `c` blended at `c / 255`), for shapes.
+    plain_cover: [f32; 256],
     /// The coverage of a glyph pixel (0–255) turned into the blend's cover (0–1), with the text
     /// contrast of [`TEXT_CONTRAST`] applied (ADR-0044 TX6). Built once, read per pixel.
     text_cover: [f32; 256],
@@ -168,7 +176,9 @@ impl CpuRenderer {
     pub fn new(faces: Faces) -> Self {
         Self {
             faces,
-            glyphs: GlyphCache::default(),
+            glyphs: GlyphCache::new(GLYPH_CACHE_BYTES),
+            shapes: MaskCache::new(SHAPE_CACHE_BYTES),
+            plain_cover: plain_cover_table(),
             text_cover: text_cover_table(),
             scratch: Vec::new(),
             builder: None,
@@ -512,6 +522,9 @@ impl CpuRenderer {
         shape: &RoundedRect,
         paint: Paint,
     ) {
+        if self.cached_rounded(frame, transform, shape, None, paint) {
+            return;
+        }
         let mut builder = self.builder.take().unwrap_or_default();
         push_rounded_rect(&mut builder, shape);
         self.fill_built(frame, transform, builder, FillRule::NonZero, paint);
@@ -526,9 +539,85 @@ impl CpuRenderer {
         stroke: StrokeStyle,
         paint: Paint,
     ) {
+        if self.cached_rounded(frame, transform, shape, Some(stroke), paint) {
+            return;
+        }
         let mut builder = self.builder.take().unwrap_or_default();
         push_rounded_rect(&mut builder, shape);
         self.stroke_built(frame, transform, builder, stroke, paint);
+    }
+
+    /// Draws a rounded rectangle (filled, or stroked with `stroke`) from the shape cache
+    /// (F2.09b2): its coverage mask, rasterised once for its size, radius, stroke and sub-pixel
+    /// phase in device pixels, is blended with the paint and the clip, like a glyph. Returns
+    /// `false`, drawing nothing, when the shape is too large for the cache (a panel's
+    /// background at a high scale), so the caller fills it as a path.
+    ///
+    /// # Why the mask is a function of the key only
+    /// The mask is rasterised from the key's numbers (a rectangle of the key's size at the key's
+    /// phase), never from the shape that first asked for it, so two shapes with the same key get
+    /// the same pixels whatever was drawn first, and a partial redraw equals a full frame.
+    fn cached_rounded(
+        &mut self,
+        frame: &mut Frame<'_, '_>,
+        transform: &Transform,
+        shape: &RoundedRect,
+        stroke: Option<StrokeStyle>,
+        paint: Paint,
+    ) -> bool {
+        let scale = transform.scale * frame.scale;
+        // The rectangle's top-left corner in the frame's device pixels.
+        let list = transform.apply(Point::new(shape.rect.x0, shape.rect.y0));
+        let (device_x, device_y) = (list.x * frame.scale, list.y * frame.scale);
+        let (column, row) = (device_x.floor(), device_y.floor());
+        let width = shape.rect.width() * scale;
+        let height = shape.rect.height() * scale;
+        let limit = f32::from(u16::try_from(MAX_CACHED_SHAPE).unwrap_or(u16::MAX));
+        if !(column.is_finite() && row.is_finite()) || width > limit || height > limit {
+            return false;
+        }
+        let key = ShapeKey {
+            width: width.to_bits(),
+            height: height.to_bits(),
+            radius: (shape.clamped_radius() * scale).to_bits(),
+            stroke: stroke.map_or(0, |stroke| (stroke.width * scale).to_bits()),
+            join: stroke.map_or(0, |stroke| match stroke.join {
+                LineJoin::Miter => 1,
+                LineJoin::Round => 2,
+                LineJoin::Bevel => 3,
+            }),
+            phase_x: (device_x - column).to_bits(),
+            phase_y: (device_y - row).to_bits(),
+        };
+        let builder = &mut self.builder;
+        let raster = self
+            .shapes
+            .get_or_rasterise(key, self.frame_number, || rasterise_rounded(builder, key));
+        match raster {
+            Some(Raster::Mask(mask)) => {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    reason = "device coordinates of a frame, far inside i64"
+                )]
+                let (x, y) = (
+                    column as i64 + i64::from(mask.left) - i64::from(frame.corner.0),
+                    row as i64 + i64::from(mask.top) - i64::from(frame.corner.1),
+                );
+                let source = premultiplied(frame.theme, paint);
+                blit_glyph(
+                    &mut frame.pixmap,
+                    mask,
+                    x,
+                    y,
+                    self.masks.last(),
+                    &source,
+                    &self.plain_cover,
+                );
+                true
+            }
+            Some(Raster::Empty) => true,
+            Some(Raster::Large) | None => false,
+        }
     }
 
     /// Fills a path of the segment's arena.
@@ -1483,7 +1572,7 @@ fn rasterise(
                     true,
                     SkiaTransform::from_translate(-left, -top),
                 );
-                Raster::Mask(GlyphMask {
+                Raster::Mask(CoverageMask {
                     left: left_px,
                     top: top_px,
                     width: width_px,
@@ -1519,7 +1608,7 @@ fn premultiplied(theme: &Theme, paint: Paint) -> [f32; 4] {
 /// O(pixels of the mask inside the pixmap), no allocation.
 fn blit_glyph(
     pixmap: &mut PixmapMut<'_>,
-    mask: &GlyphMask,
+    mask: &CoverageMask,
     x: i64,
     y: i64,
     clip: Option<&Mask>,
@@ -1589,6 +1678,112 @@ fn blit_glyph(
     }
 }
 
+/// The largest side of a cached shape, device pixels (F2.09b2): controls and small panels fit;
+/// a large panel's background is filled as a path, rarely redrawn anyway.
+const MAX_CACHED_SHAPE: u32 = 512;
+
+/// What identifies a cached rounded rectangle (F2.09b2): its size, radius and stroke width in
+/// device pixels, its stroke join, and its sub-pixel phase, all as exact `f32` bits (a stroke
+/// width of 0 means filled).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ShapeKey {
+    /// Width, device pixels.
+    width: u32,
+    /// Height, device pixels.
+    height: u32,
+    /// Corner radius, device pixels (already clamped).
+    radius: u32,
+    /// Stroke width, device pixels; 0 for a fill.
+    stroke: u32,
+    /// The stroke's join (0 for a fill).
+    join: u8,
+    /// The fractional part of the top-left corner's x, device pixels.
+    phase_x: u32,
+    /// The fractional part of its y.
+    phase_y: u32,
+}
+
+/// Rasterises the rounded rectangle of `key` into a coverage mask, from the key's numbers only
+/// (see [`CpuRenderer::cached_rounded`]): the rectangle placed at its phase plus a margin wide
+/// enough for the stroke and the anti-aliasing fringe, filled (non-zero) or stroked (the stroke
+/// turned into a fillable outline by `tiny-skia`).
+fn rasterise_rounded(builder: &mut Option<SkiaPathBuilder>, key: ShapeKey) -> Raster {
+    let width = f32::from_bits(key.width);
+    let height = f32::from_bits(key.height);
+    let stroke = f32::from_bits(key.stroke);
+    // Whole pixels of margin around the shape: half the stroke, plus one for the fringe.
+    let margin = (stroke / 2.0).ceil() + 1.0;
+    let x0 = margin + f32::from_bits(key.phase_x);
+    let y0 = margin + f32::from_bits(key.phase_y);
+    let shape = RoundedRect::new(
+        Rect::new(x0, y0, x0 + width, y0 + height),
+        f32::from_bits(key.radius),
+    );
+    let mut path_builder = builder.take().unwrap_or_default();
+    push_rounded_rect(&mut path_builder, &shape);
+    let Some(outline) = path_builder.finish() else {
+        return Raster::Empty;
+    };
+    let filled = if key.stroke == 0 {
+        Some(outline.clone())
+    } else {
+        let join = match key.join {
+            2 => SkiaLineJoin::Round,
+            3 => SkiaLineJoin::Bevel,
+            _ => SkiaLineJoin::Miter,
+        };
+        outline.stroke(
+            &Stroke {
+                width: stroke,
+                miter_limit: StrokeStyle::MITER_LIMIT,
+                line_cap: SkiaLineCap::Butt,
+                line_join: join,
+                dash: None,
+            },
+            1.0,
+        )
+    };
+    *builder = Some(outline.clear());
+    let Some(filled) = filled else {
+        return Raster::Empty;
+    };
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "whole numbers below MAX_CACHED_SHAPE plus a small margin"
+    )]
+    let (mask_width, mask_height, margin_px) = (
+        (x0 + width + margin).ceil() as u32,
+        (y0 + height + margin).ceil() as u32,
+        margin as i32,
+    );
+    let Some(mut mask) = Mask::new(mask_width, mask_height) else {
+        return Raster::Empty;
+    };
+    mask.fill_path(
+        &filled,
+        SkiaFillRule::Winding,
+        true,
+        SkiaTransform::identity(),
+    );
+    Raster::Mask(CoverageMask {
+        left: -margin_px,
+        top: -margin_px,
+        width: mask_width,
+        height: mask_height,
+        coverage: mask.take(),
+    })
+}
+
+/// The identity cover table: coverage `c` blended at `c / 255`.
+fn plain_cover_table() -> [f32; 256] {
+    let mut table = [0.0; 256];
+    for (value, entry) in (0_u16..).zip(table.iter_mut()) {
+        *entry = f32::from(value) / 255.0;
+    }
+    table
+}
+
 #[cfg(test)]
 mod tests {
     //! Tests that need the crate's private shadow formula and glyph blending; the pixel tests of
@@ -1622,7 +1817,7 @@ mod tests {
     fn glyph_pixels_are_blended_through_the_contrast_table() {
         let mut bytes = vec![255_u8; 4];
         let mut pixmap = super::PixmapMut::from_bytes(&mut bytes, 1, 1).unwrap();
-        let mask = super::GlyphMask {
+        let mask = super::CoverageMask {
             left: 0,
             top: 0,
             width: 1,

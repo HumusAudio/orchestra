@@ -87,3 +87,17 @@ owner's approval at the end of the step.
 - The GPU question stays open on ADR-0042 R2's conditions, measured with K4's rule.
 - A day of implementation was spent on a backend that is not kept; the measuring rule K4 is the
   lesson recorded for next time.
+
+## Precision of F2.09b2 (owner, 2026-11-12): rounded rectangles are cached too
+
+Measuring the first real buttons (ADR-0045, F2.09b) showed a redraw of a button cost ≈ 0.9 M
+instructions, almost all of it `tiny-skia` filling and stroking its anti-aliased rounded rectangle,
+above ADR-0045's 0.5 M per event. The owner chose to extend K2's idea to shapes: the coverage of
+rounded rectangles (filled, or stroked through `tiny-skia`'s stroke-to-outline) is kept in a mask
+cache of 4 MB, keyed by size, radius, stroke width, join and sub-pixel phase in device pixels (exact
+bits) and rasterised from the key alone, so pixels never depend on which shape filled the entry.
+Shapes over 512 device pixels a side are still filled as paths. The glyph cache's code (ADR-0044
+TX8) became generic (`MaskCache<K>`) and serves both. Result: a button's redraw ≈ 0.37 M, the
+shadowed panel frame −2%, no other benchmark changed; cached shapes match `tiny-skia`'s direct
+drawing within 3 steps of 255, but for a few corner pixels of curved strokes (≤ 16 steps).
+

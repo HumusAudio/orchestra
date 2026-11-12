@@ -83,6 +83,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::Key { .. } => "key",
             WidgetEvent::FocusGained => "focus",
             WidgetEvent::FocusLost => "blur",
+            WidgetEvent::Activate => "activate",
         };
         self.log.push(name);
         match event {
@@ -151,7 +152,11 @@ fn log(ui: &Ui<Msg>, id: WidgetId) -> Vec<&'static str> {
 
 #[test]
 fn a_column_places_fixed_content_and_fill_children() {
-    let mut ui = Ui::new(Flex::column(Space::Px(10.0), Space::Px(5.0)), &theme());
+    let mut ui = Ui::new(
+        Flex::column(Space::Px(10.0), Space::Px(5.0)),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let fixed = ui
         .add(
@@ -182,7 +187,11 @@ fn a_column_places_fixed_content_and_fill_children() {
 
 #[test]
 fn a_row_shares_the_rest_by_weight_and_aligns_across() {
-    let mut ui = Ui::new(Flex::row(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let one = ui
         .add(
@@ -220,6 +229,7 @@ fn a_stack_aligns_each_child_in_the_padded_area() {
             padding: Space::Px(10.0),
         },
         &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
     );
     let root = ui.root();
     let centre = ui
@@ -250,7 +260,7 @@ fn a_grid_sizes_fixed_content_and_fill_tracks() {
         Space::Px(10.0),
         Space::None,
     );
-    let mut ui = Ui::new(grid, &theme());
+    let mut ui = Ui::new(grid, &theme(), orchestra_text::Faces::bundled().unwrap());
     let root = ui.root();
     let a = ui
         .add(
@@ -287,7 +297,11 @@ fn a_grid_sizes_fixed_content_and_fill_tracks() {
 
 #[test]
 fn layout_is_incremental() {
-    let mut ui = Ui::new(Flex::column(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let rows: Vec<WidgetId> = (0..3)
         .map(|_| {
@@ -345,7 +359,11 @@ fn layout_is_incremental() {
 
 #[test]
 fn every_widget_has_its_segment_and_only_changes_are_recorded() {
-    let mut ui = Ui::new(Flex::row(Space::Px(10.0), Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::Px(10.0), Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let a = ui
         .add(
@@ -378,6 +396,7 @@ fn pointer_events_hit_the_topmost_widget_and_bubble() {
             padding: Space::None,
         },
         &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
     );
     let root = ui.root();
     let below = ui
@@ -409,7 +428,11 @@ fn pointer_events_hit_the_topmost_widget_and_bubble() {
 
 #[test]
 fn a_handled_press_captures_the_pointer_until_the_release() {
-    let mut ui = Ui::new(Flex::row(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let a = ui
         .add(
@@ -463,7 +486,11 @@ fn a_handled_press_captures_the_pointer_until_the_release() {
 
 #[test]
 fn clicks_and_tab_move_the_focus_in_tree_order() {
-    let mut ui = Ui::new(Flex::row(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let a = ui
         .add(
@@ -511,7 +538,11 @@ fn clicks_and_tab_move_the_focus_in_tree_order() {
 
 #[test]
 fn a_handled_tab_does_not_move_the_focus() {
-    let mut ui = Ui::new(Flex::row(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let mut keeper = Probe::sized(50.0, 50.0).focusable();
     keeper.handles_keys = true;
@@ -537,6 +568,7 @@ fn a_modal_layer_blocks_the_pointer_outside_and_traps_the_focus() {
             padding: Space::None,
         },
         &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
     );
     let root = ui.root();
     let page = ui
@@ -601,7 +633,11 @@ fn a_modal_layer_blocks_the_pointer_outside_and_traps_the_focus() {
 
 #[test]
 fn removing_a_subtree_drops_its_segments_and_its_focus() {
-    let mut ui = Ui::new(Flex::row(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let group = ui
         .add(
@@ -644,7 +680,11 @@ fn removing_a_subtree_drops_its_segments_and_its_focus() {
 fn the_density_changes_the_spacing() {
     let comfortable = theme();
     let compact = comfortable.with_density(Density::Compact);
-    let mut ui = Ui::new(Flex::column(Space::M, Space::L), &comfortable);
+    let mut ui = Ui::new(
+        Flex::column(Space::M, Space::L),
+        &comfortable,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let _a = ui
         .add(root, Probe::sized(10.0, 10.0), LayoutProps::default())
@@ -664,7 +704,11 @@ fn the_density_changes_the_spacing() {
 
 #[test]
 fn the_wheel_goes_under_the_pointer_and_bubbles() {
-    let mut ui = Ui::new(Flex::row(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let a = ui
         .add(root, Probe::sized(100.0, 100.0), LayoutProps::default())
@@ -720,7 +764,11 @@ impl Widget<Msg> for Catcher {
 
 #[test]
 fn an_unhandled_press_bubbles_to_the_parent_that_handles_it() {
-    let mut ui = Ui::new(Flex::column(Space::None, Space::None), &theme());
+    let mut ui = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     let catcher = ui
         .add(
@@ -778,6 +826,7 @@ fn later_siblings_are_drawn_on_top() {
             padding: Space::None,
         },
         &theme,
+        orchestra_text::Faces::bundled().unwrap(),
     );
     let root = ui.root();
     let _under = ui

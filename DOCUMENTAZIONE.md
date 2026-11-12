@@ -3719,7 +3719,7 @@ il loro segmento della lista di disegno. L'applicazione tiene una `Ui<M>` per fi
 il suo tipo di messaggio:
 
 ```rust
-let mut ui = Ui::new(Flex::column(Space::M, Space::L), &theme);
+let mut ui = Ui::new(Flex::column(Space::M, Space::L), &theme, faces.clone());
 let row = ui.add(ui.root(), Flex::row(Space::S, Space::None), LayoutProps::default())?;
 let ok = ui.add(row, my_button, LayoutProps::default().width(Length::Fill(1.0)))?;
 ui.layout(window_bounds, &mut list);      // on every size change
@@ -3768,6 +3768,84 @@ allocazione nell'instradamento. Quattordici difetti iniettati: tutti presi, uno 
 apposta (l'ordine di disegno). **Benchmark** (`benches/widgets.rs`, 200 foglie in 40 righe, disegno
 compreso): primo fotogramma 3,4 M istruzioni, un clic **63 000**, una foglia che cresce 116 000, un
 cambio di densità che rifà tutto il layout 0,86 M. L'obiettivo di ADR-0045 è 0,5 M per evento.
+
+#### Accessibilità, etichette e pulsanti
+
+Passo F2.09b (ADR-0045 WA5, scelte WC1–WC10), in `src/widget/access.rs`, `label.rs`, `button.rs` e
+nella finestra. **AccessKit** (`accesskit` 0.25.2, `accesskit_winit` 0.34.2) entra nel workspace
+qui, solo in `orchestra-ui`.
+
+**I widget si descrivono con tipi nostri.** Un widget risponde con un `AccessRole` (gruppo,
+etichetta, pulsante, casella, interruttore, cursore) e riempie un `AccessInfo` (nome,
+acceso/spento, valore, disabilitato, attivabile); `access.rs` è l'unico file che costruisce i nodi
+di AccessKit, come `orchestra-text` tiene `skrifa` fuori dall'interfaccia, così un aggiornamento di
+AccessKit tocca un file solo. L'albero ha un nodo finestra (ID 0, con il titolo della finestra come
+nome, `Ui::set_title`) il cui figlio è la radice dei widget, poi un nodo per widget con ruolo,
+limiti e figli.
+
+**Aggiornamenti incrementali.** `Ui::take_access_update()` dà l'albero intero la prima volta (o
+dopo `Ui::reset_access`, quando si collega una tecnologia assistiva), poi solo i nodi dei widget
+registrati di nuovo o spostati, e dei genitori i cui figli sono cambiati, sempre con il focus. Le
+azioni tornano con `Ui::access_action`: un clic diventa `WidgetEvent::Activate` per il bersaglio, una
+richiesta di focus sposta il focus.
+
+**La finestra.** `WindowApp` riceve `access_update(full)` e `access_action(action, list)`, con
+valori predefiniti (un albero con la sola finestra, nessuna azione). La shell crea l'adapter nel
+punto di preparazione di ADR-0040 W7 (va in panico se la finestra è già stata mostrata), con le sue
+richieste che arrivano dal nostro `EventLoopProxy` (`ShellEvent::Access`); gli passa ogni evento
+della finestra, manda l'albero intero quando viene chiesto e, dopo ogni evento che danneggia la
+lista, manda le modifiche, solo se una tecnologia assistiva è in ascolto. Questa parte non si può
+provare nella sandbox (niente schermo): il proprietario la verifica con Orca quando la finestra avrà
+widget veri (F2.09c).
+
+**Etichetta.** Testo già tradotto dall'applicazione, nei token del testo del tema (famiglia,
+dimensione, peso), `text` o `text-muted`, che può andare a capo alla larghezza del genitore. Si
+impagina di nuovo solo quando cambiano il testo, la larghezza di a capo o i token del testo del
+tema (un contatore di generazione del testo che `Ui::set_theme` fa avanzare). L'interfaccia possiede
+i font e uno shaper (`Ui::new(root, &theme, faces)`), raggiunti dai widget con
+`LayoutCx::lay_out_text`.
+
+**Pulsante.** `Button::new(testo, messaggio)`, normale o principale (accento). Altezza
+`control-height`, margine `control-padding`, raggio e anello di focus dai token di forma (ora in
+`RecordCx`). Una pressione cattura il puntatore e lo mostra premuto; il rilascio lo attiva solo
+sopra il pulsante; Invio o Spazio lo attivano quando ha il focus; anche il clic di AccessKit. Se
+disabilitato non gestisce nulla, non prende il focus e usa `text-disabled`.
+
+```rust
+let ok = ui.add(row, Button::new(localizer.format("dialog-ok", None)?, Msg::Ok)
+    .kind(ButtonKind::Primary), LayoutProps::default())?;
+```
+
+**Test** (`tests/controls.rs`, 12 casi): dimensione dell'etichetta, a capo, testo nuovo, token del
+testo nuovi; dimensione del pulsante, clic, annullamento trascinando fuori, Invio e Spazio,
+disabilitato, l'aspetto normale, premuto e principale, l'anello di focus; l'albero accessibile
+intero, gli aggiornamenti incrementali (niente, un focus, un pulsante disabilitato, un azzeramento),
+i figli in ordine e un'aggiunta che rimanda il genitore, il clic e il focus di AccessKit.
+Quattordici difetti iniettati, tutti presi (due dopo il test scritto apposta).
+
+**Benchmark** (`benches/widgets.rs`, gruppo `controls`: 40 righe con un'etichetta e quattro
+pulsanti): primo fotogramma con l'albero accessibile intero 63,3 M istruzioni; l'albero intero di
+nuovo 0,34 M; un clic su un pulsante (il puntatore che entra, la pressione, il rilascio, tre
+ridisegni del pulsante e l'aggiornamento accessibile) **2,7 M**, circa 0,9 M per ridisegno, quasi
+tutto in `tiny-skia` che riempie e traccia il rettangolo arrotondato con antialiasing. È sopra
+l'obiettivo di 0,5 M per evento di ADR-0045; il proprietario ha scelto di mettere in cache le forme (qui sotto).
+
+**La cache delle forme** (F2.09b2, scelta del proprietario dopo la misura). I rettangoli
+arrotondati con antialiasing, riempiti o con bordo, si disegnano da una seconda cache di maschere
+(`MaskCache<ShapeKey>`, 4 MB, lo stesso codice della cache dei glifi reso generico sulla chiave):
+la chiave è dimensione, raggio e spessore del bordo in pixel del dispositivo, il tipo di giunzione
+del bordo e la fase sub-pixel dell'angolo, come bit esatti di `f32`, e la maschera si rasterizza solo
+da quei numeri (un bordo trasformato da `tiny-skia` in un contorno da riempire), così due forme con
+la stessa chiave hanno sempre gli stessi pixel. Le forme più larghe o più alte di 512 pixel del
+dispositivo (un pannello grande a una scala alta) si riempiono ancora come tracciati. Ogni controllo
+è un rettangolo arrotondato, e riempirlo come tracciato era la maggior parte di un ridisegno: un clic
+su un pulsante vero è passato da 2,7 M a **1,12 M istruzioni** per i suoi tre ridisegni, circa 0,37 M
+l'uno, dentro lo 0,5 M di ADR-0045; il fotogramma del pannello con l'ombra è migliorato del 2%.
+`tests/draw.rs` confronta le forme dalla cache con `tiny-skia` che le disegna direttamente, in
+posizioni frazionarie e a tre scale (entro 3 passi su 255, salvo pochi pixel d'angolo dei bordi
+curvi, il cui contorno `tiny-skia` suddivide in modo leggermente diverso con altre coordinate
+assolute) e verifica la clip; sette difetti iniettati, tutti presi (uno dopo il test sulla clip
+scritto apposta).
 
 #### La finestra e il ciclo degli eventi
 

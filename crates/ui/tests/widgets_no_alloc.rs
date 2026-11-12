@@ -63,7 +63,11 @@ impl Widget<()> for Pad {
 #[test]
 fn routing_never_allocates() {
     let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
-    let mut ui = Ui::new(Flex::column(Space::S, Space::M), &theme);
+    let mut ui = Ui::new(
+        Flex::column(Space::S, Space::M),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
     let root = ui.root();
     for _ in 0..10 {
         let row = ui
