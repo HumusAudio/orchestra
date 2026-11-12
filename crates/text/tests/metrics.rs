@@ -215,3 +215,34 @@ fn a_layout_s_bounds_enclose_its_ink() {
     shaper.layout(&faces, "", style, None, &mut layout).unwrap();
     assert_eq!(layout.bounds(), None);
 }
+
+/// A glyph's own box (TD2) is far smaller than the face's for a Bravura notehead, encloses its
+/// outline, and is `None` for a glyph without ink.
+#[test]
+fn a_glyph_box_is_tight() {
+    let faces = Faces::bundled().unwrap();
+    let notehead = faces.glyph_for_char(FaceId::Bravura, '\u{E0A4}').unwrap();
+    let own = faces
+        .glyph_box(FaceId::Bravura, notehead, 32.0)
+        .unwrap()
+        .unwrap();
+    // A black notehead at 32 px per em: 9.44 px wide, one staff space (8 px) tall, centred.
+    assert!(own.left > -0.5 && (own.right - 9.44).abs() < 0.5, "{own:?}");
+    assert!(
+        (own.top + 4.0).abs() < 0.6 && (own.bottom - 4.0).abs() < 0.6,
+        "{own:?}"
+    );
+    let face = faces.bounds(FaceId::Bravura, 32.0).unwrap();
+    assert!(face.right - face.left > 5.0 * (own.right - own.left));
+    let mut recorder = Recorder::default();
+    faces
+        .draw_outline(FaceId::Bravura, notehead, 32.0, &mut recorder)
+        .unwrap();
+    let [x0, y0, x1, y1] = recorder.extent.unwrap();
+    assert!(own.left <= x0 && own.top <= y0 && own.right >= x1 && own.bottom >= y1);
+    let space = faces.glyph_for_char(FaceId::InterRegular, ' ').unwrap();
+    assert_eq!(
+        faces.glyph_box(FaceId::InterRegular, space, 13.0).unwrap(),
+        None
+    );
+}

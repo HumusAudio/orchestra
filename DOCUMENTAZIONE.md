@@ -2816,7 +2816,10 @@ verso il basso: un'ascendente è una distanza positiva sopra la linea di base, u
 bordo superiore negativo. `Faces::bounds` è il riquadro del font (un `GlyphBox`), che allarga i
 limiti di una sequenza di glifi, così un ridisegno parziale non taglia mai un glifo che sporge;
 `TextLayout::bounds` è lo stesso tipo di riquadro per un intero layout (le origini dei suoi glifi
-allargate dal riquadro del font), calcolato una volta quando il layout viene costruito. `Faces::draw_outline` consegna il profilo di un glifo senza hinting, scalato alla dimensione
+allargate dal riquadro del font), calcolato una volta quando il layout viene costruito. Per i
+simboli piazzati uno a uno, `Faces::glyph_box` dà il riquadro proprio di un glifo dal suo profilo
+(calcolato una volta per glifo e dimensione): il riquadro di Bravura è largo 2,75 em, troppo per
+registrarci le teste di nota (F2.07c). `Faces::draw_outline` consegna il profilo di un glifo senza hinting, scalato alla dimensione
 e girato con la y verso il basso, al nostro trait `OutlineSink`, così né `skrifa` finisce in `ui` né
 `tiny-skia` in questo crate.
 
@@ -3306,6 +3309,35 @@ invece di `<`) è equivalente, perché nessuna coppia a 8 bit dà esattamente 4,
 Nessun benchmark: non c'è ancora un percorso caldo. Leggere un token è l'accesso a un campo, e un
 tema personalizzato si risolve una volta sola, quando lo si sceglie.
 
+#### I token del testo
+
+Passo F2.07c (ADR-0044 TX11, scelta TD1), in `src/theme/text.rs`. Un'istanza di tema ora ha,
+accanto ai colori e alle forme, una **tipografia**: quale famiglia dei font inclusi usa ogni ruolo
+di testo, e la scala delle dimensioni. Due tipi di token sono del tema, una scelta è del widget:
+
+- **Famiglie** (`FamilyToken`): `Ui` (Inter), `Numeric` (Inter con cifre tabulari, così contatori e
+  numeri di battuta non si spostano), `Code` (JetBrains Mono), `Music` (Bravura). Un tema
+  personalizzato può cambiarle, ma solo fra i valori `Family` dei font inclusi (ADR-0006).
+- **Dimensioni** (`SizeToken`): caption 11, small 12, body 13, subheading 15, heading 18, title 22
+  pixel logici, tenute fra `MIN_TEXT_SIZE` (6) e `MAX_TEXT_SIZE` (96).
+- **Pesi** (`Weight`): regular, semibold, bold, scelti dal widget (un titolo è in grassetto con
+  qualunque tema). Una famiglia senza quel peso usa il suo regular.
+
+```rust
+let style = theme.text_style(FamilyToken::Ui, SizeToken::Heading, Weight::Bold);
+shaper.layout(&faces, &title, style, None, &mut layout)?;
+```
+
+Le dieci coppie incluse condividono `Typography::DEFAULT`: si distinguono per colori e forme, non
+per le lettere. Un tema personalizzato le cambia con `Override::Family` e `Override::TextSize`, i cui
+nomi stabili (`family-ui`, `size-body`…) sono quelli che salverà il file delle impostazioni di
+F2.12. A differenza di un colore, un token del testo cambia glifi e posizioni, quindi cambiarlo vuol
+dire impaginare di nuovo i testi e registrare di nuovo i loro segmenti (ADR-0044 TX9); a programma
+aperto non lo fa ancora nessuno, lo farà l'editor dei temi di F2.12b. Test in
+`tests/typography.rs`: i valori predefiniti di ogni coppia, i font e le feature di ogni stile, il
+ripiego del peso, gli override (vince l'ultimo), l'intervallo delle dimensioni, ogni token nel suo
+posto, i nomi stabili.
+
 #### La preferenza chiaro/scuro del sistema
 
 Quando l'utente lascia il modo su *Sistema* (il predefinito), l'interfaccia deve sapere se il
@@ -3578,6 +3610,21 @@ l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella part
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
 fotogramma intero si rimisura lì e in F2.23.
 
+**Da F2.07c** la scena di riferimento ha le teste di nota come glifi di Bravura presi dalla cache
+(una sequenza di glifi per battuta, con il riquadro proprio della testa di nota,
+`Faces::glyph_box`), i dieci nomi degli strumenti e i numeri di battuta, e i casi si chiamano
+`*_glyphs`:
+
+| Caso | Istruzioni | Con la regola di F1.16c | Budget |
+|---|---|---|---|
+| `record_scene_glyphs` | 1,21 M | ~1,2 ms | — |
+| `draw_full_frame_glyphs` | 17,13 M | ~17 ms | ≤ 33 M con la registrazione: 18,3 M |
+| `edit_one_note_glyphs` | 0,25 M | ~0,25 ms | una piccola parte di 50 ms |
+
+Il budget di ADR-0039 D10 è rispettato con margine. Con il riquadro del font invece di quello della
+testa di nota, una modifica costava 1,77 M: il riquadro di Bravura è largo 2,75 em e alto 3,9 em,
+quindi i limiti di ogni battuta coprivano quelle vicine e i righi sopra e sotto.
+
 #### Il testo nella lista di disegno: sequenze di glifi e cache dei glifi
 
 Passo F2.07b, parte 2 (ADR-0044 TX6–TX9, scelte TC1–TC10). Il testo arriva sullo schermo in due
@@ -3676,7 +3723,8 @@ let options = WindowOptions {
     height: 600.0,
     faces,
 };
-orchestra_ui::run(Demo::default(), options)?;
+let demo = Demo::new(&options.faces, &options.title);
+orchestra_ui::run(demo, options)?;
 ```
 
 **Fotogrammi su richiesta.** Il ciclo dorme finché non arriva un evento. Si disegna un fotogramma
@@ -3776,8 +3824,8 @@ pub const SCENES: &[Scene] = &[Scene {
     record: record_demo_window,
 }];
 
-fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
-    let mut demo = Demo::default();
+fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &context.app_name);
     demo.layout(bounds, list);
     demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
 }
@@ -3786,7 +3834,11 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
 `render` disegna una scena con `CpuRenderer::render_to_image` a **scala 2** (una scena larga 640
 pixel diventa di 1280, circa 200 dpi sulla larghezza del testo di una pagina A4) nella **metà scura
 di Studio**, impostata in modo esplicito e mai letta dal sistema (scelta del proprietario; modifica
-ADR-0014 §7 e ADR-0037 T10, che dicevano chiara). La lingua sarà en-US quando ci sarà del testo.
+ADR-0014 §7 e ADR-0037 T10, che dicevano chiara). La lingua è en-US: da F2.07c `render` prepara un
+`SceneContext` (i font inclusi e l'`app-name` in en-US) e lo passa a ogni scena, così le scene
+restano semplici funzioni e un font o un catalogo mancante è un errore tipizzato
+(`ScreenshotError::Setup`), non un panico. La finestra dimostrativa mostra il nome del programma come
+titolo, i numeri di battuta del suo rigo e teste di nota di Bravura.
 
 **Un binario per sviluppatori.** `orchestra-app` ora è una libreria (`src/lib.rs`, con `demo` e
 `screenshots`) e due binari: `orchestra`, il programma, e `orchestra-screenshots <OUT_DIR>`, che

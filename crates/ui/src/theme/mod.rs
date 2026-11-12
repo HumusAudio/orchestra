@@ -8,6 +8,7 @@
 //!
 //! - `color`: the colour value (sRGB, straight alpha) and compositing;
 //! - `token`: the colour and shape tokens, and one theme instance;
+//! - `text`: the text tokens (families and sizes) and the weights (ADR-0044 TX11);
 //! - `pair`: a light + dark pair;
 //! - `builtin`: the ten built-in pairs, as constants;
 //! - `custom`: custom themes, a base pair plus overrides;
@@ -23,4 +24,5 @@ pub(crate) mod contrast;
 pub(crate) mod custom;
 pub(crate) mod mode;
 pub(crate) mod pair;
+pub(crate) mod text;
 pub(crate) mod token;

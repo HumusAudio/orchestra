@@ -94,3 +94,71 @@ impl Faces {
         Ok(true)
     }
 }
+
+/// Collects the extent of an outline's points (on-curve and control points: Bézier curves lie
+/// inside the hull of their control points, so the extent always encloses the ink).
+#[derive(Default)]
+struct Extent(Option<[f32; 4]>);
+
+impl Extent {
+    /// Widens the extent with a point.
+    fn see(&mut self, x: f32, y: f32) {
+        let [x0, y0, x1, y1] = self.0.unwrap_or([x, y, x, y]);
+        self.0 = Some([x0.min(x), y0.min(y), x1.max(x), y1.max(y)]);
+    }
+}
+
+impl OutlineSink for Extent {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.see(x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.see(x, y);
+    }
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.see(cx, cy);
+        self.see(x, y);
+    }
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        self.see(c1x, c1y);
+        self.see(c2x, c2y);
+        self.see(x, y);
+    }
+    fn close(&mut self) {}
+}
+
+impl Faces {
+    /// The box enclosing the ink of one glyph of `face` at `size` pixels per em, relative to its
+    /// origin on the baseline, y down; `None` for a glyph without ink (a space, a missing ID).
+    ///
+    /// # Why
+    /// The bounds of a glyph run are what damage and culling use. The face's box
+    /// ([`Faces::bounds`]) is always large enough but, for Bravura, 2.75 em wide and 3.9 em tall,
+    /// because it encloses the font's largest symbols: a run of noteheads recorded with it
+    /// overlaps the neighbouring measures and staves, and editing one note redrew 7 times more
+    /// than needed (measured on the reference scene, F2.07c, ADR-0044 TD2). Callers that place
+    /// symbols one by one compute this box once per glyph and size and pass it to the recorder.
+    ///
+    /// # Cost
+    /// One outline read (≈ 13 000 instructions for a letter): meant to be called once per glyph
+    /// and size, not per frame. Uses the outline's points, control points included, so the box
+    /// may exceed the ink by a fraction of a pixel on curves, never fall short of it.
+    ///
+    /// # Errors
+    /// As [`Faces::draw_outline`].
+    pub fn glyph_box(
+        &self,
+        face: FaceId,
+        glyph: GlyphId,
+        size: f32,
+    ) -> Result<Option<crate::GlyphBox>, TextError> {
+        let mut extent = Extent::default();
+        self.draw_outline(face, glyph, size, &mut extent)?;
+        Ok(extent.0.map(|[left, top, right, bottom]| crate::GlyphBox {
+            left,
+            top,
+            right,
+            bottom,
+        }))
+    }
+}

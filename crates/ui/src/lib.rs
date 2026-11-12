@@ -61,6 +61,9 @@ pub use theme::contrast::{
 pub use theme::custom::{CustomTheme, Override};
 pub use theme::mode::{Appearance, ThemeMode};
 pub use theme::pair::ThemePair;
+pub use theme::text::{
+    Family, FamilyToken, MAX_TEXT_SIZE, MIN_TEXT_SIZE, SizeToken, Typography, Weight,
+};
 pub use theme::token::{ColorToken, Shape, ShapeToken, Theme};
 
 // The drawing abstraction (ADR-0039), re-exported like the theme system.

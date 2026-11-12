@@ -501,3 +501,37 @@ fn a_moving_shape_over_large_glyphs_redraws_them_exactly() {
         );
     }
 }
+
+/// A glyph's own box (TD2) encloses the ink it draws: a run recorded with it is never cut by a
+/// partial redraw.
+#[test]
+fn a_glyph_s_own_box_encloses_its_ink() {
+    let faces = Faces::bundled().unwrap();
+    for (face, symbol) in [
+        (FaceId::Bravura, '\u{E0A4}'),
+        (FaceId::Bravura, '\u{E050}'),
+        (FaceId::InterRegular, 'g'),
+    ] {
+        let glyph = faces.glyph_for_char(face, symbol).unwrap();
+        let own = faces.glyph_box(face, glyph, 32.0).unwrap().unwrap();
+        let at = Point::new(30.0, 70.0);
+        let mut list = DisplayList::new();
+        list.record(SegmentId(1), |r| {
+            r.glyphs(face, 32.0, own, [(glyph, at)], ColorToken::Text);
+        });
+        let image = draw(&list, &light(), 100, 120, 1.0);
+        let ink = inked(&image, &light());
+        assert_ne!(ink.len(), 0);
+        for (x, y) in ink {
+            let (x, y) = (x as f32, y as f32);
+            assert!(
+                x + 1.0 >= at.x + own.left && x <= at.x + own.right,
+                "{symbol:?} x {x}"
+            );
+            assert!(
+                y + 1.0 >= at.y + own.top && y <= at.y + own.bottom,
+                "{symbol:?} y {y}"
+            );
+        }
+    }
+}

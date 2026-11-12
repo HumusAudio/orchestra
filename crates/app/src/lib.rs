@@ -31,4 +31,4 @@ mod demo;
 mod screenshots;
 
 pub use demo::Demo;
-pub use screenshots::{SCALE, SCENES, Scene, ScreenshotError, render, theme};
+pub use screenshots::{SCALE, SCENES, Scene, SceneContext, ScreenshotError, render, theme};

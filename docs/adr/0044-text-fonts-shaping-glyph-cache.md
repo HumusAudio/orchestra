@@ -338,3 +338,24 @@ plain coverage (γ = 1), γ = 1.2 and γ = 1.45 on screenshots of Studio light a
 and 2, and chose the strongest: a pixel half covered by a stroke is blended at 62 % instead of
 50 %, so small text stays firm on dark surfaces. Fully covered and empty pixels are unchanged, so
 the exact copy of fully covered opaque pixels still applies.
+
+**Part 3 (F2.07c), TD1–TD6, approved by the owner on 2026-11-12.** A quick measurement before
+coding showed the budget would hold (the reference scene with Bravura noteheads: ≈ 18 M
+instructions against 33 M) but that the face's box (TX9 point 3) is far too large for Bravura
+(2.75 em × 3.9 em): an edit redrew 1.77 M instead of 0.25 M. Hence:
+- **TD1, text tokens** (TX11 made concrete): `FamilyToken` (ui, numeric, code, music) → `Family`
+  (Inter, Inter with tabular figures, JetBrains Mono, Bravura); `SizeToken` (11, 12, 13, 15, 18,
+  22 px), clamped to 6–96; `Weight` chosen by the widget, with the family's regular face as the
+  fallback; `Theme::text_style`; every built-in pair has `Typography::DEFAULT`; `Override::Family`
+  and `Override::TextSize` with stable names (`family-ui`, `size-body`…).
+- **TD2, a glyph's own box:** `Faces::glyph_box(face, glyph, size)`, from the outline's points
+  (control points included, so never too small), computed once per glyph and size by callers that
+  place symbols one by one; F2B will use SMuFL's metadata boxes. The face's box stays the bound
+  of `TextLayout::bounds`.
+- **TD3, the reference scene:** noteheads as Bravura glyphs with their own box, ten instrument
+  names, bar numbers; benchmarks renamed `*_glyphs`. Record 1.21 M + full frame 17.13 M =
+  18.3 M instructions (budget 33 M, ADR-0039 D10, met); an edit 0.25 M.
+- **TD4, the screenshot:** the demonstration window shows the program's name (`app-name`, an
+  existing key, so no new string) as its title, bar numbers and Bravura noteheads; the scenes
+  receive a `SceneContext` (faces and en-US texts) prepared by `render`.
+- **TD5, tests** as listed in the documentation; **TD6:** the pixel blend is left as it is.

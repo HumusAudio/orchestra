@@ -2637,7 +2637,9 @@ line of Inter is 1.21 em, as in a web page. All values are turned to y down: an 
 distance above the baseline, a bounding box has a negative top. `Faces::bounds` is the face's
 bounding box (a `GlyphBox`), which widens the bounds of a glyph run so that a partial redraw never
 cuts an overhanging glyph; `TextLayout::bounds` is the same kind of box for a whole layout (its
-glyph origins widened by the face's box), computed once when the layout is built. `Faces::draw_outline` delivers a glyph's unhinted outline,
+glyph origins widened by the face's box), computed once when the layout is built. For symbols
+placed one by one, `Faces::glyph_box` gives a glyph's own box from its outline (computed once per
+glyph and size): Bravura's face box is 2.75 em wide, too large to record noteheads with (F2.07c). `Faces::draw_outline` delivers a glyph's unhinted outline,
 scaled to the size and flipped to y down, to our own `OutlineSink` trait, so that neither `skrifa`
 leaks into `ui` nor `tiny-skia` into this crate.
 
@@ -3100,6 +3102,34 @@ Eight bugs were injected: seven were caught, one only after adding the threshold
 No benchmark: there is no hot path yet. A token read is one field access, and a custom theme is
 resolved once, when it is chosen.
 
+#### The text tokens
+
+Step F2.07c (ADR-0044 TX11, choice TD1), in `src/theme/text.rs`. A theme instance now has, next
+to its colours and shapes, a **typography**: which bundled family each role of text uses, and the
+scale of sizes. Two kinds of tokens are the theme's, one choice is the widget's:
+
+- **Families** (`FamilyToken`): `Ui` (Inter), `Numeric` (Inter with tabular figures, so counters
+  and bar numbers do not shift), `Code` (JetBrains Mono), `Music` (Bravura). A custom theme can
+  change them, but only among the bundled `Family` values (ADR-0006).
+- **Sizes** (`SizeToken`): caption 11, small 12, body 13, subheading 15, heading 18, title 22
+  logical pixels, kept between `MIN_TEXT_SIZE` (6) and `MAX_TEXT_SIZE` (96).
+- **Weights** (`Weight`): regular, semibold, bold, chosen by the widget (a heading is bold whatever
+  the theme). A family without that weight uses its regular face.
+
+```rust
+let style = theme.text_style(FamilyToken::Ui, SizeToken::Heading, Weight::Bold);
+shaper.layout(&faces, &title, style, None, &mut layout)?;
+```
+
+All ten built-in pairs share `Typography::DEFAULT`: they differ in colour and shape, not in
+letters. A custom theme overrides with `Override::Family` and `Override::TextSize`, whose stable
+names (`family-ui`, `size-body`…) are what the settings file of F2.12 will save. Unlike a colour, a
+text token changes glyphs and positions, so changing it means laying the texts out again and
+re-recording their segments (ADR-0044 TX9); nothing does that at run time yet, the theme editor of
+F2.12b will. Tests in `tests/typography.rs`: the defaults of every pair, the faces and features
+each style resolves to, the weight fallback, overrides (the later wins), the size range, each
+token in its own slot, the stable names.
+
 #### The system's light/dark preference
 
 When the user leaves the mode on *System* (the default), the interface must know whether the
@@ -3353,6 +3383,20 @@ the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs
 cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
 and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.
 
+**Since F2.07c** the reference scene has its noteheads as Bravura glyphs from the cache (one
+glyph run per measure, with the notehead's own box, `Faces::glyph_box`), the ten instrument names
+and the bar numbers, and the cases are named `*_glyphs`:
+
+| Case | Instructions | By the rule of F1.16c | Budget |
+|---|---|---|---|
+| `record_scene_glyphs` | 1.21 M | ~1.2 ms | — |
+| `draw_full_frame_glyphs` | 17.13 M | ~17 ms | ≤ 33 M with the recording: 18.3 M |
+| `edit_one_note_glyphs` | 0.25 M | ~0.25 ms | a small part of 50 ms |
+
+The budget of ADR-0039 D10 holds with room to spare. With the face's box instead of the
+notehead's own, an edit cost 1.77 M: Bravura's box is 2.75 em wide and 3.9 em tall, so every
+measure's bounds covered its neighbours and the staves above and below.
+
 #### Text in the display list: glyph runs and the glyph cache
 
 Step F2.07b, part 2 (ADR-0044 TX6–TX9, choices TC1–TC10). Text reaches the screen in two steps:
@@ -3445,7 +3489,8 @@ let options = WindowOptions {
     height: 600.0,
     faces,
 };
-orchestra_ui::run(Demo::default(), options)?;
+let demo = Demo::new(&options.faces, &options.title);
+orchestra_ui::run(demo, options)?;
 ```
 
 **Frames on demand.** The loop sleeps until an event arrives. A frame is drawn only when the list
@@ -3539,8 +3584,8 @@ pub const SCENES: &[Scene] = &[Scene {
     record: record_demo_window,
 }];
 
-fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
-    let mut demo = Demo::default();
+fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &context.app_name);
     demo.layout(bounds, list);
     demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
 }
@@ -3549,7 +3594,11 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
 `render` draws a scene with `CpuRenderer::render_to_image` at **scale 2** (a 640-pixel-wide scene
 becomes 1280 pixels, about 200 dpi across the text width of an A4 page) in **Studio's dark half**,
 set explicitly and never read from the system (the owner's choice; it amends ADR-0014 §7 and
-ADR-0037 T10, which said light). The language will be en-US once there is text.
+ADR-0037 T10, which said light). The language is en-US: since F2.07c `render` prepares a
+`SceneContext` (the bundled faces and the en-US `app-name`) and passes it to every scene, so the
+scenes stay plain functions and a missing font or catalogue is a typed error
+(`ScreenshotError::Setup`), not a panic. The demonstration window shows the program's name as its
+title, the bar numbers of its staff and Bravura noteheads.
 
 **A developer binary.** `orchestra-app` is now a library (`src/lib.rs`, with `demo` and
 `screenshots`) and two binaries: `orchestra`, the program, and `orchestra-screenshots <OUT_DIR>`,

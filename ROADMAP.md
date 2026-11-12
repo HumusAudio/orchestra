@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07b done (glyph runs, the glyph cache, text contrast γ = 1.45); next F2.07c, on the same branch.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); next the PR of the step, then F2.08 (widget architecture).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -996,8 +996,23 @@ platforms (macOS and Windows needed re-runs: their jobs were cancelled twice aft
 without a runner, no step run). **Text contrast chosen by the owner** (2026-11-12): option c,
 γ = 1.45 (a half-covered pixel is blended at 62 % instead of 50 %), recorded in ADR-0044's
 precisions; two unit tests of the table and of the blend, which now catch the twelfth injected bug
-too. **F2.07b complete.** **Next:** F2.07c (text tokens, text in the reference scene and the
-screenshot catalogue, the 33 M-instruction budget).
+too. **F2.07b complete.** CI of `2861955`: green on the three platforms. SCALETTA v0.60.
+
+**F2.07c done** (2026-11-12, same branch). Before coding, a throw-away measurement of the
+reference scene with Bravura noteheads showed the budget would hold but that Bravura's face box
+made an edit cost 7 times more; the owner approved TD1–TD6 (ADR-0044, precisions of part 3). In
+`orchestra-text`: `Faces::glyph_box`. In `orchestra-ui`: the text tokens (`src/theme/text.rs`:
+`FamilyToken`, `Family`, `SizeToken`, `Weight`, `Typography`, `MIN_TEXT_SIZE`/`MAX_TEXT_SIZE`),
+`Theme::text_style`/`typography`/`with_family`/`with_text_size`, `Override::Family` and
+`Override::TextSize`. The reference scene of `benches/draw.rs` has Bravura noteheads, instrument
+names and bar numbers (benchmarks renamed `*_glyphs`): record 1.21 M + full frame 17.13 M =
+**18.3 M instructions, within the 33 M budget** of ADR-0039 D10 (84.7 M with paths before), an
+edit 0.25 M (0.61 M before). In `orchestra-app`: `Demo::new(faces, title)` with a bold title, bar
+numbers and Bravura noteheads; scenes get a `SceneContext` (`ScreenshotError::Setup` added).
+Tests: `tests/typography.rs` (6), glyph boxes enclosing the ink, the demo screenshot's title;
+ten injected bugs, nine caught (one after a test written for it), one equivalent (a box without
+control points: our fonts have points at every extreme). **F2.07 complete.** **Next:** the PR of
+the whole step, then F2.08.
 
 | Step | What | Status |
 |---|---|---|

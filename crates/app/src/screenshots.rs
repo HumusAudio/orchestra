@@ -12,7 +12,8 @@
 //! # What is fixed for every scene (ADR-0041 S3)
 //! - the theme: **Studio, dark half** ([`theme`]), set explicitly and never read from the system,
 //!   so the pictures do not depend on the desktop of whoever runs the tool;
-//! - the language: en-US, once text exists (F2.07; ADR-0009 §6);
+//! - the language: en-US (ADR-0009 §6): the texts come from the en-US catalogue, through the
+//!   [`SceneContext`] that [`render`] prepares;
 //! - the scale: [`SCALE`] device pixels per logical pixel.
 //!
 //! # How a scene is drawn
@@ -23,6 +24,8 @@
 
 use std::fmt;
 
+use orchestra_i18n::{Locale, Localizer};
+use orchestra_text::Faces;
 use orchestra_ui::{
     Appearance, BuiltInTheme, CpuRenderer, DisplayList, DrawError, Image, InputEvent, Point, Rect,
     Theme, WindowApp,
@@ -55,8 +58,38 @@ pub struct Scene {
     /// Height in logical pixels.
     pub height: f32,
     /// Records the scene into an empty list for `bounds` (origin at the top left, the scene's
-    /// size).
-    pub record: fn(bounds: Rect, list: &mut DisplayList),
+    /// size), with the fonts and texts of `context`.
+    pub record: fn(bounds: Rect, list: &mut DisplayList, context: &SceneContext),
+}
+
+/// What every scene may need besides its size, prepared once by [`render`]: the bundled faces
+/// (ADR-0044) and the en-US texts (ADR-0009 §6). Preparing them can fail (in theory: the fonts
+/// and catalogues are inside the binary), so [`render`] does it and reports a typed error, and
+/// the scenes stay plain functions.
+#[derive(Debug, Clone)]
+pub struct SceneContext {
+    /// The bundled faces.
+    pub faces: Faces,
+    /// The program's name in en-US (the catalogue's `app-name`).
+    pub app_name: String,
+}
+
+impl SceneContext {
+    /// The faces and the en-US texts.
+    ///
+    /// # Errors
+    /// [`ScreenshotError::Setup`] if the faces or the en-US catalogue cannot be read.
+    pub fn new() -> Result<Self, ScreenshotError> {
+        let faces = Faces::bundled().map_err(|error| ScreenshotError::Setup {
+            detail: error.to_string(),
+        })?;
+        let app_name = Localizer::new(Locale::EnUs)
+            .and_then(|localizer| localizer.format("app-name", None))
+            .map_err(|error| ScreenshotError::Setup {
+                detail: error.to_string(),
+            })?;
+        Ok(Self { faces, app_name })
+    }
 }
 
 impl Scene {
@@ -105,8 +138,8 @@ pub const SCENES: &[Scene] = &[Scene {
 
 /// The demonstration window at rest, with the pointer to the right of the panel (so its disc is
 /// visible without covering the staff or the controls) and no button or modifier held.
-fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
-    let mut demo = Demo::default();
+fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &context.app_name);
     demo.layout(bounds, list);
     // The panel ends at x = 544 (24 px margin + 520 px), so x = 588 lies in the free strip on its
     // right; y = 200 is about the panel's middle.
@@ -132,14 +165,16 @@ pub fn theme() -> Theme {
 /// One full frame: O(commands + device pixels).
 ///
 /// # Errors
-/// [`ScreenshotError::Size`] for a bad catalogue entry, [`ScreenshotError::Draw`] if the renderer
-/// rejects the image.
+/// [`ScreenshotError::Size`] for a bad catalogue entry, [`ScreenshotError::Setup`] if the fonts or
+/// the texts cannot be read, [`ScreenshotError::Draw`] if the renderer rejects the image.
 pub fn render(scene: &Scene, renderer: &mut CpuRenderer) -> Result<Image, ScreenshotError> {
     let (width, height) = scene.device_size()?;
+    let context = SceneContext::new()?;
     let mut list = DisplayList::new();
     (scene.record)(
         Rect::from_origin_size(0.0, 0.0, scene.width, scene.height),
         &mut list,
+        &context,
     );
     renderer
         .render_to_image(&list, &theme(), width, height, SCALE)
@@ -162,6 +197,12 @@ pub enum ScreenshotError {
         /// Its logical height.
         height: f32,
     },
+    /// The bundled faces or the en-US catalogue could not be read (never with the files in the
+    /// binary; a typed error because library code does not panic).
+    Setup {
+        /// The underlying error's message.
+        detail: String,
+    },
     /// The renderer failed, or the PNG encoder did.
     Draw {
         /// The scene's name.
@@ -183,6 +224,7 @@ impl fmt::Display for ScreenshotError {
                 f,
                 "scene `{scene}`: size {width} × {height} at scale {SCALE} is not a valid image"
             ),
+            Self::Setup { detail } => write!(f, "the fonts or texts of the scenes: {detail}"),
             Self::Draw { scene, error } => write!(f, "scene `{scene}`: {error}"),
         }
     }
@@ -192,7 +234,7 @@ impl std::error::Error for ScreenshotError {
     /// The drawing error, when there is one.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Size { .. } => None,
+            Self::Size { .. } | Self::Setup { .. } => None,
             Self::Draw { error, .. } => Some(error),
         }
     }

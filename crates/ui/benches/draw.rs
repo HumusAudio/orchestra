@@ -5,24 +5,34 @@
 //! # The scene
 //! The reference scene of the Phase 0 GUI spikes (`spikes/scene`, ADR-0012): 10 staves × 20
 //! measures at 1920 × 1080, zoom 1 (8 px per staff space), where every symbol is visible, the
-//! worst case for a full frame. Glyphs come in F2.07, so the 2000 symbols are drawn as what they
-//! will cost at least: noteheads are filled paths (an ellipse of four cubics), and half of them
-//! have a stem (a snapped vertical line). Staff lines and barlines are snapped lines. Each
-//! measure of each staff is **one segment** (200 segments), as a score view would record it, so
-//! an edit re-records one segment.
+//! worst case for a full frame. Since F2.07c the 2000 noteheads are **Bravura glyphs** from the
+//! glyph cache (ADR-0044), recorded per measure as one glyph run with the notehead's own box
+//! (TD2), and the scene has the text of a real score: ten instrument names and the bar numbers
+//! (the `numeric` family, tabular figures). Half of the notes have a stem (a snapped vertical
+//! line); staff lines and barlines are snapped lines. Each measure of each staff is **one
+//! segment** (200 segments), as a score view would record it, so an edit re-records one segment;
+//! the names have a segment per staff.
+//!
+//! Until F2.07c the noteheads were filled paths (an ellipse of four cubics) and there was no
+//! text: 2.67 M instructions to record, 84.7 M for a full frame, 0.61 M for an edit. The cases
+//! were renamed (`*_glyphs`) when their meaning changed, so their baselines start afresh.
 //!
 //! # The cases
-//! - `record_scene`: recording every segment into an empty list (opening a score, a zoom).
-//! - `draw_full_frame`: drawing the whole recorded scene into a 1920 × 1080 image (scrolling).
-//! - `edit_one_note`: one note moves: its measure is re-recorded and only the damage is drawn
-//!   (the steady state of editing).
+//! - `record_scene_glyphs`: recording every segment into an empty list (opening a score, a
+//!   zoom), with the texts already laid out (a view keeps its layouts).
+//! - `draw_full_frame_glyphs`: drawing the whole recorded scene into a 1920 × 1080 image
+//!   (scrolling), with the glyph cache warm.
+//! - `edit_one_note_glyphs`: one note moves: its measure is re-recorded and only the damage is
+//!   drawn (the steady state of editing).
 //! - `draw_shadowed_panel_frame`: a 960 × 600 frame with a large panel and its shadow, drawn
 //!   whole with the shadow's coverage already cached (ADR-0043): what a repaint of a window with
 //!   panels costs once the shadows have been computed.
+//! - `draw_labels_frame`: 200 interface labels in a 1920 × 1080 frame, with the glyph cache warm
+//!   and cold (ADR-0044 TC10).
 //!
 //! # Budgets (ADR-0039 D10, with the rule of F1.16c: 1 instruction per nanosecond)
 //! Scrolling in software at ≥ 30 fps allows 33 ms a frame: ≤ 33 M instructions for
-//! `record_scene` + `draw_full_frame` together. An edit must leave room in the 50 ms from input
+//! `record_scene_glyphs` + `draw_full_frame_glyphs` together (ADR-0039 D10; checked in F2.07c). An edit must leave room in the 50 ms from input
 //! to frame for everything else: `edit_one_note` should be a small fraction of it. The real
 //! times are measured in F2.23.
 
@@ -49,9 +59,10 @@
 use std::hint::black_box;
 
 use gungraun::prelude::*;
+use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, Shaper, TextLayout};
 use orchestra_ui::{
-    Appearance, BuiltInTheme, ColorToken, CpuRenderer, DisplayList, FillRule, Image, Point, Rect,
-    Renderer, RoundedRect, SegmentId, StrokeStyle, Theme,
+    Appearance, BuiltInTheme, ColorToken, CpuRenderer, DisplayList, FamilyToken, Image, Point,
+    Rect, Renderer, RoundedRect, SegmentId, SizeToken, StrokeStyle, Theme, Typography, Weight,
 };
 
 // The scene's geometry, from `spikes/scene` (staff spaces, then pixels at zoom 1).
@@ -62,6 +73,8 @@ const PX_PER_SP: f32 = 8.0;
 const STAFF_DISTANCE: f32 = 12.0 * PX_PER_SP;
 const MEASURE_WIDTH: f32 = 10.0 * PX_PER_SP;
 const CLEF_WIDTH: f32 = 4.0 * PX_PER_SP;
+// Room for the instrument names left of the staves.
+const NAME_WIDTH: f32 = 90.0;
 const MARGIN: f32 = 16.0;
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
@@ -71,12 +84,91 @@ fn segment(staff: usize, measure: usize) -> SegmentId {
     SegmentId((staff * MEASURES + measure) as u64)
 }
 
-// Records one measure: its piece of the five staff lines, its barline, its notes. `lift` moves
-// the first note up by that many staff positions (the edit).
-fn record_measure(list: &mut DisplayList, staff: usize, measure: usize, lift: usize) {
-    let top = MARGIN + staff as f32 * STAFF_DISTANCE;
-    let left = MARGIN + CLEF_WIDTH + measure as f32 * MEASURE_WIDTH;
+// What the scene draws besides lines, prepared once outside the measured code, as a score view
+// would keep it: Bravura's black notehead with its own box at 32 px per em (an em is four staff
+// spaces), the ten instrument names and the twenty bar numbers, laid out.
+struct Notation {
+    notehead: GlyphId,
+    notehead_box: GlyphBox,
+    names: Vec<TextLayout>,
+    numbers: Vec<TextLayout>,
+}
+
+fn notation() -> Notation {
+    let faces = Faces::bundled().unwrap();
+    let notehead = faces.glyph_for_char(FaceId::Bravura, '\u{E0A4}').unwrap();
+    let notehead_box = faces
+        .glyph_box(FaceId::Bravura, notehead, 4.0 * PX_PER_SP)
+        .unwrap()
+        .unwrap();
+    let typography = Typography::DEFAULT;
+    let mut shaper = Shaper::new();
+    let mut lay_out = |text: &str, family, size| {
+        let mut layout = TextLayout::new();
+        let style = typography.text_style(family, size, Weight::Regular);
+        shaper
+            .layout(&faces, text, style, None, &mut layout)
+            .unwrap();
+        layout
+    };
+    let instruments = [
+        "Flute",
+        "Oboe",
+        "Clarinet in B♭",
+        "Bassoon",
+        "Horn in F",
+        "Trumpet",
+        "Violin I",
+        "Violin II",
+        "Viola",
+        "Violoncello",
+    ];
+    let names = instruments
+        .iter()
+        .map(|name| lay_out(name, FamilyToken::Ui, SizeToken::Small))
+        .collect();
+    let numbers = (1..=MEASURES)
+        .map(|bar| lay_out(&bar.to_string(), FamilyToken::Numeric, SizeToken::Caption))
+        .collect();
+    Notation {
+        notehead,
+        notehead_box,
+        names,
+        numbers,
+    }
+}
+
+// The top of a staff and the left edge of one of its measures.
+fn staff_top(staff: usize) -> f32 {
+    MARGIN + staff as f32 * STAFF_DISTANCE
+}
+
+fn measure_left(measure: usize) -> f32 {
+    MARGIN + NAME_WIDTH + CLEF_WIDTH + measure as f32 * MEASURE_WIDTH
+}
+
+// Records one measure: its piece of the five staff lines, its barline, its noteheads (one glyph
+// run) and stems, and, on the top staff, its bar number. `lift` moves the first note up by that
+// many staff positions (the edit).
+fn record_measure(
+    list: &mut DisplayList,
+    notation: &Notation,
+    staff: usize,
+    measure: usize,
+    lift: usize,
+) {
+    let top = staff_top(staff);
+    let left = measure_left(measure);
     let line = StrokeStyle::new(1.0);
+    // The centre of each notehead.
+    let centre = |note: usize| {
+        let position = (note * 3 + staff + measure) % 9 + if note == 0 { lift } else { 0 };
+        let cx = left + 6.0 + note as f32 * 7.0;
+        let cy = top + 4.0 * PX_PER_SP - position as f32 * PX_PER_SP * 0.5;
+        (cx, cy)
+    };
+    // A black notehead is 1.18 staff spaces wide, its origin at its left edge.
+    let half_width = 0.59 * PX_PER_SP;
     list.record(segment(staff, measure), |r| {
         for i in 0..5 {
             let y = top + i as f32 * PX_PER_SP;
@@ -93,42 +185,48 @@ fn record_measure(list: &mut DisplayList, staff: usize, measure: usize, lift: us
             line,
             ColorToken::Text,
         );
-        for note in 0..NOTES_PER_MEASURE {
-            let position = (note * 3 + staff + measure) % 9 + if note == 0 { lift } else { 0 };
-            let cx = left + 6.0 + note as f32 * 7.0;
-            let cy = top + 4.0 * PX_PER_SP - position as f32 * PX_PER_SP * 0.5;
-            notehead(r, cx, cy);
-            if note % 2 == 0 {
-                r.line(
-                    Point::new(cx + 5.0, cy),
-                    Point::new(cx + 5.0, cy - 3.5 * PX_PER_SP),
-                    line,
-                    ColorToken::Text,
-                );
-            }
+        r.glyphs(
+            FaceId::Bravura,
+            4.0 * PX_PER_SP,
+            notation.notehead_box,
+            (0..NOTES_PER_MEASURE).map(|note| {
+                let (cx, cy) = centre(note);
+                (notation.notehead, Point::new(cx - half_width, cy))
+            }),
+            ColorToken::Text,
+        );
+        for note in (0..NOTES_PER_MEASURE).step_by(2) {
+            let (cx, cy) = centre(note);
+            r.line(
+                Point::new(cx + half_width - 0.5, cy),
+                Point::new(cx + half_width - 0.5, cy - 3.5 * PX_PER_SP),
+                line,
+                ColorToken::Text,
+            );
+        }
+        if staff == 0 {
+            let number = &notation.numbers[measure];
+            let at = Point::new(left + 2.0, top - 3.5 * PX_PER_SP - number.height());
+            r.text(number, at, ColorToken::TextMuted);
         }
     });
 }
 
-// A notehead: an ellipse of half axes 5 × 4 px, four cubic Béziers.
-fn notehead(r: &mut orchestra_ui::Recorder<'_>, cx: f32, cy: f32) {
-    let (a, b) = (5.0, 4.0);
-    let (ka, kb) = (a * 0.552_284_8, b * 0.552_284_8);
-    r.fill_path(FillRule::NonZero, ColorToken::Text, |p| {
-        p.move_to(cx + a, cy);
-        p.cubic_to(cx + a, cy + kb, cx + ka, cy + b, cx, cy + b);
-        p.cubic_to(cx - ka, cy + b, cx - a, cy + kb, cx - a, cy);
-        p.cubic_to(cx - a, cy - kb, cx - ka, cy - b, cx, cy - b);
-        p.cubic_to(cx + ka, cy - b, cx + a, cy - kb, cx + a, cy);
-        p.close();
+// The instrument name of one staff, centred on it vertically, in its own segment.
+fn record_name(list: &mut DisplayList, notation: &Notation, staff: usize) {
+    let name = &notation.names[staff];
+    let top = staff_top(staff) + 2.0 * PX_PER_SP - name.height() / 2.0;
+    list.record(SegmentId(10_000 + staff as u64), |r| {
+        r.text(name, Point::new(MARGIN, top), ColorToken::Text);
     });
 }
 
 // Records the whole scene.
-fn record_all(list: &mut DisplayList) {
+fn record_all(list: &mut DisplayList, notation: &Notation) {
     for staff in 0..STAVES {
+        record_name(list, notation, staff);
         for measure in 0..MEASURES {
-            record_measure(list, staff, measure, 0);
+            record_measure(list, notation, staff, measure, 0);
         }
     }
 }
@@ -140,30 +238,39 @@ fn theme() -> Theme {
 // A recorded scene, a renderer and a target already showing the first frame.
 type Drawn = (DisplayList, CpuRenderer, Image, Theme);
 
-fn drawn() -> Drawn {
+// The reference scene drawn once (so the glyph cache is warm), with its notation for edits.
+type Scene = (Drawn, Notation);
+
+fn drawn() -> Scene {
+    let notation = notation();
     let mut list = DisplayList::new();
-    record_all(&mut list);
+    record_all(&mut list, &notation);
     let theme = theme();
-    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
+    let mut renderer = CpuRenderer::new(Faces::bundled().unwrap());
     let mut image = Image::new(WIDTH, HEIGHT).unwrap();
     let damage = list.take_damage();
     renderer
         .render(&list, &theme, &damage, 1.0, &mut image)
         .unwrap();
-    (list, renderer, image, theme)
+    ((list, renderer, image, theme), notation)
+}
+
+fn empty_scene() -> (DisplayList, Notation) {
+    (DisplayList::new(), notation())
 }
 
 #[library_benchmark]
-#[bench::reference(DisplayList::new())]
-fn record_scene(mut list: DisplayList) -> DisplayList {
-    record_all(black_box(&mut list));
-    black_box(list)
+#[bench::reference(empty_scene())]
+fn record_scene_glyphs(input: (DisplayList, Notation)) -> (DisplayList, Notation) {
+    let (mut list, notation) = input;
+    record_all(black_box(&mut list), &notation);
+    black_box((list, notation))
 }
 
 #[library_benchmark]
 #[bench::reference(drawn())]
-fn draw_full_frame(input: Drawn) -> Drawn {
-    let (list, mut renderer, mut image, theme) = input;
+fn draw_full_frame_glyphs(input: Scene) -> Scene {
+    let ((list, mut renderer, mut image, theme), notation) = input;
     renderer
         .render(
             black_box(&list),
@@ -173,15 +280,15 @@ fn draw_full_frame(input: Drawn) -> Drawn {
             black_box(&mut image),
         )
         .unwrap();
-    (list, renderer, image, theme)
+    ((list, renderer, image, theme), notation)
 }
 
 #[library_benchmark]
 #[bench::reference(drawn())]
-fn edit_one_note(input: Drawn) -> Drawn {
-    let (mut list, mut renderer, mut image, theme) = input;
+fn edit_one_note_glyphs(input: Scene) -> Scene {
+    let ((mut list, mut renderer, mut image, theme), notation) = input;
     // Staff 4, measure 9: a note in the middle of the frame moves up a step.
-    record_measure(black_box(&mut list), 4, 9, 1);
+    record_measure(black_box(&mut list), &notation, 4, 9, 1);
     let damage = list.take_damage();
     renderer
         .render(
@@ -192,7 +299,7 @@ fn edit_one_note(input: Drawn) -> Drawn {
             black_box(&mut image),
         )
         .unwrap();
-    (list, renderer, image, theme)
+    ((list, renderer, image, theme), notation)
 }
 
 // A panel of 880 × 520 with its shadow (blur 8) and three controls, as the demonstration window
@@ -246,7 +353,7 @@ fn draw_shadowed_panel_frame(input: Drawn) -> Drawn {
 // frame of a busy window costs once its glyphs are cached, and what the first frame pays to
 // fill the cache (ADR-0044 TX12, TC10).
 fn labels(warm: bool) -> Drawn {
-    use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+    use orchestra_text::TextStyle;
     let faces = Faces::bundled().unwrap();
     let mut shaper = Shaper::new();
     let style = TextStyle::new(FaceId::InterRegular, 13.0);
@@ -300,9 +407,9 @@ fn draw_labels_frame(input: Drawn) -> Drawn {
 library_benchmark_group!(
     name = draw,
     benchmarks = [
-        record_scene,
-        draw_full_frame,
-        edit_one_note,
+        record_scene_glyphs,
+        draw_full_frame_glyphs,
+        edit_one_note_glyphs,
         draw_shadowed_panel_frame,
         draw_labels_frame
     ]

@@ -63,7 +63,8 @@ fn main() -> ExitCode {
         height: 600.0,
         faces,
     };
-    match orchestra_ui::run(Demo::default(), options) {
+    let demo = Demo::new(&options.faces, &options.title);
+    match orchestra_ui::run(demo, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("orchestra: {error}");
