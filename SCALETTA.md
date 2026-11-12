@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.63, approvata dal proprietario il 2026-11-12.**
+> **Stato di questo documento: v0.64, approvata dal proprietario il 2026-11-12.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -848,6 +848,18 @@ controllo completo. Va fatta bene una volta sola.
   il puntatore fuori, i valori di densità): un clic su 200 widget 63 000 istruzioni disegno
   compreso (obiettivo 0,5 M), un widget che cresce 116 000, un layout completo 0,86 M; 14 difetti
   iniettati, tutti presi.
+- **F2.09b** **Fatto il 2026-11-12** (scelte WC1–WC10, precisazioni in ADR-0045): AccessKit nel
+  workspace (`accesskit` 0.25.2, `accesskit_winit` 0.34.2), descrizioni dei widget con tipi nostri,
+  aggiornamenti incrementali, azioni di clic e focus, adapter nella finestra; i widget `Label` e
+  `Button`. 14 difetti iniettati, tutti presi.
+- **F2.09b2** (aggiunto il 2026-11-12, scelta del proprietario dopo la misura) **Fatto:** un clic su
+  un pulsante vero costava 2,7 M istruzioni (tre ridisegni da 0,9 M, quasi tutto il riempimento e il
+  bordo del rettangolo arrotondato in `tiny-skia`), sopra l'obiettivo di 0,5 M per evento; il
+  renderer ora tiene in cache anche la copertura dei rettangoli arrotondati (`MaskCache<K>`, 4 MB,
+  precisazione di ADR-0043): 1,12 M per tre ridisegni, 0,37 M per evento. 7 difetti iniettati, tutti
+  presi.
+- **F2.09c** Da F2.09b: la prova a mano dell'adapter AccessKit con Orca su KDE (proprietario), quando
+  la finestra mostra widget veri; nella sandbox non si può (niente schermo).
 - **F2.09d** Da F2.09a (scelta WB5): i rettangoli dei widget sono in pixel logici della finestra e i
   segmenti si registrano senza trasformazioni; l'area scorrevole deve decidere come spostare i
   figli (una trasformazione con clip per il suo contenuto, rettangoli e test del puntatore nello
@@ -1187,3 +1199,4 @@ raccomandato.
 | 2026-11-12 | 0.61 | F2.07c fatto e con esso F2.07 (token del testo, `Faces::glyph_box`, scena di riferimento con glifi a 18,3 M istruzioni entro il budget di 33 M); note in F2.07c (risultati), F2.17 (riquadri SMuFL), F2.12b (cambiare un token del testo reimpagina); prossimo passo F2.08 | proprietario |
 | 2026-11-12 | 0.62 | F2.08 fatto (ADR-0045 Accepted, D12 chiusa: widget ritenuti, layout nostro, eventi, focus, AccessKit per widget); note in F2.09 (AccessKit, obiettivo 0,5 M per evento) e F2.10 (appunti, `arboard`); prossimo passo F2.09 | proprietario |
 | 2026-11-12 | 0.63 | F2.09 diviso in F2.09a–d; F2.09a fatto (nucleo dei widget, densità; un clic su 200 widget 63 000 istruzioni); nota in F2.09d (scorrimento e coordinate); prossimo passo F2.09b | proprietario |
+| 2026-11-12 | 0.64 | F2.09b fatto (AccessKit, etichetta, pulsante); aggiunto e fatto F2.09b2 (cache dei rettangoli arrotondati: un evento su un pulsante da 0,9 M a 0,37 M istruzioni); nota in F2.09c (prova con Orca); prossimo passo F2.09c | proprietario |
