@@ -11,6 +11,7 @@
 
 use crate::theme::builtin::BuiltInTheme;
 use crate::theme::color::Color;
+use crate::theme::density::Density;
 use crate::theme::mode::Appearance;
 use crate::theme::pair::ThemePair;
 use crate::theme::text::{Family, FamilyToken, SizeToken};
@@ -18,8 +19,8 @@ use crate::theme::token::{ColorToken, ShapeToken, Theme};
 
 /// One change a custom theme makes to its base instance.
 ///
-/// Exhaustive (ADR-0034 D2): the text tokens (F2.07c) added two variants, density (F2.09) will add
-/// more, and the settings file and the editor must handle them all.
+/// Exhaustive (ADR-0034 D2): the text tokens (F2.07c) and the density (F2.09a) added variants, and
+/// the settings file and the editor must handle them all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Override {
     /// A colour token gets this colour.
@@ -28,6 +29,8 @@ pub enum Override {
     Shape(ShapeToken, u8),
     /// A family token gets this bundled family (ADR-0044 TX11).
     Family(FamilyToken, Family),
+    /// The theme gets this density (F2.09a).
+    Density(Density),
     /// A size token gets this size, in logical pixels (clamped to
     /// [`MIN_TEXT_SIZE`](crate::MIN_TEXT_SIZE)..=[`MAX_TEXT_SIZE`](crate::MAX_TEXT_SIZE)).
     TextSize(SizeToken, u8),
@@ -42,6 +45,7 @@ impl Override {
             Self::Shape(token, value) => theme.with_shape(token, value),
             Self::Family(token, family) => theme.with_family(token, family),
             Self::TextSize(token, size) => theme.with_text_size(token, size),
+            Self::Density(density) => theme.with_density(density),
         }
     }
 }

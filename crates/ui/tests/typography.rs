@@ -122,3 +122,41 @@ fn every_size_token_has_its_own_slot() {
         assert_eq!(theme.typography().family(token), family, "{token:?}");
     }
 }
+
+/// The density (F2.09a, WB10): comfortable by default in every built-in theme, compact by a
+/// custom override, each with its spacing values; names round-trip.
+#[test]
+fn density_is_comfortable_by_default_and_overridable() {
+    use orchestra_ui::Density;
+    for &theme in BuiltInTheme::ALL {
+        assert_eq!(theme.pair().light.density(), Density::Comfortable);
+        assert_eq!(theme.pair().dark.density(), Density::Comfortable);
+    }
+    let comfortable = Density::Comfortable.spacing();
+    assert_eq!(
+        (
+            comfortable.control_padding,
+            comfortable.gap_m,
+            comfortable.control_height
+        ),
+        (10.0, 12.0, 28.0)
+    );
+    let compact = Density::Compact.spacing();
+    assert_eq!(
+        (
+            compact.control_padding,
+            compact.gap_m,
+            compact.control_height
+        ),
+        (6.0, 8.0, 22.0)
+    );
+    let mut custom = CustomTheme::new(BuiltInTheme::Graphite);
+    custom.dark = vec![Override::Density(Density::Compact)];
+    let resolved = custom.resolve();
+    assert_eq!(resolved.light.density(), Density::Comfortable);
+    assert_eq!(resolved.dark.density(), Density::Compact);
+    assert_eq!(resolved.dark.spacing(), compact);
+    for density in Density::ALL {
+        assert_eq!(Density::from_name(density.name()), Some(density));
+    }
+}

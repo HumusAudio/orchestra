@@ -199,3 +199,25 @@ See WA1 (immediate; declarative with reconciliation), WA2 (`taffy`), WA7 (callba
 - The demonstration window of ADR-0040 W8 is replaced by real widgets as soon as they exist.
 - A declarative layer remains possible later, on top of the retained tree.
 - Decision D12 closes on acceptance; the clipboard part moves to F2.10.
+
+## Precisions of the implementation (F2.09a, approved by the owner on 2026-11-12)
+
+Choices WB1–WB11 before coding the core (`orchestra-ui`, `src/widget/`), with two precisions of
+this ADR:
+- **WB7, pointer events bubble too** (WA3 named keys and the wheel): an unhandled press, release
+  or move goes to the parent, up to the root. The widget that handles a press captures the
+  pointer, even when it is an ancestor of the widget hit.
+- **WB9, a modal layer blocks the pointer outside it** (WA4 named the focus): a click outside an
+  open dialog reaches no widget. F2.12 may let some popups (menus) close on such a click.
+- **WB10, density** (ADR-0037): one `Density` per theme, comfortable (default) or compact, giving
+  the spacing values (control padding 10 / 6; gaps 4, 8, 12, 16 / 2, 4, 8, 12; control height
+  28 / 22); `Override::Density` in custom themes; a change re-lays out.
+- The arena takes a widget out of its slot to call it (no reference counting); a `WidgetId` is
+  never reused and is the widget's `SegmentId`; `Ui<M>` holds the tree, the routing state and the
+  message queue (`take_messages`). In a row, a later sibling is measured again when the space left
+  for it changes, so incremental layout re-measures the changed widget, its later siblings and
+  its ancestors.
+- Measured: a click on a 200-widget panel 63 000 instructions with drawing (target 0.5 M); a leaf
+  that grows 116 000; a full re-layout 0.86 M.
+
+The owner noted that these values and behaviours can be adjusted later as real panels show.

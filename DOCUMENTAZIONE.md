@@ -3338,6 +3338,15 @@ aperto non lo fa ancora nessuno, lo farà l'editor dei temi di F2.12b. Test in
 ripiego del peso, gli override (vince l'ultimo), l'intervallo delle dimensioni, ogni token nel suo
 posto, i nomi stabili.
 
+#### La densità
+
+Passo F2.09a (ADR-0037, scelta WB10), in `src/theme/density.rs`. Un tema ha una `Density`,
+**comoda** (la predefinita di ogni tema incluso) o **compatta**, che dà i valori di `Spacing` letti
+dal layout e dai widget: il margine dentro un controllo (10 / 6), quattro spaziature (4, 8, 12, 16 /
+2, 4, 8, 12) e l'altezza di un controllo (28 / 22), in pixel logici. Un tema personalizzato la cambia
+con `Override::Density`. Come i token del testo, cambiarla rifà il layout (`Ui::set_theme`), non
+solo il disegno. I valori sono una prima approvazione, da regolare sui pannelli veri.
+
 #### La preferenza chiaro/scuro del sistema
 
 Quando l'utente lascia il modo su *Sistema* (il predefinito), l'interfaccia deve sapere se il
@@ -3701,6 +3710,64 @@ prende un test unitario della fusione.
 costa ≈ 15,5 M istruzioni con la cache calda e ≈ 20,2 M quando il primo fotogramma la riempie; la
 maggior parte è la fusione, circa 25 istruzioni per pixel di glifo. Il budget si verifica sulla scena
 di riferimento in F2.07c.
+
+#### Il nucleo dei widget
+
+Passo F2.09a (ADR-0045, scelte WB1–WB11), in `src/widget/`. L'interfaccia è un **albero ritenuto
+di widget**: oggetti che vivono fra un fotogramma e l'altro con il loro stato, il loro rettangolo e
+il loro segmento della lista di disegno. L'applicazione tiene una `Ui<M>` per finestra, dove `M` è
+il suo tipo di messaggio:
+
+```rust
+let mut ui = Ui::new(Flex::column(Space::M, Space::L), &theme);
+let row = ui.add(ui.root(), Flex::row(Space::S, Space::None), LayoutProps::default())?;
+let ok = ui.add(row, my_button, LayoutProps::default().width(Length::Fill(1.0)))?;
+ui.layout(window_bounds, &mut list);      // on every size change
+ui.input(&event, &mut list);              // for every input event
+for message in ui.take_messages() { /* turn it into commands on the model */ }
+```
+
+**L'arena** (`tree.rs`). I widget stanno in un vettore di posti: il widget in una `Box`, il genitore
+e i figli, le regole di layout, il rettangolo, la cache dell'ultima misura e due segni ("rifammi il
+layout", "registrami di nuovo"). Un `WidgetId` viene da un contatore e non si riusa mai, quindi un
+ID vecchio non può raggiungere un altro widget; è anche il `SegmentId` del widget. Per misurare un
+contenitore, che deve misurare i figli nella stessa arena, l'albero toglie il widget dal suo posto,
+lo chiama con un contesto che prende in prestito l'arena e lo rimette a posto: niente contatori di
+riferimenti, niente mutabilità interna. Un widget implementa `Widget<M>`: `measure`, `arrange`,
+`record`, `event`, `focusable`.
+
+**Layout** (`layout.rs`). Due passate: la misura (i vincoli scendono, le dimensioni salgono) e la
+disposizione (i rettangoli scendono). Ogni figlio ha una regola per larghezza e altezza, `Fixed`,
+`Content` o `Fill(peso)`, e un allineamento. Contenitori: `Flex` (una riga o una colonna, con
+spaziatura e margine interno), `Stack` (figli uno sopra l'altro) e `Grid` (tracce fisse, a
+contenuto e a riempimento, ogni figlio nella sua cella). Le spaziature sono valori `Space` che
+seguono la densità del tema. Il layout è **incrementale**: una modifica segna il widget e i suoi
+antenati; il fotogramma successivo misura di nuovo solo quei percorsi, gli altri rispondono dalla
+cache quando i vincoli sono gli stessi (i fratelli successivi in una riga si rimisurano quando
+cambia lo spazio rimasto per loro), e la disposizione salta i sottoalberi il cui rettangolo non è
+cambiato.
+
+**Instradamento** (`ui.rs`). Gli eventi del puntatore vanno al widget più in alto sotto il
+puntatore e **risalgono** ai suoi antenati finché uno li gestisce (precisazione WB7 del
+proprietario: il puntatore risale come la tastiera e la rotella). Un widget che gestisce una
+pressione **cattura** il puntatore fino al rilascio. Ingresso e uscita si generano quando cambia il
+widget sotto il puntatore. La tastiera va al widget con il focus e risale; un Tab non gestito sposta
+il focus nell'ordine dell'albero (Maiusc+Tab all'indietro, ricominciando dall'altro capo); una
+pressione dà il focus al primo widget che lo accetta, dal bersaglio in su. Uno **strato modale**
+(`open_modal`) tiene il focus dentro di sé e blocca il puntatore fuori (precisazione WB9); chiuderlo
+restituisce il focus. L'instradamento non alloca. Un fotogramma rifà il layout dove serve e
+registra di nuovo, nell'ordine dell'albero, i widget segnati, così un fratello successivo è disegnato
+sopra uno precedente.
+
+**Test** (`tests/widgets.rs`, `tests/widgets_no_alloc.rs`): ogni contenitore e regola di dimensione,
+il layout incrementale contato misura per misura, segmenti e aree danneggiate, il bersaglio più in
+alto, la risalita fino a un genitore che gestisce, la cattura durante un trascinamento, il passaggio
+del puntatore, il focus con il clic e con Tab, un Tab gestito, la trappola modale e il focus
+restituito, la rimozione di un sottoalbero, la densità, la rotella, l'ordine di disegno, e nessuna
+allocazione nell'instradamento. Quattordici difetti iniettati: tutti presi, uno dopo un test scritto
+apposta (l'ordine di disegno). **Benchmark** (`benches/widgets.rs`, 200 foglie in 40 righe, disegno
+compreso): primo fotogramma 3,4 M istruzioni, un clic **63 000**, una foglia che cresce 116 000, un
+cambio di densità che rifà tutto il layout 0,86 M. L'obiettivo di ADR-0045 è 0,5 M per evento.
 
 #### La finestra e il ciclo degli eventi
 

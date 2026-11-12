@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); next F2.09 (basic widgets).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done; next F2.09b (AccessKit, label, button).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1030,7 +1030,23 @@ the draft **ADR-0045** (Proposed) was written: a retained widget tree in an aren
 hit testing with capture, keyboard to the focused widget with bubbling, Tab order and modal
 focus traps, one AccessKit node per widget with incremental updates, one segment per widget,
 typed messages to the application, the clipboard left to F2.10. **ADR-0045 Accepted** (2026-11-12), D12 closed; SCALETTA v0.62.
-**Next:** the PR of F2.08, then F2.09 (the first widgets).
+Merged with PR #65 (CI green on Linux, Windows, benchmarks and guides; macOS cancelled several
+times without a runner, re-run on `main`).
+
+**Step F2.09** split in four parts in the briefing (approved): F2.09a the core, F2.09b AccessKit
+with label and button, F2.09c checkbox, switch, slider and the demonstration replaced, F2.09d
+scroll area, splitter and the 200-widget benchmark. **F2.09a done** (2026-11-12,
+`feature/f2-09a-widget-core`): before coding the owner approved WB1–WB11 (with two precisions of
+ADR-0045: pointer events bubble, a modal layer blocks the pointer outside it; the density values),
+recorded among ADR-0045's precisions. In `orchestra-ui`: `src/theme/density.rs` (`Density`,
+`Spacing`, `Override::Density`, `Theme::density`/`spacing`/`with_density`), `src/widget/`
+(`tree.rs`: the arena, `WidgetId`, `Widget`, `LayoutCx`, `EventCx`, `RecordCx`, `WidgetEvent`,
+`Handled`; `layout.rs`: `Size`, `Constraints`, `Length`, `Align`, `LayoutProps`, `Space`, `Flex`,
+`Stack`, `Grid`, `Track`; `ui.rs`: `Ui` with routing, capture, hover, focus, Tab, modal layers,
+removal, `UiError`). Tests: `tests/widgets.rs` (16 cases), `tests/widgets_no_alloc.rs`, a density
+test; fourteen injected bugs, all caught (one after a test written for it). Benchmarks
+`benches/widgets.rs`: first frame of 241 widgets 3.4 M, a click 63 000 with drawing (target 0.5 M),
+a growing leaf 116 000, a full re-layout 0.86 M. **Next:** F2.09b.
 
 | Step | What | Status |
 |---|---|---|
