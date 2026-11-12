@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.60, approvata dal proprietario il 2026-11-12.**
+> **Stato di questo documento: v0.61, approvata dal proprietario il 2026-11-12.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -695,7 +695,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.06b | **Backend `vello_cpu`** (ADR-0042): `Renderer` su `vello_cpu` con ridisegno delle sole aree cambiate e thread configurabili; collaudo con i test di pixel; benchmark e confronto con `tiny-skia`; poi `tiny-skia` esce e il PNG passa a `png` | ✅ ADR-0043 | 2 |
 | F2.07 | **ADR del testo**: font inclusi, shaping, cache dei glifi, misure, a capo, token del testo; Bravura per i simboli musicali | ✅ ADR-0044 | 1 |
 | F2.07b | **Testo, realizzazione** (ADR-0044): crate `orchestra-text` (font, shaping, `TextLayout`, a capo, metriche, profili), comando `GlyphRun`, cache dei glifi per `tiny-skia`, scelta della gamma a occhio, scelta fra `icu_segmenter` e il sottoinsieme nostro per l'a capo | ✅ | 2 |
-| F2.07c | **Token del testo** (ADR-0044 TX11) nel tema, testo nella scena di riferimento e nel catalogo degli screenshot, budget del fotogramma intero (33 M istruzioni) | ⬜ | 1 |
+| F2.07c | **Token del testo** (ADR-0044 TX11) nel tema, testo nella scena di riferimento e nel catalogo degli screenshot, budget del fotogramma intero (33 M istruzioni) | ✅ | 1 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ⬜ | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
@@ -820,6 +820,12 @@ controllo completo. Va fatta bene una volta sola.
   la cache calda, quasi tutte nella fusione dei pixel.
 - **F2.07b** Da ADR-0043 (che sostituisce ADR-0042 R6): la cache dei glifi si costruisce per
   `tiny-skia`, come previsto prima di ADR-0042.
+- **F2.07c** **Fatto il 2026-11-12** (scelte TD1–TD6, ADR-0044 precisazioni): token del testo nel
+  tema (famiglie, dimensioni 11–22 px, pesi), `Faces::glyph_box`, scena di riferimento con teste di
+  nota di Bravura, nomi degli strumenti e numeri di battuta: registrazione + fotogramma intero
+  **18,3 M istruzioni** (budget 33 M rispettato; 84,7 M con i tracciati), modifica di una nota
+  0,25 M. La fusione dei pixel non è stata toccata (TD6). La finestra dimostrativa mostra titolo,
+  numeri di battuta e teste di nota di Bravura.
 - **F2.07c** Da F2.07b (2026-11-12): se il fotogramma della scena di riferimento supera i 33 M
   istruzioni, il primo intervento da valutare è la fusione dei pixel dei glifi (oggi circa 25
   istruzioni a pixel, in virgola mobile), per esempio con l'aritmetica intera, **prima** di aprire
@@ -846,6 +852,9 @@ controllo completo. Va fatta bene una volta sola.
   torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
   Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
   barra del titolo, lì il problema sparisce su Linux.
+- **F2.12b** Da F2.07c (2026-11-12): cambiare un token del testo (famiglia o dimensione) vuol dire
+  impaginare di nuovo i testi e registrare di nuovo i loro segmenti, non solo ridisegnare
+  (ADR-0044 TX9): l'editor dei temi deve farlo.
 - **F2.15** Da ADR-0041: i primi screenshot veri nelle guide, una voce nuova in `SCENES` per ogni
   vista mostrata; con le viste vere si riconsiderano i confronti con immagini di riferimento
   (ADR-0041 S5).
@@ -877,6 +886,9 @@ la partitura), vista notazione, inserimento note da tastiera, tutto via comandi.
 - **F2.17** Da F2.07b (2026-11-12): i simboli SMuFL si cercano **solo** in Bravura
   (`Faces::glyph_for_char` con `FaceId::Bravura`), perché Inter usa gli stessi punti di codice
   dell'area a uso privato per glifi suoi.
+- **F2.17** Da F2.07c (2026-11-12): i riquadri dei simboli vengono dai metadati SMuFL
+  (`glyphBBoxes` di Bravura); `Faces::glyph_box` resta come riserva per i glifi che non li hanno. Mai
+  il riquadro dell'intero font per i simboli: per Bravura è largo 2,75 em e alto 3,9 em.
 - **F2.23** Da ADR-0042 R2: se un budget sfora anche con `vello_cpu`, si rimisura il percorso GPU
   con `spikes/gpu-render` sulle versioni del momento.
 - **F2.23** Da F1.11c (ADR-0026 §11 R11): misurare in tempo reale sul portatile di riferimento il
@@ -1149,3 +1161,4 @@ raccomandato.
 | 2026-11-11 | 0.58 | F2.06b fatto (PR #63, ADR-0043 Accepted: `tiny-skia` resta, `vello_cpu` scartato dopo un confronto falsato, ombre in cache con l'interno riempito da tabella); nota in F2.07 (cache dei glifi per `tiny-skia`); prossimo passo F2.07 | proprietario |
 | 2026-11-12 | 0.59 | F2.07 diventa l'ADR del testo (fatto, ADR-0044 Accepted: crate `orchestra-text`, cinque font inclusi, cache dei glifi da 8 MB, `GlyphRun`, a capo secondo UAX #14, token del testo); nuovi F2.07b (realizzazione) e F2.07c (token, scena di riferimento, budget); note di F2.07 spostate in F2.07b e F2.07c; un'unica PR per l'intero passo; prossimo passo F2.07b | proprietario |
 | 2026-11-12 | 0.60 | F2.07b fatto (glyph run e cache dei glifi, contrasto del testo γ = 1,45 scelto dal proprietario); note in F2.07b (risultati), F2.10 (cursore sui cluster), F2.17 (SMuFL solo in Bravura), F2.07c (fusione dei pixel prima di un ADR sul budget); prossimo passo F2.07c | proprietario |
+| 2026-11-12 | 0.61 | F2.07c fatto e con esso F2.07 (token del testo, `Faces::glyph_box`, scena di riferimento con glifi a 18,3 M istruzioni entro il budget di 33 M); note in F2.07c (risultati), F2.17 (riquadri SMuFL), F2.12b (cambiare un token del testo reimpagina); prossimo passo F2.08 | proprietario |

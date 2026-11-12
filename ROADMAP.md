@@ -1011,8 +1011,8 @@ edit 0.25 M (0.61 M before). In `orchestra-app`: `Demo::new(faces, title)` with 
 numbers and Bravura noteheads; scenes get a `SceneContext` (`ScreenshotError::Setup` added).
 Tests: `tests/typography.rs` (6), glyph boxes enclosing the ink, the demo screenshot's title;
 ten injected bugs, nine caught (one after a test written for it), one equivalent (a box without
-control points: our fonts have points at every extreme). **F2.07 complete.** **Next:** the PR of
-the whole step, then F2.08.
+control points: our fonts have points at every extreme). **F2.07 complete.** SCALETTA v0.61 records it
+(notes for F2.17 and F2.12b). **Next:** the PR of the whole step, then F2.08.
 
 | Step | What | Status |
 |---|---|---|
