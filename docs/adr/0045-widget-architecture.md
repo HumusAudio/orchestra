@@ -1,7 +1,7 @@
 # ADR-0045 — Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget
 
-- **Status:** Proposed (the owner approved the outline WA1–WA8 on 2026-11-12; this text awaits
-  acceptance). Closes decision D12 of SCALETTA on acceptance (its clipboard part moves to F2.10).
+- **Status:** Accepted (owner, 2026-11-12; outline WA1–WA8 approved first, then the text). Closes
+  decision D12 of SCALETTA (its clipboard part moves to F2.10).
 - **Date:** 2026-11-12
 - **Implements:** ADR-0012 (our own interface, no toolkit), ADR-0039 (the segmented display
   list: a widget is a segment), ADR-0040 W5 and W7 (our input events; the AccessKit adapter at
@@ -40,7 +40,7 @@ checked on crates.io on 2026-11-12: `accesskit` 0.25.2, `accesskit_winit` 0.34.2
 `accesskit_unix` 0.24.1 are unchanged since ADR-0036 and still on zbus 5.19, so ADR-0038 S7's
 exceptions in `deny.toml` stay; `arboard` 3.7.0 is the clipboard candidate for F2.10.
 
-The owner approved the outline WA1–WA8 below on 2026-11-12.
+The owner approved the outline WA1–WA8 below on 2026-11-12, then accepted the text the same day.
 
 ## Decision
 
