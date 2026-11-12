@@ -3847,6 +3847,59 @@ curvi, il cui contorno `tiny-skia` suddivide in modo leggermente diverso con alt
 assolute) e verifica la clip; sette difetti iniettati, tutti presi (uno dopo il test sulla clip
 scritto apposta).
 
+#### Caselle, interruttori e cursori; l'anteprima Riproduzione
+
+Passo F2.09c (scelte WD1–WD8), in `src/widget/toggle.rs`, `slider.rs`, `look.rs` e nel `demo.rs`
+dell'applicazione.
+
+**Casella e interruttore** sono un solo tipo, `Toggle` (`Toggle::checkbox`, `Toggle::switch`), con
+la loro etichetta dentro il controllo: un clic in qualunque punto lo cambia, un rilascio fuori
+annulla, Spazio e il clic di AccessKit lo cambiano quando ha il focus. Ogni cambio manda il messaggio
+che l'applicazione costruisce dal nuovo stato (`fn(bool) -> M`); l'impostazione è dell'applicazione,
+che può mostrare un altro stato con `set_on`. Una casella è un quadrato di 4/7 dell'altezza del
+controllo (`accent` con il segno di spunta `on-accent` quando è accesa); un interruttore è una
+pillola larga il doppio con un pomello (acceso: `accent`, pomello a destra). L'anello di focus
+(`look.rs`, condiviso con i pulsanti) circonda il quadrato o la traccia.
+
+**Cursore**: un valore da un minimo a un massimo con un passo, sempre sulla griglia e
+nell'intervallo. Una pressione porta il valore sotto il puntatore e lo cattura; il trascinamento
+segue il puntatore anche fuori dal cursore; le frecce muovono di un passo, Pagina su/giù di dieci,
+Inizio/Fine agli estremi; funzionano anche aumenta, diminuisci e imposta valore di AccessKit (nuovi
+`WidgetEvent::Increment`, `Decrement`, `SetValue`, e `AccessInfo::range`). Un cursore non ha testo
+suo, quindi `labelled(nome)` gli dà il nome dell'etichetta accanto, che il lettore di schermo
+annuncia. Ogni cambio manda `fn(f64) -> M`. Due dettagli tengono economico il trascinamento: la
+parte colorata della traccia è un'estremità arrotondata fissa più un rettangolo semplice (un
+rettangolo arrotondato di larghezza variabile sarebbe una forma nuova per la cache a ogni
+movimento), e il pomello si posa sui quarti di pixel (le sue poche posizioni restano in cache): un
+movimento di trascinamento costa **0,22 M istruzioni** con il disegno e l'aggiornamento accessibile
+(prima 0,55 M).
+
+**L'anteprima Riproduzione.** La finestra dimostrativa ora è fatta di widget veri: il titolo
+*Playback*, la casella *Metronome*, l'interruttore *Count-in*, il cursore *Metronome volume* (con il
+nome per le tecnologie assistive), i pulsanti *Restore defaults* e *OK*, e il rigo con le teste di
+nota di Bravura come widget a sé (`StaffPreview`). Ogni testo viene dai cataloghi (`DemoTexts`): i
+sei messaggi nuovi e le loro voci di glossario (riproduzione, metronomo, conteggio iniziale, volume,
+ripristina predefiniti, OK) sono stati cercati nei cataloghi dell'interfaccia di MuseScore e Ardour
+e nei manuali di Logic e Cubase, e approvati dal proprietario; conteggio iniziale è segnato da far
+rivedere a musicisti madrelingua (le fonti non concordano in tedesco e spagnolo). *Restore defaults*
+riporta i controlli ai valori iniziali: l'applicazione cambia i widget con `widget_mut` e
+`request_record`.
+
+```rust
+let volume = ui.add(
+    volume_row,
+    Slider::new(0.0, 100.0, 1.0, DEFAULT_VOLUME, DemoMessage::Volume).labelled(texts.volume.clone()),
+    content.width(Length::Fill(1.0)),
+)?;
+```
+
+**Test**: `tests/controls.rs` (casella con l'etichetta, Spazio e AccessKit; aspetto
+dell'interruttore; disabilitato; annullamento trascinando fuori; trascinamento, griglia e limiti del
+cursore; tastiera e azioni di valore di AccessKit; ruoli, nomi, valori e intervalli dei nodi) e
+`crates/app/tests/demo.rs` (ogni controllo con un nome nell'albero accessibile; *Restore defaults*).
+Quattordici difetti iniettati, tutti presi (uno dopo il test sull'annullamento scritto apposta). La
+parte di AccessKit nella finestra la verifica il proprietario con Orca.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
@@ -3868,7 +3921,7 @@ let options = WindowOptions {
     height: 600.0,
     faces,
 };
-let demo = Demo::new(&options.faces, &options.title);
+let demo = Demo::new(&options.faces, &theme, &options.title, &texts);
 orchestra_ui::run(demo, options)?;
 ```
 
@@ -3958,21 +4011,21 @@ programma stesso, senza finestra. Lavorano insieme tre pezzi.
 **Un catalogo di scene.** `crates/app/src/screenshots.rs` elenca ogni screenshot in `SCENES`: un
 nome in kebab case (il nome del file), una dimensione in pixel logici e una funzione che porta una
 vista nello stato da mostrare, esattamente come farebbe una finestra: `layout` per la dimensione
-della scena, poi eventuali eventi di input. Oggi c'è una sola scena, la finestra di prova a riposo
-con il puntatore a destra del pannello:
+della scena, poi eventuali eventi di input. Oggi c'è una sola scena, la finestra di prova con il
+focus della tastiera sul suo primo controllo:
 
 ```rust
 pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
-    height: 330.0,
+    height: 370.0,
     record: record_demo_window,
 }];
 
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
-    let mut demo = Demo::new(&context.faces, &context.app_name);
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
     demo.layout(bounds, list);
-    demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
+    demo.input(&InputEvent::Key { key: Key::Named(NamedKey::Tab), /* … */ }, list);
 }
 ```
 
@@ -3982,8 +4035,9 @@ di Studio**, impostata in modo esplicito e mai letta dal sistema (scelta del pro
 ADR-0014 §7 e ADR-0037 T10, che dicevano chiara). La lingua è en-US: da F2.07c `render` prepara un
 `SceneContext` (i font inclusi e l'`app-name` in en-US) e lo passa a ogni scena, così le scene
 restano semplici funzioni e un font o un catalogo mancante è un errore tipizzato
-(`ScreenshotError::Setup`), non un panico. La finestra dimostrativa mostra il nome del programma come
-titolo, i numeri di battuta del suo rigo e teste di nota di Bravura.
+(`ScreenshotError::Setup`), non un panico. Da F2.09c la scena è
+l'anteprima Riproduzione con il focus sul suo primo controllo (un Tab), così l'anello di focus è
+nell'immagine.
 
 **Un binario per sviluppatori.** `orchestra-app` ora è una libreria (`src/lib.rs`, con `demo` e
 `screenshots`) e due binari: `orchestra`, il programma, e `orchestra-screenshots <OUT_DIR>`, che

@@ -131,9 +131,14 @@ fn bad_sizes_are_rejected() {
     assert!((SCALE - 2.0).abs() < f32::EPSILON);
 }
 
-/// The demonstration window shows its title (F2.07c): in the screenshot, the area right of the
-/// three controls holds light text pixels (the theme is dark) and nothing else is there.
+/// The demonstration window shows its title (F2.07c; since F2.09c a label of the Playback
+/// panel): in the screenshot, the title's rectangle holds light text pixels (the theme is dark).
 #[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "pixel coordinates of a small, positive rectangle"
+)]
 fn the_demo_window_shows_its_title() {
     let scene = SCENES
         .iter()
@@ -144,15 +149,24 @@ fn the_demo_window_shows_its_title() {
         &mut CpuRenderer::new(orchestra_text::Faces::bundled().unwrap()),
     )
     .unwrap();
-    // The title's area, logical x 384–520, y 44–76 (MARGIN + 360, the controls' row), at
-    // scale 2: count the pixels much lighter than the raised panel around them.
-    let panel = theme().color(ColorToken::SurfaceRaised);
+    // Where the title is: built the same way as the scene, at the same size.
+    let context = orchestra_app::SceneContext::new().unwrap();
+    let mut demo =
+        orchestra_app::Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    let mut list = orchestra_ui::DisplayList::new();
+    orchestra_ui::WindowApp::layout(
+        &mut demo,
+        Rect::from_origin_size(0.0, 0.0, scene.width, scene.height),
+        &mut list,
+    );
+    let title = demo.ui().rect(demo.title()).unwrap();
+    let surface = theme().color(ColorToken::Surface);
     let mut light = 0;
-    for y in 88..152 {
-        for x in 768..1040 {
+    for y in (title.y0 * SCALE) as u32..(title.y1 * SCALE) as u32 {
+        for x in (title.x0 * SCALE) as u32..(title.x1 * SCALE) as u32 {
             let [r, g, b, _] = image.pixel(x, y).unwrap();
             if u16::from(r) + u16::from(g) + u16::from(b)
-                > u16::from(panel.r) + u16::from(panel.g) + u16::from(panel.b) + 300
+                > u16::from(surface.r) + u16::from(surface.g) + u16::from(surface.b) + 300
             {
                 light += 1;
             }

@@ -25,6 +25,10 @@ orchestra-ui.workspace = true
 orchestra-text.workspace = true
 orchestra-video.workspace = true
 
+[dev-dependencies]
+# The demonstration's tests read the roles and names of its accessibility tree (F2.09c).
+accesskit.workspace = true
+
 [lints]
 workspace = true
 

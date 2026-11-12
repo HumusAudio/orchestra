@@ -1675,6 +1675,7 @@ dependencies = [
 name = "orchestra-app"
 version = "0.0.0"
 dependencies = [
+ "accesskit",
  "orchestra-audio-engine",
  "orchestra-core-model",
  "orchestra-core-time",

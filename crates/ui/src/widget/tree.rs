@@ -139,6 +139,12 @@ pub enum WidgetEvent<'a> {
     /// An assistive technology asked to activate this widget (AccessKit's click, WC5): a button
     /// acts as if clicked.
     Activate,
+    /// An assistive technology asked to increase the value by one step (F2.09c).
+    Increment,
+    /// An assistive technology asked to decrease the value by one step.
+    Decrement,
+    /// An assistive technology asked to set the value.
+    SetValue(f64),
 }
 
 /// What a widget needs to record its segment: its rectangle, its focus, the theme's spacing.

@@ -759,6 +759,15 @@ impl<M: 'static> Ui<M> {
                 self.deliver(slot, &WidgetEvent::Activate, false);
             }
             AccessActionKind::Focus => self.set_focus_slot(Some(slot)),
+            AccessActionKind::Increment => {
+                self.deliver(slot, &WidgetEvent::Increment, false);
+            }
+            AccessActionKind::Decrement => {
+                self.deliver(slot, &WidgetEvent::Decrement, false);
+            }
+            AccessActionKind::SetValue(value) => {
+                self.deliver(slot, &WidgetEvent::SetValue(value), false);
+            }
         }
         self.frame(list);
         Ok(())

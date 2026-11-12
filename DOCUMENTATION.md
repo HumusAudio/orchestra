@@ -3601,6 +3601,54 @@ but for a few corner pixels of curved strokes whose outline `tiny-skia` subdivid
 differently at other absolute coordinates) and checks the clip; seven injected bugs, all caught
 (one after the clip test written for it).
 
+#### Check boxes, switches and sliders; the Playback preview
+
+Step F2.09c (choices WD1–WD8), in `src/widget/toggle.rs`, `slider.rs`, `look.rs` and the
+application's `demo.rs`.
+
+**Check box and switch** are one type, `Toggle` (`Toggle::checkbox`, `Toggle::switch`), with their
+label inside the control: a click anywhere on it toggles, a release outside cancels, Space and
+AccessKit's click toggle when focused. Each change sends the message the application builds from
+the new state (`fn(bool) -> M`); the application owns the setting and can show another state with
+`set_on`. A check box is a box of 4/7 of the control height (`accent` with an `on-accent` check mark
+when on); a switch is a pill twice as wide with a knob (on: `accent`, knob on the right). The focus
+ring (`look.rs`, shared with buttons) surrounds the box or the track.
+
+**Slider**: a value from a minimum to a maximum by a step, always on the grid and in the range.
+A press moves the value under the pointer and captures it; the drag follows the pointer also
+outside the slider; the arrows move one step, Page Up/Down ten, Home/End to the ends; AccessKit's
+increase, decrease and set value work too (new `WidgetEvent::Increment`, `Decrement`, `SetValue`,
+and `AccessInfo::range`). A slider has no text of its own, so `labelled(name)` gives it the name of
+the label shown next to it, which a screen reader announces. Each change sends `fn(f64) -> M`.
+Two details keep a drag cheap: the coloured part of the track is a fixed rounded cap plus a plain
+rectangle (a rounded rectangle of varying width would be a new shape for the cache at every move),
+and the thumb sits on quarter pixels (its few positions stay cached): a drag move costs **0.22 M
+instructions** with drawing and the accessibility update (0.55 M before).
+
+**The Playback preview.** The demonstration window is now built with real widgets: the title
+*Playback*, the check box *Metronome*, the switch *Count-in*, the slider *Metronome volume* (named
+for assistive technologies), the buttons *Restore defaults* and *OK*, and the staff with Bravura
+noteheads as a widget of its own (`StaffPreview`). Every text comes from the catalogues
+(`DemoTexts`): the six new messages and their glossary entries (playback, metronome, count-in,
+volume, restore defaults, OK) were researched in MuseScore's and Ardour's UI catalogues and in
+Logic's and Cubase's manuals and approved by the owner; count-in is marked for review by
+native-speaking musicians (sources disagree in German and Spanish). *Restore defaults* sets the
+controls back, the application changing widgets through `widget_mut` and `request_record`.
+
+```rust
+let volume = ui.add(
+    volume_row,
+    Slider::new(0.0, 100.0, 1.0, DEFAULT_VOLUME, DemoMessage::Volume).labelled(texts.volume.clone()),
+    content.width(Length::Fill(1.0)),
+)?;
+```
+
+**Tests**: `tests/controls.rs` (check box by label, Space and AccessKit; switch looks; disabled;
+cancel by dragging out; slider drag, snap and clamp; keyboard and AccessKit value actions; the
+nodes' roles, names, values and ranges) and `crates/app/tests/demo.rs` (every control named in the
+accessibility tree; *Restore defaults*). Fourteen injected bugs, all caught (one after the cancel
+test written for it). The window side of AccessKit is checked by the owner with Orca.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
@@ -3622,7 +3670,7 @@ let options = WindowOptions {
     height: 600.0,
     faces,
 };
-let demo = Demo::new(&options.faces, &options.title);
+let demo = Demo::new(&options.faces, &theme, &options.title, &texts);
 orchestra_ui::run(demo, options)?;
 ```
 
@@ -3706,21 +3754,21 @@ without a window. Three pieces work together.
 **A catalogue of scenes.** `crates/app/src/screenshots.rs` lists every screenshot in `SCENES`: a
 name in kebab case (the file name), a size in logical pixels and a function that brings a view
 into the state to show, exactly as a window would: `layout` for the scene's size, then any input
-events. Today there is one scene, the demonstration window at rest with the pointer to the right
-of the panel:
+events. Today there is one scene, the demonstration window with the keyboard focus on its first
+control:
 
 ```rust
 pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
-    height: 330.0,
+    height: 370.0,
     record: record_demo_window,
 }];
 
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
-    let mut demo = Demo::new(&context.faces, &context.app_name);
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
     demo.layout(bounds, list);
-    demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
+    demo.input(&InputEvent::Key { key: Key::Named(NamedKey::Tab), /* … */ }, list);
 }
 ```
 
@@ -3730,8 +3778,8 @@ set explicitly and never read from the system (the owner's choice; it amends ADR
 ADR-0037 T10, which said light). The language is en-US: since F2.07c `render` prepares a
 `SceneContext` (the bundled faces and the en-US `app-name`) and passes it to every scene, so the
 scenes stay plain functions and a missing font or catalogue is a typed error
-(`ScreenshotError::Setup`), not a panic. The demonstration window shows the program's name as its
-title, the bar numbers of its staff and Bravura noteheads.
+(`ScreenshotError::Setup`), not a panic. Since F2.09c the scene is the
+Playback preview with the focus on its first control (a Tab), so the focus ring is in the picture.
 
 **A developer binary.** `orchestra-app` is now a library (`src/lib.rs`, with `demo` and
 `screenshots`) and two binaries: `orchestra`, the program, and `orchestra-screenshots <OUT_DIR>`,

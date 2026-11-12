@@ -1,309 +1,370 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The demonstration window of ADR-0040 W8: what `cargo run -p orchestra-app` shows until the
-//! real interface arrives with the widgets (F2.08 onwards).
+//! The demonstration window (ADR-0040 W8; rebuilt with real widgets in F2.09c, choice WD5): what
+//! `cargo run -p orchestra-app` shows until the real interface arrives.
 //!
-//! It draws with the commands of ADR-0039 and text (ADR-0044) and exists to check by eye:
-//! - **presentation and damage:** a disc follows the pointer, re-recording one segment per move,
-//!   so only its old and new place are redrawn;
-//! - **input:** the disc turns to the accent colour while a button is held; four squares light up
-//!   with the primary modifier, the secondary one, Shift and Alt;
-//! - **crisp lines and scale:** a staff of five 1 px lines with Bravura noteheads, barlines and bar
-//!   numbers, which must stay sharp at every scale factor;
-//! - **text:** the program's name as the panel's title (the `heading` size, bold) and the bar
-//!   numbers (the `numeric` family, tabular figures), from the glyph cache (F2.07c);
-//! - **following the system's theme:** switching the desktop between light and dark while the
-//!   window is open redraws it in the other half of the pair (ADR-0038, F2.04b);
-//! - **shapes and the theme:** a raised panel with its shadow and three controls in the theme's
-//!   colours, at the window's size (resizing lays it out again).
+//! It is a preview of the **Playback** options, built with the widgets of ADR-0045: a title, a
+//! check box (*Metronome*), a switch (*Count-in*), a slider (*Metronome volume*) and two buttons
+//! (*Restore defaults*, *OK*), above a staff with Bravura noteheads, bar numbers and stems (a
+//! widget of its own, [`StaffPreview`]). Every text comes from the catalogues ([`DemoTexts`],
+//! CLAUDE.md §7). It exists to check by eye, and with a screen reader (AccessKit):
+//! - the widgets' looks in every theme and density, the focus ring, Tab order;
+//! - activation by pointer, keyboard and assistive technology;
+//! - text, symbols and crisp lines at every scale factor;
+//! - following the system's theme while the window is open (ADR-0038).
 //!
-//! Nothing here is business logic (the crate's rule): it is a throw-away view, replaced as soon as
-//! real views exist.
+//! The options do nothing yet (playback arrives in F3); *Restore defaults* puts the controls back
+//! to their default values, to show the application changing widgets itself (ADR-0045 WA7).
+//! Nothing here is business logic (the crate's rule): it is a throw-away view.
 
-use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, Shaper, TextLayout};
+use orchestra_i18n::{I18nError, Localizer};
+use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, TextLayout};
 use orchestra_ui::{
-    ButtonState, ColorToken, DisplayList, FamilyToken, InputEvent, Modifiers, Paint, Point, Rect,
-    RoundedRect, SegmentId, SizeToken, StrokeStyle, Typography, Weight, WindowApp,
+    AccessAction, AccessUpdate, Align, Button, ButtonKind, ColorToken, Constraints, DisplayList,
+    FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length, Point, RecordCx, Recorder,
+    Rect, Size, SizeToken, Slider, Space, StrokeStyle, Theme, Toggle, Ui, Weight, Widget, WidgetId,
+    WindowApp,
 };
 
-/// The panel with its shadow and controls.
-const PANEL: SegmentId = SegmentId(1);
-/// The staff with its noteheads.
-const STAFF: SegmentId = SegmentId(2);
-/// The four modifier squares.
-const MODIFIERS: SegmentId = SegmentId(3);
-/// The disc under the pointer, drawn last so it is on top.
-const POINTER: SegmentId = SegmentId(4);
+/// The messages of the demonstration's widgets (ADR-0045 WA7).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DemoMessage {
+    /// The metronome check box changed.
+    Metronome(bool),
+    /// The count-in switch changed.
+    CountIn(bool),
+    /// The metronome volume changed (0–100).
+    Volume(f64),
+    /// *Restore defaults* was pressed.
+    RestoreDefaults,
+    /// *OK* was pressed.
+    Ok,
+}
 
-/// Margin around the panel, logical pixels.
-const MARGIN: f32 = 24.0;
-/// Radius of the pointer's disc, logical pixels.
-const DISC: f32 = 14.0;
+/// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DemoTexts {
+    /// `playback-title`.
+    pub title: String,
+    /// `playback-metronome`.
+    pub metronome: String,
+    /// `playback-count-in`.
+    pub count_in: String,
+    /// `playback-metronome-volume`.
+    pub volume: String,
+    /// `dialog-restore-defaults`.
+    pub restore_defaults: String,
+    /// `dialog-ok`.
+    pub ok: String,
+}
 
-/// The staff space of the demonstration staff, logical pixels: 10, so Bravura is set at 40 px
-/// per em (an em is four staff spaces in SMuFL).
-const SPACE: f32 = 10.0;
+impl DemoTexts {
+    /// The texts in `localizer`'s language.
+    ///
+    /// # Errors
+    /// The localizer's error if a message is missing (the catalogues' parity tests prevent it).
+    pub fn new(localizer: &Localizer) -> Result<Self, I18nError> {
+        Ok(Self {
+            title: localizer.format("playback-title", None)?,
+            metronome: localizer.format("playback-metronome", None)?,
+            count_in: localizer.format("playback-count-in", None)?,
+            volume: localizer.format("playback-metronome-volume", None)?,
+            restore_defaults: localizer.format("dialog-restore-defaults", None)?,
+            ok: localizer.format("dialog-ok", None)?,
+        })
+    }
+}
 
-/// How many notes a bar of the demonstration staff holds.
-const NOTES_PER_BAR: u8 = 4;
+/// The default values the controls start from and *Restore defaults* brings back.
+const DEFAULT_METRONOME: bool = true;
+/// See [`DEFAULT_METRONOME`].
+const DEFAULT_COUNT_IN: bool = false;
+/// See [`DEFAULT_METRONOME`] (percent).
+const DEFAULT_VOLUME: f64 = 80.0;
 
-/// The demonstration view's state.
+/// The demonstration view: its interface and the IDs of the widgets it changes.
 #[derive(Debug)]
 pub struct Demo {
-    /// The program's name, already localised by the caller (no text in code, CLAUDE.md §7).
-    title: TextLayout,
-    /// The bar numbers 1, 2, 3, laid out once.
-    bar_numbers: [TextLayout; 3],
-    /// The black notehead of Bravura (U+E0A4) and its own box at 40 px per em, or `None` if the
-    /// font lacks it (it does not: a test checks), in which case no notehead is drawn.
-    notehead: Option<(GlyphId, GlyphBox)>,
-    /// The window's size, logical pixels.
-    bounds: Rect,
-    /// Where the pointer is, if it is inside the window.
-    pointer: Option<Point>,
-    /// Whether a pointer button is held.
-    pressed: bool,
-    /// The modifiers held.
-    modifiers: Modifiers,
+    /// The widgets.
+    ui: Ui<DemoMessage>,
+    /// The title label.
+    title: WidgetId,
+    /// The metronome check box.
+    metronome: WidgetId,
+    /// The count-in switch.
+    count_in: WidgetId,
+    /// The volume slider.
+    volume: WidgetId,
 }
 
 impl Demo {
-    /// A demonstration view titled `title` (the localised program name), laying out its texts
-    /// with `faces` in the default typography (ADR-0044 TX11).
+    /// The demonstration in `theme`'s density, text and shape tokens, with `texts`, its window
+    /// named `window_title` for assistive technologies, its texts laid out with `faces`.
     ///
-    /// # Why the default typography and not the window's theme
-    /// `WindowApp::layout` does not receive the theme yet (who owns the widgets is decided in
-    /// F2.08), and every built-in pair has the same text tokens, so the default is what any
-    /// window would use today.
-    ///
-    /// A text that cannot be laid out (impossible with the bundled faces) is left empty rather
-    /// than failing the window: this is a throw-away view.
+    /// # Why the theme is given here
+    /// `WindowApp` does not receive the window's theme yet (who owns the widgets' theme is decided
+    /// with the Preferences, F2.12); the colours, which follow the system, are applied by the
+    /// renderer anyway (ADR-0039 D3), so only density, text and shapes come from here.
     #[must_use]
-    pub fn new(faces: &Faces, title: &str) -> Self {
-        let typography = Typography::DEFAULT;
-        let mut shaper = Shaper::new();
-        let mut lay_out = |text: &str, family, size, weight| {
-            let mut layout = TextLayout::new();
-            let style = typography.text_style(family, size, weight);
-            if shaper
-                .layout(faces, text, style, None, &mut layout)
-                .is_err()
-            {
-                layout = TextLayout::new();
-            }
-            layout
-        };
-        let title = lay_out(title, FamilyToken::Ui, SizeToken::Heading, Weight::Bold);
-        let bar_numbers = ["1", "2", "3"].map(|number| {
-            lay_out(
-                number,
-                FamilyToken::Numeric,
-                SizeToken::Caption,
-                Weight::Regular,
+    pub fn new(faces: &Faces, theme: &Theme, window_title: &str, texts: &DemoTexts) -> Self {
+        let mut ui = Ui::new(Flex::column(Space::M, Space::L), theme, faces.clone());
+        ui.set_title(window_title);
+        let root = ui.root();
+        let content = LayoutProps::default();
+        // `add` fails only for an unknown parent; every parent here was just created, so a
+        // failure would leave the demonstration incomplete, never crash it.
+        let title = ui
+            .add(
+                root,
+                Label::new(texts.title.clone()).styled(
+                    FamilyToken::Ui,
+                    SizeToken::Heading,
+                    Weight::Bold,
+                ),
+                content,
             )
-        });
-        let size = 4.0 * SPACE;
+            .unwrap_or_else(|_| ui.root());
+        let metronome = ui
+            .add(
+                root,
+                Toggle::checkbox(
+                    texts.metronome.clone(),
+                    DEFAULT_METRONOME,
+                    DemoMessage::Metronome,
+                ),
+                content,
+            )
+            .unwrap_or_else(|_| ui.root());
+        let count_in = ui
+            .add(
+                root,
+                Toggle::switch(
+                    texts.count_in.clone(),
+                    DEFAULT_COUNT_IN,
+                    DemoMessage::CountIn,
+                ),
+                content,
+            )
+            .unwrap_or_else(|_| ui.root());
+        let volume_row = ui
+            .add(
+                root,
+                Flex::row(Space::M, Space::None),
+                content.width(Length::Fixed(480.0)),
+            )
+            .unwrap_or_else(|_| ui.root());
+        let _ = ui.add(
+            volume_row,
+            Label::new(texts.volume.clone()),
+            content.align(Align::Start, Align::Center),
+        );
+        let volume = ui
+            .add(
+                volume_row,
+                Slider::new(0.0, 100.0, 1.0, DEFAULT_VOLUME, DemoMessage::Volume)
+                    .labelled(texts.volume.clone()),
+                content.width(Length::Fill(1.0)),
+            )
+            .unwrap_or_else(|_| ui.root());
+        let buttons = ui
+            .add(root, Flex::row(Space::S, Space::None), content)
+            .unwrap_or_else(|_| ui.root());
+        let _ = ui.add(
+            buttons,
+            Button::new(texts.restore_defaults.clone(), DemoMessage::RestoreDefaults),
+            content,
+        );
+        let _ = ui.add(
+            buttons,
+            Button::new(texts.ok.clone(), DemoMessage::Ok).kind(ButtonKind::Primary),
+            content,
+        );
+        let _ = ui.add(
+            root,
+            StaffPreview::new(faces),
+            content
+                .width(Length::Fixed(480.0))
+                .height(Length::Fixed(110.0)),
+        );
+        Self {
+            ui,
+            title,
+            metronome,
+            count_in,
+            volume,
+        }
+    }
+
+    /// The interface, to read its widgets (tests, screenshots).
+    #[must_use]
+    pub const fn ui(&self) -> &Ui<DemoMessage> {
+        &self.ui
+    }
+
+    /// The title label.
+    #[must_use]
+    pub const fn title(&self) -> WidgetId {
+        self.title
+    }
+
+    /// Acts on the widgets' messages (ADR-0045 WA7): only *Restore defaults* does something today.
+    fn handle_messages(&mut self, list: &mut DisplayList) {
+        let restore = self
+            .ui
+            .take_messages()
+            .any(|message| message == DemoMessage::RestoreDefaults);
+        if restore {
+            if let Some(check) = self.ui.widget_mut::<Toggle<DemoMessage>>(self.metronome) {
+                check.set_on(DEFAULT_METRONOME);
+            }
+            if let Some(switch) = self.ui.widget_mut::<Toggle<DemoMessage>>(self.count_in) {
+                switch.set_on(DEFAULT_COUNT_IN);
+            }
+            if let Some(slider) = self.ui.widget_mut::<Slider<DemoMessage>>(self.volume) {
+                slider.set_value(DEFAULT_VOLUME);
+            }
+            for id in [self.metronome, self.count_in, self.volume] {
+                self.ui.request_record(id);
+            }
+            self.ui.frame(list);
+        }
+    }
+}
+
+impl WindowApp for Demo {
+    fn layout(&mut self, bounds: Rect, list: &mut DisplayList) {
+        self.ui.layout(bounds, list);
+    }
+
+    fn input(&mut self, event: &InputEvent, list: &mut DisplayList) {
+        self.ui.input(event, list);
+        self.handle_messages(list);
+    }
+
+    fn access_update(&mut self, full: bool) -> Option<AccessUpdate> {
+        if full {
+            self.ui.reset_access();
+        }
+        Some(self.ui.take_access_update())
+    }
+
+    fn access_action(&mut self, action: AccessAction, list: &mut DisplayList) {
+        // An action on a widget that no longer exists is ignored: the assistive technology will
+        // get the current tree with the next update.
+        let _ = self.ui.access_action(action, list);
+        self.handle_messages(list);
+    }
+}
+
+/// The staff of the demonstration: five crisp lines, three bars of Bravura noteheads with stems,
+/// barlines and tabular bar numbers (text and symbols from the glyph cache, ADR-0044).
+#[derive(Debug)]
+pub struct StaffPreview {
+    /// Bravura's black notehead and its own box at 40 px per em, if the font has it.
+    notehead: Option<(GlyphId, GlyphBox)>,
+    /// The bar numbers 1, 2, 3, laid out.
+    numbers: [TextLayout; 3],
+    /// The text generation the numbers were laid out with.
+    laid_out: Option<u64>,
+}
+
+/// The staff space, logical pixels: Bravura at 40 px per em (an em is four staff spaces).
+const SPACE: f32 = 10.0;
+
+/// Notes per bar of the preview.
+const NOTES_PER_BAR: u8 = 4;
+
+impl StaffPreview {
+    /// The preview, finding the notehead in `faces`.
+    #[must_use]
+    pub fn new(faces: &Faces) -> Self {
         let notehead = faces
             .glyph_for_char(FaceId::Bravura, '\u{E0A4}')
             .and_then(|glyph| {
-                // The notehead's own box, not the face's: Bravura's box is 2.75 em wide and
-                // would make every edit redraw far more than the staff (ADR-0044 TD2).
+                // The notehead's own box, not the face's (ADR-0044 TD2).
                 let own = faces
-                    .glyph_box(FaceId::Bravura, glyph, size)
+                    .glyph_box(FaceId::Bravura, glyph, 4.0 * SPACE)
                     .ok()
                     .flatten()?;
                 Some((glyph, own))
             });
         Self {
-            title,
-            bar_numbers,
             notehead,
-            bounds: Rect::default(),
-            pointer: None,
-            pressed: false,
-            modifiers: Modifiers::default(),
+            numbers: [TextLayout::new(), TextLayout::new(), TextLayout::new()],
+            laid_out: None,
         }
-    }
-
-    /// The panel: a raised surface with a shadow, and three controls. Sized to the window, up to
-    /// 520 × 260.
-    fn record_panel(&self, list: &mut DisplayList) {
-        let width = (self.bounds.width() - 2.0 * MARGIN).clamp(0.0, 520.0);
-        let height = (self.bounds.height() - 2.0 * MARGIN).clamp(0.0, 260.0);
-        let panel = RoundedRect::new(Rect::from_origin_size(MARGIN, MARGIN, width, height), 10.0);
-        let title = &self.title;
-        list.record(PANEL, |r| {
-            // The shadow, offset downwards as ADR-0037's shadow tokens describe.
-            let shadow = RoundedRect::new(
-                Rect::from_origin_size(MARGIN, MARGIN + 4.0, width, height),
-                10.0,
-            );
-            r.shadow(shadow, 8.0, ColorToken::Shadow);
-            r.fill_rounded_rect(panel, ColorToken::SurfaceRaised);
-            r.stroke_rounded_rect(panel, StrokeStyle::new(1.0), ColorToken::Border);
-            // Three controls: a plain one, a focused one, the accent one.
-            for (index, token) in
-                (0_u8..).zip([ColorToken::Control, ColorToken::Control, ColorToken::Accent])
-            {
-                let x = MARGIN + 20.0 + f32::from(index) * 110.0;
-                let control =
-                    RoundedRect::new(Rect::from_origin_size(x, MARGIN + 20.0, 96.0, 32.0), 6.0);
-                r.fill_rounded_rect(control, token);
-                r.stroke_rounded_rect(control, StrokeStyle::new(1.0), ColorToken::ControlBorder);
-                if index == 1 {
-                    let ring = RoundedRect::new(control.rect.inflate(3.0), 9.0);
-                    r.stroke_rounded_rect(ring, StrokeStyle::new(2.0), ColorToken::Focus);
-                }
-            }
-            // The title, right of the controls, its line centred on theirs (they are 32 px
-            // tall from y = MARGIN + 20).
-            let top = MARGIN + 20.0 + (32.0 - title.height()) / 2.0;
-            r.text(title, Point::new(MARGIN + 360.0, top), ColorToken::Text);
-        });
-    }
-
-    /// A staff of five crisp lines with Bravura noteheads, stems, barlines and bar numbers,
-    /// inside the panel.
-    fn record_staff(&self, list: &mut DisplayList) {
-        let left = MARGIN + 20.0;
-        let top = MARGIN + 90.0;
-        let bar_width = f32::from(NOTES_PER_BAR) * 34.0;
-        let notehead = self.notehead;
-        let numbers = &self.bar_numbers;
-        list.record(STAFF, |r| {
-            r.push_clip_rect(Rect::from_origin_size(left, top - 40.0, 480.0, 120.0));
-            for line in 0..5_u8 {
-                let y = top + f32::from(line) * SPACE;
-                r.line(
-                    Point::new(left, y),
-                    Point::new(left + 440.0, y),
-                    StrokeStyle::new(1.0),
-                    ColorToken::Text,
-                );
-            }
-            // Three bars of four notes after a 14 px lead-in, each with its barline and its
-            // number above the staff's top line, at the bar's start.
-            for (bar, number) in (0_u8..).zip(numbers) {
-                let start = left + 14.0 + f32::from(bar) * bar_width;
-                let barline = start + bar_width;
-                r.line(
-                    Point::new(barline, top),
-                    Point::new(barline, top + 4.0 * SPACE),
-                    StrokeStyle::new(1.0),
-                    ColorToken::Text,
-                );
-                let above = top - 6.0 - number.height();
-                r.text(
-                    number,
-                    Point::new(start + 2.0, above),
-                    ColorToken::TextMuted,
-                );
-            }
-            let notes = (0..3 * NOTES_PER_BAR).map(|note| {
-                let x = left + 24.0 + f32::from(note) * 34.0;
-                let y = top + 4.0 * SPACE - f32::from(note % 9) * SPACE * 0.5;
-                (x, y)
-            });
-            if let Some((glyph, own)) = notehead {
-                r.glyphs(
-                    FaceId::Bravura,
-                    4.0 * SPACE,
-                    own,
-                    notes.clone().map(|(x, y)| (glyph, Point::new(x, y))),
-                    ColorToken::Text,
-                );
-            }
-            // Stems up, on the notehead's right side (SMuFL's stemUpSE anchor of a black
-            // notehead is 1.18 staff spaces right of its origin), three and a half spaces long.
-            for (x, y) in notes {
-                let stem = x + 1.18 * SPACE - 0.5;
-                r.line(
-                    Point::new(stem, y - 0.168 * SPACE),
-                    Point::new(stem, y - 3.5 * SPACE),
-                    StrokeStyle::new(1.0),
-                    ColorToken::Text,
-                );
-            }
-            r.pop_clip();
-        });
-    }
-
-    /// Four squares: primary, secondary, Shift, Alt; filled with the accent while held.
-    fn record_modifiers(&self, list: &mut DisplayList) {
-        let held = [
-            self.modifiers.primary,
-            self.modifiers.secondary,
-            self.modifiers.shift,
-            self.modifiers.alt,
-        ];
-        list.record(MODIFIERS, |r| {
-            for (index, on) in (0_u8..).zip(held) {
-                let square = RoundedRect::new(
-                    Rect::from_origin_size(
-                        MARGIN + 20.0 + f32::from(index) * 36.0,
-                        MARGIN + 200.0,
-                        24.0,
-                        24.0,
-                    ),
-                    4.0,
-                );
-                if on {
-                    r.fill_rounded_rect(square, ColorToken::Accent);
-                }
-                r.stroke_rounded_rect(square, StrokeStyle::new(1.0), ColorToken::ControlBorder);
-            }
-        });
-    }
-
-    /// The disc under the pointer (nothing when the pointer is outside).
-    fn record_pointer(&self, list: &mut DisplayList) {
-        let pointer = self.pointer;
-        let paint = if self.pressed {
-            Paint::token(ColorToken::Accent)
-        } else {
-            Paint::with_opacity(ColorToken::Text, 160)
-        };
-        list.record(POINTER, |r| {
-            if let Some(at) = pointer {
-                let disc = Rect::new(at.x - DISC, at.y - DISC, at.x + DISC, at.y + DISC);
-                r.fill_rounded_rect(RoundedRect::new(disc, DISC), paint);
-            }
-        });
     }
 }
 
-impl WindowApp for Demo {
-    /// Records everything for the window's new size.
-    fn layout(&mut self, bounds: Rect, list: &mut DisplayList) {
-        self.bounds = bounds;
-        self.record_panel(list);
-        self.record_staff(list);
-        self.record_modifiers(list);
-        self.record_pointer(list);
-    }
-
-    /// Re-records only what the event changes: the disc, or the modifier squares.
-    fn input(&mut self, event: &InputEvent, list: &mut DisplayList) {
-        match event {
-            InputEvent::PointerMoved { position } => {
-                self.pointer = Some(*position);
-                self.record_pointer(list);
-            }
-            InputEvent::PointerLeft => {
-                self.pointer = None;
-                self.record_pointer(list);
-            }
-            InputEvent::PointerButton { state, .. } => {
-                self.pressed = *state == ButtonState::Pressed;
-                self.record_pointer(list);
-            }
-            InputEvent::ModifiersChanged { modifiers } | InputEvent::Key { modifiers, .. } => {
-                if *modifiers != self.modifiers {
-                    self.modifiers = *modifiers;
-                    self.record_modifiers(list);
+impl<M: 'static> Widget<M> for StaffPreview {
+    fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
+        let generation = cx.text_generation();
+        if self.laid_out != Some(generation) {
+            let style = (FamilyToken::Numeric, SizeToken::Caption, Weight::Regular);
+            for (number, layout) in ["1", "2", "3"].into_iter().zip(&mut self.numbers) {
+                if cx.lay_out_text(number, style, None, layout).is_err() {
+                    *layout = TextLayout::new();
                 }
             }
-            InputEvent::Wheel { .. } | InputEvent::Focus(_) => {}
+            self.laid_out = Some(generation);
         }
+        constraints.constrain(Size::new(480.0, 110.0))
+    }
+
+    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        let left = cx.rect.x0;
+        let top = cx.rect.y0 + 40.0;
+        let bar_width = f32::from(NOTES_PER_BAR) * 34.0;
+        recorder.push_clip_rect(cx.rect);
+        for line in 0..5_u8 {
+            let y = top + f32::from(line) * SPACE;
+            recorder.line(
+                Point::new(left, y),
+                Point::new(left + 440.0, y),
+                StrokeStyle::new(1.0),
+                ColorToken::Text,
+            );
+        }
+        for (bar, number) in (0_u8..).zip(&self.numbers) {
+            let start = left + 14.0 + f32::from(bar) * bar_width;
+            let barline = start + bar_width;
+            recorder.line(
+                Point::new(barline, top),
+                Point::new(barline, top + 4.0 * SPACE),
+                StrokeStyle::new(1.0),
+                ColorToken::Text,
+            );
+            let above = top - 6.0 - number.height();
+            recorder.text(
+                number,
+                Point::new(start + 2.0, above),
+                ColorToken::TextMuted,
+            );
+        }
+        let notes = (0..3 * NOTES_PER_BAR).map(|note| {
+            let x = left + 24.0 + f32::from(note) * 34.0;
+            let y = top + 4.0 * SPACE - f32::from(note % 9) * SPACE * 0.5;
+            (x, y)
+        });
+        if let Some((glyph, own)) = self.notehead {
+            recorder.glyphs(
+                FaceId::Bravura,
+                4.0 * SPACE,
+                own,
+                notes.clone().map(|(x, y)| (glyph, Point::new(x, y))),
+                ColorToken::Text,
+            );
+        }
+        // Stems up from the notehead's right side (SMuFL's stemUpSE anchor: 1.18 spaces right).
+        for (x, y) in notes {
+            let stem = x + 1.18 * SPACE - 0.5;
+            recorder.line(
+                Point::new(stem, y - 0.168 * SPACE),
+                Point::new(stem, y - 3.5 * SPACE),
+                StrokeStyle::new(1.0),
+                ColorToken::Text,
+            );
+        }
+        recorder.pop_clip();
     }
 }

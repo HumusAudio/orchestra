@@ -48,6 +48,9 @@ pub struct AccessInfo {
     pub toggled: Option<bool>,
     /// A numeric value, for sliders.
     pub value: Option<f64>,
+    /// The value's range and step (minimum, maximum, step), for sliders: assistive technologies
+    /// then offer to increase, decrease and set the value (F2.09c).
+    pub range: Option<(f64, f64, f64)>,
     /// The widget cannot be used now.
     pub disabled: bool,
     /// The widget can be activated (it answers [`WidgetEvent::Activate`](crate::WidgetEvent)).
@@ -55,7 +58,7 @@ pub struct AccessInfo {
 }
 
 /// What an assistive technology asks a widget to do (WC5), delivered by the window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AccessAction {
     /// The widget.
     pub target: WidgetId,
@@ -63,13 +66,20 @@ pub struct AccessAction {
     pub kind: AccessActionKind,
 }
 
-/// The actions understood today (WC5); values (sliders) and scrolling come with their widgets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The actions understood (WC5; the value actions since F2.09c); scrolling comes with the scroll
+/// area.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AccessActionKind {
     /// Activate the widget, as a click or the Enter key would.
     Click,
     /// Give it the keyboard focus.
     Focus,
+    /// Increase the value by one step.
+    Increment,
+    /// Decrease the value by one step.
+    Decrement,
+    /// Set the value.
+    SetValue(f64),
 }
 
 /// An update of the accessibility tree, ready for the window's adapter. Opaque: only the window
@@ -149,6 +159,11 @@ pub(crate) fn widget_node(
     if let Some(value) = info.value {
         node.set_numeric_value(value);
     }
+    if let Some((min, max, step)) = info.range {
+        node.set_min_numeric_value(min);
+        node.set_max_numeric_value(max);
+        node.set_numeric_value_step(step);
+    }
     if info.disabled {
         node.set_disabled();
     } else {
@@ -157,6 +172,11 @@ pub(crate) fn widget_node(
         }
         if focusable {
             node.add_action(Action::Focus);
+        }
+        if info.range.is_some() {
+            node.add_action(Action::Increment);
+            node.add_action(Action::Decrement);
+            node.add_action(Action::SetValue);
         }
     }
     node
@@ -178,6 +198,14 @@ pub(crate) fn action_from(request: &accesskit::ActionRequest) -> Option<AccessAc
     let kind = match request.action {
         Action::Click => AccessActionKind::Click,
         Action::Focus => AccessActionKind::Focus,
+        Action::Increment => AccessActionKind::Increment,
+        Action::Decrement => AccessActionKind::Decrement,
+        Action::SetValue => match request.data {
+            Some(accesskit::ActionData::NumericValue(value)) if value.is_finite() => {
+                AccessActionKind::SetValue(value)
+            }
+            _ => return None,
+        },
         _ => return None,
     };
     Some(AccessAction { target, kind })

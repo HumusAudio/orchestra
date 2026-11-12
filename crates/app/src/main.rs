@@ -28,7 +28,7 @@
 
 use std::process::ExitCode;
 
-use orchestra_app::Demo;
+use orchestra_app::{Demo, DemoTexts};
 use orchestra_i18n::{Locale, Localizer};
 use orchestra_ui::{BuiltInTheme, ThemeMode, WindowOptions};
 
@@ -40,8 +40,14 @@ use orchestra_ui::{BuiltInTheme, ThemeMode, WindowOptions};
 /// window reads the system's light/dark preference and follows its changes (ADR-0038), until the
 /// Preferences of F2.12 let the user choose both.
 fn main() -> ExitCode {
-    let title = match Localizer::new(Locale::EnUs).and_then(|l| l.format("app-name", None)) {
-        Ok(title) => title,
+    let texts = Localizer::new(Locale::EnUs).and_then(|localizer| {
+        Ok((
+            localizer.format("app-name", None)?,
+            DemoTexts::new(&localizer)?,
+        ))
+    });
+    let (title, texts) = match texts {
+        Ok(texts) => texts,
         Err(error) => {
             eprintln!("orchestra: the interface messages could not be loaded: {error}");
             return ExitCode::FAILURE;
@@ -63,7 +69,10 @@ fn main() -> ExitCode {
         height: 600.0,
         faces,
     };
-    let demo = Demo::new(&options.faces, &options.title);
+    // The density, text and shape tokens of Studio (the same in both halves); the colours follow
+    // the system through the window.
+    let theme = *options.pair.instance(orchestra_ui::Appearance::Light);
+    let demo = Demo::new(&options.faces, &theme, &options.title, &texts);
     match orchestra_ui::run(demo, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

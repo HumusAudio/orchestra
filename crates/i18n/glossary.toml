@@ -45,6 +45,9 @@ musescore-glossary-es = "https://musescore.org/es/manual/glosario — ligadura d
 dorico-fr = "https://archive.steinberg.help/dorico_first_steps/v4/fr/Dorico_First_Steps_4_Premiers_pas_fr.pdf — 'liaison d'expression', 'chiffrage de mesure'"
 cubase-it = "https://archive.steinberg.help/cubase_le/v12/it/Cubase_LE_12_Manuale_operativo_it.pdf — 'valori di trasposizione e velocity nella linea info'"
 breitkopf-lexikon = "https://www.breitkopf.com/assets/pdf/BV395_70_Lexikon.pdf — Haltebogen vs Bindebogen"
+logic-de-count-in = "https://support.apple.com/de-li/guide/logicpro-ipad/toc/3.3 — 'Metronom verwenden', 'Einzählfunktion verwenden' (Logic Pro for iPad, German)"
+logic9-es = "https://help.apple.com/logicpro/mac/9.1.6/help/Spanish.lproj/Explorando%20Logic%20Pro%209.pdf — 'Ajuste del metrónomo y de la cuenta atrás'"
+cubase-ai13-it = "https://steinberg.help/cubase_ai/v13/it/Cubase_AI_13_Manuale_operativo_it.pdf — 'Click del metronomo'"
 
 # ================================================================================================
 # Notation
@@ -615,6 +618,67 @@ note = """Track mute button. it: MuseScore's 'Sordina' is the instrument mute (a
 'Muto' is the mixer sense. es: 'silenciar' (MuseScore) vs 'mudo' (Ardour)."""
 review = true
 
+[[term]]
+id = "playback"
+category = "daw"
+en-US = "playback"
+en-GB = "playback"
+it = "riproduzione"
+fr = "lecture"
+de = "Wiedergabe"
+es = "reproducción"
+sources = ["musescore-ui", "logic9-es"]
+note = """Researched 2026-11-12 (F2.09c). MuseScore UI 'Playback': it 'Riproduzione', fr 'Lecture', de \
+'Wiedergabe', es 'Reproducir' (a verb). As a section title we need the noun: es 'reproducción', as \
+Logic's Spanish guides write it."""
+review = false
+
+[[term]]
+id = "metronome"
+category = "daw"
+en-US = "metronome"
+en-GB = "metronome"
+it = "metronomo"
+fr = "métronome"
+de = "Metronom"
+es = "metrónomo"
+sources = ["musescore-ui", "ardour-ui"]
+note = "Researched 2026-11-12 (F2.09c). Identical in MuseScore's and Ardour's UI catalogues."
+review = false
+
+[[term]]
+id = "count_in"
+category = "daw"
+en-US = "count-in"
+en-GB = "count-in"
+it = "conteggio iniziale"
+fr = "décompte"
+de = "Einzähler"
+es = "cuenta inicial"
+sources = ["musescore-ui", "ardour-ui", "logic-de-count-in", "logic9-es", "cubase-ai13-it"]
+note = """Researched 2026-11-12 (F2.09c); the bar(s) of clicks before playback or recording starts. \
+Sources disagree: it MuseScore 'conteggio iniziale', Ardour 'pre-conteggio' (we take the clearer \
+notation term); fr 'décompte' in MuseScore and Ardour; de MuseScore the verb 'Anzählen', Ardour \
+'Einzählen', Logic 'Einzählfunktion', Cubase 'Vorzähler': a label needs a noun, 'Einzähler'; es \
+MuseScore 'cuenta inicial', Ardour 'cuenta regresiva' and Logic 9 'cuenta atrás' both mean a \
+countdown, so 'cuenta inicial'. Approved by the owner on 2026-11-12."""
+review = true
+
+[[term]]
+id = "volume"
+category = "daw"
+en-US = "volume"
+en-GB = "volume"
+it = "volume"
+fr = "volume"
+de = "Lautstärke"
+es = "volumen"
+sources = ["ardour-ui", "logic9-es"]
+note = """Researched 2026-11-12 (F2.09c). 'Metronome volume' exists in no source as a string and is \
+composed: it 'volume del metronomo', fr 'volume du métronome', de 'Metronomlautstärke' (written as \
+one compound), es 'volumen del metrónomo'."""
+review = false
+
 # ================================================================================================
 # General interface (menus). Source: MuseScore UI catalogues (exact source strings, accelerator
 # markers removed). They follow each platform's usual wording.
@@ -683,4 +747,32 @@ de = "Wiederherstellen"
 es = "Rehacer"
 sources = ["musescore-ui"]
 note = "Edit menu command."
+review = false
+
+[[term]]
+id = "restore_defaults"
+category = "general"
+en-US = "Restore defaults"
+en-GB = "Restore defaults"
+it = "Ripristina predefiniti"
+fr = "Réinitialiser aux valeurs par défaut"
+de = "Voreinstellungen wiederherstellen"
+es = "Restaurar valores predeterminados"
+sources = ["musescore-ui"]
+note = """Researched 2026-11-12 (F2.09c): MuseScore's exact string 'Restore defaults' in each language. \
+The French is long for a button; buttons size to their text."""
+review = false
+
+[[term]]
+id = "ok"
+category = "general"
+en-US = "OK"
+en-GB = "OK"
+it = "OK"
+fr = "OK"
+de = "OK"
+es = "Aceptar"
+sources = ["musescore-ui"]
+note = """Researched 2026-11-12 (F2.09c): MuseScore 'OK' → fr 'OK', de 'OK', es 'Aceptar' (also the Windows \
+convention); its Italian 'ok' in lower case is not followed: 'OK' is the Italian interface norm."""
 review = false

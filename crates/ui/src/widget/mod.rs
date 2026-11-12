@@ -15,5 +15,8 @@ pub(crate) mod access;
 pub(crate) mod button;
 pub(crate) mod label;
 pub(crate) mod layout;
+pub(crate) mod look;
+pub(crate) mod slider;
+pub(crate) mod toggle;
 pub(crate) mod tree;
 pub(crate) mod ui;

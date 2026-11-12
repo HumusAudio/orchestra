@@ -26,3 +26,15 @@ status-measures-selected =
         [one] { $count } measure selected
        *[other] { $count } measures selected
     }
+
+## Playback options (glossary: playback, metronome, count_in, volume)
+
+playback-title = Playback
+playback-metronome = Metronome
+playback-count-in = Count-in
+playback-metronome-volume = Metronome volume
+
+## Dialog buttons (glossary: restore_defaults, ok)
+
+dialog-restore-defaults = Restore defaults
+dialog-ok = OK
