@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Proposed, awaiting acceptance.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, next F2.07b (the implementation).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -946,8 +946,12 @@ anti-aliasing, gamma chosen by eye in F2.07b; quarter-pixel positions, baseline 
 an 8 MB LRU cache of 8-bit masks, glyphs above 256 px drawn as paths; shaping once into a
 reusable `TextLayout`, recorded as a `GlyphRun` command with a glyph arena; UAX #14 wrapping with
 the crate chosen in F2.07b (`unicode-linebreak` is unmaintained since 2023); text tokens (four
-families, sizes 11–22, three weights). **Open:** the owner's acceptance of ADR-0044, and
-confirmation to add the crate to CLAUDE.md §2.
+families, sizes 11–22, three weights). The owner asked for TX10 (line breaking) to be explained in
+full; its table of cases (no-break spaces in French, soft hyphens in German, last-resort breaks,
+graphemes) and the comparison of the three candidates were added, and **ADR-0044 was Accepted**
+(2026-11-12). In F2.07b `icu_segmenter` is measured without dictionaries and the owner chooses
+between it and our own subset. **Open:** confirmation to add the crate to CLAUDE.md §2, and the
+SCALETTA update (F2.07b, F2.07c).
 
 | Step | What | Status |
 |---|---|---|

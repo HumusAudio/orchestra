@@ -1,7 +1,7 @@
 # ADR-0044 — Text: bundled fonts, shaping, measuring and a glyph cache
 
-- **Status:** Proposed (the owner approved the outline TX1–TX12 on 2026-11-12; this text awaits
-  acceptance)
+- **Status:** Accepted (owner, 2026-11-12; outline TX1–TX12 approved first, then the text with
+  TX10's table of cases)
 - **Date:** 2026-11-12
 - **Implements:** ADR-0012 (bundled fonts, `harfrust` shaping, our own glyph cache), ADR-0006
   (same look everywhere, fonts inside the program), ADR-0036 B2–B3 (`skrifa` + `harfrust`, no
@@ -50,7 +50,8 @@ Other facts that shape the design:
   fully covered by Inter. User content (track names, titles, later lyrics) can contain anything.
 - The bundled fonts in `assets/fonts/` total about 8 MB; the program must not carry them all.
 
-The owner approved the outline TX1–TX12 below on 2026-11-12.
+The owner approved the outline TX1–TX12 below on 2026-11-12, then accepted the text the same
+day, after asking for TX10 to be explained in full.
 
 ## Decision
 
@@ -192,14 +193,47 @@ them, so the caret skips them (tested).
 
 ### TX10 — Line breaking
 
-A layout with a maximum width wraps at the break opportunities of the Unicode line breaking
-algorithm (UAX #14): spaces, after hyphens, the soft hyphen U+00AD (drawn as a hyphen only when
-the line breaks there); a word longer than the width breaks at the last grapheme that fits. The
-implementation is chosen in F2.07b with the data above: `unicode-linebreak` (small, no
-dependencies, but not updated since 2023, Unicode 15.0), `icu_segmenter` (maintained, but large
-with its data), or our own subset limited to spaces, hyphens and soft hyphens. The rule:
-**a crate only if it is maintained and its size is reasonable** (CLAUDE.md §5, §10); otherwise
-our own subset, enough for the six languages' interface texts, with the limit recorded.
+A layout with a maximum width wraps its text into lines. The cases it must get right:
+
+| Case | Example | Behaviour |
+|---|---|---|
+| Ordinary space | `Save the project` | a line may break there |
+| **No-break** space (U+00A0, narrow U+202F) | French `Mesure ?`, `« Allegro »`; everywhere `120 BPM`, `4 bars` | never a break there: a lone `?` or `»` at the start of a line is a typographic error |
+| Hyphen | `pre-roll` | a line may break **after** it |
+| Soft hyphen U+00AD | German `Takt­art­wechsel`, with break points placed by the translator in the catalogue | invisible while the word fits; a visible hyphen only where the line breaks |
+| Zero-width space U+200B | a break point with no visible sign | a line may break there |
+| A word longer than the line | a file name, a URL, a German compound without soft hyphens | last resort: break at the last grapheme that fits |
+| Combining marks | `é` as one character or as `e` + combining accent | never split a letter from its marks (breaks only between graphemes, as given by the shaper's clusters) |
+
+Not in scope: **automatic hyphenation** with dictionaries (as typesetting programs do), which is
+heavy and not needed for interface texts; German long words are handled with soft hyphens in the
+catalogues.
+
+**How it fits with shaping (TX9).** The paragraph is shaped **once**; the break opportunities
+are found; the advances are summed by cluster, and when a line exceeds the width it is cut at
+the last allowed opportunity. Spaces at the end of a line hang past the width and are not
+counted. Only a line ending at a soft hyphen is shaped again, to add the visible hyphen. The cost
+is linear in the length of the text, with no allocation when a layout is reused.
+
+**Where the break opportunities come from.** The standard is the Unicode Line Breaking Algorithm
+(UAX #14): a class per character and about fifty rules on pairs of classes, covering every
+script (Chinese breaks between almost any two characters, Thai has no spaces). The candidates:
+
+| | `unicode-linebreak` | `icu_segmenter` | Our own subset |
+|---|---|---|---|
+| Coverage | full UAX #14 | full UAX #14, plus dictionaries for Thai, Burmese and similar scripts | spaces, hyphens, soft hyphen, zero-width space; no-break spaces stay joined |
+| Maintenance | stopped in **2023**, Unicode 15.0 | active (ICU4X, 2026-10) | ours |
+| Size | small, no dependencies | large: the rules' data, and the dictionaries if used; **to be measured** | a few dozen lines |
+| Where it errs | almost never (only recent rules for some Indic scripts) | almost never | Chinese and Japanese in user text: no spaces, so only the last-resort break |
+
+**The rule:** a crate only if it is **maintained and of reasonable size** (CLAUDE.md §5, §10),
+otherwise our own subset. `unicode-linebreak` fails the first criterion. In F2.07b
+`icu_segmenter` is measured **without dictionaries** (binary size and clean build time) and the
+owner chooses with the numbers: the full standard if it is light, our subset otherwise. The
+subset is enough for the six interface languages, because their texts are ours and punctuation
+is always attached to its word except in French, which uses exactly the no-break spaces. If the
+subset is chosen, its limit (Chinese and Japanese in user text) is recorded with those of TX4
+and TX5.
 
 ### TX11 — Text tokens
 
