@@ -215,6 +215,7 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for Button<M> {
                 button: PointerButton::Left,
                 state: ButtonState::Released,
                 position,
+                ..
             } => {
                 if self.pressed {
                     self.pressed = false;

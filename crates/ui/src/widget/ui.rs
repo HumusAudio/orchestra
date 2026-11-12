@@ -29,7 +29,7 @@ use crate::draw::list::{DisplayList, SegmentId};
 use orchestra_text::Faces;
 
 use crate::theme::token::{Shape, Theme};
-use crate::window::input::{ButtonState, InputEvent, Key, NamedKey};
+use crate::window::input::{ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton};
 
 use super::access::{
     AccessAction, AccessActionKind, AccessInfo, AccessUpdate, WINDOW_NODE, empty_update,
@@ -77,6 +77,9 @@ pub struct Ui<M> {
     modals: Vec<(usize, Option<usize>)>,
     /// Where the pointer is.
     pointer: Point,
+    /// The modifiers held, from the window's modifier and key events (ADR-0046 V3), given to
+    /// every event's context.
+    modifiers: Modifiers,
     /// A reused stack for walking the tree (Tab order, recording).
     stack: Vec<usize>,
     /// IDs removed by the last removal, to drop their segments (reused).
@@ -109,6 +112,7 @@ impl<M: 'static> Ui<M> {
             focused: None,
             modals: Vec::new(),
             pointer: Point::default(),
+            modifiers: Modifiers::default(),
             stack: Vec::new(),
             removed: Vec::new(),
         }
@@ -374,36 +378,8 @@ impl<M: 'static> Ui<M> {
                 button,
                 state,
                 position,
-            } => {
-                self.pointer = *position;
-                let widget_event = WidgetEvent::PointerButton {
-                    button: *button,
-                    state: *state,
-                    position: *position,
-                };
-                match (*state, self.captured) {
-                    (ButtonState::Released, Some(captured)) => {
-                        self.captured = None;
-                        self.deliver(captured, &widget_event, false);
-                        // The pointer may be over another widget now.
-                        let target = self.hit(*position);
-                        self.set_hover(target);
-                    }
-                    (ButtonState::Pressed, _) => {
-                        if let Some(target) = self.hit(*position) {
-                            self.focus_on_press(target);
-                            if let Some(handler) = self.deliver(target, &widget_event, true) {
-                                self.captured = Some(handler);
-                            }
-                        }
-                    }
-                    (ButtonState::Released, None) => {
-                        if let Some(target) = self.hit(*position) {
-                            self.deliver(target, &widget_event, true);
-                        }
-                    }
-                }
-            }
+                clicks,
+            } => self.pointer_button(*button, *state, *position, *clicks),
             InputEvent::Wheel { delta } => {
                 if let Some(target) = self.hit(self.pointer) {
                     let event = WidgetEvent::Wheel {
@@ -419,6 +395,7 @@ impl<M: 'static> Ui<M> {
                 repeat,
                 modifiers,
             } => {
+                self.modifiers = *modifiers;
                 let event = WidgetEvent::Key {
                     key,
                     state: *state,
@@ -436,9 +413,53 @@ impl<M: 'static> Ui<M> {
                     self.move_focus(!modifiers.shift);
                 }
             }
-            InputEvent::ModifiersChanged { .. } | InputEvent::Focus(_) => {}
+            InputEvent::ModifiersChanged { modifiers } => self.modifiers = *modifiers,
+            // A window losing the focus misses the releases of the keys held: forget them, or the
+            // fine adjustment would stay on after an Alt+Tab with Ctrl held.
+            InputEvent::Focus(false) => self.modifiers = Modifiers::default(),
+            InputEvent::Focus(true) => {}
         }
         self.frame(list);
+    }
+
+    /// A pointer button (WA3): a press goes to the widget under the pointer, which captures the
+    /// pointer if it handles it; the release goes to the capturing widget.
+    fn pointer_button(
+        &mut self,
+        button: PointerButton,
+        state: ButtonState,
+        position: Point,
+        clicks: u8,
+    ) {
+        self.pointer = position;
+        let widget_event = WidgetEvent::PointerButton {
+            button,
+            state,
+            position,
+            clicks,
+        };
+        match (state, self.captured) {
+            (ButtonState::Released, Some(captured)) => {
+                self.captured = None;
+                self.deliver(captured, &widget_event, false);
+                // The pointer may be over another widget now.
+                let target = self.hit(position);
+                self.set_hover(target);
+            }
+            (ButtonState::Pressed, _) => {
+                if let Some(target) = self.hit(position) {
+                    self.focus_on_press(target);
+                    if let Some(handler) = self.deliver(target, &widget_event, true) {
+                        self.captured = Some(handler);
+                    }
+                }
+            }
+            (ButtonState::Released, None) => {
+                if let Some(target) = self.hit(position) {
+                    self.deliver(target, &widget_event, true);
+                }
+            }
+        }
     }
 
     /// Gives `event` to the widget at `start` and, if `bubble`, to its ancestors until one
@@ -475,6 +496,7 @@ impl<M: 'static> Ui<M> {
             relayout: false,
             rerecord: false,
             focus: false,
+            modifiers: self.modifiers,
         };
         let handled = widget.event(&mut cx, event);
         let (relayout, rerecord, focus) = (cx.relayout, cx.rerecord, cx.focus);

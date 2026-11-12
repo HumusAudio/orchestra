@@ -74,6 +74,7 @@ fn pointer(state: ButtonState, at: Point) -> InputEvent {
         button: PointerButton::Left,
         state,
         position: at,
+        clicks: 1,
     }
 }
 
@@ -537,7 +538,8 @@ fn a_slider_answers_the_keyboard_and_assistive_technologies() {
     ui.input(&key(NamedKey::Tab), &mut list);
     assert_eq!(ui.focused(), Some(id));
     for (named, expected) in [
-        (NamedKey::ArrowRight, 51.0),
+        // The arrows move the coarse step: 2% of the range (ADR-0046 V2).
+        (NamedKey::ArrowRight, 52.0),
         (NamedKey::ArrowDown, 50.0),
         (NamedKey::PageUp, 60.0),
         (NamedKey::PageDown, 50.0),
@@ -551,6 +553,23 @@ fn a_slider_answers_the_keyboard_and_assistive_technologies() {
             "{named:?}"
         );
     }
+    // With the primary modifier, the arrows move one step (V3).
+    let fine_key = |named| InputEvent::Key {
+        key: Key::Named(named),
+        state: ButtonState::Pressed,
+        repeat: false,
+        modifiers: PRIMARY,
+    };
+    ui.input(&fine_key(NamedKey::ArrowUp), &mut list);
+    assert_eq!(
+        ui.widget::<orchestra_ui::Slider<Set>>(id).unwrap().value(),
+        1.0
+    );
+    ui.input(&fine_key(NamedKey::ArrowLeft), &mut list);
+    assert_eq!(
+        ui.widget::<orchestra_ui::Slider<Set>>(id).unwrap().value(),
+        0.0
+    );
     // At the minimum, going down sends nothing (the value did not change).
     let _ = ui.take_messages().count();
     ui.input(&key(NamedKey::ArrowLeft), &mut list);
@@ -606,4 +625,295 @@ fn dragging_out_of_a_toggle_cancels() {
     );
     assert_eq!(ui.take_messages().count(), 0);
     assert!(!ui.widget::<orchestra_ui::Toggle<Set>>(id).unwrap().is_on());
+}
+
+/// The primary modifier alone (Ctrl, ⌘ on macOS): the fine adjustment (ADR-0046 V3).
+const PRIMARY: Modifiers = Modifiers {
+    primary: true,
+    secondary: false,
+    shift: false,
+    alt: false,
+};
+
+/// The value of the slider `id`.
+fn value_of(ui: &Ui<Set>, id: WidgetId) -> f64 {
+    ui.widget::<orchestra_ui::Slider<Set>>(id).unwrap().value()
+}
+
+/// Tells the interface which modifiers are held, as the window does.
+fn hold(ui: &mut Ui<Set>, list: &mut DisplayList, modifiers: Modifiers) {
+    ui.input(&InputEvent::ModifiersChanged { modifiers }, list);
+}
+
+/// A wheel movement over the widget the pointer is on.
+fn wheel(ui: &mut Ui<Set>, list: &mut DisplayList, delta: orchestra_ui::WheelDelta) {
+    ui.input(&InputEvent::Wheel { delta }, list);
+}
+
+/// A mouse wheel's notches (positive away from the user).
+const fn notches(y: f32) -> orchestra_ui::WheelDelta {
+    orchestra_ui::WheelDelta::Lines { x: 0.0, y }
+}
+
+/// The wheel over a slider moves it without the focus, by the coarse step or by one step with the
+/// primary modifier; a touchpad's pixels add up to notches (ADR-0046 V2, V3).
+#[test]
+fn the_wheel_moves_a_slider_under_the_pointer() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 1.0, 50.0, Set::Value));
+    let r = ui.rect(id).unwrap();
+    // Only hovering: no press, no focus.
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(f32::midpoint(r.x0, r.x1), f32::midpoint(r.y0, r.y1)),
+        },
+        &mut list,
+    );
+    assert_eq!(ui.focused(), None);
+    wheel(&mut ui, &mut list, notches(1.0));
+    assert_eq!(value_of(&ui, id), 52.0);
+    wheel(&mut ui, &mut list, notches(-3.0));
+    assert_eq!(value_of(&ui, id), 46.0);
+    assert_eq!(
+        ui.take_messages().collect::<Vec<_>>(),
+        [Set::Value(52.0), Set::Value(46.0)]
+    );
+    // With the primary modifier, one step per notch.
+    hold(&mut ui, &mut list, PRIMARY);
+    wheel(&mut ui, &mut list, notches(2.0));
+    assert_eq!(value_of(&ui, id), 48.0);
+    hold(&mut ui, &mut list, Modifiers::default());
+    // A touchpad: 30 px is less than a notch (40 px), nothing moves; 30 more make one notch and
+    // leave 20 for later.
+    let pixels = |y| orchestra_ui::WheelDelta::Pixels { x: 0.0, y };
+    wheel(&mut ui, &mut list, pixels(30.0));
+    assert_eq!(value_of(&ui, id), 48.0);
+    wheel(&mut ui, &mut list, pixels(30.0));
+    assert_eq!(value_of(&ui, id), 50.0);
+    wheel(&mut ui, &mut list, pixels(20.0));
+    assert_eq!(value_of(&ui, id), 52.0);
+    // Turning the other way drops the remainder and acts at once on a full notch.
+    wheel(&mut ui, &mut list, pixels(30.0));
+    wheel(&mut ui, &mut list, pixels(-40.0));
+    assert_eq!(value_of(&ui, id), 50.0);
+    // With Shift the slider leaves the wheel to the scroll area around it (V5).
+    hold(
+        &mut ui,
+        &mut list,
+        Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        },
+    );
+    let _ = ui.take_messages().count();
+    wheel(&mut ui, &mut list, notches(1.0));
+    assert_eq!(value_of(&ui, id), 50.0);
+    assert_eq!(ui.take_messages().count(), 0);
+}
+
+/// The coarse step is at least one step, and rounded to whole steps.
+#[test]
+fn the_coarse_step_is_whole_steps() {
+    // 2% of 10 is 0.2: less than the step, so one step.
+    let (mut ui, id, mut list) = single(orchestra_ui::Slider::new(0.0, 10.0, 1.0, 5.0, Set::Value));
+    ui.input(&key(NamedKey::Tab), &mut list);
+    ui.input(&key(NamedKey::ArrowRight), &mut list);
+    assert_eq!(value_of(&ui, id), 6.0);
+    // 2% of 1000 is 20, 4 steps of 5.
+    let (mut ui, id, mut list) = single(orchestra_ui::Slider::new(
+        0.0,
+        1000.0,
+        5.0,
+        500.0,
+        Set::Value,
+    ));
+    ui.input(&key(NamedKey::Tab), &mut list);
+    ui.input(&key(NamedKey::ArrowRight), &mut list);
+    assert_eq!(value_of(&ui, id), 520.0);
+    // 2% of 960 by 3 is 6.4 steps: 6 whole steps (18), so three notches move 54, not 57.6.
+    let (mut ui, id, mut list) = single(orchestra_ui::Slider::new(
+        0.0,
+        960.0,
+        3.0,
+        501.0,
+        Set::Value,
+    ));
+    let r = ui.rect(id).unwrap();
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(f32::midpoint(r.x0, r.x1), f32::midpoint(r.y0, r.y1)),
+        },
+        &mut list,
+    );
+    wheel(&mut ui, &mut list, notches(3.0));
+    assert_eq!(value_of(&ui, id), 555.0);
+    // 2% of 100 by 3 is 0.67 steps: one step of 3.
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 99.0, 3.0, 48.0, Set::Value));
+    ui.input(&key(NamedKey::Tab), &mut list);
+    ui.input(&key(NamedKey::ArrowRight), &mut list);
+    assert_eq!(value_of(&ui, id), 51.0);
+}
+
+/// A double click goes back to the default: the initial value, or the one given (ADR-0046 V4).
+#[test]
+fn a_double_click_restores_the_default() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 1.0, 30.0, Set::Value).default_value(80.0));
+    assert_eq!(
+        ui.widget::<orchestra_ui::Slider<Set>>(id)
+            .unwrap()
+            .default(),
+        80.0
+    );
+    let r = ui.rect(id).unwrap();
+    let at = Point::new(r.x0 + 10.0, f32::midpoint(r.y0, r.y1));
+    let press = |clicks| InputEvent::PointerButton {
+        button: PointerButton::Left,
+        state: ButtonState::Pressed,
+        position: at,
+        clicks,
+    };
+    let release = |clicks| InputEvent::PointerButton {
+        button: PointerButton::Left,
+        state: ButtonState::Released,
+        position: at,
+        clicks,
+    };
+    ui.input(&press(1), &mut list);
+    ui.input(&release(1), &mut list);
+    let first = value_of(&ui, id);
+    assert!(first < 10.0, "{first}");
+    ui.input(&press(2), &mut list);
+    assert_eq!(value_of(&ui, id), 80.0);
+    // The second press starts no drag: moving before its release changes nothing.
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(r.x0, at.y),
+        },
+        &mut list,
+    );
+    ui.input(&release(2), &mut list);
+    assert_eq!(value_of(&ui, id), 80.0);
+    assert_eq!(
+        ui.take_messages().collect::<Vec<_>>(),
+        [Set::Value(first), Set::Value(80.0)]
+    );
+    // Without `default_value`, the initial value; a default off the grid is snapped.
+    let (ui, id, _) = single(orchestra_ui::Slider::new(0.0, 100.0, 5.0, 42.0, Set::Value));
+    assert_eq!(
+        ui.widget::<orchestra_ui::Slider<Set>>(id)
+            .unwrap()
+            .default(),
+        40.0
+    );
+    let snapped = orchestra_ui::Slider::new(0.0, 100.0, 5.0, 0.0, Set::Value).default_value(77.0);
+    assert_eq!(snapped.default(), 75.0);
+}
+
+/// With the primary modifier a drag does not jump on the press and moves a tenth as fast;
+/// changing the modifier during the drag re-anchors it without a jump (ADR-0046 V3).
+#[test]
+fn a_fine_drag_is_ten_times_slower() {
+    let (mut ui, id, mut list) = single(orchestra_ui::Slider::new(
+        0.0,
+        1000.0,
+        1.0,
+        500.0,
+        Set::Value,
+    ));
+    let r = ui.rect(id).unwrap();
+    let y = f32::midpoint(r.y0, r.y1);
+    let moved = |ui: &mut Ui<Set>, list: &mut DisplayList, x: f32| {
+        ui.input(
+            &InputEvent::PointerMoved {
+                position: Point::new(x, y),
+            },
+            list,
+        );
+    };
+    // The plain speed: how far 100 px move the value.
+    ui.input(
+        &pointer(ButtonState::Pressed, Point::new(r.x0 + 50.0, y)),
+        &mut list,
+    );
+    let start = value_of(&ui, id);
+    moved(&mut ui, &mut list, r.x0 + 150.0);
+    let plain = value_of(&ui, id) - start;
+    ui.input(
+        &pointer(ButtonState::Released, Point::new(r.x0 + 150.0, y)),
+        &mut list,
+    );
+    assert!(plain > 300.0, "{plain}");
+    // A fine press far from the thumb keeps the value.
+    let before = value_of(&ui, id);
+    hold(&mut ui, &mut list, PRIMARY);
+    ui.input(
+        &pointer(ButtonState::Pressed, Point::new(r.x0 + 10.0, y)),
+        &mut list,
+    );
+    assert_eq!(value_of(&ui, id), before);
+    // 100 px fine move a tenth of the plain speed (±1 for the snapping).
+    moved(&mut ui, &mut list, r.x0 + 110.0);
+    let fine = value_of(&ui, id) - before;
+    assert!((fine - plain / 10.0).abs() <= 1.0, "{fine} vs {plain}");
+    // Releasing the modifier mid-drag: no jump at once, then the plain speed from here.
+    hold(&mut ui, &mut list, Modifiers::default());
+    let reached = value_of(&ui, id);
+    moved(&mut ui, &mut list, r.x0 + 110.0);
+    assert_eq!(value_of(&ui, id), reached);
+    moved(&mut ui, &mut list, r.x0 + 130.0);
+    let coarse = value_of(&ui, id) - reached;
+    assert!((coarse - plain / 5.0).abs() <= 1.0, "{coarse} vs {plain}");
+    // Holding it again: fine from here.
+    hold(&mut ui, &mut list, PRIMARY);
+    let reached = value_of(&ui, id);
+    moved(&mut ui, &mut list, r.x0 + 150.0);
+    let fine = value_of(&ui, id) - reached;
+    assert!((fine - plain / 50.0).abs() <= 1.0, "{fine} vs {plain}");
+}
+
+/// The window losing the focus forgets the modifiers held (their releases go elsewhere).
+#[test]
+fn losing_the_window_focus_forgets_the_modifiers() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 1.0, 50.0, Set::Value));
+    let r = ui.rect(id).unwrap();
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(f32::midpoint(r.x0, r.x1), f32::midpoint(r.y0, r.y1)),
+        },
+        &mut list,
+    );
+    hold(&mut ui, &mut list, PRIMARY);
+    ui.input(&InputEvent::Focus(false), &mut list);
+    ui.input(&InputEvent::Focus(true), &mut list);
+    wheel(&mut ui, &mut list, notches(1.0));
+    assert_eq!(value_of(&ui, id), 52.0);
+}
+
+/// A key event's modifiers count too, also without a modifier event before it.
+#[test]
+fn key_events_update_the_modifiers() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 1.0, 50.0, Set::Value));
+    let r = ui.rect(id).unwrap();
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(f32::midpoint(r.x0, r.x1), f32::midpoint(r.y0, r.y1)),
+        },
+        &mut list,
+    );
+    // A key pressed with the primary modifier held (here a letter, which the slider ignores).
+    ui.input(
+        &InputEvent::Key {
+            key: Key::Character("a".into()),
+            state: ButtonState::Pressed,
+            repeat: false,
+            modifiers: PRIMARY,
+        },
+        &mut list,
+    );
+    wheel(&mut ui, &mut list, notches(1.0));
+    assert_eq!(value_of(&ui, id), 51.0);
 }

@@ -124,6 +124,7 @@ fn click(ui: &mut Ui<Msg>, list: &mut DisplayList, x: f32, y: f32) {
                 button: PointerButton::Left,
                 state,
                 position: Point::new(x, y),
+                clicks: 1,
             },
             list,
         );
@@ -458,6 +459,7 @@ fn a_handled_press_captures_the_pointer_until_the_release() {
             button: PointerButton::Left,
             state: ButtonState::Pressed,
             position: at(50.0),
+            clicks: 1,
         },
         &mut list,
     );
@@ -473,6 +475,7 @@ fn a_handled_press_captures_the_pointer_until_the_release() {
             button: PointerButton::Left,
             state: ButtonState::Released,
             position: at(150.0),
+            clicks: 1,
         },
         &mut list,
     );

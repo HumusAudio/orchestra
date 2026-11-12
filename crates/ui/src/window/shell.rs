@@ -15,7 +15,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use super::appearance::{ShellEvent, ThemeState, appearance_from_winit};
-use super::input::{self, InputEvent, Modifiers};
+use super::input::{self, ButtonState, InputEvent, Modifiers};
 use super::order::open_in_order;
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
 use super::{WindowApp, WindowError, WindowOptions};
@@ -66,6 +66,8 @@ pub(crate) struct Shell<A> {
     modifiers: Modifiers,
     /// The pointer's last position, logical pixels, for button events.
     pointer: Point,
+    /// The click series in progress, for double clicks (ADR-0046 V4).
+    clicks: input::ClickCounter,
     /// `true` when the system said the window's pixels on screen may be lost (it became visible
     /// again): the next frame copies the whole frame (`CopyPlan::choose`), then this is reset.
     pixels_lost: bool,
@@ -91,6 +93,7 @@ impl<A: WindowApp> Shell<A> {
             open: None,
             modifiers: Modifiers::default(),
             pointer: Point::default(),
+            clicks: input::ClickCounter::default(),
             pixels_lost: false,
             present_rects: Vec::new(),
             error: None,
@@ -362,10 +365,19 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
             }
             WindowEvent::CursorLeft { .. } => self.deliver(&InputEvent::PointerLeft),
             WindowEvent::MouseInput { state, button, .. } => {
+                let (button, state) = (input::pointer_button(button), input::button_state(state));
+                // The click count of a press (ADR-0046 V4); a release carries its press's.
+                let clicks = if state == ButtonState::Pressed {
+                    self.clicks
+                        .press(std::time::Instant::now(), self.pointer, button)
+                } else {
+                    self.clicks.current()
+                };
                 self.deliver(&InputEvent::PointerButton {
-                    button: input::pointer_button(button),
-                    state: input::button_state(state),
+                    button,
+                    state,
                     position: self.pointer,
+                    clicks,
                 });
             }
             WindowEvent::MouseWheel { delta, .. } => {

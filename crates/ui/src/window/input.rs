@@ -27,6 +27,9 @@ pub enum InputEvent {
         state: ButtonState,
         /// Where the pointer is.
         position: Point,
+        /// Which click of a series this is: 1 for a single click, 2 for the second click of a
+        /// double click, and so on (ADR-0046 V4). A release carries the count of its press.
+        clicks: u8,
     },
     /// The pointer left the window.
     PointerLeft,
@@ -311,4 +314,98 @@ fn named_key(key: WinitNamedKey) -> Option<NamedKey> {
         WinitNamedKey::F24 => NamedKey::Function(24),
         _ => return None,
     })
+}
+
+/// The longest pause between two presses of a double click (ADR-0046 V4): 400 ms, the usual
+/// default of desktop systems; the system's own setting can replace it later.
+pub(crate) const DOUBLE_CLICK_TIME: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// The farthest the pointer may move between the two presses of a double click, logical pixels.
+pub(crate) const DOUBLE_CLICK_DISTANCE: f32 = 4.0;
+
+/// Counts the clicks of a series (ADR-0046 V4): `winit` reports presses one by one, with no
+/// count and no time, so the window keeps the last press and decides whether the next one
+/// continues the series (same button, soon enough, close enough).
+///
+/// Pure logic, with the time passed in, so it is tested without a window or a clock.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ClickCounter {
+    /// The last press: when, where, which button, and its count.
+    last: Option<(std::time::Instant, Point, PointerButton, u8)>,
+}
+
+impl ClickCounter {
+    /// Counts a press of `button` at `position` at time `now`, and returns its place in the series.
+    pub(crate) fn press(
+        &mut self,
+        now: std::time::Instant,
+        position: Point,
+        button: PointerButton,
+    ) -> u8 {
+        let count = match self.last {
+            Some((time, at, last_button, count))
+                if last_button == button
+                    && now.saturating_duration_since(time) <= DOUBLE_CLICK_TIME
+                    && (position.x - at.x).abs() <= DOUBLE_CLICK_DISTANCE
+                    && (position.y - at.y).abs() <= DOUBLE_CLICK_DISTANCE =>
+            {
+                count.saturating_add(1)
+            }
+            _ => 1,
+        };
+        self.last = Some((now, position, button, count));
+        count
+    }
+
+    /// The count of the last press (what its release carries), 1 before any press.
+    pub(crate) fn current(&self) -> u8 {
+        self.last.map_or(1, |(_, _, _, count)| count)
+    }
+}
+
+#[cfg(test)]
+mod click_tests {
+    use std::time::{Duration, Instant};
+
+    use super::{ClickCounter, DOUBLE_CLICK_TIME, PointerButton};
+    use crate::Point;
+
+    #[test]
+    fn presses_close_in_time_and_space_make_a_series() {
+        let start = Instant::now();
+        let mut counter = ClickCounter::default();
+        let at = Point::new(10.0, 10.0);
+        assert_eq!(counter.press(start, at, PointerButton::Left), 1);
+        assert_eq!(
+            counter.press(start + Duration::from_millis(200), at, PointerButton::Left),
+            2
+        );
+        assert_eq!(counter.current(), 2);
+        assert_eq!(
+            counter.press(start + Duration::from_millis(350), at, PointerButton::Left),
+            3
+        );
+        // Too late: a new series.
+        let late =
+            start + Duration::from_millis(350) + DOUBLE_CLICK_TIME + Duration::from_millis(1);
+        assert_eq!(counter.press(late, at, PointerButton::Left), 1);
+        // Too far, or another button: a new series.
+        assert_eq!(
+            counter.press(late, Point::new(20.0, 10.0), PointerButton::Left),
+            1
+        );
+        assert_eq!(
+            counter.press(late, Point::new(20.0, 10.0), PointerButton::Right),
+            1
+        );
+        // Vertically too far: a new series; within 4 px both ways: the series goes on.
+        assert_eq!(
+            counter.press(late, Point::new(20.0, 15.0), PointerButton::Right),
+            1
+        );
+        assert_eq!(
+            counter.press(late, Point::new(24.0, 11.0), PointerButton::Right),
+            2
+        );
+    }
 }

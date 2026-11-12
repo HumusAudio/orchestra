@@ -3863,7 +3863,7 @@ pillola larga il doppio con un pomello (acceso: `accent`, pomello a destra). L'a
 
 **Cursore**: un valore da un minimo a un massimo con un passo, sempre sulla griglia e
 nell'intervallo. Una pressione porta il valore sotto il puntatore e lo cattura; il trascinamento
-segue il puntatore anche fuori dal cursore; le frecce muovono di un passo, Pagina su/giù di dieci,
+segue il puntatore anche fuori dal cursore; le frecce muovono di un passo (del passo grosso da F2.09c2, sotto), Pagina su/giù di dieci,
 Inizio/Fine agli estremi; funzionano anche aumenta, diminuisci e imposta valore di AccessKit (nuovi
 `WidgetEvent::Increment`, `Decrement`, `SetValue`, e `AccessInfo::range`). Un cursore non ha testo
 suo, quindi `labelled(nome)` gli dà il nome dell'etichetta accanto, che il lettore di schermo
@@ -3899,6 +3899,57 @@ cursore; tastiera e azioni di valore di AccessKit; ruoli, nomi, valori e interva
 `crates/app/tests/demo.rs` (ogni controllo con un nome nell'albero accessibile; *Restore defaults*).
 Quattordici difetti iniettati, tutti presi (uno dopo il test sull'annullamento scritto apposta). La
 parte di AccessKit nella finestra la verifica il proprietario con Orca.
+
+#### Convenzioni dei controlli di valore: rotella, doppio clic, regolazione fine
+
+Passo F2.09c2 (ADR-0046, scelte WE1–WE7), chiesto dal proprietario per **ogni** cursore e manopola
+del programma: in `src/widget/slider.rs`, `src/widget/ui.rs`, `src/widget/tree.rs` e
+`src/window/input.rs`.
+
+- **Rotella** (V2): con il puntatore sopra un cursore, senza bisogno del fuoco, ogni scatto muove
+  del *passo grosso*, il 2% dell'intervallo arrotondato a passi interi (almeno uno). I pixel di un
+  touchpad valgono 40 per scatto e il resto si conserva; girando nell'altro verso si azzera. Il
+  cursore tiene la rotella anche agli estremi, così l'area intorno non scorre mai sotto di lui,
+  tranne con **Maiusc**: Maiusc+rotella risale all'area di scorrimento (V5).
+- **Regolazione fine** (V3): con il modificatore primario (Ctrl, ⌘ su macOS) uno scatto o una
+  freccia muovono di un passo, e il trascinamento va dieci volte più piano senza saltare al
+  puntatore alla pressione. Il trascinamento è relativo a un'ancora; premere o rilasciare il
+  modificatore a metà lo riancora all'ultima posizione e al valore raggiunto, così il valore non
+  salta mai.
+- **Doppio clic** (V4): torna al valore predefinito, quello iniziale o quello dato con
+  `default_value`. La seconda pressione non avvia un trascinamento.
+- **Tastiera** (V6): le frecce ora muovono del passo grosso (di un passo con il modificatore);
+  Pagina su/giù dieci passi, Inizio/Fine agli estremi, come prima.
+
+Due pezzi del toolkit lo rendono possibile. La finestra conta i clic con un `ClickCounter` (stesso
+pulsante, entro 400 ms e 4 pixel logici) e ogni evento `PointerButton` porta `clicks` (il rilascio
+porta il conteggio della sua pressione). L'interfaccia tiene i modificatori premuti, dagli eventi
+dei modificatori e dei tasti della finestra, e li passa al contesto di ogni evento, anche a quelli
+del puntatore; li dimentica quando la finestra perde il fuoco, così un Ctrl tenuto durante un
+Alt+Tab non resta "incastrato":
+
+```rust
+WidgetEvent::Wheel { delta, .. } => self.wheel(cx, delta),
+// ...
+fn wheel(&mut self, cx: &mut EventCx<'_, M>, delta: WheelDelta) -> Handled {
+    let modifiers = cx.modifiers();
+    if modifiers.shift {
+        return Handled::No;
+    }
+    let notches = self.notches(delta);
+    if notches != 0.0 {
+        let target = self.value + f64::from(notches) * self.notch(modifiers.primary);
+        self.change(cx, target);
+    }
+    Handled::Yes
+}
+```
+
+**Test**: `tests/controls.rs` (rotella a scatti e a pixel, resto e inversione, il modificatore,
+Maiusc; l'arrotondamento del passo grosso; doppio clic con e senza `default_value`; velocità del
+trascinamento fine e riancoraggio nei due versi; modificatori dimenticati alla perdita del fuoco) e
+il test unitario del contatore di clic. Venticinque difetti iniettati: ventiquattro presi (tre dopo i test scritti apposta), uno equivalente (una riga superflua, tolta). Il benchmark `slider_wheel_notch` misura uno
+scatto: **0,36 M istruzioni** con il disegno e l'aggiornamento accessibile (il cursore ha il fuoco dalla pressione precedente, quindi si ridisegna anche l'anello del fuoco), entro gli 0,5 M dell'ADR-0045; uno spostamento del trascinamento resta a 0,22 M.
 
 #### La finestra e il ciclo degli eventi
 

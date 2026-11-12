@@ -39,6 +39,7 @@ fn click(demo: &mut Demo, list: &mut DisplayList, id: WidgetId) {
                 button: PointerButton::Left,
                 state,
                 position: at,
+                clicks: 1,
             },
             list,
         );

@@ -25,7 +25,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 | `crates/audio-engine` | `orchestra-audio-engine` | Real-time graph, mixing, device backends behind traits, null/offline backend |
 | `crates/io` | `orchestra-io` | Project file (versioned + migrations), MIDI, MusicXML |
 | `crates/i18n` | `orchestra-i18n` | Fluent catalogs for 6 languages, parity tests |
-| `crates/ui` | `orchestra-ui` | Our own UI layer (ADR-0012), light/dark themes (ADR-0014), notation/DAW/video views, input → commands, headless screenshots |
+| `crates/ui` | `orchestra-ui` | Our own UI layer (ADR-0012), light/dark themes (ADR-0014), notation/DAW/video views, input → commands, headless screenshots; its widgets follow ADR-0045 (tree, layout, events) and ADR-0046 (value controls: wheel, double click, fine adjustment) |
 | `crates/video` | `orchestra-video` | Video tracks (last phase; empty for now) |
 | `crates/app` | `orchestra-app` (binaries `orchestra` and the developer tool `orchestra-screenshots`, ADR-0041) | Wiring only; the views shared by both binaries; the screenshot scene catalogue |
 | `crates/test-support` | `orchestra-test-support` | Test-only helpers: per-thread allocation-counting global allocator (ADR-0016); `[dev-dependencies]` only |

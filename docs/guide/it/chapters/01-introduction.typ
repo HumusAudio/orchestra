@@ -42,6 +42,24 @@ Orchestra avrà un aspetto chiaro e uno scuro. In modo predefinito segue l'impos
 sistema operativo e cambia insieme a lei; puoi anche scegliere tu chiaro o scuro. La partitura può
 seguire l'aspetto scuro oppure restare sempre su carta bianca, come preferisci.
 
+== Regolare i valori
+
+Ogni cursore e ogni manopola di Orchestra funziona allo stesso modo, ovunque si trovi:
+
+- *Trascinalo*, oppure fai clic dove vuoi il valore.
+- *Gira la rotella del mouse* con il puntatore sopra: non serve fare clic prima. Ogni scatto
+  sposta il valore di poco; sul touchpad, scorri in su o in giù.
+- *Tieni premuto Ctrl* (⌘ su macOS) mentre trascini, giri la rotella o premi le frecce per una
+  regolazione più fine: il trascinamento va dieci volte più piano, uno scatto o una freccia
+  spostano del passo più piccolo.
+- *Fai doppio clic* per tornare al valore predefinito.
+- Con la tastiera, quando è selezionato: le frecce, Pagina su e Pagina giù, Inizio e Fine.
+
+#tip("Suggerimento")[
+  Tieni premuto Maiusc mentre giri la rotella per far scorrere il pannello invece di cambiare il
+  controllo sotto il puntatore.
+]
+
 == Stato di questa guida
 
 Orchestra è in una fase di sviluppo molto iniziale. Questa edizione di anteprima spiega le idee
