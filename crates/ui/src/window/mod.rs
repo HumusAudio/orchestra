@@ -58,6 +58,10 @@ pub struct WindowOptions {
     pub width: f32,
     /// The initial height, logical pixels.
     pub height: f32,
+    /// The bundled faces, parsed once by the application and lent to the window's renderer
+    /// for the glyphs it draws (ADR-0044 TB2, TC1). The application keeps its own copy (a
+    /// reference-count increment) to lay its texts out with the same faces.
+    pub faces: orchestra_text::Faces,
 }
 
 /// Why the window could not run. Exhaustive (ADR-0034 D2). The details are the libraries'

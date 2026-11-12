@@ -45,7 +45,7 @@ fn scene_names_are_unique_kebab_case_file_names() {
 /// scene depends on the clock, the system or a previous scene).
 #[test]
 fn every_scene_renders_opaque_and_deterministic() {
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     for scene in SCENES {
         let image = render(scene, &mut renderer).unwrap();
         let (width, height) = scene.device_size().unwrap();
@@ -72,7 +72,11 @@ fn every_scene_renders_opaque_and_deterministic() {
         );
         // A fresh renderer, so leftover scratch state from the first render cannot hide a
         // difference.
-        let again = render(scene, &mut CpuRenderer::new()).unwrap();
+        let again = render(
+            scene,
+            &mut CpuRenderer::new(orchestra_text::Faces::bundled().unwrap()),
+        )
+        .unwrap();
         assert!(
             image == again,
             "scene `{}` is not deterministic",
@@ -89,7 +93,11 @@ fn screenshots_use_studio_dark() {
     assert_eq!(theme(), dark);
     let surface = dark.color(ColorToken::Surface);
     for scene in SCENES {
-        let image = render(scene, &mut CpuRenderer::new()).unwrap();
+        let image = render(
+            scene,
+            &mut CpuRenderer::new(orchestra_text::Faces::bundled().unwrap()),
+        )
+        .unwrap();
         assert_eq!(
             image.pixel(0, 0).unwrap(),
             [surface.r, surface.g, surface.b, 255],
@@ -103,7 +111,7 @@ fn screenshots_use_studio_dark() {
 #[test]
 fn bad_sizes_are_rejected() {
     /// Records nothing.
-    fn nothing(_: Rect, _: &mut orchestra_ui::DisplayList) {}
+    fn nothing(_: Rect, _: &mut orchestra_ui::DisplayList, _: &orchestra_app::SceneContext) {}
     for (width, height) in [(0.0, 10.0), (10.0, -1.0), (f32::NAN, 10.0), (1e9, 10.0)] {
         let scene = Scene {
             name: "bad",
@@ -111,10 +119,44 @@ fn bad_sizes_are_rejected() {
             height,
             record: nothing,
         };
-        let error = render(&scene, &mut CpuRenderer::new()).unwrap_err();
+        let error = render(
+            &scene,
+            &mut CpuRenderer::new(orchestra_text::Faces::bundled().unwrap()),
+        )
+        .unwrap_err();
         assert!(matches!(error, ScreenshotError::Size { scene: "bad", .. }));
         assert!(error.to_string().contains("bad"));
     }
     // The scale the module documents.
     assert!((SCALE - 2.0).abs() < f32::EPSILON);
+}
+
+/// The demonstration window shows its title (F2.07c): in the screenshot, the area right of the
+/// three controls holds light text pixels (the theme is dark) and nothing else is there.
+#[test]
+fn the_demo_window_shows_its_title() {
+    let scene = SCENES
+        .iter()
+        .find(|scene| scene.name == "demo-window")
+        .unwrap();
+    let image = render(
+        scene,
+        &mut CpuRenderer::new(orchestra_text::Faces::bundled().unwrap()),
+    )
+    .unwrap();
+    // The title's area, logical x 384–520, y 44–76 (MARGIN + 360, the controls' row), at
+    // scale 2: count the pixels much lighter than the raised panel around them.
+    let panel = theme().color(ColorToken::SurfaceRaised);
+    let mut light = 0;
+    for y in 88..152 {
+        for x in 768..1040 {
+            let [r, g, b, _] = image.pixel(x, y).unwrap();
+            if u16::from(r) + u16::from(g) + u16::from(b)
+                > u16::from(panel.r) + u16::from(panel.g) + u16::from(panel.b) + 300
+            {
+                light += 1;
+            }
+        }
+    }
+    assert!(light > 400, "only {light} light pixels where the title is");
 }

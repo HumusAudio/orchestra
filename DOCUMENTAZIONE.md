@@ -2682,6 +2682,182 @@ un segno % distinto dalla sua battuta d'origine, una catena di legature) e spost
 i passaggi e di uno solo tra i comandi casuali di `tests/update_props.rs`. Quattro bug iniettati
 sono stati presi.
 
+### orchestra-text
+
+Il crate da cui passano tutti gli altri per mettere lettere e simboli musicali sullo schermo
+(ADR-0044). Sta proprio in fondo al workspace, accanto a `orchestra-core-time`, senza dipendenze
+interne, così sia l'interfaccia (`orchestra-ui`) sia l'incisione (`orchestra-notation-layout`, fase
+F2B) possono usare gli stessi font e le stesse misure. **Non** trasforma i glifi in pixel: la
+rasterizzazione e la cache dei glifi sono di `orchestra-ui`, l'unico crate che conosce `tiny-skia`
+(ADR-0044 TX2, TX8; passo F2.07b parte 2). Le sue dipendenze esterne sono `skrifa` 0.50 (lettura dei
+font, profili), `harfrust` 0.16 (shaping, un port di HarfBuzz) e `icu_segmenter` 2.4 (le regole
+Unicode per andare a capo); le prime due si aggiornano sempre insieme, perché condividono
+`read-fonts`.
+
+Ecco come lo usa chi lo chiama:
+
+```rust
+use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+
+let faces = Faces::bundled()?;
+let mut shaper = Shaper::new();
+let mut layout = TextLayout::new();
+let style = TextStyle::new(FaceId::InterRegular, 13.0);
+shaper.layout(&faces, "Quarter note · Crotchet · Viertelnote", style, Some(120.0), &mut layout)?;
+assert!(layout.lines().len() > 1);
+```
+
+Tre oggetti, tre ruoli: `Faces` contiene i font, `Shaper` la memoria di lavoro dello shaping,
+`TextLayout` il risultato. Chi chiama li tiene tutti e tre e li riusa: è questo che rende un
+secondo layout della stessa dimensione libero da allocazioni.
+
+#### I font inclusi
+
+`src/face.rs`. Nel programma ci sono cinque font, inclusi con `include_bytes!` direttamente da
+`assets/fonts/`, mai modificati (l'OFL vieta copie modificate con i nomi dei font): Inter Regular,
+SemiBold e Bold per l'interfaccia, Bravura per i simboli musicali, JetBrains Mono Regular per il
+testo tipo codice. Circa 3,0 MB del binario. Inter Italic, Bravura Text e Source Serif restano solo
+per le guide (TX3).
+
+Un font è un enum chiuso, `FaceId`, di un byte, `Copy`: starà in ogni sequenza di glifi e in ogni
+chiave di cache. `Faces::bundled()` li analizza tutti e cinque una volta; l'analisi legge solo
+l'indice delle tabelle di ogni file (le tabelle si leggono quando servono), quindi costa
+microsecondi. Non c'è stato globale: l'applicazione possiede il `Faces` e lo presta (scelta del
+proprietario TB2). Anche la ricerca di un font analizzato evita qualunque indice che possa andare in
+panico, destrutturando l'array:
+
+```rust
+let [inter_regular, inter_semibold, inter_bold, bravura, mono] = &self.fonts;
+match face {
+    FaceId::InterRegular => inter_regular,
+    FaceId::InterSemiBold => inter_semibold,
+    FaceId::InterBold => inter_bold,
+    FaceId::Bravura => bravura,
+    FaceId::JetBrainsMono => mono,
+}
+```
+
+`Faces::glyph_for_char` è una semplice ricerca nella tabella `cmap`, senza shaping: è così che si
+trovano i simboli SMuFL in Bravura dal loro punto di codice (una testa di nota nera è U+E0A4). Una
+scoperta dei test: Inter associa alcuni punti di codice dell'area a uso privato a glifi suoi, quindi
+un punto di codice SMuFL vuol dire un simbolo musicale **solo** in Bravura, e i simboli si cercano
+sempre lì.
+
+#### Lo shaping e il layout
+
+`src/shape.rs`, `src/layout.rs`, `src/style.rs`. Un `TextStyle` è un font, una dimensione in pixel
+logici per em e le feature facoltative (oggi solo le cifre tabulari, `tnum`, per contatori e numeri
+di battuta). `Shaper::layout` controlla prima gli ingressi (una dimensione non finita o non
+positiva, una larghezza negativa, un testo oltre i 4 GiB sono errori tipizzati, mai posizioni NaN
+che viaggiano fino al renderer), poi fa lo shaping dell'intero testo una volta sola con `harfrust`,
+come un'unica sequenza, da sinistra a destra. La direzione si imposta **prima** che lo shaper
+indovini le altre proprietà, perché l'ipotesi riempie solo ciò che non è impostato: un testo ebraico
+diventerebbe altrimenti da destra a sinistra, e ADR-0044 TX5 tiene tutto da sinistra a destra per
+ora.
+
+```rust
+self.buffer.clear();
+self.buffer.push_str(text);
+self.buffer.set_direction(Direction::LeftToRight);
+self.buffer.guess_segment_properties();
+```
+
+I piani di shaping compilati si tengono, fino a 32, sostituiti a turno quando sono pieni
+(ricompilarne uno costa microsecondi). `harfrust` dà gli avanzamenti in unità del font; si scalano in
+pixel logici (`size / units_per_em`) mentre si copiano nel nostro elenco di glifi. I marcatori di
+isolamento di Fluent U+2068 e U+2069 escono come glifi invisibili senza avanzamento, come fa HarfBuzz
+con ogni carattere da ignorare; i caratteri di controllo (una tabulazione, un a capo) li nascondiamo
+noi, perché i font non hanno glifi per loro e disegnerebbero i quadratini `.notdef`.
+
+Il risultato, un `TextLayout`, ha i glifi posizionati (`PositionedGlyph`: glifo, x e y in pixel
+logici dall'angolo in alto a sinistra del layout, e l'offset in byte del suo **cluster** nel testo),
+le righe (`Line`: l'intervallo di glifi, l'intervallo di testo, la linea di base, la larghezza del
+contenuto, se è stato aggiunto un trattino) e l'estensione. Le posizioni non sono arrotondate: il
+disegno arrotonderà a un quarto di pixel del dispositivo in orizzontale e al pixel intero in
+verticale (TX7). Un testo vuoto ha comunque una riga vuota, così un cursore ha dove stare (F2.10).
+
+#### Andare a capo
+
+`src/wrap.rs`. I punti in cui si può andare a capo vengono da `icu_segmenter`, configurato senza
+dizionari (scelto dal proprietario dopo la misura: +52 KB, +14 crate, +2,6 s di compilazione da
+zero), e sono quelli dello standard Unicode, UAX #14: niente a capo prima di un `?` francese scritto
+dopo uno spazio non divisibile, un a capo dopo `pre-`, uno a ogni trattino morbido di
+`Takt­art­wechsel`, uno fra due caratteri cinesi. Quali a capo siano **obbligatori** (dopo un
+ritorno a capo) non è nell'API stabile di `icu_segmenter`, quindi lo ricaviamo dalla regola stessa
+dello standard: un a capo obbligatorio viene subito dopo un carattere di fine riga.
+
+```rust
+mandatory: before.chars().next_back().is_some_and(is_hard_break),
+soft_hyphen: before.ends_with('\u{AD}'),
+```
+
+Le righe si riempiono in modo avido, come fanno i browser per i testi dell'interfaccia: a ogni punto
+ammesso la riga fin lì è una candidata; quando una candidata non ci sta più, la riga si taglia alla
+precedente. Gli spazi a fine riga sporgono oltre la larghezza e non contano. Un trattino morbido
+diventa un trattino visibile (U+2010, dallo stesso font) solo dove la riga si spezza, e la sua
+larghezza conta. Una parola più larga della riga si taglia all'ultimo cluster che ci sta, mai fra
+una lettera e il suo accento; una sequenza di spazi al suo interno (uno spazio non divisibile) ci sta
+sempre, perché a fine pezzo sporge anch'essa:
+
+```rust
+let hangs = cluster.iter().all(|glyph| glyph.space);
+```
+
+Quest'ultima regola l'ha trovata il test di proprietà, come lo sporgere degli spazi in un taglio di
+emergenza. Un testo che finisce con un ritorno a capo ha un'ultima riga vuota, come la mostra un
+editor di testo.
+
+#### Metriche e profili
+
+`src/metrics.rs`, `src/outline.rs`. `Faces::line_metrics` prende le metriche tipografiche di `OS/2`
+quando il font le chiede (`USE_TYPO_METRICS`, impostato in Inter e JetBrains Mono), altrimenti
+`hhea`: una riga di Inter è 1,21 em, come in una pagina web. Tutti i valori sono girati con la y
+verso il basso: un'ascendente è una distanza positiva sopra la linea di base, un riquadro ha il
+bordo superiore negativo. `Faces::bounds` è il riquadro del font (un `GlyphBox`), che allarga i
+limiti di una sequenza di glifi, così un ridisegno parziale non taglia mai un glifo che sporge;
+`TextLayout::bounds` è lo stesso tipo di riquadro per un intero layout (le origini dei suoi glifi
+allargate dal riquadro del font), calcolato una volta quando il layout viene costruito. Per i
+simboli piazzati uno a uno, `Faces::glyph_box` dà il riquadro proprio di un glifo dal suo profilo
+(calcolato una volta per glifo e dimensione): il riquadro di Bravura è largo 2,75 em, troppo per
+registrarci le teste di nota (F2.07c). `Faces::draw_outline` consegna il profilo di un glifo senza hinting, scalato alla dimensione
+e girato con la y verso il basso, al nostro trait `OutlineSink`, così né `skrifa` finisce in `ui` né
+`tiny-skia` in questo crate.
+
+#### Come è testato
+
+- `tests/shaping.rs`: i cinque font si analizzano; **ogni carattere di ogni catalogo** delle sei
+  lingue esiste nei tre Inter (i cataloghi si leggono come file, perché questo crate non deve
+  dipendere da `orchestra-i18n`); una frase per lingua senza `.notdef`; la crenatura (AV); le cifre
+  tabulari; marcatori di isolamento invisibili e senza larghezza; un carattere mancante come
+  `.notdef`; tabulazioni nascoste; cluster in ordine, con un accento combinato tenuto nel cluster
+  della sua lettera; l'ebraico da sinistra a destra; le ricerche SMuFL (una testa di nota nera è
+  larga 0,295 em, 1,18 spazi di rigo come nei metadati di Bravura); dimensioni e larghezze rifiutate;
+  il testo vuoto.
+- `tests/metrics.rs`: le metriche di riga di Inter e JetBrains Mono confrontate con i valori letti
+  dai file; i profili (una A maiuscola di Inter sopra la linea di base, cubica, chiusa; JetBrains Mono
+  quadratico; uno spazio vuoto; una testa di nota di Bravura centrata sulla linea di base).
+- `tests/wrap_cases.rs`: ogni riga della tabella di ADR-0044 TX10, gli a capo obbligatori, gli spazi
+  che sporgono, la distanza fra le linee di base.
+- `tests/wrap_props.rs`: testi e larghezze casuali contro un oracolo che non riscrive l'algoritmo ma
+  controlla ciò che un a capo avido corretto deve soddisfare (le righe coprono il testo, ci stanno o
+  contengono un solo cluster, finiscono in un punto di UAX #14 chiesto direttamente a
+  `icu_segmenter` oppure in un taglio di emergenza senza punti ammessi al suo interno, e non
+  avrebbero potuto prendere il pezzo successivo). Superato con 5 000 casi.
+- `tests/no_alloc.rs`: un secondo giro di layout (cinque testi, tre stili, con e senza larghezza) e
+  ogni misura non allocano nulla.
+
+Dodici difetti iniettati apposta: undici presi (due solo dopo aver rinforzato un test: il testo
+ebraico ora viene per primo, e l'accento sta su una `q`, che non ha una forma precomposta e quindi
+resta un glifo a sé); il dodicesimo, leggere `hhea` prima delle metriche tipografiche, è
+equivalente, perché le due tabelle hanno gli stessi valori in tutti e cinque i font.
+
+**Benchmark** (`benches/text.rs`, conteggio di istruzioni): una riga di 40 caratteri ≈ 89 400, un
+paragrafo di 400 caratteri spezzato a 300 px ≈ 731 000, i profili di 26 lettere e una chiave di
+violino ≈ 359 000 (≈ 13 000 a glifo). Con la regola di 1 istruzione per nanosecondo, una riga costa
+circa 0,09 ms e un paragrafo circa 0,7 ms. **Dimensione:** il crate aggiunge 4,64 MB a un binario di
+rilascio strippato, di cui 3,03 MB sono i font; compilarlo da zero in rilascio richiede 69 s su
+quattro core.
+
 ### orchestra-notation-layout
 
 L'incisione (engraving) incrementale in glifi posizionati: pura geometria, nessun disegno, così
@@ -3133,6 +3309,35 @@ invece di `<`) è equivalente, perché nessuna coppia a 8 bit dà esattamente 4,
 Nessun benchmark: non c'è ancora un percorso caldo. Leggere un token è l'accesso a un campo, e un
 tema personalizzato si risolve una volta sola, quando lo si sceglie.
 
+#### I token del testo
+
+Passo F2.07c (ADR-0044 TX11, scelta TD1), in `src/theme/text.rs`. Un'istanza di tema ora ha,
+accanto ai colori e alle forme, una **tipografia**: quale famiglia dei font inclusi usa ogni ruolo
+di testo, e la scala delle dimensioni. Due tipi di token sono del tema, una scelta è del widget:
+
+- **Famiglie** (`FamilyToken`): `Ui` (Inter), `Numeric` (Inter con cifre tabulari, così contatori e
+  numeri di battuta non si spostano), `Code` (JetBrains Mono), `Music` (Bravura). Un tema
+  personalizzato può cambiarle, ma solo fra i valori `Family` dei font inclusi (ADR-0006).
+- **Dimensioni** (`SizeToken`): caption 11, small 12, body 13, subheading 15, heading 18, title 22
+  pixel logici, tenute fra `MIN_TEXT_SIZE` (6) e `MAX_TEXT_SIZE` (96).
+- **Pesi** (`Weight`): regular, semibold, bold, scelti dal widget (un titolo è in grassetto con
+  qualunque tema). Una famiglia senza quel peso usa il suo regular.
+
+```rust
+let style = theme.text_style(FamilyToken::Ui, SizeToken::Heading, Weight::Bold);
+shaper.layout(&faces, &title, style, None, &mut layout)?;
+```
+
+Le dieci coppie incluse condividono `Typography::DEFAULT`: si distinguono per colori e forme, non
+per le lettere. Un tema personalizzato le cambia con `Override::Family` e `Override::TextSize`, i cui
+nomi stabili (`family-ui`, `size-body`…) sono quelli che salverà il file delle impostazioni di
+F2.12. A differenza di un colore, un token del testo cambia glifi e posizioni, quindi cambiarlo vuol
+dire impaginare di nuovo i testi e registrare di nuovo i loro segmenti (ADR-0044 TX9); a programma
+aperto non lo fa ancora nessuno, lo farà l'editor dei temi di F2.12b. Test in
+`tests/typography.rs`: i valori predefiniti di ogni coppia, i font e le feature di ogni stile, il
+ripiego del peso, gli override (vince l'ultimo), l'intervallo delle dimensioni, ogni token nel suo
+posto, i nomi stabili.
+
 #### La preferenza chiaro/scuro del sistema
 
 Quando l'utente lascia il modo su *Sistema* (il predefinito), l'interfaccia deve sapere se il
@@ -3260,7 +3465,8 @@ list.record(SegmentId(1), |r| {
     r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
 });
 let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
-let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+let faces = orchestra_text::Faces::bundled()?;
+let image = CpuRenderer::new(faces).render_to_image(&list, &theme, 120, 50, 1.0)?;
 ```
 
 **Token, non colori.** Ogni pittura è un token del tema (`ColorToken`), con un'opacità in più
@@ -3404,6 +3610,98 @@ l'una. I glifi disegnati da una cache in F2.07 sostituiscono proprio quella part
 ADR-0012 misurava 243 ms senza cache dei glifi e 28,8 ms con la cache), quindi il budget del
 fotogramma intero si rimisura lì e in F2.23.
 
+**Da F2.07c** la scena di riferimento ha le teste di nota come glifi di Bravura presi dalla cache
+(una sequenza di glifi per battuta, con il riquadro proprio della testa di nota,
+`Faces::glyph_box`), i dieci nomi degli strumenti e i numeri di battuta, e i casi si chiamano
+`*_glyphs`:
+
+| Caso | Istruzioni | Con la regola di F1.16c | Budget |
+|---|---|---|---|
+| `record_scene_glyphs` | 1,21 M | ~1,2 ms | — |
+| `draw_full_frame_glyphs` | 17,13 M | ~17 ms | ≤ 33 M con la registrazione: 18,3 M |
+| `edit_one_note_glyphs` | 0,25 M | ~0,25 ms | una piccola parte di 50 ms |
+
+Il budget di ADR-0039 D10 è rispettato con margine. Con il riquadro del font invece di quello della
+testa di nota, una modifica costava 1,77 M: il riquadro di Bravura è largo 2,75 em e alto 3,9 em,
+quindi i limiti di ogni battuta coprivano quelle vicine e i righi sopra e sotto.
+
+#### Il testo nella lista di disegno: sequenze di glifi e cache dei glifi
+
+Passo F2.07b, parte 2 (ADR-0044 TX6–TX9, scelte TC1–TC10). Il testo arriva sullo schermo in due
+passi: `orchestra-text` ne fa una volta lo shaping in un `TextLayout` (vedi quel crate), e il
+registratore copia i glifi del layout nel segmento come **sequenza di glifi** (glyph run), un nuovo
+comando della lista. I simboli piazzati uno a uno (le teste di nota di una battuta) fanno la stessa
+strada senza shaping:
+
+```rust
+list.record(SegmentId(1), |r| {
+    r.text(&layout, Point::new(20.0, 30.0), ColorToken::Text);
+    r.glyphs(
+        FaceId::Bravura,
+        32.0,
+        faces.bounds(FaceId::Bravura, 32.0)?,
+        [(notehead, Point::new(40.0, 90.0))],
+        ColorToken::Text,
+    );
+});
+```
+
+**Registrazione** (`draw/list.rs`, `draw/command.rs`). Ogni segmento ha un archivio di glifi
+accanto all'archivio dei tracciati: un unico vettore di glifo e posizione per tutte le sue sequenze,
+svuotato e riempito a ogni registrazione, così registrare testo non alloca dopo che è cresciuto
+(testato). I limiti di una sequenza vengono dal layout (`TextLayout::bounds`: le origini dei glifi
+allargate dal riquadro del font) oppure, per `glyphs`, dal riquadro che passa il chiamante, perché il
+registratore non ha i font. Un layout vuoto, una dimensione non finita o non positiva, o nessun
+glifo non registrano nulla.
+
+**Disegno** (`draw/skia.rs`, `draw/glyph_cache.rs`). Il renderer ora possiede una copia dei font,
+`CpuRenderer::new(faces)` (la copia è un contatore di riferimenti), e legge il profilo di un glifo
+che non ha ancora visto. Per ogni glifo calcola l'origine in pixel del dispositivo del fotogramma, la
+arrotonda al quarto di pixel in orizzontale e al pixel intero in verticale (TX7), e chiede alla cache
+la maschera di (font, glifo, dimensione in 1/64 di pixel, quarto). Se manca, il profilo, spostato del
+quarto, diventa un tracciato `tiny-skia` riempito con antialiasing in una maschera grande quanto
+basta; se c'è, basta una ricerca in una tabella hash con una piccola funzione di hash nostra. La
+maschera si fonde poi pixel per pixel con il colore e con il clip in vigore, arrotondando una volta
+per canale come per le ombre; i pixel a copertura piena di un colore opaco si copiano direttamente,
+con gli stessi byte. L'arrotondamento si fa nelle coordinate del **fotogramma**: una regione parziale
+comincia a un pixel intero, quindi un glifo ha gli stessi pixel in un ridisegno parziale e in un
+fotogramma intero (testato byte per byte).
+
+La cache contiene al massimo 8 MB. Quando una maschera nuova li supererebbe, se ne vanno in blocco
+quelle usate meno di recente, fino a tre quarti del limite, così lo sgombero (un ordinamento) resta
+raro. Un glifo la cui maschera supererebbe 256 × 256 pixel del dispositivo (uno zoom forte) non va in
+cache ma si riempie come tracciato ogni volta; se succeda dipende dalla scala, sconosciuta quando si
+registra, quindi una sequenza di glifi conta sempre come forma da ridisegnare intera in una regione
+parziale (`needs_whole_shape`), cosa esatta e, per il testo, poco costosa. `glyph_cache.rs` non sa
+nulla di `tiny-skia`: il renderer gli passa la funzione che rasterizza, così `skia.rs` resta l'unico
+file che conosce la libreria.
+
+**La finestra** riceve i font attraverso `WindowOptions::faces`: l'applicazione li analizza una
+volta e ne tiene una copia per impaginare i suoi testi con gli stessi font.
+
+**Contrasto del testo (TX6).** Una tabella di 256 voci trasforma la copertura di un pixel di glifo
+nella copertura usata per la fusione, `c^(1/γ)` con γ = `TEXT_CONTRAST` = 1,45, scelto a occhio dal
+proprietario fra tre varianti (1, 1,2, 1,45): un pixel coperto a metà da un tratto si fonde al 62%
+invece che al 50%, così il testo piccolo resta deciso sui fondi scuri.
+
+**Test** (`tests/text.rs`, `tests/draw_no_alloc.rs`, i test unitari di `glyph_cache.rs`): inchiostro
+solo dentro i limiti della sequenza e il colore del testo nel pixel più scuro; 200 etichette
+ridisegnate dalla cache con gli stessi byte di un renderer nuovo; un quarto di pixel in orizzontale
+cambia la maschera, mezzo pixel in verticale non sposta la linea di base; ridisegni parziali uguali
+ai fotogrammi interi, con glifi dalla cache e con chiavi di violino troppo grandi per essa (un disco
+che si muove sopra di loro a scala 4×); clip; un cambio di tema che ricolora la stessa copertura; la
+scala della finestra e le trasformazioni di scala; glifi liberi disegnati come il testo;
+l'inchiostro di un glifo dove sta il suo profilo; i limiti registrati; nessuna allocazione
+registrando di nuovo e disegnando dalla cache calda; il limite della cache e l'ordine dello sgombero.
+Dodici difetti iniettati: undici presi subito (tre dopo i test scritti apposta); il dodicesimo,
+ignorare la tabella del contrasto, era equivalente finché γ valeva 1 e, ora che γ vale 1,45, lo
+prende un test unitario della fusione.
+
+**Benchmark** (`benches/draw.rs`): un fotogramma 1920 × 1080 con 200 etichette (circa 6 600 glifi)
+costa ≈ 15,5 M istruzioni con la cache calda e ≈ 20,2 M quando il primo fotogramma la riempie; la
+maggior parte è la fusione, circa 25 istruzioni per pixel di glifo. Il budget si verifica sulla scena
+di riferimento in F2.07c.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
@@ -3423,8 +3721,10 @@ let options = WindowOptions {
     mode: ThemeMode::System,
     width: 960.0,
     height: 600.0,
+    faces,
 };
-orchestra_ui::run(Demo::default(), options)?;
+let demo = Demo::new(&options.faces, &options.title);
+orchestra_ui::run(demo, options)?;
 ```
 
 **Fotogrammi su richiesta.** Il ciclo dorme finché non arriva un evento. Si disegna un fotogramma
@@ -3524,8 +3824,8 @@ pub const SCENES: &[Scene] = &[Scene {
     record: record_demo_window,
 }];
 
-fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
-    let mut demo = Demo::default();
+fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &context.app_name);
     demo.layout(bounds, list);
     demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
 }
@@ -3534,7 +3834,11 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
 `render` disegna una scena con `CpuRenderer::render_to_image` a **scala 2** (una scena larga 640
 pixel diventa di 1280, circa 200 dpi sulla larghezza del testo di una pagina A4) nella **metà scura
 di Studio**, impostata in modo esplicito e mai letta dal sistema (scelta del proprietario; modifica
-ADR-0014 §7 e ADR-0037 T10, che dicevano chiara). La lingua sarà en-US quando ci sarà del testo.
+ADR-0014 §7 e ADR-0037 T10, che dicevano chiara). La lingua è en-US: da F2.07c `render` prepara un
+`SceneContext` (i font inclusi e l'`app-name` in en-US) e lo passa a ogni scena, così le scene
+restano semplici funzioni e un font o un catalogo mancante è un errore tipizzato
+(`ScreenshotError::Setup`), non un panico. La finestra dimostrativa mostra il nome del programma come
+titolo, i numeri di battuta del suo rigo e teste di nota di Bravura.
 
 **Un binario per sviluppatori.** `orchestra-app` ora è una libreria (`src/lib.rs`, con `demo` e
 `screenshots`) e due binari: `orchestra`, il programma, e `orchestra-screenshots <OUT_DIR>`, che

@@ -48,7 +48,7 @@ fn opaque(theme: &Theme, token: ColorToken) -> [u8; 4] {
 
 /// Draws the whole list into a new image.
 fn draw(list: &DisplayList, theme: &Theme, width: u32, height: u32, scale: f32) -> Image {
-    CpuRenderer::new()
+    CpuRenderer::new(orchestra_text::Faces::bundled().unwrap())
         .render_to_image(list, theme, width, height, scale)
         .unwrap()
 }
@@ -369,7 +369,7 @@ fn only_the_damage_is_redrawn() {
     list.record(SegmentId(2), |r| {
         r.fill_rect(Rect::new(40.0, 40.0, 48.0, 48.0), ColorToken::Accent);
     });
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     let mut image = Image::new(64, 64).unwrap();
     let damage = list.take_damage();
     renderer
@@ -479,7 +479,7 @@ fn drawing_the_damage_gives_the_same_picture_as_drawing_everything() {
     let theme = light();
     let mut list = DisplayList::new();
     every_command(&mut list);
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     let mut partial = Image::new(128, 100).unwrap();
     renderer
         .render(&list, &theme, &Damage::all(), 1.0, &mut partial)
@@ -532,7 +532,7 @@ fn a_moving_shape_over_paths_redraws_them_exactly() {
         }
         r.pop_clip();
     });
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     let mut frame = Image::new(240, 120).unwrap();
     let damage = list.take_damage();
     renderer
@@ -797,14 +797,14 @@ fn errors_are_reported() {
     let mut image = Image::new(4, 4).unwrap();
     for scale in [0.0, -1.0, f32::INFINITY] {
         assert_eq!(
-            CpuRenderer::new()
+            CpuRenderer::new(orchestra_text::Faces::bundled().unwrap())
                 .render(&list, &light(), &Damage::all(), scale, &mut image)
                 .unwrap_err(),
             DrawError::InvalidScale { scale }
         );
     }
     assert!(
-        CpuRenderer::new()
+        CpuRenderer::new(orchestra_text::Faces::bundled().unwrap())
             .render(&list, &light(), &Damage::all(), f32::NAN, &mut image)
             .is_err()
     );
@@ -957,10 +957,10 @@ fn repeated_renders_give_the_same_pixels() {
     let list = busy_scene();
     for scale in [1.0, 2.0] {
         let size = |n: f32| (n * scale) as u32;
-        let reference = CpuRenderer::new()
+        let reference = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap())
             .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
             .unwrap();
-        let mut renderer = CpuRenderer::new();
+        let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
         for _ in 0..2 {
             let image = renderer
                 .render_to_image(&list, &theme, size(640.0), size(400.0), scale)
@@ -981,7 +981,7 @@ fn repeated_renders_give_the_same_pixels() {
 fn partial_redraw_of_a_busy_scene_equals_a_full_redraw() {
     let theme = light();
     let mut list = busy_scene();
-    let mut renderer = CpuRenderer::new();
+    let mut renderer = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap());
     let mut frame = Image::new(640, 400).unwrap();
     renderer
         .render(&list, &theme, &Damage::all(), 1.0, &mut frame)
@@ -1005,7 +1005,7 @@ fn partial_redraw_of_a_busy_scene_equals_a_full_redraw() {
     renderer
         .render(&list, &theme, &damage, 1.0, &mut frame)
         .unwrap();
-    let full = CpuRenderer::new()
+    let full = CpuRenderer::new(orchestra_text::Faces::bundled().unwrap())
         .render_to_image(&list, &theme, 640, 400, 1.0)
         .unwrap();
     assert!(

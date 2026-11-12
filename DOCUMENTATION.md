@@ -2509,6 +2509,173 @@ let offsets = with_pass(first_note.offsets(), passes.get(first_note.id(), first.
 bar repeat told from its source, a tie chain) and DAW moves of every pass and of one pass among the
 random commands of `tests/update_props.rs`. Four injected bugs were caught.
 
+### orchestra-text
+
+The crate every other crate goes through to put letters and musical symbols on the screen
+(ADR-0044). It sits at the very bottom of the workspace, next to `orchestra-core-time`, with no
+internal dependency, so that both the interface (`orchestra-ui`) and the engraving
+(`orchestra-notation-layout`, phase F2B) can use the same fonts and the same measurements. It
+does **not** turn glyphs into pixels: rasterising and the glyph cache belong to `orchestra-ui`,
+the only crate that knows `tiny-skia` (ADR-0044 TX2, TX8; step F2.07b part 2). Its external
+dependencies are `skrifa` 0.50 (reading fonts, outlines), `harfrust` 0.16 (shaping, a port of
+HarfBuzz) and `icu_segmenter` 2.4 (the Unicode line breaking rules); the first two are always
+updated together, because they share `read-fonts`.
+
+This is how a caller uses it:
+
+```rust
+use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+
+let faces = Faces::bundled()?;
+let mut shaper = Shaper::new();
+let mut layout = TextLayout::new();
+let style = TextStyle::new(FaceId::InterRegular, 13.0);
+shaper.layout(&faces, "Quarter note · Crotchet · Viertelnote", style, Some(120.0), &mut layout)?;
+assert!(layout.lines().len() > 1);
+```
+
+Three objects, three roles: `Faces` holds the fonts, `Shaper` holds the working memory of shaping,
+`TextLayout` holds the result. The caller keeps all three and reuses them, which is what makes a
+second layout of the same size free of allocations.
+
+#### The bundled faces
+
+`src/face.rs`. Five faces are inside the program, embedded with `include_bytes!` straight from
+`assets/fonts/`, never modified (the OFL forbids modified copies under the fonts' names): Inter
+Regular, SemiBold and Bold for the interface, Bravura for musical symbols, JetBrains Mono Regular
+for code-like text. About 3.0 MB of the binary. Inter Italic, Bravura Text and Source Serif stay
+for the guides only (TX3).
+
+A face is a closed enum, `FaceId`, one byte, `Copy`: it will sit in every glyph run and every cache
+key. `Faces::bundled()` parses all five once; parsing reads only each file's table directory
+(tables are read lazily), so it costs microseconds. There is no global state: the application owns
+the `Faces` and lends it (owner's choice TB2). Even the lookup of a parsed font avoids any index
+that could panic, by destructuring the array:
+
+```rust
+let [inter_regular, inter_semibold, inter_bold, bravura, mono] = &self.fonts;
+match face {
+    FaceId::InterRegular => inter_regular,
+    FaceId::InterSemiBold => inter_semibold,
+    FaceId::InterBold => inter_bold,
+    FaceId::Bravura => bravura,
+    FaceId::JetBrainsMono => mono,
+}
+```
+
+`Faces::glyph_for_char` is a plain `cmap` lookup, without shaping: it is how SMuFL symbols are found
+in Bravura by their code points (a black notehead is U+E0A4). A finding of the tests: Inter maps
+some Private Use Area code points to glyphs of its own, so a SMuFL code point means a musical
+symbol **only** in Bravura, and symbols are always looked up there.
+
+#### Shaping and the layout
+
+`src/shape.rs`, `src/layout.rs`, `src/style.rs`. A `TextStyle` is a face, a size in logical pixels
+per em and the optional features (today only tabular figures, `tnum`, for counters and bar
+numbers). `Shaper::layout` checks its inputs first (a size that is not finite and positive, a
+negative width, a text over 4 GiB are typed errors, never NaN positions travelling to the
+renderer), then shapes the whole text once with `harfrust`, as one run, left to right. The
+direction is set **before** the shaper guesses the other properties, because the guess only fills
+what is unset: a Hebrew text would otherwise turn right to left, and ADR-0044 TX5 keeps everything
+left to right for now.
+
+```rust
+self.buffer.clear();
+self.buffer.push_str(text);
+self.buffer.set_direction(Direction::LeftToRight);
+self.buffer.guess_segment_properties();
+```
+
+The compiled shape plans are kept, up to 32, replaced in turn when full (compiling one again
+costs microseconds). `harfrust` gives advances in font units; they are scaled to logical pixels
+(`size / units_per_em`) as they are copied into our own glyph list. Fluent's isolation marks
+U+2068 and U+2069 come out as invisible glyphs with no advance, as HarfBuzz does with every
+default-ignorable character; control characters (a tab, a line feed) are hidden by us, because
+fonts have no glyph for them and would draw `.notdef` boxes.
+
+The result, a `TextLayout`, has the positioned glyphs (`PositionedGlyph`: glyph, x and y in logical
+pixels from the layout's top left, and the byte offset of its **cluster** in the text), the lines
+(`Line`: the range of glyphs, the range of text, the baseline, the content width, whether a hyphen
+was added) and the extent. Positions are not rounded: drawing will round to a quarter of a device
+pixel across and a whole pixel down (TX7). An empty text still has one empty line, so a caret can
+stand there (F2.10).
+
+#### Line breaking
+
+`src/wrap.rs`. The break opportunities come from `icu_segmenter`, configured without dictionaries
+(chosen by the owner after the measurement: +52 KB, +14 crates, +2.6 s of clean build), and are
+the ones of the Unicode standard, UAX #14: no break before a French `?` written after a no-break
+space, a break after `pre-`, one at each soft hyphen of `Takt­art­wechsel`, one between two Chinese
+characters. Which breaks are **mandatory** (after a line feed) is not in the stable API of
+`icu_segmenter`, so we derive it from the standard's own rule: a mandatory break comes right after
+a hard line break character.
+
+```rust
+mandatory: before.chars().next_back().is_some_and(is_hard_break),
+soft_hyphen: before.ends_with('\u{AD}'),
+```
+
+The lines are filled greedily, as browsers do for interface text: at every opportunity the line so
+far is a candidate; when a candidate no longer fits, the line is cut at the previous one. Spaces at
+the end of a line hang past the width and are not counted. A soft hyphen becomes a visible hyphen
+(U+2010, from the same face) only where the line breaks, and its width counts. A word wider than the
+line is cut at the last cluster that fits, never between a letter and its accent; a run of spaces
+inside it (a no-break space) always fits, because at the end of the piece it hangs too:
+
+```rust
+let hangs = cluster.iter().all(|glyph| glyph.space);
+```
+
+That last rule was found by the property test, like the hanging of spaces in an emergency cut. A
+text ending with a line feed gets an empty last line, as a text editor shows it.
+
+#### Metrics and outlines
+
+`src/metrics.rs`, `src/outline.rs`. `Faces::line_metrics` takes the `OS/2` typographic metrics when
+the face asks for them (`USE_TYPO_METRICS`, set in Inter and JetBrains Mono), otherwise `hhea`: a
+line of Inter is 1.21 em, as in a web page. All values are turned to y down: an ascent is a positive
+distance above the baseline, a bounding box has a negative top. `Faces::bounds` is the face's
+bounding box (a `GlyphBox`), which widens the bounds of a glyph run so that a partial redraw never
+cuts an overhanging glyph; `TextLayout::bounds` is the same kind of box for a whole layout (its
+glyph origins widened by the face's box), computed once when the layout is built. For symbols
+placed one by one, `Faces::glyph_box` gives a glyph's own box from its outline (computed once per
+glyph and size): Bravura's face box is 2.75 em wide, too large to record noteheads with (F2.07c). `Faces::draw_outline` delivers a glyph's unhinted outline,
+scaled to the size and flipped to y down, to our own `OutlineSink` trait, so that neither `skrifa`
+leaks into `ui` nor `tiny-skia` into this crate.
+
+#### How it is tested
+
+- `tests/shaping.rs`: the five faces parse; **every character of every catalogue** of the six
+  languages exists in the three Inter faces (the catalogues are read as files, since this crate
+  must not depend on `orchestra-i18n`); a sentence per language without `.notdef`; kerning (AV);
+  tabular figures; isolation marks invisible and without width; a missing character as `.notdef`;
+  hidden tabs; clusters in order, with a combining accent kept in its letter's cluster; Hebrew
+  laid out left to right; SMuFL lookups (a black notehead is 0.295 em wide, 1.18 staff spaces as in
+  Bravura's metadata); refused sizes and widths; the empty text.
+- `tests/metrics.rs`: Inter's and JetBrains Mono's line metrics against the values read from the
+  files; outlines (a capital A of Inter above the baseline, cubic, closed; JetBrains Mono quadratic;
+  a space empty; a Bravura notehead centred on the baseline).
+- `tests/wrap_cases.rs`: every row of the table of ADR-0044 TX10, mandatory breaks, hanging spaces,
+  the distance between baselines.
+- `tests/wrap_props.rs`: random texts and widths against an oracle that does not re-implement the
+  algorithm but checks what a correct greedy wrapping must satisfy (the lines cover the text, fit or
+  hold one cluster, end at a UAX #14 opportunity asked from `icu_segmenter` directly or else at an
+  emergency cut with no opportunity inside, and could not have taken the next piece). Passed with
+  5 000 cases.
+- `tests/no_alloc.rs`: a second round of layouts (five texts, three styles, with and without a
+  width) and every measurement allocate nothing.
+
+Twelve bugs were injected on purpose: eleven were caught (two only after strengthening a test: the
+Hebrew text now comes first, and the accent is on a `q`, which has no precomposed form, so it stays
+a separate glyph); the twelfth, reading `hhea` before the typographic metrics, is equivalent, since
+the two tables hold the same values in all five faces.
+
+**Benchmarks** (`benches/text.rs`, instruction counts): one 40-character line ≈ 89 400, a
+400-character paragraph wrapped at 300 px ≈ 731 000, the outlines of 26 letters and a G clef
+≈ 359 000 (≈ 13 000 a glyph). With the rule of 1 instruction per nanosecond, a line costs about
+0.09 ms and a paragraph about 0.7 ms. **Size:** the crate adds 4.64 MB to a stripped release binary,
+3.03 MB of which are the fonts; a clean release build of it takes 69 s on four cores.
+
 ### orchestra-notation-layout
 
 Incremental engraving into positioned glyphs: plain geometry, no drawing, so it can be tested
@@ -2935,6 +3102,34 @@ Eight bugs were injected: seven were caught, one only after adding the threshold
 No benchmark: there is no hot path yet. A token read is one field access, and a custom theme is
 resolved once, when it is chosen.
 
+#### The text tokens
+
+Step F2.07c (ADR-0044 TX11, choice TD1), in `src/theme/text.rs`. A theme instance now has, next
+to its colours and shapes, a **typography**: which bundled family each role of text uses, and the
+scale of sizes. Two kinds of tokens are the theme's, one choice is the widget's:
+
+- **Families** (`FamilyToken`): `Ui` (Inter), `Numeric` (Inter with tabular figures, so counters
+  and bar numbers do not shift), `Code` (JetBrains Mono), `Music` (Bravura). A custom theme can
+  change them, but only among the bundled `Family` values (ADR-0006).
+- **Sizes** (`SizeToken`): caption 11, small 12, body 13, subheading 15, heading 18, title 22
+  logical pixels, kept between `MIN_TEXT_SIZE` (6) and `MAX_TEXT_SIZE` (96).
+- **Weights** (`Weight`): regular, semibold, bold, chosen by the widget (a heading is bold whatever
+  the theme). A family without that weight uses its regular face.
+
+```rust
+let style = theme.text_style(FamilyToken::Ui, SizeToken::Heading, Weight::Bold);
+shaper.layout(&faces, &title, style, None, &mut layout)?;
+```
+
+All ten built-in pairs share `Typography::DEFAULT`: they differ in colour and shape, not in
+letters. A custom theme overrides with `Override::Family` and `Override::TextSize`, whose stable
+names (`family-ui`, `size-body`…) are what the settings file of F2.12 will save. Unlike a colour, a
+text token changes glyphs and positions, so changing it means laying the texts out again and
+re-recording their segments (ADR-0044 TX9); nothing does that at run time yet, the theme editor of
+F2.12b will. Tests in `tests/typography.rs`: the defaults of every pair, the faces and features
+each style resolves to, the weight fallback, overrides (the later wins), the size range, each
+token in its own slot, the stable names.
+
 #### The system's light/dark preference
 
 When the user leaves the mode on *System* (the default), the interface must know whether the
@@ -3057,7 +3252,8 @@ list.record(SegmentId(1), |r| {
     r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
 });
 let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
-let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+let faces = orchestra_text::Faces::bundled()?;
+let image = CpuRenderer::new(faces).render_to_image(&list, &theme, 120, 50, 1.0)?;
 ```
 
 **Tokens, not colours.** Every paint is a theme token (`ColorToken`), with an optional extra
@@ -3187,6 +3383,91 @@ the 2000 noteheads as anti-aliased paths, about 36 000 instructions each. Glyphs
 cache in F2.07 replace exactly that part (ADR-0012's spike measured 243 ms without a glyph cache
 and 28.8 ms with one), so the full-frame budget is measured again there and in F2.23.
 
+**Since F2.07c** the reference scene has its noteheads as Bravura glyphs from the cache (one
+glyph run per measure, with the notehead's own box, `Faces::glyph_box`), the ten instrument names
+and the bar numbers, and the cases are named `*_glyphs`:
+
+| Case | Instructions | By the rule of F1.16c | Budget |
+|---|---|---|---|
+| `record_scene_glyphs` | 1.21 M | ~1.2 ms | — |
+| `draw_full_frame_glyphs` | 17.13 M | ~17 ms | ≤ 33 M with the recording: 18.3 M |
+| `edit_one_note_glyphs` | 0.25 M | ~0.25 ms | a small part of 50 ms |
+
+The budget of ADR-0039 D10 holds with room to spare. With the face's box instead of the
+notehead's own, an edit cost 1.77 M: Bravura's box is 2.75 em wide and 3.9 em tall, so every
+measure's bounds covered its neighbours and the staves above and below.
+
+#### Text in the display list: glyph runs and the glyph cache
+
+Step F2.07b, part 2 (ADR-0044 TX6–TX9, choices TC1–TC10). Text reaches the screen in two steps:
+`orchestra-text` shapes it into a `TextLayout` once (see that crate), and the recorder copies the
+layout's glyphs into the segment as a **glyph run**, a new command of the list. Symbols placed one
+by one (the noteheads of a measure) take the same road without shaping:
+
+```rust
+list.record(SegmentId(1), |r| {
+    r.text(&layout, Point::new(20.0, 30.0), ColorToken::Text);
+    r.glyphs(
+        FaceId::Bravura,
+        32.0,
+        faces.bounds(FaceId::Bravura, 32.0)?,
+        [(notehead, Point::new(40.0, 90.0))],
+        ColorToken::Text,
+    );
+});
+```
+
+**Recording** (`draw/list.rs`, `draw/command.rs`). Every segment has a glyph arena next to its
+path arena: one vector of glyph and position for all its runs, emptied and refilled at each
+recording, so recording text does not allocate once it has grown (tested). A run's bounds come from
+the layout (`TextLayout::bounds`: the glyph origins widened by the face's box) or, for `glyphs`,
+from the box the caller passes, because the recorder has no fonts. An empty layout, a size that is
+not finite and positive, or no glyph records nothing.
+
+**Drawing** (`draw/skia.rs`, `draw/glyph_cache.rs`). The renderer now owns a copy of the faces,
+`CpuRenderer::new(faces)` (the copy is a reference count), and reads the outline of a glyph it has
+not seen yet. For each glyph it computes the origin in the frame's device pixels, rounds it to a
+quarter of a pixel across and to a whole pixel down (TX7), and asks the cache for the mask of
+(face, glyph, size in 1/64 px, quarter). A miss turns the outline, shifted by the quarter, into a
+`tiny-skia` path filled with anti-aliasing into a mask just large enough; a hit is a hash lookup
+with a small hasher of our own. The mask is then blended pixel by pixel with the paint's colour and
+the clip in effect, rounded once per channel like the shadows; fully covered pixels of an opaque
+colour are copied directly, with the same bytes. The rounding is done in the **frame's**
+coordinates: a partial region starts at a whole pixel, so a glyph has the same pixels in a partial
+redraw as in a full frame (tested byte for byte).
+
+The cache holds at most 8 MB. When a new mask would exceed it, the least recently used masks go in
+one batch, down to three quarters of the bound, so eviction (a sort) stays rare. A glyph whose mask
+would be larger than 256 × 256 device pixels (a strong zoom) is not cached but filled as a path
+every time; whether that happens depends on the scale, unknown at recording, so a glyph run always
+counts as a shape to redraw whole in a partial region (`needs_whole_shape`), which is exact and,
+for text, cheap. `glyph_cache.rs` knows nothing of `tiny-skia`: the renderer passes it the function
+that rasterises, so `skia.rs` stays the only file that knows the library.
+
+**The window** receives the faces through `WindowOptions::faces`: the application parses them once
+and keeps its own copy to lay out its texts with the same fonts.
+
+**Text contrast (TX6).** A table of 256 entries turns a glyph pixel's coverage into the cover the
+blend uses, `c^(1/γ)` with γ = `TEXT_CONTRAST` = 1.45, chosen by the owner by eye among three
+variants (1, 1.2, 1.45): a pixel half covered by a stroke is blended at 62 % instead of 50 %, which
+keeps small text firm on dark surfaces.
+
+**Tests** (`tests/text.rs`, `tests/draw_no_alloc.rs`, the unit tests of `glyph_cache.rs`): ink only
+inside the run's bounds and the text colour at the darkest pixel; 200 labels drawn again from the
+cache with the same bytes as a fresh renderer; a quarter pixel across changes the mask, half a
+pixel down does not move the baseline; partial redraws equal to full frames, with glyphs from the
+cache and with G clefs too large for it (a disc moving over them at 4× scale); clips; a theme change
+that recolours the same coverage; the scale factor and scaling transforms; free glyphs drawn like
+text; a glyph's ink where its outline is; the recorded bounds; no allocation when re-recording and
+drawing from a warm cache; the cache's bound and eviction order. Twelve bugs were injected: eleven
+were caught at first (three after the tests written for them); the twelfth, ignoring the contrast
+table, was equivalent while γ was 1 and is caught, since γ is 1.45, by a unit test of the blend.
+
+**Benchmarks** (`benches/draw.rs`): a 1920 × 1080 frame with 200 labels (about 6 600 glyphs) costs
+≈ 15.5 M instructions with the cache warm and ≈ 20.2 M when the first frame fills it; most of it is
+the blend, about 25 instructions a glyph pixel. The budget is checked on the reference scene in
+F2.07c.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
@@ -3206,8 +3487,10 @@ let options = WindowOptions {
     mode: ThemeMode::System,
     width: 960.0,
     height: 600.0,
+    faces,
 };
-orchestra_ui::run(Demo::default(), options)?;
+let demo = Demo::new(&options.faces, &options.title);
+orchestra_ui::run(demo, options)?;
 ```
 
 **Frames on demand.** The loop sleeps until an event arrives. A frame is drawn only when the list
@@ -3301,8 +3584,8 @@ pub const SCENES: &[Scene] = &[Scene {
     record: record_demo_window,
 }];
 
-fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
-    let mut demo = Demo::default();
+fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &context.app_name);
     demo.layout(bounds, list);
     demo.input(&InputEvent::PointerMoved { position: Point::new(588.0, 200.0) }, list);
 }
@@ -3311,7 +3594,11 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList) {
 `render` draws a scene with `CpuRenderer::render_to_image` at **scale 2** (a 640-pixel-wide scene
 becomes 1280 pixels, about 200 dpi across the text width of an A4 page) in **Studio's dark half**,
 set explicitly and never read from the system (the owner's choice; it amends ADR-0014 §7 and
-ADR-0037 T10, which said light). The language will be en-US once there is text.
+ADR-0037 T10, which said light). The language is en-US: since F2.07c `render` prepares a
+`SceneContext` (the bundled faces and the en-US `app-name`) and passes it to every scene, so the
+scenes stay plain functions and a missing font or catalogue is a typed error
+(`ScreenshotError::Setup`), not a panic. The demonstration window shows the program's name as its
+title, the bar numbers of its staff and Bravura noteheads.
 
 **A developer binary.** `orchestra-app` is now a library (`src/lib.rs`, with `demo` and
 `screenshots`) and two binaries: `orchestra`, the program, and `orchestra-screenshots <OUT_DIR>`,

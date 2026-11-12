@@ -95,3 +95,59 @@ fn computing_damage_never_allocates() {
         black_box(damage);
     });
 }
+
+/// Glyph runs (ADR-0044 TX8, TC4, TC9): re-recording a text segment of the same size does not
+/// allocate (the glyph arena keeps its capacity), and drawing a frame whose glyphs are all in
+/// the cache does not allocate either (a hit is a hash lookup and a blend). The first frame
+/// fills the cache and allocates, by design.
+#[test]
+fn text_from_a_warm_cache_never_allocates() {
+    use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
+    use orchestra_ui::{Appearance, BuiltInTheme, CpuRenderer, Image, Point, Renderer, SegmentId};
+
+    let faces = Faces::bundled().unwrap();
+    let mut layout = TextLayout::new();
+    Shaper::new()
+        .layout(
+            &faces,
+            "Quarter note · Crotchet · Semiminima · Noire · Viertelnote · Negra",
+            TextStyle::new(FaceId::InterRegular, 13.0),
+            Some(200.0),
+            &mut layout,
+        )
+        .unwrap();
+    let notehead = faces.glyph_for_char(FaceId::Bravura, '\u{E0A4}').unwrap();
+    let face_box = faces.bounds(FaceId::Bravura, 32.0).unwrap();
+    let record = |list: &mut DisplayList| {
+        list.record(SegmentId(1), |r| {
+            r.text(&layout, Point::new(10.25, 10.0), ColorToken::Text);
+            r.glyphs(
+                FaceId::Bravura,
+                32.0,
+                face_box,
+                (0..8).map(|i| (notehead, Point::new(20.0 + 12.0 * i as f32, 90.0))),
+                ColorToken::Text,
+            );
+        });
+    };
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Dark);
+    let mut list = DisplayList::new();
+    let mut renderer = CpuRenderer::new(faces.clone());
+    let mut image = Image::new(240, 120).unwrap();
+    // The first frame records the segment and fills the cache.
+    record(&mut list);
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme, &damage, 1.0, &mut image)
+        .unwrap();
+    assert_no_allocations(|| {
+        for _ in 0..5 {
+            record(black_box(&mut list));
+            let damage = list.take_damage();
+            renderer
+                .render(&list, &theme, &Damage::all(), 1.0, &mut image)
+                .unwrap();
+            black_box((&image, damage));
+        }
+    });
+}

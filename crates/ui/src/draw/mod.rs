@@ -26,9 +26,10 @@
 //!     r.stroke_rounded_rect(button, StrokeStyle::new(1.0), ColorToken::ControlBorder);
 //! });
 //! let theme = BuiltInTheme::Studio.pair().instance(Appearance::Light);
-//! let image = CpuRenderer::new().render_to_image(&list, &theme, 120, 50, 1.0)?;
+//! let faces = orchestra_text::Faces::bundled()?;
+//! let image = CpuRenderer::new(faces).render_to_image(&list, &theme, 120, 50, 1.0)?;
 //! assert_eq!(image.width(), 120);
-//! # Ok::<(), orchestra_ui::DrawError>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! # Files
@@ -40,6 +41,7 @@
 //! - `damage`: the damaged rectangles of a frame;
 //! - `device`: the damage in device pixels, shared by the renderer and the window;
 //! - `shadow`: the analytic blurred rounded rectangle;
+//! - `glyph_cache`: the rasterised glyphs kept between frames (ADR-0044 TX8);
 //! - `skia`: the `tiny-skia` backend, the only file that knows `tiny-skia`;
 //! - `snap`: pixel snapping (D7).
 
@@ -47,6 +49,7 @@ pub(crate) mod command;
 pub(crate) mod damage;
 pub(crate) mod device;
 pub(crate) mod geometry;
+pub(crate) mod glyph_cache;
 pub(crate) mod image;
 pub(crate) mod list;
 pub(crate) mod paint;

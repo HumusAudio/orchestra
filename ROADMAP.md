@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); next F2.07 (text).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); next the PR of the step, then F2.08 (widget architecture).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -933,6 +933,86 @@ shadow already coloured (13.0 ms, 1.57 steps off the formula) and chose to fill 
 full-coverage inside from a per-channel table and blend only the soft band, plus rounding with
 `+ 0.5` and a saturating cast instead of `round()` (a library call on baseline x86-64): 7.3 ms
 for the dialog, 3.8 ms for the menu, still within one step of the formula (K2 unchanged). PR #63; SCALETTA v0.58 closes F2.06b.
+
+**Step F2.07 in progress** (`feature/f2-07-text`, 2026-11-12), split as proposed in the briefing
+into the ADR (F2.07), the implementation (F2.07b) and the text tokens with the budget (F2.07c).
+Checked on crates.io that day: `skrifa` 0.50 and `harfrust` 0.16 (published that day) replace
+ADR-0036's 0.49 + 0.15, both on `read-fonts` 0.47. The owner approved the outline TX1–TX12 and the
+draft **ADR-0044** (Proposed) was written: a new bottom crate `orchestra-text` (faces, shaping,
+layout, wrapping, metrics, outlines; `notation-layout` will use it for Bravura) with rasterising
+and the glyph cache in `ui/draw`; Inter Regular/SemiBold/Bold, Bravura and JetBrains Mono Regular
+embedded (≈ 3.0 MB); no fallback font and left-to-right only (recorded limits); unhinted grayscale
+anti-aliasing, gamma chosen by eye in F2.07b; quarter-pixel positions, baseline on whole pixels;
+an 8 MB LRU cache of 8-bit masks, glyphs above 256 px drawn as paths; shaping once into a
+reusable `TextLayout`, recorded as a `GlyphRun` command with a glyph arena; UAX #14 wrapping with
+the crate chosen in F2.07b (`unicode-linebreak` is unmaintained since 2023); text tokens (four
+families, sizes 11–22, three weights). The owner asked for TX10 (line breaking) to be explained in
+full; its table of cases (no-break spaces in French, soft hyphens in German, last-resort breaks,
+graphemes) and the comparison of the three candidates were added, and **ADR-0044 was Accepted**
+(2026-11-12). In F2.07b `icu_segmenter` is measured without dictionaries and the owner chooses
+between it and our own subset. The owner confirmed the crate in CLAUDE.md §2 and approved SCALETTA
+v0.59 (F2.07b the implementation, F2.07c the text tokens and the budget), with **one PR for the
+whole step** on this branch. F2.07b was split in two parts in the briefing.
+
+**F2.07b part 1 done** (2026-11-12, same branch). Versions checked again that day (unchanged:
+`skrifa` 0.50.0, `harfrust` 0.16.0, `read-fonts` 0.47.0). `icu_segmenter` 2.4.0 was measured
+without dictionaries (+52 KB stripped, +14 crates in our lock, +2.6 s of clean build; Unicode-3.0)
+and **chosen by the owner** over our own subset; with it the owner approved TB1–TB8 (modules by
+responsibility, no global state, logical pixels y down with no rounding in the layout, clusters as
+UTF-8 byte offsets with caret functions left to F2.10, the greedy filling, the hyphen glyph added
+at a soft hyphen, the tests, the benchmarks). Implemented: the new crate **`orchestra-text`**
+(`crates/text`: `FaceId`, `Faces` with the five embedded faces, `TextStyle`/`Features`, `Shaper`,
+`TextLayout`/`Line`/`PositionedGlyph`/`GlyphId`, `LineMetrics`, `FaceBounds`, `OutlineSink`,
+`TextError`), in the workspace, `docs/ARCHITECTURE.md` and both documentation files; `clippy.toml`
+gains the proper nouns SemiBold, JetBrains, TrueType, OpenType. Findings: `icu_segmenter`'s
+`is_mandatory` needs its `unstable` feature, so mandatory breaks are derived from UAX #14's rule (the
+character before); Inter maps some Private Use Area code points to its own glyphs, so SMuFL symbols
+are looked up in Bravura only; harfrust composes `e` + U+0301 into one glyph, so the tests use a
+`q` with an accent for a mark kept separate. The property test found two real bugs (spaces did not
+hang in an emergency cut; a no-break space inside a cut word went to the next line). Tests: five
+files (shaping, metrics, wrap cases, a 600-case wrapping property test passed at 5 000 cases too,
+no allocation on a second round of layouts); twelve injected bugs, eleven caught, one equivalent
+(`hhea` and the typographic metrics hold the same values in all five faces). Benchmarks
+(`benches/text.rs`): a 40-character line ≈ 89 400 instructions, a 400-character paragraph at
+300 px ≈ 731 000, 27 outlines ≈ 359 000. Size: +4.64 MB stripped (3.03 MB of fonts), 69 s clean
+release build. CI of part 1: green on Linux, macOS, benchmarks and guides; the Windows job was
+cancelled after 15 minutes without a runner (a GitHub queue problem, no step ran) and was re-run.
+
+**F2.07b part 2 done but for the gamma choice** (2026-11-12, same branch). Before coding, the owner
+approved TC1–TC10 and the method for the gamma (three screenshots variants). `orchestra-text`:
+`FaceBounds` renamed `GlyphBox`, `TextLayout::bounds` added. `orchestra-ui` (now depending on
+`orchestra-text`): the `GlyphRun` command with a per-segment glyph arena, `Recorder::text` and
+`Recorder::glyphs`, the module `draw/glyph_cache.rs` (8 MB, batch LRU eviction, no `tiny-skia`),
+glyph drawing in `skia.rs` (quarter-pixel phase, whole-pixel baseline, masks blended with one
+rounding, an exact copy for fully covered opaque pixels, paths above 256 px), `CpuRenderer::new`
+takes the faces (21 callers in 7 files updated), `WindowOptions::faces`, the app parses the faces
+once. Tests: `tests/text.rs` (14 cases, among them partial redraws byte for byte equal to full
+frames with cached and large glyphs), a warm-cache no-allocation test, the cache's unit tests;
+twelve injected bugs, eleven caught (three after tests written for them), one equivalent while
+γ = 1. Benchmarks: 200 labels at 1080p ≈ 15.5 M instructions warm, ≈ 20.2 M cold (the exact
+full-coverage copy saved 4%; most of the cost is the per-pixel blend); every other drawing
+benchmark unchanged. `clippy.toml` gains FreeType, SipHash, FxHash. CI of `15fb30b`: green on the three
+platforms (macOS and Windows needed re-runs: their jobs were cancelled twice after 15 minutes
+without a runner, no step run). **Text contrast chosen by the owner** (2026-11-12): option c,
+γ = 1.45 (a half-covered pixel is blended at 62 % instead of 50 %), recorded in ADR-0044's
+precisions; two unit tests of the table and of the blend, which now catch the twelfth injected bug
+too. **F2.07b complete.** CI of `2861955`: green on the three platforms. SCALETTA v0.60.
+
+**F2.07c done** (2026-11-12, same branch). Before coding, a throw-away measurement of the
+reference scene with Bravura noteheads showed the budget would hold but that Bravura's face box
+made an edit cost 7 times more; the owner approved TD1–TD6 (ADR-0044, precisions of part 3). In
+`orchestra-text`: `Faces::glyph_box`. In `orchestra-ui`: the text tokens (`src/theme/text.rs`:
+`FamilyToken`, `Family`, `SizeToken`, `Weight`, `Typography`, `MIN_TEXT_SIZE`/`MAX_TEXT_SIZE`),
+`Theme::text_style`/`typography`/`with_family`/`with_text_size`, `Override::Family` and
+`Override::TextSize`. The reference scene of `benches/draw.rs` has Bravura noteheads, instrument
+names and bar numbers (benchmarks renamed `*_glyphs`): record 1.21 M + full frame 17.13 M =
+**18.3 M instructions, within the 33 M budget** of ADR-0039 D10 (84.7 M with paths before), an
+edit 0.25 M (0.61 M before). In `orchestra-app`: `Demo::new(faces, title)` with a bold title, bar
+numbers and Bravura noteheads; scenes get a `SceneContext` (`ScreenshotError::Setup` added).
+Tests: `tests/typography.rs` (6), glyph boxes enclosing the ink, the demo screenshot's title;
+ten injected bugs, nine caught (one after a test written for it), one equivalent (a box without
+control points: our fonts have points at every extreme). **F2.07 complete.** SCALETTA v0.61 records it
+(notes for F2.17 and F2.12b). **Next:** the PR of the whole step, then F2.08.
 
 | Step | What | Status |
 |---|---|---|

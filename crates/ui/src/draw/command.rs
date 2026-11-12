@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The recorded commands (ADR-0039 D4): internal to the crate, so a new kind (glyph runs in
-//! F2.07) breaks no public caller.
+//! The recorded commands (ADR-0039 D4): internal to the crate, so a new kind (like the glyph
+//! runs of ADR-0044 TX9) breaks no public caller.
 //!
 //! Callers never build these directly: they call the methods of
 //! [`Recorder`](crate::Recorder), which also computes each command's bounds.
 
 use std::ops::Range;
+
+use orchestra_text::{FaceId, GlyphId};
 
 use super::geometry::{Point, Rect, RoundedRect, Transform};
 use super::image::ImageId;
@@ -29,6 +31,19 @@ pub(crate) enum PathElement {
     CubicTo(Point, Point, Point),
     /// Closes the current sub-path with a straight line to its start.
     Close,
+}
+
+/// One glyph of a glyph run, stored in the segment's glyph arena (ADR-0044 TB4/TC4).
+///
+/// Like the path arena: one vector for all the glyph runs of a segment, so recording a run does
+/// not allocate once the vector has grown, and re-recording reuses its capacity.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct GlyphPlacement {
+    /// The glyph.
+    pub(crate) glyph: GlyphId,
+    /// Its origin on the baseline, in the local coordinates of the recording (not rounded:
+    /// the renderer rounds to a quarter of a device pixel across and a whole one down, TX7).
+    pub(crate) at: Point,
 }
 
 /// A drawing command of a segment.
@@ -102,6 +117,18 @@ pub(crate) enum Command {
         /// The Gaussian's standard deviation, logical pixels; 0 is a sharp fill.
         blur: f32,
         /// Its paint (normally the `shadow` token).
+        paint: Paint,
+    },
+    /// Glyphs of one face at one size, in one paint (ADR-0044 TX9): text from a layout, or
+    /// symbols placed one by one.
+    GlyphRun {
+        /// The face of every glyph.
+        face: FaceId,
+        /// The size, logical pixels per em (before transforms and the window's scale).
+        size: f32,
+        /// Its glyphs in the segment's glyph arena.
+        glyphs: Range<usize>,
+        /// Its paint.
         paint: Paint,
     },
     /// A picture of the list's image store, stretched into a rectangle.

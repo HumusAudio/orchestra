@@ -15,7 +15,10 @@
 //! indexing would hide a theoretical panic. A `match` from token to field compiles to a jump
 //! table: still O(1), no bounds check, no panic path.
 
+use orchestra_text::TextStyle;
+
 use crate::theme::color::Color;
+use crate::theme::text::{Family, FamilyToken, SizeToken, Typography, Weight};
 
 /// Generates [`ColorToken`], its name table and the struct `Colors` from one list of
 /// `Variant => field, "stable-name";` entries, each preceded by its doc comment.
@@ -237,22 +240,32 @@ impl Shape {
 /// half of a [`ThemePair`](crate::ThemePair)).
 ///
 /// Widgets never store a colour of their own: they ask the active instance at draw time, so
-/// switching theme is a full redraw and nothing more (ADR-0037 T6). Reading a token is O(1) and
-/// allocation-free; the whole instance is 24 × 4 + 5 = 101 bytes, `Copy`.
+/// switching colours is a full redraw and nothing more (ADR-0037 T6); switching the text tokens
+/// re-lays out the texts (ADR-0044 TX9). Reading a token is O(1) and allocation-free; the whole
+/// instance is 24 × 4 + 5 + 10 = 111 bytes, `Copy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// The colour tokens.
     colors: Colors,
     /// The shape tokens.
     shape: Shape,
+    /// The text tokens (ADR-0044 TX11).
+    text: Typography,
 }
 
 impl Theme {
     /// Builds an instance from its parts. Crate-private: themes come from the built-in pairs or
     /// from resolving a [`CustomTheme`](crate::CustomTheme), so every instance has a value for
     /// every token by construction.
+    ///
+    /// Every built-in instance has the default typography (ADR-0044 TX11: the ten pairs differ
+    /// in colour and shape, not in letters), so it is not a parameter.
     pub(crate) const fn from_parts(colors: Colors, shape: Shape) -> Self {
-        Self { colors, shape }
+        Self {
+            colors,
+            shape,
+            text: Typography::DEFAULT,
+        }
     }
 
     /// The colour of `token` in this instance. O(1), no allocation.
@@ -278,6 +291,34 @@ impl Theme {
     #[must_use]
     pub fn with_shape(mut self, token: ShapeToken, value: u8) -> Self {
         self.shape.set(token, value);
+        self
+    }
+
+    /// The text tokens of this instance (ADR-0044 TX11).
+    #[must_use]
+    pub const fn typography(&self) -> Typography {
+        self.text
+    }
+
+    /// The style of text in the family `family`, at the size `size`, in `weight`, as this
+    /// instance sets them (see [`Typography::text_style`]).
+    #[must_use]
+    pub fn text_style(&self, family: FamilyToken, size: SizeToken, weight: Weight) -> TextStyle {
+        self.text.text_style(family, size, weight)
+    }
+
+    /// This instance with the family of `token` replaced.
+    #[must_use]
+    pub fn with_family(mut self, token: FamilyToken, family: Family) -> Self {
+        self.text.set_family(token, family);
+        self
+    }
+
+    /// This instance with the size of `token` replaced (clamped to the allowed range, see
+    /// [`Typography::set_size`]).
+    #[must_use]
+    pub fn with_text_size(mut self, token: SizeToken, size: u8) -> Self {
+        self.text.set_size(token, size);
         self
     }
 }

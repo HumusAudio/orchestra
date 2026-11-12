@@ -18,6 +18,7 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
 |---|---|---|
 | `crates/core-time` | `orchestra-core-time` | Rational musical time, tempo/meter map, conversions to seconds, samples, video frames |
 | `crates/core-model` | `orchestra-core-model` | The single document: tracks, two-layer notes, form (repeats/jumps), commands (including the DAW move with its tolerance threshold, ADR-0028), undo/redo |
+| `crates/text` | `orchestra-text` | Bundled fonts, shaping, line breaking, measuring, glyph outlines (ADR-0044); no rasterising, which is `ui`'s |
 | `crates/playback` | `orchestra-playback` | Written intent → performance; unrolled timeline; inline and pass-specific offsets applied |
 | `crates/notation-layout` | `orchestra-notation-layout` | Incremental engraving into positioned glyphs (no drawing) |
 | `crates/plugin-host` | `orchestra-plugin-host` | Our `PluginHost` interface; out-of-process CLAP/VST3/LV2 (+AU) |
@@ -47,6 +48,9 @@ There is **one project document** (`orchestra-core-model`). Notation, DAW and vi
  video core-model
    │  │
    core-time
+
+   text (bottom crate, no internal dependency, ADR-0044: used by `ui` since step F2.07b part 2,
+         and by `notation-layout` from phase F2B, which gains the permission below when it does)
 ```
 
 Allowed internal dependencies, exhaustively (enforced today by the `[dependencies]` sections; a
@@ -56,6 +60,7 @@ future `cargo xtask check` step may verify this table automatically):
 |---|---|
 | core-time | — |
 | core-model | core-time |
+| text | — (external: `skrifa`, `harfrust`, `icu_segmenter`, ADR-0044) |
 | playback | core-time, core-model |
 | notation-layout | core-time, core-model |
 | plugin-host | core-time |
@@ -63,7 +68,7 @@ future `cargo xtask check` step may verify this table automatically):
 | io | core-time, core-model, playback (the played notes of the MIDI export, ADR-0032 E11) (external: `serde`, `serde_json`, ADR-0029) |
 | i18n | — |
 | video | core-time |
-| ui | core-time, core-model, playback, notation-layout, i18n, video |
+| ui | core-time, core-model, playback, notation-layout, i18n, video, text (ADR-0044) |
 | app | everything |
 | test-support | — (and it may be used by any crate, but **only** in `[dev-dependencies]`: ADR-0016 §6, checked by `cargo xtask check`) |
 | test-scores | core-time, core-model (and it may be used by any crate, but **only** in `[dev-dependencies]` and not by the unit tests of the two crates it depends on: ADR-0031 §2–§3, checked by `cargo xtask check`) |

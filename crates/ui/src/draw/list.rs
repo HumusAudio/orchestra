@@ -5,7 +5,9 @@
 
 use std::collections::HashMap;
 
-use super::command::{Command, Entry, PathElement};
+use orchestra_text::{FaceId, GlyphBox, GlyphId, TextLayout};
+
+use super::command::{Command, Entry, GlyphPlacement, PathElement};
 use super::damage::Damage;
 use super::geometry::{Point, Rect, RoundedRect, Transform};
 use super::image::{DrawError, Image, ImageId};
@@ -32,6 +34,8 @@ pub(crate) struct Segment {
     pub(crate) entries: Vec<Entry>,
     /// The path elements of every path command of the segment.
     pub(crate) elements: Vec<PathElement>,
+    /// The glyphs of every glyph run of the segment (ADR-0044 TC4).
+    pub(crate) glyphs: Vec<GlyphPlacement>,
     /// The union of the entries' bounds: what the segment can touch.
     pub(crate) bounds: Rect,
 }
@@ -118,11 +122,13 @@ impl DisplayList {
         let old_bounds = segment.bounds;
         segment.entries.clear();
         segment.elements.clear();
+        segment.glyphs.clear();
         self.scratch.transforms.clear();
         self.scratch.clips.clear();
         let mut recorder = Recorder {
             entries: &mut segment.entries,
             elements: &mut segment.elements,
+            glyphs: &mut segment.glyphs,
             stacks: &mut self.scratch,
             bounds: Rect::EMPTY,
         };
@@ -234,6 +240,8 @@ pub struct Recorder<'a> {
     entries: &'a mut Vec<Entry>,
     /// Where the path elements go.
     elements: &'a mut Vec<PathElement>,
+    /// Where the glyphs of glyph runs go.
+    glyphs: &'a mut Vec<GlyphPlacement>,
     /// The transform and clip stacks.
     stacks: &'a mut RecorderStacks,
     /// The union of the bounds recorded so far.
@@ -371,6 +379,93 @@ impl Recorder<'_> {
             Command::Shadow {
                 shape,
                 blur,
+                paint: paint.into(),
+            },
+        );
+    }
+
+    /// Draws a laid-out text (ADR-0044 TX9) with its top-left corner at `origin`.
+    ///
+    /// The layout's glyphs are copied into the segment's glyph arena, so the layout itself can
+    /// change or be dropped afterwards; its bounds ([`TextLayout::bounds`]) become the run's
+    /// bounds. An empty layout records nothing.
+    ///
+    /// # Complexity
+    /// O(glyphs), with no allocation once the arena has grown.
+    pub fn text(&mut self, layout: &TextLayout, origin: Point, paint: impl Into<Paint>) {
+        let Some(local) = layout.bounds() else {
+            return;
+        };
+        let start = self.glyphs.len();
+        self.glyphs
+            .extend(layout.glyphs().iter().map(|glyph| GlyphPlacement {
+                glyph: glyph.glyph,
+                at: Point::new(origin.x + glyph.x, origin.y + glyph.y),
+            }));
+        let local = Rect::new(
+            origin.x + local.left,
+            origin.y + local.top,
+            origin.x + local.right,
+            origin.y + local.bottom,
+        );
+        self.draw(
+            local,
+            Command::GlyphRun {
+                face: layout.face(),
+                size: layout.size(),
+                glyphs: start..self.glyphs.len(),
+                paint: paint.into(),
+            },
+        );
+    }
+
+    /// Draws glyphs of `face` at `size` logical pixels per em, each at its own origin on the
+    /// baseline: symbols placed one by one, like the noteheads of a measure (ADR-0044 TC2).
+    ///
+    /// `face_box` is the face's box at that size, from
+    /// [`Faces::bounds`](orchestra_text::Faces::bounds): the recorder has no fonts, so the
+    /// caller, who asked for it once, passes it in. The run's bounds are the origins' extent
+    /// widened by it. A size that is not finite and positive, or no glyph, records nothing.
+    ///
+    /// # Complexity
+    /// O(glyphs), with no allocation once the arena has grown.
+    pub fn glyphs<I>(
+        &mut self,
+        face: FaceId,
+        size: f32,
+        face_box: GlyphBox,
+        glyphs: I,
+        paint: impl Into<Paint>,
+    ) where
+        I: IntoIterator<Item = (GlyphId, Point)>,
+    {
+        if !size.is_finite() || size <= 0.0 {
+            return;
+        }
+        let start = self.glyphs.len();
+        // The extremes of the origins, kept by hand: a one-point `Rect` counts as empty, so
+        // `Rect::union` would ignore it.
+        let mut extent: Option<[f32; 4]> = None;
+        for (glyph, at) in glyphs {
+            self.glyphs.push(GlyphPlacement { glyph, at });
+            let [x0, y0, x1, y1] = extent.unwrap_or([at.x, at.y, at.x, at.y]);
+            extent = Some([x0.min(at.x), y0.min(at.y), x1.max(at.x), y1.max(at.y)]);
+        }
+        let Some([x0, y0, x1, y1]) = extent else {
+            return;
+        };
+        let local = Rect::new(
+            x0 + face_box.left,
+            y0 + face_box.top,
+            x1 + face_box.right,
+            y1 + face_box.bottom,
+        );
+        self.draw(
+            local,
+            Command::GlyphRun {
+                face,
+                size,
+                glyphs: start..self.glyphs.len(),
                 paint: paint.into(),
             },
         );

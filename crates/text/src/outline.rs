@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! Glyph outlines, delivered to a sink of our own (ADR-0044 TX2).
+//!
+//! # Why our own sink
+//! `skrifa` draws into its `PathSink` trait; `tiny-skia` (in `orchestra-ui`) builds paths with
+//! its own builder. A trait of this crate in between keeps `skrifa` out of `ui` and `tiny-skia`
+//! out of this crate, and turns the font's y-up coordinates into the interface's y-down ones in
+//! one place.
+
+use skrifa::{DrawMemory, PathSink, ScalerFont};
+
+use crate::{FaceId, Faces, GlyphId, TextError};
+
+/// Receives the outline of a glyph, in logical pixels, **y down**, relative to the glyph's
+/// origin on the baseline (so a capital letter has negative y values).
+///
+/// The calls describe closed contours as the font stores them: a `move_to`, segments, a
+/// `close`. Quadratic segments come from TrueType outlines (JetBrains Mono), cubic ones from CFF
+/// outlines (Inter, Bravura).
+pub trait OutlineSink {
+    /// Starts a new contour at `(x, y)`.
+    fn move_to(&mut self, x: f32, y: f32);
+    /// A straight segment to `(x, y)`.
+    fn line_to(&mut self, x: f32, y: f32);
+    /// A quadratic Bézier with control point `(cx, cy)`, ending at `(x, y)`.
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32);
+    /// A cubic Bézier with control points `(c1x, c1y)` and `(c2x, c2y)`, ending at `(x, y)`.
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32);
+    /// Closes the current contour.
+    fn close(&mut self);
+}
+
+/// Adapts an [`OutlineSink`] to `skrifa`'s `PathSink`, flipping y.
+struct Flip<'a, S: OutlineSink> {
+    /// The caller's sink.
+    sink: &'a mut S,
+}
+
+impl<S: OutlineSink> PathSink for Flip<'_, S> {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.sink.move_to(x, -y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.sink.line_to(x, -y);
+    }
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.sink.quad_to(cx0, -cy0, x, -y);
+    }
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.sink.cubic_to(cx0, -cy0, cx1, -cy1, x, -y);
+    }
+    fn close(&mut self) {
+        self.sink.close();
+    }
+}
+
+impl Faces {
+    /// Draws the outline of `glyph` of `face` at `size` pixels per em into `sink`.
+    ///
+    /// Returns `false`, without calling the sink, when the font has no outline for the glyph
+    /// (an ID beyond the font), and `true` otherwise, even when the outline is empty (a space
+    /// draws no contour: the sink is simply not called; tested). Outlines are **unhinted**
+    /// (ADR-0036 B2, ADR-0044 TX6): the same shape at every size on every platform.
+    ///
+    /// # Cost
+    /// Proportional to the glyph's segments; it may allocate (`skrifa`'s scratch memory for the
+    /// CFF interpreter). It is called when a glyph is rasterised into the cache (step F2.07b part
+    /// 2), never per frame.
+    ///
+    /// # Errors
+    /// [`TextError::InvalidSize`] if `size` is not finite and positive; [`TextError::Outline`]
+    /// if the glyph's program in the font is corrupt.
+    pub fn draw_outline<S: OutlineSink>(
+        &self,
+        face: FaceId,
+        glyph: GlyphId,
+        size: f32,
+        sink: &mut S,
+    ) -> Result<bool, TextError> {
+        // Validate the size the same way as everywhere else (the scale itself is not needed:
+        // skrifa scales the outline to `size` pixels per em).
+        crate::style::checked_scale(self, face, size)?;
+        // `unhinted` with a ppem gives outlines already scaled to pixels. Cloning the font is
+        // a reference-count increment.
+        let scaler = ScalerFont::unhinted(self.font(face).clone(), Some(size));
+        let Some(outline) = scaler.outline(skrifa::GlyphId::new(glyph.0)) else {
+            return Ok(false);
+        };
+        let mut flip = Flip { sink };
+        outline
+            .draw(DrawMemory::Scratch, &mut flip)
+            .map_err(|_| TextError::Outline(face, glyph))?;
+        Ok(true)
+    }
+}
+
+/// Collects the extent of an outline's points (on-curve and control points: Bézier curves lie
+/// inside the hull of their control points, so the extent always encloses the ink).
+#[derive(Default)]
+struct Extent(Option<[f32; 4]>);
+
+impl Extent {
+    /// Widens the extent with a point.
+    fn see(&mut self, x: f32, y: f32) {
+        let [x0, y0, x1, y1] = self.0.unwrap_or([x, y, x, y]);
+        self.0 = Some([x0.min(x), y0.min(y), x1.max(x), y1.max(y)]);
+    }
+}
+
+impl OutlineSink for Extent {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.see(x, y);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.see(x, y);
+    }
+    fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
+        self.see(cx, cy);
+        self.see(x, y);
+    }
+    fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
+        self.see(c1x, c1y);
+        self.see(c2x, c2y);
+        self.see(x, y);
+    }
+    fn close(&mut self) {}
+}
+
+impl Faces {
+    /// The box enclosing the ink of one glyph of `face` at `size` pixels per em, relative to its
+    /// origin on the baseline, y down; `None` for a glyph without ink (a space, a missing ID).
+    ///
+    /// # Why
+    /// The bounds of a glyph run are what damage and culling use. The face's box
+    /// ([`Faces::bounds`]) is always large enough but, for Bravura, 2.75 em wide and 3.9 em tall,
+    /// because it encloses the font's largest symbols: a run of noteheads recorded with it
+    /// overlaps the neighbouring measures and staves, and editing one note redrew 7 times more
+    /// than needed (measured on the reference scene, F2.07c, ADR-0044 TD2). Callers that place
+    /// symbols one by one compute this box once per glyph and size and pass it to the recorder.
+    ///
+    /// # Cost
+    /// One outline read (≈ 13 000 instructions for a letter): meant to be called once per glyph
+    /// and size, not per frame. Uses the outline's points, control points included, so the box
+    /// may exceed the ink by a fraction of a pixel on curves, never fall short of it.
+    ///
+    /// # Errors
+    /// As [`Faces::draw_outline`].
+    pub fn glyph_box(
+        &self,
+        face: FaceId,
+        glyph: GlyphId,
+        size: f32,
+    ) -> Result<Option<crate::GlyphBox>, TextError> {
+        let mut extent = Extent::default();
+        self.draw_outline(face, glyph, size, &mut extent)?;
+        Ok(extent.0.map(|[left, top, right, bottom]| crate::GlyphBox {
+            left,
+            top,
+            right,
+            bottom,
+        }))
+    }
+}
