@@ -3633,8 +3633,9 @@ file che conosce la libreria.
 volta e ne tiene una copia per impaginare i suoi testi con gli stessi font.
 
 **Contrasto del testo (TX6).** Una tabella di 256 voci trasforma la copertura di un pixel di glifo
-nella copertura usata per la fusione, `c^(1/γ)` con γ = `TEXT_CONTRAST`. Vale 1 (copertura semplice)
-finché il proprietario non sceglie a occhio fra le varianti di ADR-0044 TX6.
+nella copertura usata per la fusione, `c^(1/γ)` con γ = `TEXT_CONTRAST` = 1,45, scelto a occhio dal
+proprietario fra tre varianti (1, 1,2, 1,45): un pixel coperto a metà da un tratto si fonde al 62%
+invece che al 50%, così il testo piccolo resta deciso sui fondi scuri.
 
 **Test** (`tests/text.rs`, `tests/draw_no_alloc.rs`, i test unitari di `glyph_cache.rs`): inchiostro
 solo dentro i limiti della sequenza e il colore del testo nel pixel più scuro; 200 etichette
@@ -3645,8 +3646,9 @@ che si muove sopra di loro a scala 4×); clip; un cambio di tema che ricolora la
 scala della finestra e le trasformazioni di scala; glifi liberi disegnati come il testo;
 l'inchiostro di un glifo dove sta il suo profilo; i limiti registrati; nessuna allocazione
 registrando di nuovo e disegnando dalla cache calda; il limite della cache e l'ordine dello sgombero.
-Dodici difetti iniettati: undici presi (tre dopo i test scritti apposta), il dodicesimo, ignorare la
-tabella del contrasto, è equivalente finché γ vale 1.
+Dodici difetti iniettati: undici presi subito (tre dopo i test scritti apposta); il dodicesimo,
+ignorare la tabella del contrasto, era equivalente finché γ valeva 1 e, ora che γ vale 1,45, lo
+prende un test unitario della fusione.
 
 **Benchmark** (`benches/draw.rs`): un fotogramma 1920 × 1080 con 200 etichette (circa 6 600 glifi)
 costa ≈ 15,5 M istruzioni con la cache calda e ≈ 20,2 M quando il primo fotogramma la riempie; la

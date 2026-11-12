@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07b done but for the owner's gamma choice (glyph runs and the glyph cache); next F2.07c, on the same branch.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07b done (glyph runs, the glyph cache, text contrast γ = 1.45); next F2.07c, on the same branch.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -991,9 +991,13 @@ frames with cached and large glyphs), a warm-cache no-allocation test, the cache
 twelve injected bugs, eleven caught (three after tests written for them), one equivalent while
 γ = 1. Benchmarks: 200 labels at 1080p ≈ 15.5 M instructions warm, ≈ 20.2 M cold (the exact
 full-coverage copy saved 4%; most of the cost is the per-pixel blend); every other drawing
-benchmark unchanged. `clippy.toml` gains FreeType, SipHash, FxHash. **Open:** the owner's choice of
-γ (screenshots in the session's scratchpad), then the constant, ADR-0044's precision and the
-contrast-table test. **Next:** F2.07c.
+benchmark unchanged. `clippy.toml` gains FreeType, SipHash, FxHash. CI of `15fb30b`: green on the three
+platforms (macOS and Windows needed re-runs: their jobs were cancelled twice after 15 minutes
+without a runner, no step run). **Text contrast chosen by the owner** (2026-11-12): option c,
+γ = 1.45 (a half-covered pixel is blended at 62 % instead of 50 %), recorded in ADR-0044's
+precisions; two unit tests of the table and of the blend, which now catch the twelfth injected bug
+too. **F2.07b complete.** **Next:** F2.07c (text tokens, text in the reference scene and the
+screenshot catalogue, the 33 M-instruction budget).
 
 | Step | What | Status |
 |---|---|---|

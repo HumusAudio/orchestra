@@ -332,6 +332,9 @@ Positions are rounded in the frame's device coordinates, so partial redraws equa
 for byte. A glyph whose mask would exceed 256 × 256 device pixels is filled as a path, and since
 that depends on the scale, a glyph run always counts as a shape a partial redraw includes whole.
 
-**Text contrast (TX6).** A 256-entry table maps a glyph pixel's coverage `c` to `c^(1/γ)`; the
-owner chooses γ by eye among 1 (plain), 1.2 and 1.45, on screenshots of Studio light and dark at
-scales 1 and 2. *Pending at the time of writing.*
+**Text contrast (TX6), chosen by the owner on 2026-11-12: γ = 1.45 (option c).** A 256-entry
+table maps a glyph pixel's coverage `c` to `c^(1/γ)` before blending. The owner compared, by eye,
+plain coverage (γ = 1), γ = 1.2 and γ = 1.45 on screenshots of Studio light and dark at scales 1
+and 2, and chose the strongest: a pixel half covered by a stroke is blended at 62 % instead of
+50 %, so small text stays firm on dark surfaces. Fully covered and empty pixels are unchanged, so
+the exact copy of fully covered opaque pixels still applies.

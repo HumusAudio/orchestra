@@ -3404,8 +3404,9 @@ that rasterises, so `skia.rs` stays the only file that knows the library.
 and keeps its own copy to lay out its texts with the same fonts.
 
 **Text contrast (TX6).** A table of 256 entries turns a glyph pixel's coverage into the cover the
-blend uses, `c^(1/γ)` with γ = `TEXT_CONTRAST`. It is 1 (plain coverage) until the owner chooses by
-eye between the variants of ADR-0044 TX6.
+blend uses, `c^(1/γ)` with γ = `TEXT_CONTRAST` = 1.45, chosen by the owner by eye among three
+variants (1, 1.2, 1.45): a pixel half covered by a stroke is blended at 62 % instead of 50 %, which
+keeps small text firm on dark surfaces.
 
 **Tests** (`tests/text.rs`, `tests/draw_no_alloc.rs`, the unit tests of `glyph_cache.rs`): ink only
 inside the run's bounds and the text colour at the darkest pixel; 200 labels drawn again from the
@@ -3415,8 +3416,8 @@ cache and with G clefs too large for it (a disc moving over them at 4× scale); 
 that recolours the same coverage; the scale factor and scaling transforms; free glyphs drawn like
 text; a glyph's ink where its outline is; the recorded bounds; no allocation when re-recording and
 drawing from a warm cache; the cache's bound and eviction order. Twelve bugs were injected: eleven
-were caught (three after the tests written for them), the twelfth, ignoring the contrast table, is
-equivalent while γ is 1.
+were caught at first (three after the tests written for them); the twelfth, ignoring the contrast
+table, was equivalent while γ was 1 and is caught, since γ is 1.45, by a unit test of the blend.
 
 **Benchmarks** (`benches/draw.rs`): a 1920 × 1080 frame with 200 labels (about 6 600 glyphs) costs
 ≈ 15.5 M instructions with the cache warm and ≈ 20.2 M when the first frame fills it; most of it is

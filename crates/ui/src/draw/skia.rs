@@ -131,8 +131,13 @@ const MAX_CACHED_SHADOWS: usize = 32;
 /// The text contrast exponent γ of ADR-0044 TX6: a glyph pixel of coverage `c` is blended with
 /// cover `c^(1/γ)`. 1 is plain coverage; above 1 the edges of the strokes are strengthened,
 /// which makes light text on a dark surface look less thin (the effect FreeType's and Skia's
-/// text gamma aim at). Chosen by the owner by eye in F2.07b part 2 (ADR-0044 precisions).
-const TEXT_CONTRAST: f32 = 1.0;
+/// text gamma aim at).
+///
+/// Chosen by the owner on 2026-11-12 (ADR-0044 precisions), by eye, among 1 (plain), 1.2 and
+/// 1.45 on screenshots of Studio light and dark at scales 1 and 2: 1.45. A pixel half covered
+/// by a stroke is blended at 62 % instead of 50 %, which keeps 11–13 px text firm on dark
+/// surfaces; fully covered and empty pixels do not change.
+const TEXT_CONTRAST: f32 = 1.45;
 
 /// The cover table of [`TEXT_CONTRAST`]: entry `c` is `(c / 255)^(1/γ)`.
 fn text_cover_table() -> [f32; 256] {
@@ -1586,8 +1591,8 @@ fn blit_glyph(
 
 #[cfg(test)]
 mod tests {
-    //! Tests that need the crate's private shadow formula; the pixel tests of the backend are in
-    //! `tests/draw.rs`.
+    //! Tests that need the crate's private shadow formula and glyph blending; the pixel tests of
+    //! the backend are in `tests/draw.rs` and `tests/text.rs`.
 
     #![allow(
         clippy::unwrap_used,
@@ -1597,6 +1602,43 @@ mod tests {
         reason = "test code: a failed unwrap fails the test; pixel counters and sizes are small \
                   and positive"
     )]
+
+    /// The text contrast table (ADR-0044 TX6): empty and full coverage are unchanged, partial
+    /// coverage is strengthened as `c^(1/1.45)`, and the table grows with the coverage.
+    #[test]
+    fn the_text_contrast_table_strengthens_partial_coverage() {
+        let table = super::text_cover_table();
+        assert_eq!(table[0], 0.0);
+        assert_eq!(table[255], 1.0);
+        let half = (128.0_f32 / 255.0).powf(1.0 / 1.45);
+        assert!((table[128] - half).abs() < 1e-6);
+        assert!(table[128] > 128.0 / 255.0 + 0.1, "{}", table[128]);
+        assert!(table.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    /// Blending a glyph mask goes through the contrast table: a pixel of coverage 128 is
+    /// blended at the table's value, not at 128/255.
+    #[test]
+    fn glyph_pixels_are_blended_through_the_contrast_table() {
+        let mut bytes = vec![255_u8; 4];
+        let mut pixmap = super::PixmapMut::from_bytes(&mut bytes, 1, 1).unwrap();
+        let mask = super::GlyphMask {
+            left: 0,
+            top: 0,
+            width: 1,
+            height: 1,
+            coverage: vec![128],
+        };
+        let table = super::text_cover_table();
+        // Opaque black text over a white pixel.
+        let source = [0.0, 0.0, 0.0, 255.0];
+        super::blit_glyph(&mut pixmap, &mask, 0, 0, None, &source, &table);
+        let mut expected = [255_u8; 4];
+        super::blend_over(&mut expected, &source, table[128]);
+        assert_eq!(bytes, expected);
+        // 128/255 would have left the pixel at 127; the table darkens it further.
+        assert!(bytes[0] < 100, "{bytes:?}");
+    }
 
     use super::CpuRenderer;
     use crate::draw::shadow;
