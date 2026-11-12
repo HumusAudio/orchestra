@@ -47,5 +47,10 @@ gungraun.workspace = true
 name = "draw"
 harness = false
 
+# Instruction-count benchmarks of the widgets' core (ADR-0045, SCALETTA F2.09a).
+[[bench]]
+name = "widgets"
+harness = false
+
 [lints]
 workspace = true

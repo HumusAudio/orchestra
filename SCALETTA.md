@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.62, approvata dal proprietario il 2026-11-12.**
+> **Stato di questo documento: v0.63, approvata dal proprietario il 2026-11-12.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -840,6 +840,18 @@ controllo completo. Va fatta bene una volta sola.
   di F1.16c); se non ci rientra, si apre un ADR sul budget.
 - **F2.07c** Da ADR-0037: qui si definiscono anche i **token del testo** (carattere fra i font
   inclusi, scala delle dimensioni, pesi), personalizzabili come gli altri.
+- **F2.09** Diviso nel briefing del 2026-11-12 in quattro parti: **F2.09a** il nucleo (albero ritenuto,
+  layout, instradamento, focus, modali, densità), **F2.09b** AccessKit con etichetta e pulsante,
+  **F2.09c** casella, interruttore, cursore e la demo sostituita da un pannello vero, **F2.09d**
+  area scorrevole, divisore e il benchmark sui 200 widget. **F2.09a fatto il 2026-11-12** (scelte
+  WB1–WB11, precisazioni in ADR-0045: il puntatore risale come la tastiera, uno strato modale blocca
+  il puntatore fuori, i valori di densità): un clic su 200 widget 63 000 istruzioni disegno
+  compreso (obiettivo 0,5 M), un widget che cresce 116 000, un layout completo 0,86 M; 14 difetti
+  iniettati, tutti presi.
+- **F2.09d** Da F2.09a (scelta WB5): i rettangoli dei widget sono in pixel logici della finestra e i
+  segmenti si registrano senza trasformazioni; l'area scorrevole deve decidere come spostare i
+  figli (una trasformazione con clip per il suo contenuto, rettangoli e test del puntatore nello
+  spazio del contenuto).
 - **F2.09** Da ADR-0045: AccessKit (`accesskit` 0.25, `accesskit_winit` 0.34) entra nel workspace
   qui, agganciato al punto di preparazione della finestra (ADR-0040 W7). Obiettivo dai benchmark: un
   evento su un pannello di 200 widget sotto 0,5 M istruzioni, disegno compreso; la finestra
@@ -1174,3 +1186,4 @@ raccomandato.
 | 2026-11-12 | 0.60 | F2.07b fatto (glyph run e cache dei glifi, contrasto del testo γ = 1,45 scelto dal proprietario); note in F2.07b (risultati), F2.10 (cursore sui cluster), F2.17 (SMuFL solo in Bravura), F2.07c (fusione dei pixel prima di un ADR sul budget); prossimo passo F2.07c | proprietario |
 | 2026-11-12 | 0.61 | F2.07c fatto e con esso F2.07 (token del testo, `Faces::glyph_box`, scena di riferimento con glifi a 18,3 M istruzioni entro il budget di 33 M); note in F2.07c (risultati), F2.17 (riquadri SMuFL), F2.12b (cambiare un token del testo reimpagina); prossimo passo F2.08 | proprietario |
 | 2026-11-12 | 0.62 | F2.08 fatto (ADR-0045 Accepted, D12 chiusa: widget ritenuti, layout nostro, eventi, focus, AccessKit per widget); note in F2.09 (AccessKit, obiettivo 0,5 M per evento) e F2.10 (appunti, `arboard`); prossimo passo F2.09 | proprietario |
+| 2026-11-12 | 0.63 | F2.09 diviso in F2.09a–d; F2.09a fatto (nucleo dei widget, densità; un clic su 200 widget 63 000 istruzioni); nota in F2.09d (scorrimento e coordinate); prossimo passo F2.09b | proprietario |

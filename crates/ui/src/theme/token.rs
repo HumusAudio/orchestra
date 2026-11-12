@@ -18,6 +18,7 @@
 use orchestra_text::TextStyle;
 
 use crate::theme::color::Color;
+use crate::theme::density::{Density, Spacing};
 use crate::theme::text::{Family, FamilyToken, SizeToken, Typography, Weight};
 
 /// Generates [`ColorToken`], its name table and the struct `Colors` from one list of
@@ -242,7 +243,7 @@ impl Shape {
 /// Widgets never store a colour of their own: they ask the active instance at draw time, so
 /// switching colours is a full redraw and nothing more (ADR-0037 T6); switching the text tokens
 /// re-lays out the texts (ADR-0044 TX9). Reading a token is O(1) and allocation-free; the whole
-/// instance is 24 × 4 + 5 + 10 = 111 bytes, `Copy`.
+/// instance is about 24 × 4 + 5 + 10 + 1 = 112 bytes, `Copy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// The colour tokens.
@@ -251,6 +252,8 @@ pub struct Theme {
     shape: Shape,
     /// The text tokens (ADR-0044 TX11).
     text: Typography,
+    /// The density (ADR-0037, F2.09a).
+    density: Density,
 }
 
 impl Theme {
@@ -265,6 +268,7 @@ impl Theme {
             colors,
             shape,
             text: Typography::DEFAULT,
+            density: Density::Comfortable,
         }
     }
 
@@ -311,6 +315,25 @@ impl Theme {
     #[must_use]
     pub fn with_family(mut self, token: FamilyToken, family: Family) -> Self {
         self.text.set_family(token, family);
+        self
+    }
+
+    /// The density of this instance.
+    #[must_use]
+    pub const fn density(&self) -> Density {
+        self.density
+    }
+
+    /// The spacing values of this instance's density.
+    #[must_use]
+    pub const fn spacing(&self) -> Spacing {
+        self.density.spacing()
+    }
+
+    /// This instance with another density.
+    #[must_use]
+    pub const fn with_density(mut self, density: Density) -> Self {
+        self.density = density;
         self
     }
 

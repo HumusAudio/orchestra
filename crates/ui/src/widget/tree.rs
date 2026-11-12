@@ -1,0 +1,480 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+//! The widget tree (ADR-0045 WA1, choices WB2, WB3, WB6): an arena of retained widgets, the
+//! [`Widget`] trait, and the contexts a widget receives when it is measured, arranged, recorded
+//! or given an event.
+//!
+//! # The arena
+//! Widgets live in a vector of slots; each slot holds the widget (boxed: widgets are of many
+//! types), its parent and children (slot indices), its layout props, its rectangle from the last
+//! layout, the cache of its last measure, and two flags: "lay me out again" and "record me
+//! again". A [`WidgetId`] comes from one counter and is never reused (as the model's IDs,
+//! ADR-0022), so a stale ID can never reach another widget; slots themselves are reused, and a
+//! hash map takes an ID to its slot.
+//!
+//! # Why the widget is taken out of its slot
+//! Measuring a container means measuring its children, which live in the same arena: the
+//! container's `&mut self` and the arena's `&mut` cannot both be borrowed. So the tree takes the
+//! widget out of its slot (`Option::take`), calls it with a context that borrows the arena, and
+//! puts it back: one move of a pointer each way, no reference counting, no interior mutability.
+
+use std::any::Any;
+use std::collections::HashMap;
+use std::hash::BuildHasherDefault;
+use std::num::NonZeroU64;
+
+use crate::draw::geometry::{Point, Rect};
+use crate::draw::glyph_cache::KeyHasher;
+use crate::draw::list::Recorder;
+use crate::theme::density::Spacing;
+use crate::window::input::{ButtonState, Key, Modifiers, PointerButton, WheelDelta};
+
+use super::layout::{Constraints, LayoutProps, Size};
+
+/// The stable name of a widget: from one counter, never reused (WB2). It is also the widget's
+/// display-list segment (ADR-0045 WA6) and, from F2.09b, its AccessKit node (WA5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct WidgetId(NonZeroU64);
+
+impl WidgetId {
+    /// The largest ID: never handed out in practice (the counter starts at 1), used for the
+    /// impossible error paths.
+    pub(crate) const MAX: Self = Self(NonZeroU64::MAX);
+
+    /// The number, for the display list's segment and AccessKit's node.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0.get()
+    }
+}
+
+/// Lets a boxed widget be looked at as its concrete type (to read or change its state from the
+/// application). Implemented for every `'static` type.
+pub trait AsAny: Any {
+    /// `self` as `&dyn Any`.
+    fn as_any(&self) -> &dyn Any;
+    /// `self` as `&mut dyn Any`.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+impl<T: Any> AsAny for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+/// Whether a widget handled an event (WB6): `No` lets the event bubble to the parent (WB7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Handled {
+    /// The widget used the event: it goes no further.
+    Yes,
+    /// The widget ignored it: the parent gets it.
+    No,
+}
+
+/// An event as a widget receives it: the window's input (ADR-0040 W5) after routing (WB7, WB8),
+/// plus what the routing itself produces (entering, leaving, focus). Borrowed, so routing never
+/// copies a key's text.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WidgetEvent<'a> {
+    /// The pointer came over this widget.
+    PointerEntered,
+    /// The pointer left this widget.
+    PointerLeft,
+    /// The pointer moved (over this widget, or anywhere while it captures the pointer).
+    PointerMoved {
+        /// Where, logical pixels of the window.
+        position: Point,
+    },
+    /// A pointer button. A widget that handles a press captures the pointer until the release.
+    PointerButton {
+        /// Which button.
+        button: PointerButton,
+        /// Pressed or released.
+        state: ButtonState,
+        /// Where.
+        position: Point,
+    },
+    /// The wheel or the touchpad.
+    Wheel {
+        /// How far.
+        delta: WheelDelta,
+        /// Where the pointer is.
+        position: Point,
+    },
+    /// A key, to the focused widget (bubbling up).
+    Key {
+        /// The key.
+        key: &'a Key,
+        /// Pressed or released.
+        state: ButtonState,
+        /// An automatic repeat.
+        repeat: bool,
+        /// The modifiers held.
+        modifiers: Modifiers,
+    },
+    /// This widget got the keyboard focus.
+    FocusGained,
+    /// This widget lost the keyboard focus.
+    FocusLost,
+}
+
+/// What a widget needs to record its segment: its rectangle, its focus, the theme's spacing.
+#[derive(Debug, Clone, Copy)]
+pub struct RecordCx {
+    /// The widget's rectangle from the last layout, logical pixels of the window.
+    pub rect: Rect,
+    /// `true` when the widget has the keyboard focus (it draws its focus ring, ADR-0045 WA4).
+    pub focused: bool,
+    /// The spacing of the theme's density.
+    pub spacing: Spacing,
+}
+
+/// One widget of the interface (ADR-0045 WA1, WB3). `M` is the application's message type
+/// (WA7). Containers are widgets too.
+pub trait Widget<M>: AsAny + std::fmt::Debug {
+    /// The size the widget wants within `constraints` (the answer is brought inside them by the
+    /// caller anyway). A container measures its children through `cx`.
+    fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size;
+
+    /// Places the children inside `rect` (the widget's own rectangle, already stored). Leaves do
+    /// nothing.
+    fn arrange(&mut self, cx: &mut LayoutCx<'_, M>, rect: Rect) {
+        let _ = (cx, rect);
+    }
+
+    /// Records the widget's segment: its own drawing, not its children's (they have their own
+    /// segments, WA6). A widget that draws nothing records nothing.
+    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>);
+
+    /// Handles an event; `Handled::No` lets it bubble to the parent (WB7). The default ignores
+    /// everything.
+    fn event(&mut self, cx: &mut EventCx<'_, M>, event: &WidgetEvent<'_>) -> Handled {
+        let _ = (cx, event);
+        Handled::No
+    }
+
+    /// `true` if the widget takes the keyboard focus (Tab stops at it, a click focuses it).
+    fn focusable(&self) -> bool {
+        false
+    }
+}
+
+/// What a widget can do while handling an event (WB6): send messages to the application and ask
+/// the tree for work. Collected by the router, which applies it after the call.
+#[derive(Debug)]
+pub struct EventCx<'a, M> {
+    /// The widget receiving the event.
+    pub(crate) id: WidgetId,
+    /// The application's message queue.
+    pub(crate) messages: &'a mut Vec<M>,
+    /// Lay this widget out again (its size may have changed).
+    pub(crate) relayout: bool,
+    /// Record this widget again (its look changed).
+    pub(crate) rerecord: bool,
+    /// Give this widget the focus.
+    pub(crate) focus: bool,
+}
+
+impl<M> EventCx<'_, M> {
+    /// The widget receiving the event.
+    #[must_use]
+    pub const fn id(&self) -> WidgetId {
+        self.id
+    }
+
+    /// Sends `message` to the application (WA7), after the event.
+    pub fn emit(&mut self, message: M) {
+        self.messages.push(message);
+    }
+
+    /// Asks the tree to lay this widget out again (and record it).
+    pub const fn request_layout(&mut self) {
+        self.relayout = true;
+        self.rerecord = true;
+    }
+
+    /// Asks the tree to record this widget again (its look changed, not its size).
+    pub const fn request_record(&mut self) {
+        self.rerecord = true;
+    }
+
+    /// Asks for the keyboard focus.
+    pub const fn request_focus(&mut self) {
+        self.focus = true;
+    }
+}
+
+/// One slot of the arena.
+#[derive(Debug)]
+pub(crate) struct Slot<M> {
+    /// The widget's ID.
+    pub(crate) id: WidgetId,
+    /// The widget; `None` only while it is being called (see the module documentation).
+    pub(crate) widget: Option<Box<dyn Widget<M>>>,
+    /// The parent's slot; `None` for the root.
+    pub(crate) parent: Option<usize>,
+    /// The children's slots, in order (later ones are drawn on top and hit first).
+    pub(crate) children: Vec<usize>,
+    /// How the parent lays this widget out.
+    pub(crate) props: LayoutProps,
+    /// The rectangle from the last layout.
+    pub(crate) rect: Rect,
+    /// The last measure: its constraints and the answer.
+    pub(crate) measured: Option<(Constraints, Size)>,
+    /// Must be measured and arranged again.
+    pub(crate) needs_layout: bool,
+    /// Must be recorded again.
+    pub(crate) needs_record: bool,
+}
+
+/// The arena (WB2).
+#[derive(Debug)]
+pub(crate) struct WidgetTree<M> {
+    /// The slots; `None` for a free one.
+    pub(crate) slots: Vec<Option<Slot<M>>>,
+    /// Free slots to reuse.
+    free: Vec<usize>,
+    /// From an ID to its slot.
+    index: HashMap<WidgetId, usize, BuildHasherDefault<KeyHasher>>,
+    /// The next ID's number.
+    next: u64,
+    /// The spacing of the theme's density, for layout.
+    pub(crate) spacing: Spacing,
+}
+
+impl<M: 'static> WidgetTree<M> {
+    /// A tree whose root is `root` (slot 0).
+    pub(crate) fn new(root: Box<dyn Widget<M>>, spacing: Spacing) -> Self {
+        let mut tree = Self {
+            slots: Vec::new(),
+            free: Vec::new(),
+            index: HashMap::default(),
+            next: 1,
+            spacing,
+        };
+        tree.insert(None, root, LayoutProps::default());
+        tree
+    }
+
+    /// The slot of `id`.
+    pub(crate) fn slot_of(&self, id: WidgetId) -> Option<usize> {
+        self.index.get(&id).copied()
+    }
+
+    /// The slot at `index`.
+    pub(crate) fn slot(&self, index: usize) -> Option<&Slot<M>> {
+        self.slots.get(index).and_then(Option::as_ref)
+    }
+
+    /// The slot at `index`, mutably.
+    pub(crate) fn slot_mut(&mut self, index: usize) -> Option<&mut Slot<M>> {
+        self.slots.get_mut(index).and_then(Option::as_mut)
+    }
+
+    /// Inserts a widget as the last child of `parent` (or as the root); returns its slot.
+    pub(crate) fn insert(
+        &mut self,
+        parent: Option<usize>,
+        widget: Box<dyn Widget<M>>,
+        props: LayoutProps,
+    ) -> usize {
+        // IDs never repeat: the counter only grows. u64 cannot run out in practice (a new widget
+        // every nanosecond for 584 years); saturating keeps the code panic-free regardless.
+        let id = WidgetId(NonZeroU64::new(self.next).unwrap_or(NonZeroU64::MIN));
+        self.next = self.next.saturating_add(1);
+        let slot = Slot {
+            id,
+            widget: Some(widget),
+            parent,
+            children: Vec::new(),
+            props,
+            rect: Rect::EMPTY,
+            measured: None,
+            needs_layout: true,
+            needs_record: true,
+        };
+        let index = if let Some(index) = self.free.pop() {
+            if let Some(place) = self.slots.get_mut(index) {
+                *place = Some(slot);
+            }
+            index
+        } else {
+            self.slots.push(Some(slot));
+            self.slots.len() - 1
+        };
+        self.index.insert(id, index);
+        if let Some(parent) = parent
+            && let Some(parent) = self.slot_mut(parent)
+        {
+            parent.children.push(index);
+        }
+        self.invalidate_layout(index);
+        index
+    }
+
+    /// Removes the subtree at `index`; returns the IDs removed (their segments must go too).
+    pub(crate) fn remove(&mut self, index: usize, removed: &mut Vec<WidgetId>) {
+        let parent = self.slot(index).and_then(|slot| slot.parent);
+        if let Some(parent) = parent {
+            if let Some(slot) = self.slot_mut(parent) {
+                slot.children.retain(|&child| child != index);
+            }
+            self.invalidate_layout(parent);
+        }
+        // Depth first over the subtree, with an explicit stack (no recursion depth limit).
+        let mut stack = vec![index];
+        while let Some(current) = stack.pop() {
+            if let Some(slot) = self.slots.get_mut(current).and_then(Option::take) {
+                stack.extend(slot.children.iter().copied());
+                self.index.remove(&slot.id);
+                removed.push(slot.id);
+                self.free.push(current);
+            }
+        }
+    }
+
+    /// Marks `index` and its ancestors as needing layout (WA2's upward invalidation).
+    pub(crate) fn invalidate_layout(&mut self, index: usize) {
+        let mut current = Some(index);
+        while let Some(at) = current {
+            let Some(slot) = self.slot_mut(at) else {
+                break;
+            };
+            if slot.needs_layout && at != index {
+                // Already marked from here up by an earlier invalidation.
+                break;
+            }
+            slot.needs_layout = true;
+            current = slot.parent;
+        }
+    }
+
+    /// Measures the widget at `index` (WA2's first pass), from the cache when it is clean and the
+    /// constraints did not change.
+    pub(crate) fn measure(&mut self, index: usize, constraints: Constraints) -> Size {
+        let Some(slot) = self.slot_mut(index) else {
+            return Size::ZERO;
+        };
+        if !slot.needs_layout
+            && let Some((last, size)) = slot.measured
+            && last == constraints
+        {
+            return size;
+        }
+        let Some(mut widget) = slot.widget.take() else {
+            return Size::ZERO;
+        };
+        let answer = {
+            let mut cx = LayoutCx { tree: self, index };
+            widget.measure(&mut cx, constraints)
+        };
+        let size = constraints.constrain(answer);
+        if let Some(slot) = self.slot_mut(index) {
+            slot.widget = Some(widget);
+            if slot.measured.map(|(_, old)| old) != Some(size) {
+                slot.needs_record = true;
+            }
+            slot.measured = Some((constraints, size));
+            // Measured again: the next arrange must run even if the rectangle is the same.
+            slot.needs_layout = true;
+        }
+        size
+    }
+
+    /// Arranges the widget at `index` in `rect` (WA2's second pass): skipped when it is clean and
+    /// its rectangle did not change.
+    pub(crate) fn arrange(&mut self, index: usize, rect: Rect) {
+        let Some(slot) = self.slot_mut(index) else {
+            return;
+        };
+        if !slot.needs_layout && slot.rect == rect {
+            return;
+        }
+        if slot.rect != rect {
+            slot.rect = rect;
+            slot.needs_record = true;
+        }
+        let Some(mut widget) = slot.widget.take() else {
+            return;
+        };
+        {
+            let mut cx = LayoutCx { tree: self, index };
+            widget.arrange(&mut cx, rect);
+        }
+        if let Some(slot) = self.slot_mut(index) {
+            slot.widget = Some(widget);
+            slot.needs_layout = false;
+        }
+    }
+
+    /// The child slot `child` of `index` (its position among the children).
+    fn child(&self, index: usize, child: usize) -> Option<usize> {
+        self.slot(index)
+            .and_then(|slot| slot.children.get(child))
+            .copied()
+    }
+}
+
+/// What a widget can reach while it is measured or arranged: its children (by position), their
+/// props and sizes, and the theme's spacing.
+#[derive(Debug)]
+pub struct LayoutCx<'a, M> {
+    /// The arena.
+    tree: &'a mut WidgetTree<M>,
+    /// The widget's slot.
+    index: usize,
+}
+
+impl<M: 'static> LayoutCx<'_, M> {
+    /// How many children the widget has.
+    #[must_use]
+    pub fn child_count(&self) -> usize {
+        self.tree
+            .slot(self.index)
+            .map_or(0, |slot| slot.children.len())
+    }
+
+    /// The layout props of child `child` (defaults if there is no such child).
+    #[must_use]
+    pub fn child_props(&self, child: usize) -> LayoutProps {
+        self.tree
+            .child(self.index, child)
+            .and_then(|slot| self.tree.slot(slot))
+            .map_or_else(LayoutProps::default, |slot| slot.props)
+    }
+
+    /// Measures child `child` within `constraints`.
+    pub fn measure_child(&mut self, child: usize, constraints: Constraints) -> Size {
+        match self.tree.child(self.index, child) {
+            Some(slot) => self.tree.measure(slot, constraints),
+            None => Size::ZERO,
+        }
+    }
+
+    /// The size child `child` answered at its last measure.
+    #[must_use]
+    pub fn child_size(&self, child: usize) -> Size {
+        self.tree
+            .child(self.index, child)
+            .and_then(|slot| self.tree.slot(slot))
+            .and_then(|slot| slot.measured)
+            .map_or(Size::ZERO, |(_, size)| size)
+    }
+
+    /// Places child `child` in `rect` and arranges it.
+    pub fn place_child(&mut self, child: usize, rect: Rect) {
+        if let Some(slot) = self.tree.child(self.index, child) {
+            self.tree.arrange(slot, rect);
+        }
+    }
+
+    /// The spacing of the theme's density (WB10).
+    #[must_use]
+    pub const fn spacing(&self) -> Spacing {
+        self.tree.spacing
+    }
+}

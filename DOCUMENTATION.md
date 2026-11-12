@@ -3130,6 +3130,16 @@ F2.12b will. Tests in `tests/typography.rs`: the defaults of every pair, the fac
 each style resolves to, the weight fallback, overrides (the later wins), the size range, each
 token in its own slot, the stable names.
 
+#### The density
+
+Step F2.09a (ADR-0037, choice WB10), in `src/theme/density.rs`. A theme has a `Density`,
+**comfortable** (the default of every built-in theme) or **compact**, which gives the `Spacing`
+values the layout and the widgets read: the padding inside a control (10 / 6), four gaps (4, 8,
+12, 16 / 2, 4, 8, 12) and the height of a control (28 / 22), in logical pixels. A custom theme
+changes it with `Override::Density`. Like the text tokens, changing it re-lays out
+(`Ui::set_theme`), it does not only redraw. The values are a first approval, to be tuned on real
+panels.
+
 #### The system's light/dark preference
 
 When the user leaves the mode on *System* (the default), the interface must know whether the
@@ -3467,6 +3477,57 @@ table, was equivalent while γ was 1 and is caught, since γ is 1.45, by a unit 
 ≈ 15.5 M instructions with the cache warm and ≈ 20.2 M when the first frame fills it; most of it is
 the blend, about 25 instructions a glyph pixel. The budget is checked on the reference scene in
 F2.07c.
+
+#### The widgets' core
+
+Step F2.09a (ADR-0045, choices WB1–WB11), in `src/widget/`. The interface is a **retained tree of
+widgets**: objects that live between frames with their state, their rectangle and their segment of
+the display list. The application keeps one `Ui<M>` per window, where `M` is its own message type:
+
+```rust
+let mut ui = Ui::new(Flex::column(Space::M, Space::L), &theme);
+let row = ui.add(ui.root(), Flex::row(Space::S, Space::None), LayoutProps::default())?;
+let ok = ui.add(row, my_button, LayoutProps::default().width(Length::Fill(1.0)))?;
+ui.layout(window_bounds, &mut list);      // on every size change
+ui.input(&event, &mut list);              // for every input event
+for message in ui.take_messages() { /* turn it into commands on the model */ }
+```
+
+**The arena** (`tree.rs`). Widgets live in a vector of slots: the boxed widget, its parent and
+children, its layout props, its rectangle, the cache of its last measure, and two flags ("lay me
+out again", "record me again"). A `WidgetId` comes from a counter and is never reused, so a stale ID
+cannot reach another widget; it is also the widget's `SegmentId`. To measure a container, which
+must measure its children in the same arena, the tree takes the widget out of its slot, calls it
+with a context borrowing the arena, and puts it back: no reference counting, no interior
+mutability. A widget implements `Widget<M>`: `measure`, `arrange`, `record`, `event`, `focusable`.
+
+**Layout** (`layout.rs`). Two passes: measure (constraints down, sizes up) and arrange (rectangles
+down). Each child has a width and a height rule, `Fixed`, `Content` or `Fill(weight)`, and an
+alignment. Containers: `Flex` (a row or a column, with spacing and padding), `Stack` (children on
+top of each other) and `Grid` (fixed, content and fill tracks, each child in its cell). Spacings
+are `Space` values that follow the theme's density. Layout is **incremental**: a change marks the
+widget and its ancestors; the next frame re-measures only those paths, the others answer from
+their cache when their constraints are the same (a row's later siblings are measured again when
+the space left for them changed), and arranging skips subtrees whose rectangle did not change.
+
+**Routing** (`ui.rs`). Pointer events go to the topmost widget under the pointer and **bubble** to
+its ancestors until one handles them (owner's precision WB7: pointer events bubble like keys and
+the wheel). A widget that handles a press **captures** the pointer until the release. Entering
+and leaving are generated when the widget under the pointer changes. Keys go to the focused widget
+and bubble; an unhandled Tab moves the focus in tree order (Shift+Tab backwards, wrapping); a press
+focuses the first focusable widget from the target up. A **modal layer** (`open_modal`) keeps the
+focus inside and blocks pointer events outside it (precision WB9); closing it gives the focus back.
+Routing allocates nothing. A frame lays out what needs it and re-records, in tree order, the
+widgets marked for it, so a later sibling is drawn above an earlier one.
+
+**Tests** (`tests/widgets.rs`, `tests/widgets_no_alloc.rs`): every container and size rule, the
+incremental layout counted measure by measure, segments and damage, the topmost hit, bubbling to a
+handling parent, capture during a drag, hover, focus by click and Tab, a handled Tab, the modal
+trap and the focus given back, removal of a subtree, density, the wheel, the drawing order, and no
+allocation while routing. Fourteen bugs were injected: all caught, one after a test written for
+it (the drawing order). **Benchmarks** (`benches/widgets.rs`, 200 leaves in 40 rows, drawing
+included): first frame 3.4 M instructions, a click **63 000**, a leaf that grows 116 000, a density
+change laying everything out again 0.86 M. The target of ADR-0045 is 0.5 M per event.
 
 #### The window and the event loop
 

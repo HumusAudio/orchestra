@@ -49,6 +49,7 @@
 mod draw;
 mod platform;
 mod theme;
+mod widget;
 mod window;
 
 // The theme system (ADR-0014, ADR-0037), re-exported at the root as ADR-0034 D1 requires.
@@ -59,6 +60,7 @@ pub use theme::contrast::{
     relative_luminance,
 };
 pub use theme::custom::{CustomTheme, Override};
+pub use theme::density::{Density, Spacing};
 pub use theme::mode::{Appearance, ThemeMode};
 pub use theme::pair::ThemePair;
 pub use theme::text::{
@@ -76,6 +78,13 @@ pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
+pub use widget::layout::{
+    Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,
+};
+pub use widget::tree::{
+    AsAny, EventCx, Handled, LayoutCx, RecordCx, Widget, WidgetEvent, WidgetId,
+};
+pub use widget::ui::{Ui, UiError};
 pub use window::input::{
     ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton, WheelDelta,
 };
