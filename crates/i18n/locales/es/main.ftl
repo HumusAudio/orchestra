@@ -24,3 +24,15 @@ status-measures-selected =
         [one] { $count } compás seleccionado
        *[other] { $count } compases seleccionados
     }
+
+## Playback options (glossary: playback, metronome, count_in, volume)
+
+playback-title = Reproducción
+playback-metronome = Metrónomo
+playback-count-in = Cuenta inicial
+playback-metronome-volume = Volumen del metrónomo
+
+## Dialog buttons (glossary: restore_defaults, ok)
+
+dialog-restore-defaults = Restaurar valores predeterminados
+dialog-ok = Aceptar

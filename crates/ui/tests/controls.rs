@@ -364,3 +364,246 @@ fn children_are_listed_and_additions_resend_the_parent() {
     ids.sort_by_key(|id| id.0);
     assert_eq!(ids, [NodeId(root.get()), NodeId(added.get())]);
 }
+
+/// The messages of the toggle and slider tests.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Set {
+    /// A check box or a switch changed.
+    On(bool),
+    /// A slider changed.
+    Value(f64),
+}
+
+/// A column with one widget, laid out in a 400 × 200 window.
+fn single<W: orchestra_ui::Widget<Set>>(widget: W) -> (Ui<Set>, WidgetId, DisplayList) {
+    let mut ui = Ui::new(
+        Flex::column(Space::M, Space::M),
+        &theme(),
+        Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let id = ui
+        .add(
+            root,
+            widget,
+            LayoutProps::default().width(orchestra_ui::Length::Fixed(300.0)),
+        )
+        .unwrap();
+    let mut list = DisplayList::new();
+    ui.layout(BOUNDS, &mut list);
+    (ui, id, list)
+}
+
+/// A click at `at`.
+fn click_at(ui: &mut Ui<Set>, list: &mut DisplayList, at: Point) {
+    ui.input(&pointer(ButtonState::Pressed, at), list);
+    ui.input(&pointer(ButtonState::Released, at), list);
+}
+
+#[test]
+fn a_checkbox_toggles_by_click_on_its_label_space_and_access() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Toggle::checkbox("Metronome", false, Set::On));
+    let r = ui.rect(id).unwrap();
+    // A click on the label (right part of the control) toggles.
+    click_at(
+        &mut ui,
+        &mut list,
+        Point::new(r.x0 + 60.0, f32::midpoint(r.y0, r.y1)),
+    );
+    assert_eq!(ui.take_messages().collect::<Vec<_>>(), [Set::On(true)]);
+    assert!(ui.widget::<orchestra_ui::Toggle<Set>>(id).unwrap().is_on());
+    // Space when focused, AccessKit's click: off, then on again.
+    ui.input(&key(NamedKey::Tab), &mut list);
+    ui.input(&key(NamedKey::Space), &mut list);
+    ui.access_action(
+        AccessAction {
+            target: id,
+            kind: AccessActionKind::Click,
+        },
+        &mut list,
+    )
+    .unwrap();
+    assert_eq!(
+        ui.take_messages().collect::<Vec<_>>(),
+        [Set::On(false), Set::On(true)]
+    );
+    // Its node: a check box, named, checked.
+    ui.reset_access();
+    let update = ui.take_access_update();
+    let node = &update
+        .tree_update()
+        .nodes
+        .iter()
+        .find(|(n, _)| *n == NodeId(id.get()))
+        .unwrap()
+        .1;
+    assert_eq!(node.role(), Role::CheckBox);
+    assert_eq!(node.label(), Some("Metronome"));
+    assert_eq!(node.toggled(), Some(accesskit::Toggled::True));
+}
+
+#[test]
+fn a_switch_shows_its_state_with_the_accent() {
+    let (mut ui, id, mut list) = single(orchestra_ui::Toggle::switch("Count-in", false, Set::On));
+    let r = ui.rect(id).unwrap();
+    let height = (theme().spacing().control_height * 4.0 / 7.0).round();
+    // A pixel inside the track, between the knob positions.
+    let probe = ((r.x0 + height) as u32, f32::midpoint(r.y0, r.y1) as u32 + 4);
+    let off = draw(&list).pixel(probe.0, probe.1).unwrap();
+    click_at(
+        &mut ui,
+        &mut list,
+        Point::new(r.x0 + 5.0, f32::midpoint(r.y0, r.y1)),
+    );
+    assert_eq!(ui.take_messages().collect::<Vec<_>>(), [Set::On(true)]);
+    let on = draw(&list).pixel(probe.0, probe.1).unwrap();
+    assert_ne!(off, on);
+    assert_eq!(on, rgba(ColorToken::Accent));
+    ui.reset_access();
+    let update = ui.take_access_update();
+    let node = &update
+        .tree_update()
+        .nodes
+        .iter()
+        .find(|(n, _)| *n == NodeId(id.get()))
+        .unwrap()
+        .1;
+    assert_eq!(node.role(), Role::Switch);
+}
+
+#[test]
+fn a_disabled_toggle_ignores_everything() {
+    let mut toggle = orchestra_ui::Toggle::checkbox("Metronome", false, Set::On);
+    toggle.set_enabled(false);
+    let (mut ui, id, mut list) = single(toggle);
+    let r = ui.rect(id).unwrap();
+    click_at(
+        &mut ui,
+        &mut list,
+        Point::new(r.x0 + 5.0, f32::midpoint(r.y0, r.y1)),
+    );
+    ui.input(&key(NamedKey::Tab), &mut list);
+    assert_eq!(ui.focused(), None);
+    assert_eq!(ui.take_messages().count(), 0);
+}
+
+#[test]
+fn a_slider_drags_snaps_and_clamps() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 5.0, 50.0, Set::Value).labelled("Volume"));
+    let r = ui.rect(id).unwrap();
+    let y = f32::midpoint(r.y0, r.y1);
+    // Press at the far left: the value jumps to the minimum and the pointer is captured.
+    ui.input(
+        &pointer(ButtonState::Pressed, Point::new(r.x0, y)),
+        &mut list,
+    );
+    // Dragging beyond the right end clamps to the maximum, even outside the slider.
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(r.x1 + 80.0, y + 40.0),
+        },
+        &mut list,
+    );
+    ui.input(
+        &pointer(ButtonState::Released, Point::new(r.x1 + 80.0, y + 40.0)),
+        &mut list,
+    );
+    assert_eq!(
+        ui.take_messages().collect::<Vec<_>>(),
+        [Set::Value(0.0), Set::Value(100.0)]
+    );
+    // A press about a third of the way snaps to a multiple of the step.
+    ui.input(
+        &pointer(ButtonState::Pressed, Point::new(r.x0 + r.width() / 3.0, y)),
+        &mut list,
+    );
+    ui.input(
+        &pointer(ButtonState::Released, Point::new(r.x0 + r.width() / 3.0, y)),
+        &mut list,
+    );
+    let value = ui.widget::<orchestra_ui::Slider<Set>>(id).unwrap().value();
+    assert!(
+        (value / 5.0).fract() == 0.0 && (25.0..=40.0).contains(&value),
+        "{value}"
+    );
+}
+
+#[test]
+fn a_slider_answers_the_keyboard_and_assistive_technologies() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 1.0, 50.0, Set::Value).labelled("Volume"));
+    ui.input(&key(NamedKey::Tab), &mut list);
+    assert_eq!(ui.focused(), Some(id));
+    for (named, expected) in [
+        (NamedKey::ArrowRight, 51.0),
+        (NamedKey::ArrowDown, 50.0),
+        (NamedKey::PageUp, 60.0),
+        (NamedKey::PageDown, 50.0),
+        (NamedKey::End, 100.0),
+        (NamedKey::Home, 0.0),
+    ] {
+        ui.input(&key(named), &mut list);
+        assert_eq!(
+            ui.widget::<orchestra_ui::Slider<Set>>(id).unwrap().value(),
+            expected,
+            "{named:?}"
+        );
+    }
+    // At the minimum, going down sends nothing (the value did not change).
+    let _ = ui.take_messages().count();
+    ui.input(&key(NamedKey::ArrowLeft), &mut list);
+    assert_eq!(ui.take_messages().count(), 0);
+    for (kind, expected) in [
+        (AccessActionKind::Increment, 1.0),
+        (AccessActionKind::SetValue(42.4), 42.0),
+        (AccessActionKind::Decrement, 41.0),
+    ] {
+        ui.access_action(AccessAction { target: id, kind }, &mut list)
+            .unwrap();
+        assert_eq!(
+            ui.widget::<orchestra_ui::Slider<Set>>(id).unwrap().value(),
+            expected
+        );
+    }
+    // Its node: a slider, named by its label, with its value, range and value actions.
+    ui.reset_access();
+    let update = ui.take_access_update();
+    let node = &update
+        .tree_update()
+        .nodes
+        .iter()
+        .find(|(n, _)| *n == NodeId(id.get()))
+        .unwrap()
+        .1;
+    assert_eq!(node.role(), Role::Slider);
+    assert_eq!(node.label(), Some("Volume"));
+    assert_eq!(node.numeric_value(), Some(41.0));
+    assert_eq!(
+        (node.min_numeric_value(), node.max_numeric_value()),
+        (Some(0.0), Some(100.0))
+    );
+    assert!(node.supports_action(Action::Increment) && node.supports_action(Action::SetValue));
+}
+
+/// Pressing a check box and releasing outside it cancels, as for buttons.
+#[test]
+fn dragging_out_of_a_toggle_cancels() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Toggle::checkbox("Metronome", false, Set::On));
+    let r = ui.rect(id).unwrap();
+    ui.input(
+        &pointer(
+            ButtonState::Pressed,
+            Point::new(r.x0 + 5.0, f32::midpoint(r.y0, r.y1)),
+        ),
+        &mut list,
+    );
+    ui.input(
+        &pointer(ButtonState::Released, Point::new(390.0, 190.0)),
+        &mut list,
+    );
+    assert_eq!(ui.take_messages().count(), 0);
+    assert!(!ui.widget::<orchestra_ui::Toggle<Set>>(id).unwrap().is_on());
+}

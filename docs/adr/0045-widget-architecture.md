@@ -238,3 +238,14 @@ each, mostly `tiny-skia` filling and stroking the anti-aliased rounded rectangle
 0.5 M target per event. **The owner chose (F2.09b2) to cache the coverage of rounded rectangles
 in the renderer** (ADR-0043, precision of F2.09b2): the click fell to 1.12 M for three redraws,
 ≈ 0.37 M per event, within the target.
+
+**F2.09c, WD1–WD8 (approved by the owner on 2026-11-12).** `Toggle` (check box and switch, label
+inside the control, `fn(bool) -> M`), `Slider` (minimum, maximum, step; drag with capture; arrows,
+Page Up/Down, Home/End; `labelled` for its accessible name; `fn(f64) -> M`), a shared focus ring;
+AccessKit's increase, decrease and set value (`WidgetEvent::Increment`, `Decrement`, `SetValue`,
+`AccessInfo::range`). The demonstration window became a Playback preview of real widgets with six
+new catalogue messages (researched, approved, count-in marked for review). A drag move of a slider
+costs 0.22 M instructions with drawing, once its coloured track became a fixed cap plus a plain
+rectangle and its thumb sits on quarter pixels (0.55 M before: every move was a new shape for the
+cache). The commits stay `User-visible: no` (WD7): the demonstration is not in the guides.
+

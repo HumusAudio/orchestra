@@ -24,3 +24,15 @@ status-measures-selected =
         [one] { $count } Takt ausgewählt
        *[other] { $count } Takte ausgewählt
     }
+
+## Playback options (glossary: playback, metronome, count_in, volume)
+
+playback-title = Wiedergabe
+playback-metronome = Metronom
+playback-count-in = Einzähler
+playback-metronome-volume = Metronomlautstärke
+
+## Dialog buttons (glossary: restore_defaults, ok)
+
+dialog-restore-defaults = Voreinstellungen wiederherstellen
+dialog-ok = OK

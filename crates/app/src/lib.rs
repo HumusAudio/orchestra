@@ -30,5 +30,5 @@
 mod demo;
 mod screenshots;
 
-pub use demo::Demo;
+pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
 pub use screenshots::{SCALE, SCENES, Scene, SceneContext, ScreenshotError, render, theme};

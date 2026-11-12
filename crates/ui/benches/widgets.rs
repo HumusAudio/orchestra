@@ -17,6 +17,8 @@
 //!   with text: the first frame (with the whole accessibility tree), a click (hover, press,
 //!   release, the button re-recorded and drawn, the accessibility update), and the whole
 //!   accessibility tree built again (an assistive technology connecting).
+//! - `slider_drag_move` (F2.09c): 40 rows of a label and a slider, one move while a slider is
+//!   dragged (its value changes, it is re-recorded and drawn, its node is sent).
 //!
 //! # Target (ADR-0045, SCALETTA F2.09)
 //! An event under 0.5 M instructions with drawing; the spike's retained click was 0.17 M.
@@ -42,9 +44,9 @@ use std::hint::black_box;
 use gungraun::prelude::*;
 use orchestra_ui::{
     Appearance, BuiltInTheme, Button, ButtonState, ColorToken, Constraints, CpuRenderer, Density,
-    DisplayList, EventCx, Flex, Handled, Image, InputEvent, Label, LayoutCx, LayoutProps, Point,
-    PointerButton, RecordCx, Recorder, Rect, Renderer, Size, Space, Theme, Ui, Widget, WidgetEvent,
-    WidgetId,
+    DisplayList, EventCx, Flex, Handled, Image, InputEvent, Label, LayoutCx, LayoutProps, Length,
+    Point, PointerButton, RecordCx, Recorder, Rect, Renderer, Size, Slider, Space, Theme, Ui,
+    Widget, WidgetEvent, WidgetId,
 };
 
 // A button-like leaf whose width can change.
@@ -321,9 +323,109 @@ library_benchmark_group!(
     benchmarks = [first_frame, click, grow_one, relayout_all]
 );
 
+// 40 rows of a label and a slider, shown once, with the 20th slider being dragged (pressed and
+// captured): one move of the drag is measured (F2.09c).
+struct Sliders {
+    ui: Ui<f64>,
+    list: DisplayList,
+    renderer: CpuRenderer,
+    image: Image,
+    target: Rect,
+}
+
+fn sliders_dragging() -> Sliders {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(Flex::column(Space::Xs, Space::M), &theme(), faces.clone());
+    let root = ui.root();
+    let mut target = None;
+    for row_index in 0..40 {
+        let row = ui
+            .add(
+                root,
+                Flex::row(Space::M, Space::None),
+                LayoutProps::default().width(Length::Fixed(600.0)),
+            )
+            .unwrap();
+        ui.add(
+            row,
+            Label::new(format!("Track {row_index} volume")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        let slider = ui
+            .add(
+                row,
+                Slider::new(0.0, 100.0, 1.0, 50.0, |value| value).labelled("Volume"),
+                LayoutProps::default().width(Length::Fill(1.0)),
+            )
+            .unwrap();
+        if row_index == 20 {
+            target = Some(slider);
+        }
+    }
+    let mut list = DisplayList::new();
+    ui.layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut list);
+    let target = ui.rect(target.unwrap()).unwrap();
+    let mut renderer = CpuRenderer::new(faces);
+    let mut image = Image::new(1000, 1600).unwrap();
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    let y = f32::midpoint(target.y0, target.y1);
+    ui.input(
+        &InputEvent::PointerButton {
+            button: PointerButton::Left,
+            state: ButtonState::Pressed,
+            position: Point::new(f32::midpoint(target.x0, target.x1), y),
+        },
+        &mut list,
+    );
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    let _ = ui.take_messages().count();
+    Sliders {
+        ui,
+        list,
+        renderer,
+        image,
+        target,
+    }
+}
+
+#[library_benchmark]
+#[bench::panel(sliders_dragging())]
+fn slider_drag_move(mut sliders: Sliders) -> Sliders {
+    let x = sliders.target.x0 + sliders.target.width() * 0.7;
+    let y = f32::midpoint(sliders.target.y0, sliders.target.y1);
+    sliders.ui.input(
+        black_box(&InputEvent::PointerMoved {
+            position: Point::new(x, y),
+        }),
+        &mut sliders.list,
+    );
+    black_box(sliders.ui.take_messages().count());
+    let damage = sliders.list.take_damage();
+    sliders
+        .renderer
+        .render(&sliders.list, &theme(), &damage, 1.0, &mut sliders.image)
+        .unwrap();
+    black_box(sliders.ui.take_access_update());
+    sliders
+}
+
 library_benchmark_group!(
     name = controls,
-    benchmarks = [real_first_frame, real_click, real_access_full]
+    benchmarks = [
+        real_first_frame,
+        real_click,
+        real_access_full,
+        slider_drag_move
+    ]
 );
 
 main!(library_benchmark_groups = core, controls);

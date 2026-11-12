@@ -27,8 +27,8 @@ use std::fmt;
 use orchestra_i18n::{Locale, Localizer};
 use orchestra_text::Faces;
 use orchestra_ui::{
-    Appearance, BuiltInTheme, CpuRenderer, DisplayList, DrawError, Image, InputEvent, Point, Rect,
-    Theme, WindowApp,
+    Appearance, BuiltInTheme, ButtonState, CpuRenderer, DisplayList, DrawError, Image, InputEvent,
+    Key, Modifiers, NamedKey, Rect, Theme, WindowApp,
 };
 
 use crate::Demo;
@@ -72,6 +72,8 @@ pub struct SceneContext {
     pub faces: Faces,
     /// The program's name in en-US (the catalogue's `app-name`).
     pub app_name: String,
+    /// The demonstration's texts in en-US.
+    pub demo: crate::DemoTexts,
 }
 
 impl SceneContext {
@@ -83,12 +85,21 @@ impl SceneContext {
         let faces = Faces::bundled().map_err(|error| ScreenshotError::Setup {
             detail: error.to_string(),
         })?;
-        let app_name = Localizer::new(Locale::EnUs)
-            .and_then(|localizer| localizer.format("app-name", None))
+        let (app_name, demo) = Localizer::new(Locale::EnUs)
+            .and_then(|localizer| {
+                Ok((
+                    localizer.format("app-name", None)?,
+                    crate::DemoTexts::new(&localizer)?,
+                ))
+            })
             .map_err(|error| ScreenshotError::Setup {
                 detail: error.to_string(),
             })?;
-        Ok(Self { faces, app_name })
+        Ok(Self {
+            faces,
+            app_name,
+            demo,
+        })
     }
 }
 
@@ -132,20 +143,21 @@ impl Scene {
 pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
-    height: 330.0,
+    height: 370.0,
     record: record_demo_window,
 }];
 
-/// The demonstration window at rest, with the pointer to the right of the panel (so its disc is
-/// visible without covering the staff or the controls) and no button or modifier held.
+/// The demonstration window (the Playback options preview, F2.09c) with the keyboard focus on
+/// its first control, the *Metronome* check box, so the focus ring is in the picture.
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
-    let mut demo = Demo::new(&context.faces, &context.app_name);
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
     demo.layout(bounds, list);
-    // The panel ends at x = 544 (24 px margin + 520 px), so x = 588 lies in the free strip on its
-    // right; y = 200 is about the panel's middle.
     demo.input(
-        &InputEvent::PointerMoved {
-            position: Point::new(588.0, 200.0),
+        &InputEvent::Key {
+            key: Key::Named(NamedKey::Tab),
+            state: ButtonState::Pressed,
+            repeat: false,
+            modifiers: Modifiers::default(),
         },
         list,
     );

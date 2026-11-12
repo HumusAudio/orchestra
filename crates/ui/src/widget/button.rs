@@ -188,13 +188,7 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for Button<M> {
         let y = rect.y0 + (rect.height() - self.layout.height()) / 2.0;
         recorder.text(&self.layout, Point::new(x, y), text);
         if cx.focused && self.enabled {
-            let width = f32::from(cx.shape.focus_width.max(1));
-            let gap = 1.0 + width / 2.0;
-            recorder.stroke_rounded_rect(
-                RoundedRect::new(rect.inflate(gap), radius + gap),
-                StrokeStyle::new(width),
-                ColorToken::Focus,
-            );
+            super::look::focus_ring(recorder, rect, radius, cx.shape);
         }
     }
 
