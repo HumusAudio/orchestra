@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; next: the rest of F2.09 (pointer shapes, proposed as a new step) or F2.10.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); next F2.09e.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1126,7 +1126,9 @@ ADR-0043) brought it to 17.7 M, within the 33 M of a frame (WF2); a divider drag
 `tests/scrolling.rs` (25), an AccessKit unit test, no allocation while scrolling or dragging the
 divider, the demo's panes; twenty-three injected bugs, twenty-one caught (six after tests written
 for them), two without visible effect. The Playback preview has a splitter with two scroll areas
-(its option column padded so focus rings are not cut). Commits `User-visible: no`.
+(its option column padded so focus rings are not cut). Commits `User-visible: no`. SCALETTA v0.66:
+F2.09d and F2.09 done, new step F2.09e (pointer shapes), a note in F2.10; the missing registry row
+of v0.65 reconstructed.
 
 | Step | What | Status |
 |---|---|---|
@@ -1189,9 +1191,8 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 ## Open decisions and open items
 
 - **Pointer shapes (F2.09d, 2026-11-13):** the toolkit has no way to change the pointer's shape,
-  so the splitter's divider shows no resize cursor and is hard to find. Proposed to the owner as a
-  step of its own (a widget says which shape it wants under the pointer; the window sets it with
-  `winit`), or inside F2.11b.
+  so the splitter's divider shows no resize cursor and is hard to find. Approved by the owner as
+  step F2.09e (SCALETTA v0.66).
 - **Splitter names (F2.09d):** the demo's splitter has no accessible name (no catalogue text was
   added for a throw-away view); real views name theirs with `labelled`.
 
