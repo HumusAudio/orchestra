@@ -303,3 +303,6 @@ Open: the pointer's shape (a resize cursor over the divider) does not exist yet 
   translated to `winit` in the window module only (ADR-0040, precision of F2.09e). New shapes come
   with the widgets that use them (the text beam in F2.10, the window's edges in F2.11b); buttons
   keep the arrow, the pointing hand being the convention of links.
+- **WG5, a quieter divider** (owner's choice after trying the step): with the resize shape telling
+  the hover, the splitter's line stays one pixel under the pointer and turns `control-border`;
+  two pixels of `accent` only while dragged (it was three pixels of `accent` for both).

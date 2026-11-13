@@ -1143,7 +1143,8 @@ with F2.10, the window's edges with F2.11b. Tests: `tests/pointer.rs` (7), a uni
 translation, the question added to the no-allocation test, the demo's divider band (8 px); two injected bugs, both caught.
 Benchmark `pointer_shape_over_a_widget`: 621 instructions, the other benchmarks unchanged. The real
 pointer cannot be seen in the sandbox: **the owner checked it by hand** with `cargo run` over
-the Playback preview's divider (2026-11-13): it works as intended. SCALETTA v0.67. Commits `User-visible: no`.
+the Playback preview's divider (2026-11-13): it works as intended. On the owner's request the divider became quieter (WG5): one pixel of
+`control-border` under the pointer, two of `accent` only while dragged. SCALETTA v0.67. Commits `User-visible: no`.
 
 | Step | What | Status |
 |---|---|---|

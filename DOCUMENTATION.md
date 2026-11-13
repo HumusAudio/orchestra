@@ -3793,8 +3793,9 @@ written in its documentation: a drag is not snapped to the step (the divider sta
 pointer), and **the wheel does not move it** (ADR-0046 V1 exception: the band is a few pixels wide,
 the first notch would move it from under the pointer and the next would scroll the pane below).
 In Tab order it sits **between** its panes, thanks to the new hook `tab_after_child`. Looks: a
-`border` line in the middle of a band as wide as the small gap (at least 6 px), three pixels of
-`accent` while hovered or dragged.
+`border` line in the middle of a band as wide as the small gap (at least 6 px); since F2.09e a
+neutral `control-border` line under the pointer and two pixels of `accent` while dragged (next
+section).
 
 **The Playback preview (WF8)** now has the title above a splitter: the options on the left in a
 vertical scroll area, the staff on the right in an area scrolling both ways (in a small window the
@@ -3865,6 +3866,12 @@ after every layout and after every assistive-technology action, and calls `Windo
 **only when the answer changed**: pointer moves arrive by the hundred per second, and every call
 goes to the display server. Nothing special happens when the pointer leaves the window and
 comes back: the shape belongs to the window, and the system shows it again on re-entry.
+
+**A quieter divider.** Trying the step, the owner found the hover's three pixels of `accent` too
+loud now that the pointer itself changes. By the owner's choice the line stays one pixel under the
+pointer and only turns `control-border` (a neutral shade a little stronger than `border`); the
+accent, two pixels, is kept for the drag, the action in progress. The look test of
+`tests/scrolling.rs` checks the three states pixel by pixel.
 
 **Tests and cost.** `tests/pointer.rs` (seven cases: a new interface shows the arrow; the band of
 panes side by side, edges included, and of panes one above the other; out of the window; a drag

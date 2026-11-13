@@ -38,8 +38,14 @@
 //!
 //! # Looks
 //! The divider is a band as wide as the density's small gap (at least 6 logical pixels, so it can
-//! be grabbed) with a `border` line along its middle; while hovered or dragged the line becomes
-//! three pixels of `accent`. The focus ring surrounds the band.
+//! be grabbed) with a one-pixel `border` line along its middle. Under the pointer the line turns
+//! `control-border`, a neutral shade a little stronger, and stays one pixel; while dragged it
+//! becomes two pixels of `accent`. The focus ring surrounds the band.
+//!
+//! Why so quiet under the pointer (owner's choice, F2.09e): the double-arrow pointer already says
+//! "this can be dragged", and three pixels of accent on a mere hover were too loud; the accent is
+//! kept for the action in progress. Until F2.09e the hover showed the same three pixels of accent
+//! as the drag.
 //!
 //! # The pointer (F2.09e)
 //! Over the band, and during a drag wherever the pointer goes, the pointer takes the resize
@@ -376,9 +382,13 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Splitter<M> {
     }
 
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
-        let active = self.hover || self.drag.is_some();
-        let (width, token) = if active {
-            (3.0, ColorToken::Accent)
+        // Dragged: the accent, two pixels (the action in progress). Hovered: one pixel of the
+        // neutral control edge (the pointer's shape already tells it can be dragged). At rest:
+        // the thin separator.
+        let (width, token) = if self.drag.is_some() {
+            (2.0, ColorToken::Accent)
+        } else if self.hover {
+            (1.0, ColorToken::ControlBorder)
         } else {
             (1.0, ColorToken::Border)
         };

@@ -4053,8 +4053,9 @@ documentazione: il trascinamento non è agganciato al passo (il divisore resta s
 **la rotella non lo muove** (eccezione di ADR-0046 V1: la fascia è larga pochi pixel, il primo scatto
 la sposterebbe da sotto il puntatore e il successivo farebbe scorrere il pannello sotto). Nell'ordine
 di Tab sta **fra** i suoi pannelli, grazie al nuovo aggancio `tab_after_child`. Aspetto: una linea
-`border` al centro di una fascia larga quanto lo spazio piccolo (almeno 6 px), tre pixel di `accent`
-sotto il puntatore o mentre lo si trascina.
+`border` al centro di una fascia larga quanto lo spazio piccolo (almeno 6 px); da F2.09e una linea
+neutra `control-border` sotto il puntatore e due pixel di `accent` mentre lo si trascina (sezione
+seguente).
 
 **L'anteprima Riproduzione (WF8)** ora ha il titolo sopra un divisore: le opzioni a sinistra in
 un'area scorrevole verticale, il rigo a destra in un'area che scorre nei due sensi (in una finestra
@@ -4128,6 +4129,12 @@ chiama `Window::set_cursor` **solo quando la risposta è cambiata**: i movimenti
 arrivano a centinaia al secondo, e ogni chiamata va al server grafico. Quando il puntatore esce
 dalla finestra e rientra non serve nulla di speciale: la forma appartiene alla finestra, e il
 sistema la mostra di nuovo al rientro.
+
+**Un divisore più discreto.** Provando il passo, il proprietario ha trovato eccessivi i tre pixel
+di `accent` al passaggio del puntatore, ora che cambia già il puntatore stesso. Per sua scelta la
+linea resta di un pixel sotto il puntatore e diventa soltanto `control-border` (una tinta neutra un
+po' più forte di `border`); l'accento, di due pixel, resta per il trascinamento, l'azione in corso.
+Il test dell'aspetto in `tests/scrolling.rs` controlla i tre stati pixel per pixel.
 
 **Test e costo.** `tests/pointer.rs` (sette casi: un'interfaccia nuova mostra la freccia; la
 fascia di pannelli affiancati, bordi compresi, e di pannelli uno sopra l'altro; fuori dalla
