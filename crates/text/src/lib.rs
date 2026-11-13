@@ -17,6 +17,9 @@
 //!   [`GlyphBox`], [`Faces::advance`]).
 //! - Delivers **glyph outlines** to an [`OutlineSink`], unhinted, y down (TX2, TX6).
 //! - Finds a **SMuFL glyph** by its code point without shaping ([`Faces::glyph_for_char`]).
+//! - Finds **grapheme and word boundaries** for the caret and the selection of the text field
+//!   ([`next_grapheme`], [`prev_word_start`], [`word_at`]…; ADR-0047 TF1), and the caret's
+//!   place in a layout ([`TextLayout::caret_x`], [`TextLayout::hit_test`]).
 //!
 //! ```
 //! use orchestra_text::{FaceId, Faces, Shaper, TextLayout, TextStyle};
@@ -48,6 +51,7 @@
 
 #![forbid(unsafe_code)]
 
+mod boundary;
 mod error;
 mod face;
 mod layout;
@@ -57,9 +61,13 @@ mod shape;
 mod style;
 mod wrap;
 
+pub use boundary::{
+    ceil_grapheme, floor_grapheme, grapheme_boundaries, is_grapheme_boundary, next_grapheme,
+    next_word_end, next_word_start, prev_grapheme, prev_word_start, word_at,
+};
 pub use error::TextError;
 pub use face::{FaceId, Faces};
-pub use layout::{GlyphId, Line, PositionedGlyph, TextLayout};
+pub use layout::{CaretStop, GlyphId, Line, PositionedGlyph, TextLayout};
 pub use metrics::{GlyphBox, LineMetrics};
 pub use outline::OutlineSink;
 pub use shape::Shaper;

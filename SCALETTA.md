@@ -701,7 +701,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | 🔄 (F2.10a–c) | 3 |
 | F2.10a | **ADR del campo di testo** (posizioni e grafemi, tasti di ogni piattaforma, mouse, eventi di testo, IME, undo locale e undo del documento, cursore, selezione, accessibilità) e **misura del crate degli appunti** | ✅ ADR-0047 | 0,5 |
-| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | ⬜ | 1,5 |
+| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | 🔄 (F2.10b1–b2) | 1,5 |
+| F2.10b1 | **Nucleo di modifica, senza display**: confini di grafemi e parole, `caret_x` e `hit_test`, `InputEvent::Text`, tabelle dei tasti delle tre piattaforme, `TextEditor`, undo locale, test di proprietà e "non alloca" | 🔄 | 0,5 |
+| F2.10b2 | **Il widget**: disegno, selezione in `on-selection`, cursore lampeggiante con la sveglia a tempo, mouse (doppio e triplo clic), forma `Text`, scorrimento interno, conferma ed Esc, AccessKit, benchmark, il campo nell'anteprima | ⬜ | 1 |
 | F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ⬜ | 1 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |

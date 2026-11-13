@@ -429,12 +429,21 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
                 });
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                let state = input::button_state(event.state);
                 self.deliver(&InputEvent::Key {
                     key: input::key(&event.logical_key),
-                    state: input::button_state(event.state),
+                    state,
                     repeat: event.repeat,
                     modifiers: self.modifiers,
                 });
+                // The text the press typed, after its key (ADR-0047 TF5): from `text`, not from
+                // the logical key, so dead keys and compose sequences give their result.
+                // Releases type nothing.
+                if state == ButtonState::Pressed
+                    && let Some(text) = input::typed_text(event.text.as_deref(), self.modifiers)
+                {
+                    self.deliver(&InputEvent::Text(text));
+                }
             }
             WindowEvent::Focused(focused) => self.deliver(&InputEvent::Focus(focused)),
             // The system's preference changed (Windows, macOS; never sent on Linux). It goes

@@ -81,6 +81,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::PointerButton { .. } => "released",
             WidgetEvent::Wheel { .. } => "wheel",
             WidgetEvent::Key { .. } => "key",
+            WidgetEvent::Text(_) => "text",
             WidgetEvent::FocusGained => "focus",
             WidgetEvent::FocusLost => "blur",
             WidgetEvent::Activate => "activate",
