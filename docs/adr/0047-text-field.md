@@ -1,7 +1,7 @@
 # ADR-0047 — The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard
 
-- **Status:** Proposed (outline TF1–TF13 presented to the owner on 2026-11-13; the owner chose
-  TF2, TF8, TF12 and the primary selection's postponement the same day).
+- **Status:** Accepted (owner, 2026-11-13; outline TF1–TF13 presented first, with the owner's
+  choices on TF2, TF8, TF12 and the primary selection's postponement, then the text).
 - **Date:** 2026-11-13
 - **Implements:** ADR-0045 (retained widgets, routed events, focus, AccessKit per widget; WA8
   leaves the clipboard to this step), ADR-0044 (text: shaping, clusters, left to right only,
