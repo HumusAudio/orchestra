@@ -3793,8 +3793,9 @@ written in its documentation: a drag is not snapped to the step (the divider sta
 pointer), and **the wheel does not move it** (ADR-0046 V1 exception: the band is a few pixels wide,
 the first notch would move it from under the pointer and the next would scroll the pane below).
 In Tab order it sits **between** its panes, thanks to the new hook `tab_after_child`. Looks: a
-`border` line in the middle of a band as wide as the small gap (at least 6 px), three pixels of
-`accent` while hovered or dragged.
+`border` line in the middle of a band as wide as the small gap (at least 6 px); since F2.09e a
+neutral `control-border` line under the pointer and two pixels of `accent` while dragged (next
+section).
 
 **The Playback preview (WF8)** now has the title above a splitter: the options on the left in a
 vertical scroll area, the staff on the right in an area scrolling both ways (in a small window the
@@ -3812,8 +3813,78 @@ caught (six after the tests written for them), two without a visible effect (the
 `scroll_wheel_notch` **17.7 M** and `splitter_drag_move` **19.1 M** instructions (moving the divider
 moves every widget of the pane).
 
-**Not yet**: the pointer's shape (a double arrow over the divider) does not exist in the toolkit;
-it is a step of its own in the plan.
+**The pointer's shape** came in the next step, F2.09e (next section): over the band the pointer
+becomes a double arrow.
+
+#### The pointer's shape
+
+Step F2.09e (a precision of ADR-0045 WA3 and of ADR-0040 W1), in `src/window/pointer.rs` (new),
+`src/widget/tree.rs`, `src/widget/ui.rs`, `src/widget/splitter.rs`, `src/window/mod.rs`,
+`src/window/shell.rs` and the application's `demo.rs`. Before it, the divider of a splitter showed
+the ordinary arrow and was hard to find.
+
+**Our own type.** `PointerShape` is an enum of ours, as the input events and the accessibility
+roles are: widgets never see `winit`, and one function (`pointer::to_winit`) translates it. Only
+the shapes in use exist: `Default` (the arrow), `ResizeColumn` and `ResizeRow`. They become
+`winit`'s `ColResize` and `RowResize`, the CSS names of a divider between columns or rows, which
+`winit` turns into the native shape everywhere (the west-east and north-south arrows on Windows,
+`resizeLeftRight` and `resizeUpDown` on macOS, the cursor theme's `col-resize` and `row-resize`
+on X11 and Wayland). The text beam will come with the text field (F2.10), the window's edges and
+corners with our own title bar (F2.11b). Buttons keep the arrow, as on every desktop: the pointing
+hand belongs to links (owner's choice).
+
+**Who decides.** A new hook of the `Widget` trait, `pointer_shape(point)`, answers a shape or
+`None` ("my parent decides", the default). The answer depends on the point, because the divider
+is a band inside the splitter, not a child of its own:
+
+```rust
+fn pointer_shape(&self, point: Point) -> Option<PointerShape> {
+    if self.drag.is_none() && !inside(self.handle, point) {
+        return None;
+    }
+    Some(match self.axis {
+        Axis::Horizontal => PointerShape::ResizeColumn,
+        Axis::Vertical => PointerShape::ResizeRow,
+    })
+}
+```
+
+`Ui::pointer_shape` asks at the moment, with the current rectangles:
+- during a capture (a drag), **only the capturing widget**, wherever the pointer is: dragging the
+  divider past its limit, or out of the window, keeps the double arrow until the release; a widget
+  that captured the pointer and answers nothing gives the arrow, even over a divider, because the
+  divider will not get the release;
+- otherwise the **hovered widget, then its ancestors**, until one answers (the bubbling of the
+  pointer's events, WB7): the innermost answer wins, and the walk stops at the root of the open
+  modal layer, so what lies behind a dialog has no say; over what the dialog blocks, and outside
+  the window, nothing is hovered: the arrow;
+- a disabled widget answers `None`: a shape promises an action.
+
+**The window.** `WindowApp` has a new method, `pointer_shape`, with the arrow as its default; an
+app built on `Ui` answers `self.ui.pointer_shape()`. The window asks after every input event,
+after every layout and after every assistive-technology action, and calls `Window::set_cursor`
+**only when the answer changed**: pointer moves arrive by the hundred per second, and every call
+goes to the display server. Nothing special happens when the pointer leaves the window and
+comes back: the shape belongs to the window, and the system shows it again on re-entry.
+
+**A quieter divider.** Trying the step, the owner found the hover's three pixels of `accent` too
+loud now that the pointer itself changes. By the owner's choice the line stays one pixel under the
+pointer and only turns `control-border` (a neutral shade a little stronger than `border`); the
+accent, two pixels, is kept for the drag, the action in progress. The look test of
+`tests/scrolling.rs` checks the three states pixel by pixel.
+
+**Tests and cost.** `tests/pointer.rs` (seven cases: a new interface shows the arrow; the band of
+panes side by side, edges included, and of panes one above the other; out of the window; a drag
+that keeps its shape past the limits and loses it at the release; a capture by a pane over the
+band; the innermost answer winning over an ancestor's; a modal layer as the top of the walk and a
+block for the rest), a unit test of the translation to `winit`, the question asked after every
+event in `tests/widgets_no_alloc.rs` (no allocation), and `crates/app/tests/demo.rs` (sweeping
+the Playback preview, exactly the 8 pixels of the divider's band give the double arrow). Two injected bugs (the drag rule removed, the
+walk not stopping at the modal layer) were both caught. The benchmark
+`pointer_shape_over_a_widget` asks once with the pointer over a widget of the scrolled content,
+the longest walk of that window (six widgets, nobody answering): **621 instructions**, far below
+the 0.5 M of an event. What the system then draws cannot be tested without a display: the owner
+checks it by hand.
 
 #### The window and the event loop
 

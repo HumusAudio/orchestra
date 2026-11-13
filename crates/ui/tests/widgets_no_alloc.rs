@@ -4,7 +4,7 @@
 //! message queue and the display list have their capacity, a click, a drag and a Tab move the
 //! state, emit messages and re-record segments without touching the heap. Since F2.09d the same
 //! holds for scrolling (wheel, thumb drag, Tab into a hidden widget) and for dragging a
-//! splitter's divider.
+//! splitter's divider, and since F2.09e for asking the pointer's shape after each event.
 //!
 //! This file is its own test binary with the counting allocator installed (ADR-0016 §5).
 
@@ -199,8 +199,11 @@ fn scrolling_and_moving_a_divider_never_allocate() {
         for _ in 0..25 {
             ui.input(&tab, list);
         }
-        // The divider dragged right and back.
+        // The divider dragged right and back, asking the pointer's shape after every event as
+        // the window does (F2.09e): over the content, during the drag, after the release.
+        black_box(ui.pointer_shape());
         button(ui, list, ButtonState::Pressed, Point::new(band, 200.0));
+        black_box(ui.pointer_shape());
         for x in [band + 40.0, band - 30.0, band] {
             ui.input(
                 &InputEvent::PointerMoved {
@@ -208,8 +211,10 @@ fn scrolling_and_moving_a_divider_never_allocate() {
                 },
                 list,
             );
+            black_box(ui.pointer_shape());
         }
         button(ui, list, ButtonState::Released, Point::new(band, 200.0));
+        black_box(ui.pointer_shape());
         black_box(ui.take_messages().count());
         black_box(list.take_damage());
     };

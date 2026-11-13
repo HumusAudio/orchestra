@@ -286,3 +286,23 @@ cache). The commits stay `User-visible: no` (WD7): the demonstration is not in t
   `User-visible: no`.
 
 Open: the pointer's shape (a resize cursor over the divider) does not exist yet in the toolkit.
+*Closed by F2.09e, below.*
+
+**F2.09e, the pointer's shape (approved by the owner on 2026-11-13).** A precision of WA3.
+- **WG1, the widget answers for a point**: `Widget::pointer_shape(point) -> Option<PointerShape>`,
+  `None` by default ("the parent decides"). A point, not a constant per widget, because a widget
+  may want a shape over part of itself only (the splitter's divider is a band inside it).
+- **WG2, who is asked**: during a capture, the capturing widget alone, wherever the pointer is
+  (its `None` is the arrow); otherwise the hovered widget and then its ancestors until one answers
+  (the bubbling of WB7), stopping at the innermost modal layer's root (WB9); nothing hovered (out
+  of the window, or over what a modal layer blocks) is the arrow. A disabled widget answers `None`.
+- **WG3, asked, not stored**: `Ui::pointer_shape` asks at the moment with the current rectangles,
+  O(depth), no allocation (measured: 621 instructions for the longest walk of the benchmark
+  window).
+- **WG4, our own type, few shapes**: `PointerShape` (`Default`, `ResizeColumn`, `ResizeRow`),
+  translated to `winit` in the window module only (ADR-0040, precision of F2.09e). New shapes come
+  with the widgets that use them (the text beam in F2.10, the window's edges in F2.11b); buttons
+  keep the arrow, the pointing hand being the convention of links.
+- **WG5, a quieter divider** (owner's choice after trying the step): with the resize shape telling
+  the hover, the splitter's line stays one pixel under the pointer and turns `control-border`;
+  two pixels of `accent` only while dragged (it was three pixels of `accent` for both).

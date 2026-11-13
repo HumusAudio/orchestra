@@ -135,3 +135,14 @@ decision D18 (machines for manual tests) is taken; accepted by the owner until m
 - `orchestra-app` gains its first real code: start the interface.
 - F2.04b implements the system theme on Windows and macOS on top of W3 (ADR-0038 S3), and bridges
   the Linux portal's callback to the proxy.
+
+## Precision of the implementation (F2.09e, approved by the owner on 2026-11-13)
+
+**The pointer's shape.** `WindowApp` gains `pointer_shape()` (the arrow by default; an app built
+on `Ui` answers `Ui::pointer_shape`, ADR-0045 WG1–WG4). The window asks after every input event,
+layout and assistive-technology action, and calls `Window::set_cursor` only when the answer
+differs from the shape it last set (a new window starts with the arrow, `winit`'s default). Our
+`PointerShape` is translated to `winit`'s `CursorIcon` in one function of `window/pointer.rs`, as
+W1 and W5 require; `ColResize` and `RowResize` are used for the divider's shapes, which `winit`
+maps to the native resize shapes on every platform. Nothing is done when the pointer leaves the
+window: the shape belongs to the window, and the system restores it on re-entry.

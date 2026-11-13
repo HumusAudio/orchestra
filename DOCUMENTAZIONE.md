@@ -4053,8 +4053,9 @@ documentazione: il trascinamento non è agganciato al passo (il divisore resta s
 **la rotella non lo muove** (eccezione di ADR-0046 V1: la fascia è larga pochi pixel, il primo scatto
 la sposterebbe da sotto il puntatore e il successivo farebbe scorrere il pannello sotto). Nell'ordine
 di Tab sta **fra** i suoi pannelli, grazie al nuovo aggancio `tab_after_child`. Aspetto: una linea
-`border` al centro di una fascia larga quanto lo spazio piccolo (almeno 6 px), tre pixel di `accent`
-sotto il puntatore o mentre lo si trascina.
+`border` al centro di una fascia larga quanto lo spazio piccolo (almeno 6 px); da F2.09e una linea
+neutra `control-border` sotto il puntatore e due pixel di `accent` mentre lo si trascina (sezione
+seguente).
 
 **L'anteprima Riproduzione (WF8)** ora ha il titolo sopra un divisore: le opzioni a sinistra in
 un'area scorrevole verticale, il rigo a destra in un'area che scorre nei due sensi (in una finestra
@@ -4073,8 +4074,81 @@ ciclo di adattamento, e la cache dei ritagli in un caso annidato, che costa solo
 Benchmark: `scroll_wheel_notch` **17,7 M** e `splitter_drag_move` **19,1 M** istruzioni (spostare il
 divisore sposta tutti i widget del pannello).
 
-**Non ancora**: la forma del puntatore (una doppia freccia sopra il divisore) non esiste nel
-toolkit; è un passo a sé nella scaletta.
+**La forma del puntatore** è arrivata nel passo seguente, F2.09e (sezione seguente): sopra la
+fascia il puntatore diventa una doppia freccia.
+
+#### La forma del puntatore
+
+Passo F2.09e (una precisazione di ADR-0045 WA3 e di ADR-0040 W1), in `src/window/pointer.rs`
+(nuovo), `src/widget/tree.rs`, `src/widget/ui.rs`, `src/widget/splitter.rs`, `src/window/mod.rs`,
+`src/window/shell.rs` e nel `demo.rs` dell'applicazione. Prima, il divisore di un pannello diviso
+mostrava la freccia normale ed era difficile da trovare.
+
+**Un tipo nostro.** `PointerShape` è un enum nostro, come gli eventi di input e i ruoli di
+accessibilità: i widget non vedono mai `winit`, e una sola funzione (`pointer::to_winit`) lo
+traduce. Esistono solo le forme in uso: `Default` (la freccia), `ResizeColumn` e `ResizeRow`.
+Diventano `ColResize` e `RowResize` di `winit`, i nomi CSS di un divisore fra colonne o fra righe,
+che `winit` trasforma ovunque nella forma nativa (le frecce ovest-est e nord-sud su Windows,
+`resizeLeftRight` e `resizeUpDown` su macOS, `col-resize` e `row-resize` del tema dei cursori su
+X11 e Wayland). La barra del testo arriverà con il campo di testo (F2.10), i bordi e gli angoli
+della finestra con la nostra barra del titolo (F2.11b). I pulsanti tengono la freccia, come su
+ogni desktop: la mano è dei link (scelta del proprietario).
+
+**Chi decide.** Un nuovo aggancio del trait `Widget`, `pointer_shape(point)`, risponde una forma
+oppure `None` ("decide il genitore", il predefinito). La risposta dipende dal punto, perché il
+divisore è una fascia dentro il pannello diviso, non un figlio a sé:
+
+```rust
+fn pointer_shape(&self, point: Point) -> Option<PointerShape> {
+    if self.drag.is_none() && !inside(self.handle, point) {
+        return None;
+    }
+    Some(match self.axis {
+        Axis::Horizontal => PointerShape::ResizeColumn,
+        Axis::Vertical => PointerShape::ResizeRow,
+    })
+}
+```
+
+`Ui::pointer_shape` chiede sul momento, con i rettangoli attuali:
+- durante una cattura (un trascinamento), **solo il widget che ha catturato**, ovunque sia il
+  puntatore: trascinando il divisore oltre il suo limite, o fuori dalla finestra, la doppia
+  freccia resta fino al rilascio; un widget che ha catturato il puntatore e non risponde nulla dà
+  la freccia, anche sopra un divisore, perché il divisore non riceverà il rilascio;
+- altrimenti **il widget sotto il puntatore, poi i suoi antenati**, finché uno risponde (la
+  risalita degli eventi del puntatore, WB7): vince la risposta più interna, e la risalita si ferma
+  alla radice del livello modale aperto, così ciò che sta dietro a un dialogo non ha voce; sopra
+  ciò che il dialogo blocca, e fuori dalla finestra, nessun widget è sotto il puntatore: la
+  freccia;
+- un widget disabilitato risponde `None`: una forma promette un'azione.
+
+**La finestra.** `WindowApp` ha un metodo nuovo, `pointer_shape`, con la freccia come
+predefinito; un'app costruita su `Ui` risponde `self.ui.pointer_shape()`. La finestra chiede dopo
+ogni evento di input, dopo ogni impaginazione e dopo ogni azione di una tecnologia assistiva, e
+chiama `Window::set_cursor` **solo quando la risposta è cambiata**: i movimenti del puntatore
+arrivano a centinaia al secondo, e ogni chiamata va al server grafico. Quando il puntatore esce
+dalla finestra e rientra non serve nulla di speciale: la forma appartiene alla finestra, e il
+sistema la mostra di nuovo al rientro.
+
+**Un divisore più discreto.** Provando il passo, il proprietario ha trovato eccessivi i tre pixel
+di `accent` al passaggio del puntatore, ora che cambia già il puntatore stesso. Per sua scelta la
+linea resta di un pixel sotto il puntatore e diventa soltanto `control-border` (una tinta neutra un
+po' più forte di `border`); l'accento, di due pixel, resta per il trascinamento, l'azione in corso.
+Il test dell'aspetto in `tests/scrolling.rs` controlla i tre stati pixel per pixel.
+
+**Test e costo.** `tests/pointer.rs` (sette casi: un'interfaccia nuova mostra la freccia; la
+fascia di pannelli affiancati, bordi compresi, e di pannelli uno sopra l'altro; fuori dalla
+finestra; un trascinamento che tiene la sua forma oltre i limiti e la perde al rilascio; una
+cattura di un pannello sopra la fascia; la risposta più interna che vince su quella di un antenato;
+un livello modale come cima della risalita e come blocco per il resto), un test unitario della
+traduzione verso `winit`, la domanda fatta dopo ogni evento in `tests/widgets_no_alloc.rs`
+(nessuna allocazione), e `crates/app/tests/demo.rs` (percorrendo l'anteprima Riproduzione, danno la
+doppia freccia esattamente gli 8 pixel della fascia del divisore). Due difetti iniettati (tolta la regola del trascinamento, risalita che non
+si ferma al livello modale), entrambi presi. Il benchmark `pointer_shape_over_a_widget` chiede una
+volta con il puntatore sopra un widget del contenuto scorrevole, la risalita più lunga di quella
+finestra (sei widget, nessuno risponde): **621 istruzioni**, molto sotto gli 0,5 M di un evento.
+Quello che poi disegna il sistema non si può provare senza display: lo verifica a mano il
+proprietario.
 
 #### La finestra e il ciclo degli eventi
 

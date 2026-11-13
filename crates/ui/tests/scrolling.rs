@@ -929,20 +929,43 @@ fn the_splitter_node_and_its_actions() {
 }
 
 #[test]
-fn the_divider_is_drawn_and_lights_up_under_the_pointer() {
+fn the_divider_is_quiet_under_the_pointer_and_accented_while_dragged() {
     let (mut ui, _, _, mut list) = split(Splitter::new(Axis::Horizontal, 0.5));
+    // The two tokens must differ in this theme, or the hover would not be seen at all.
+    assert_ne!(rgba(ColorToken::Border), rgba(ColorToken::ControlBorder));
     // The line in the middle of the band (146–154): 1 px from round(149.5) = 150.
     assert_eq!(pixel(&list, 150, 100), rgba(ColorToken::Border));
     assert_ne!(pixel(&list, 149, 100), rgba(ColorToken::Border));
-    // Hovered: 3 px of accent from round(148.5) = 149.
+    // Hovered (F2.09e, owner's choice): still 1 px, in the neutral control edge, no accent.
     move_to(&mut ui, &mut list, Point::new(150.0, 100.0));
-    for x in 149..152 {
+    assert_eq!(pixel(&list, 150, 100), rgba(ColorToken::ControlBorder));
+    assert_ne!(pixel(&list, 149, 100), rgba(ColorToken::ControlBorder));
+    assert_ne!(pixel(&list, 151, 100), rgba(ColorToken::ControlBorder));
+    // Dragged: 2 px of accent from round(149) = 149, so 149 and 150.
+    button(
+        &mut ui,
+        &mut list,
+        ButtonState::Pressed,
+        Point::new(150.0, 100.0),
+        1,
+    );
+    for x in 149..151 {
         assert_eq!(pixel(&list, x, 100), rgba(ColorToken::Accent), "x = {x}");
     }
-    // Left (onto the first pane): back to the thin line.
+    assert_ne!(pixel(&list, 151, 100), rgba(ColorToken::Accent));
+    // Released over the band: hovered again, the quiet line.
+    button(
+        &mut ui,
+        &mut list,
+        ButtonState::Released,
+        Point::new(150.0, 100.0),
+        1,
+    );
+    assert_eq!(pixel(&list, 150, 100), rgba(ColorToken::ControlBorder));
+    assert_ne!(pixel(&list, 149, 100), rgba(ColorToken::Accent));
+    // Left (onto the first pane): back to the thin separator.
     move_to(&mut ui, &mut list, Point::new(50.0, 100.0));
     assert_eq!(pixel(&list, 150, 100), rgba(ColorToken::Border));
-    assert_ne!(pixel(&list, 149, 100), rgba(ColorToken::Accent));
 }
 
 #[test]

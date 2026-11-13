@@ -30,6 +30,11 @@
 //! - `splitter_drag_move` (F2.09d): the same window, one move while the divider is dragged: the
 //!   panes arranged again (the content keeps its rectangles, only the area's bar moves), drawn,
 //!   sent.
+//! - `pointer_shape_over_a_widget` (F2.09e): the same window with the pointer over a widget of
+//!   the scrolled content, which answers nothing: the question the window asks after every event
+//!   walks the whole way up (the widget, its row, the column, the scroll area, the splitter, the
+//!   root), the longest walk this window has. Asked alone, without an event, so its own cost is
+//!   what is counted: the event's cost is in the cases above.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -635,9 +640,22 @@ fn splitter_drag_move(mut scrolled: Scrolled) -> Scrolled {
     scrolled
 }
 
+// One question of the pointer's shape (F2.09e), as the window asks after each event. The answer
+// is the arrow: nobody on the way up asks for a shape, so every ancestor is asked.
+#[library_benchmark]
+#[bench::panel(scrolled_shown())]
+fn pointer_shape_over_a_widget(scrolled: Scrolled) -> Scrolled {
+    black_box(scrolled.ui.pointer_shape());
+    scrolled
+}
+
 library_benchmark_group!(
     name = scrolling,
-    benchmarks = [scroll_wheel_notch, splitter_drag_move]
+    benchmarks = [
+        scroll_wheel_notch,
+        splitter_drag_move,
+        pointer_shape_over_a_widget
+    ]
 );
 
 main!(library_benchmark_groups = core, controls, scrolling);
