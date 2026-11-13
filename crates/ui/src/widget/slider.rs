@@ -73,7 +73,7 @@ const PREFERRED_WIDTH: f32 = 160.0;
 
 /// A touchpad's (or a smooth wheel's) pixels that make one wheel notch (ADR-0046 V2): about what
 /// one line scrolls, so a touchpad swipe moves the value like a few clicks of a wheel.
-pub(crate) const PIXELS_PER_NOTCH: f32 = 40.0;
+const PIXELS_PER_NOTCH: f32 = 40.0;
 
 /// The coarse step as a fraction of the range (ADR-0046 V2): 2%, so fifty notches go from one end
 /// to the other whatever the range and the step.

@@ -74,6 +74,15 @@ pub struct CpuRenderer {
     transforms: Vec<Transform>,
     /// Clip masks in effect while replaying a segment, innermost last.
     masks: Vec<Mask>,
+    /// The last outermost rectangular clip's mask of the region being drawn, kept for the next
+    /// segment with the same clip (F2.09d, precision of ADR-0043): every segment crossing a
+    /// scroll area's viewport is clipped to the same rectangle, and building a mask the size of
+    /// the frame for each one cost 24 M instructions per wheel notch (10 masks). Keyed by the
+    /// snapped device rectangle; dropped at the start of every region, whose pixmap differs.
+    clip_cache: Option<(ClipKey, Mask)>,
+    /// `Some(key)` while the outermost mask of [`masks`](Self::masks) is a rectangular clip that
+    /// goes back to [`clip_cache`](Self::clip_cache) when it is closed, instead of to the pool.
+    bottom_clip: Option<ClipKey>,
     /// Shadow coverages computed in recent frames (ADR-0043): a shadow's pixels are computed once,
     /// then only blended.
     shadows: Vec<CachedShadow>,
@@ -185,6 +194,8 @@ impl CpuRenderer {
             mask_pool: Vec::new(),
             transforms: Vec::new(),
             masks: Vec::new(),
+            clip_cache: None,
+            bottom_clip: None,
             shadows: Vec::new(),
             frame_number: 0,
             surface: (0, 0),
@@ -306,6 +317,11 @@ impl CpuRenderer {
         mut pixmap: PixmapMut<'_>,
     ) {
         pixmap.fill(skia_color(theme, Paint::token(ColorToken::Surface)));
+        // A cached clip mask belongs to the previous region's pixmap (another size, another
+        // origin): it cannot serve this one.
+        if let Some((_, mask)) = self.clip_cache.take() {
+            self.mask_pool.push(mask.take());
+        }
         // The region in logical pixels, for culling against the bounds the list recorded.
         let logical = region.logical(scale);
         let mut frame = Frame {
@@ -328,8 +344,9 @@ impl CpuRenderer {
     /// Replays one segment's commands into the frame.
     fn replay(&mut self, segment: &Segment, frame: &mut Frame<'_, '_>) {
         self.transforms.clear();
-        for mask in self.masks.drain(..) {
-            self.mask_pool.push(mask.take());
+        // Clips a segment left open (the recorder closes them, so normally none).
+        while !self.masks.is_empty() {
+            self.pop_mask();
         }
         for entry in &segment.entries {
             if !entry.command.is_state() && !entry.bounds.intersects(&frame.logical) {
@@ -403,11 +420,7 @@ impl CpuRenderer {
                 }
                 Command::Image { image, dest } => self.image(frame, &transform, *image, dest),
                 Command::PushClip { shape } => self.push_clip(frame, &transform, shape),
-                Command::PopClip => {
-                    if let Some(mask) = self.masks.pop() {
-                        self.mask_pool.push(mask.take());
-                    }
-                }
+                Command::PopClip => self.pop_mask(),
                 Command::PushTransform(inner) => {
                     self.transforms.push(transform.then(inner));
                 }
@@ -1027,12 +1040,37 @@ impl CpuRenderer {
     /// Starts a clip: a mask of the pixmap's size covering the shape (intersected with the clip
     /// already in effect). Rectangular clips are snapped to device pixels so their edges are
     /// sharp; rounded ones are anti-aliased.
+    ///
+    /// An outermost rectangular clip is taken from [`clip_cache`](Self::clip_cache) when the
+    /// previous one of this region was the same rectangle (F2.09d): no mask is built at all.
     fn push_clip(&mut self, frame: &mut Frame<'_, '_>, transform: &Transform, shape: &RoundedRect) {
         let width = frame.pixmap.width();
         let height = frame.pixmap.height();
         let Some(size) = IntSize::from_wh(width, height) else {
             return;
         };
+        // The key of an outermost rectangular clip, if this is one (and not empty).
+        let key = if self.masks.is_empty() && shape.clamped_radius() <= 0.0 {
+            snap_rect(&frame.to_device_rect(transform, &shape.rect)).map(|r| ClipKey::of(&r))
+        } else {
+            None
+        };
+        if self.masks.is_empty() {
+            // Set (or cleared) at every outermost clip, so a stale key can never be attached to
+            // another clip's mask: only a rectangular one is kept when it is closed.
+            self.bottom_clip = key;
+        }
+        if let Some(key) = key
+            && let Some((cached, mask)) = self.clip_cache.take()
+        {
+            if cached == key {
+                self.masks.push(mask);
+                return;
+            }
+            // A different rectangle: the cached one stays; this one is built below and
+            // replaces it when it is closed.
+            self.clip_cache = Some((cached, mask));
+        }
         let len = width as usize * height as usize;
         let mut buffer = self.mask_pool.pop().unwrap_or_default();
         buffer.clear();
@@ -1074,6 +1112,41 @@ impl CpuRenderer {
         }
         self.builder = Some(path.clear());
         self.masks.push(mask);
+    }
+
+    /// Closes the innermost clip: its mask goes back to the pool, or, when it is the outermost
+    /// rectangular clip, into [`clip_cache`](Self::clip_cache) for the next segment (the mask it
+    /// replaces there goes to the pool).
+    fn pop_mask(&mut self) {
+        let Some(mask) = self.masks.pop() else {
+            return;
+        };
+        if self.masks.is_empty()
+            && let Some(key) = self.bottom_clip.take()
+        {
+            if let Some((_, old)) = self.clip_cache.replace((key, mask)) {
+                self.mask_pool.push(old.take());
+            }
+        } else {
+            self.mask_pool.push(mask.take());
+        }
+    }
+}
+
+/// The identity of a rectangular clip in device pixels: its snapped edges, compared exactly (the
+/// bits of the `f32`s, which snapping makes whole numbers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ClipKey([u32; 4]);
+
+impl ClipKey {
+    /// The key of the snapped rectangle `rect`.
+    fn of(rect: &SkiaRect) -> Self {
+        Self([
+            rect.left().to_bits(),
+            rect.top().to_bits(),
+            rect.right().to_bits(),
+            rect.bottom().to_bits(),
+        ])
     }
 }
 

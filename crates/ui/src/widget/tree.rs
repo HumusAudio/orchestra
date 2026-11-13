@@ -148,6 +148,28 @@ pub enum WidgetEvent<'a> {
     Decrement,
     /// An assistive technology asked to set the value.
     SetValue(f64),
+    /// An assistive technology asked to scroll (AccessKit's scroll actions, F2.09d): a scroll
+    /// area moves its content by a line (`page == false`) or by a viewport (`page == true`).
+    Scroll {
+        /// Which way the *view* moves (`Down` shows what is below, as a scroll bar's arrow).
+        direction: ScrollDirection,
+        /// A whole viewport instead of a line.
+        page: bool,
+    },
+}
+
+/// Which way a view moves when it scrolls (F2.09d): `Down` shows what is further down, so the
+/// content itself moves up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrollDirection {
+    /// Towards the top of the content.
+    Up,
+    /// Towards the bottom of the content.
+    Down,
+    /// Towards the left edge of the content.
+    Left,
+    /// Towards the right edge of the content.
+    Right,
 }
 
 /// What a widget needs to record its segment: its rectangle, its focus, the theme's spacing.
@@ -202,11 +224,43 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     fn access_info(&self, info: &mut AccessInfo) {
         let _ = info;
     }
+
+    /// Where a focusable container sits in the Tab order among its own children (F2.09d): `None`
+    /// (the default) puts it before them, as tree order does; `Some(k)` puts it after its child
+    /// `k`. A splitter answers `Some(0)`, so Tab goes from the first pane to the divider and then
+    /// into the second pane, as the reader sees them.
+    fn tab_after_child(&self) -> Option<usize> {
+        None
+    }
+
+    /// The rectangle the widget's **children** may be seen in, logical pixels of the window, or
+    /// `None` when they are not clipped (F2.09d, choice WF1). A scroll area answers its viewport:
+    /// the interface then clips its descendants' drawing to it and ignores the pointer outside
+    /// it. Read after every layout, so a widget answers from what its last `arrange` stored.
+    fn child_clip(&self) -> Option<Rect> {
+        None
+    }
+
+    /// Scrolls so that `target` (a descendant's rectangle, logical pixels of the window) comes
+    /// into view, and answers how far the content moved (positive: right and down); zero when it
+    /// did not move or the widget does not scroll (the default). Called by the interface when the
+    /// keyboard focus moves to a hidden widget (WF5), from the innermost scroll area outwards. A
+    /// widget that moves its content must lay it out again: the interface arranges it again when
+    /// the answer is not zero.
+    fn scroll_into_view(&mut self, target: Rect) -> Point {
+        let _ = target;
+        Point::default()
+    }
 }
 
 /// What a widget can do while handling an event (WB6): send messages to the application and ask
 /// the tree for work. Collected by the router, which applies it after the call.
 #[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "four independent requests a widget may make in any combination (lay out, record, \
+              focus, arrange); a bit set would only hide them"
+)]
 pub struct EventCx<'a, M> {
     /// The widget receiving the event.
     pub(crate) id: WidgetId,
@@ -220,6 +274,9 @@ pub struct EventCx<'a, M> {
     pub(crate) rerecord: bool,
     /// Give this widget the focus.
     pub(crate) focus: bool,
+    /// Arrange this widget's children again, without measuring anything (F2.09d: a scroll area
+    /// whose offset changed, a splitter whose divider moved; their own size is the same).
+    pub(crate) rearrange: bool,
     /// The modifiers held when the event arrived (ADR-0046 V3: the fine adjustment).
     pub(crate) modifiers: Modifiers,
 }
@@ -260,6 +317,15 @@ impl<M> EventCx<'_, M> {
         self.rerecord = true;
     }
 
+    /// Asks the tree to **arrange** this widget again in the rectangle it already has (and to
+    /// record it): its children move, but its own size did not change, so nothing above it is
+    /// measured again (F2.09d). Cheaper than [`EventCx::request_layout`], which measures the
+    /// widget and its ancestors again: a scroll area that scrolls, a splitter whose divider moves.
+    pub const fn request_arrange(&mut self) {
+        self.rearrange = true;
+        self.rerecord = true;
+    }
+
     /// Asks for the keyboard focus.
     pub const fn request_focus(&mut self) {
         self.focus = true;
@@ -281,6 +347,11 @@ pub(crate) struct Slot<M> {
     pub(crate) props: LayoutProps,
     /// The rectangle from the last layout.
     pub(crate) rect: Rect,
+    /// Where the widget can be seen: the intersection of its ancestors' [`Widget::child_clip`],
+    /// logical pixels of the window, `None` when no ancestor clips (F2.09d). Brought up to date
+    /// by every frame's recording walk; its drawing is clipped to it and the pointer outside it
+    /// does not reach the widget.
+    pub(crate) clip: Option<Rect>,
     /// The last measure: its constraints and the answer.
     pub(crate) measured: Option<(Constraints, Size)>,
     /// Must be measured and arranged again.
@@ -370,6 +441,7 @@ impl<M: 'static> WidgetTree<M> {
             children: Vec::new(),
             props,
             rect: Rect::EMPTY,
+            clip: None,
             measured: None,
             needs_layout: true,
             needs_record: true,
@@ -490,6 +562,28 @@ impl<M: 'static> WidgetTree<M> {
             slot.widget = Some(widget);
             slot.needs_layout = false;
         }
+    }
+
+    /// Arranges the widget at `index` again in the rectangle it already has (F2.09d,
+    /// [`EventCx::request_arrange`]): its `arrange` runs even though the rectangle did not
+    /// change, so it can move its children (a new scroll offset, a moved divider).
+    ///
+    /// # Why the flag is set on this slot alone
+    /// The slot is marked as needing layout only for the duration of the call (`arrange` clears
+    /// it at the end), and its ancestors are not marked: its own size did not change, so they
+    /// have nothing to redo. The invariant `invalidate_layout` relies on ("a marked slot has its
+    /// ancestors marked") therefore holds again as soon as this returns.
+    ///
+    /// # Complexity
+    /// O(descendants whose rectangle changes): each one is arranged and marked for recording.
+    pub(crate) fn rearrange(&mut self, index: usize) {
+        let Some(slot) = self.slot_mut(index) else {
+            return;
+        };
+        let rect = slot.rect;
+        slot.needs_layout = true;
+        slot.needs_record = true;
+        self.arrange(index, rect);
     }
 
     /// The child slot `child` of `index` (its position among the children).

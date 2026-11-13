@@ -101,3 +101,16 @@ TX8) became generic (`MaskCache<K>`) and serves both. Result: a button's redraw 
 shadowed panel frame −2%, no other benchmark changed; cached shapes match `tiny-skia`'s direct
 drawing within 3 steps of 255, but for a few corner pixels of curved strokes (≤ 16 steps).
 
+
+## Precision of F2.09d (owner, 2026-11-13): a rectangular clip's mask is reused
+
+A clip costs `tiny-skia` a mask the size of the pixmap being drawn (one byte a pixel), built from
+the clip's path. The scroll area of F2.09d clips the widgets that cross its viewport's edge, all to
+the same rectangle: with a mask built for each of them, one wheel notch over 200 real widgets cost
+38.3 M instructions (24 M of them masks), above the 33 M of a frame. The owner chose to **keep the
+mask of the last outermost rectangular clip** of the region being drawn and reuse it for the next
+segment whose clip is the same snapped device rectangle (exact bits). It is dropped at the start of
+every region (another pixmap); nested and rounded clips are built as before, and a mask is never
+attached to another clip's key. Result: the notch at 17.7 M (14.4 M with no masks at all); no other
+benchmark changed. B (rectangular clips without masks: rectangles and glyphs cut directly, a mask
+only for paths crossing the edge) stays available if a measure ever asks for it.

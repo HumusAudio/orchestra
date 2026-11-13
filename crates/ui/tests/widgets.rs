@@ -85,6 +85,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::FocusLost => "blur",
             WidgetEvent::Activate => "activate",
             WidgetEvent::Increment | WidgetEvent::Decrement | WidgetEvent::SetValue(_) => "value",
+            WidgetEvent::Scroll { .. } => "scroll",
         };
         self.log.push(name);
         match event {

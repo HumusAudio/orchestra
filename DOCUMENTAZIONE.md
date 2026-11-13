@@ -3951,6 +3951,131 @@ trascinamento fine e riancoraggio nei due versi; modificatori dimenticati alla p
 il test unitario del contatore di clic. Venticinque difetti iniettati: ventiquattro presi (tre dopo i test scritti apposta), uno equivalente (una riga superflua, tolta). Il benchmark `slider_wheel_notch` misura uno
 scatto: **0,36 M istruzioni** con il disegno e l'aggiornamento accessibile (il cursore ha il fuoco dalla pressione precedente, quindi si ridisegna anche l'anello del fuoco), entro gli 0,5 M dell'ADR-0045; uno spostamento del trascinamento resta a 0,22 M.
 
+#### Aree scorrevoli e divisori
+
+Passo F2.09d (scelte WF1–WF8 e loro precisazioni, in ADR-0045, ADR-0043 e ADR-0046), in
+`src/widget/scroll.rs`, `src/widget/splitter.rs`, `src/widget/ui.rs`, `src/widget/tree.rs`,
+`src/widget/access.rs`, `src/draw/list.rs`, `src/draw/skia.rs` e nel `demo.rs` dell'applicazione.
+
+**Come scorre un'area scorrevole (WF1).** I rettangoli dei widget restano in pixel logici della
+finestra. Una `ScrollArea` (`vertical()`, `horizontal()`, `both()`) ha un solo figlio, il suo
+contenuto, e tiene uno *scostamento*; scorrere cambia lo scostamento e chiede di essere **disposta
+di nuovo** nel rettangolo che ha già (`EventCx::request_arrange`, nuovo): il contenuto viene messo a
+`riquadro − scostamento`, i suoi discendenti ricevono i nuovi rettangoli e vengono registrati di
+nuovo. Sopra l'area non si misura niente. L'alternativa (contenuto in coordinate proprie, con uno
+spostamento nella lista di disegno) è stata messa da parte: la lista smetterebbe di essere piatta, e
+in tutti e due i modi a ogni scatto si ridisegna tutto il riquadro, che è il costo vero.
+
+**Il ritaglio.** Due nuovi agganci del trait `Widget`: `child_clip` (il rettangolo in cui si vedono i
+figli di un widget; l'area risponde con il suo riquadro) e `scroll_into_view` (più sotto). Il giro di
+registrazione di `Ui::frame` porta con sé il **ritaglio** di ogni widget, l'intersezione dei
+`child_clip` dei suoi antenati, e lo conserva nel suo posto:
+- un widget tutto dentro il suo ritaglio (anello del fuoco compreso) si registra come prima;
+- uno che ne attraversa il bordo si registra dentro un comando di ritaglio;
+- uno tutto fuori registra un segmento vuoto (i suoi vecchi pixel vengono danneggiati e puliti);
+- uno il cui ritaglio è cambiato (per esempio l'area è cresciuta) si registra di nuovo anche se non
+  si è mosso;
+- la ricerca del widget sotto il puntatore ignora un widget dove non si vede, così il contenuto
+  sotto una barra di scorrimento non si raggiunge.
+
+```rust
+match clip {
+    None => list.record(segment, |recorder| widget.record(&cx, recorder)),
+    Some(clip) if encloses(clip, reach) => {
+        list.record(segment, |recorder| widget.record(&cx, recorder));
+    }
+    Some(clip) if !reach.intersects(&clip) => {
+        list.record(segment, |_| {});
+    }
+    Some(clip) => list.record(segment, |recorder| {
+        recorder.push_clip_rect(clip);
+        widget.record(&cx, recorder);
+        recorder.pop_clip();
+    }),
+}
+```
+
+**Cosa hanno insegnato le misure (WF2).** La prima versione ritagliava ogni widget dell'area: uno
+scatto di rotella su 200 widget veri costava **397 M istruzioni**, contro un budget di 33 M (un
+fotogramma a 30 fps in software). La causa: il renderer costruisce una maschera di ritaglio **grande
+quanto il fotogramma** per ogni ritaglio che riproduce. Tre modifiche l'hanno portato a **17,7 M**:
+1. si ritagliano solo i widget che attraversano il bordo del riquadro (38,3 M);
+2. il registratore scarta un ritaglio in cui non si è disegnato niente (un contenitore non registra
+   niente);
+3. il renderer tiene la maschera dell'ultimo ritaglio rettangolare più esterno della regione che sta
+   disegnando e la riusa per il segmento successivo con lo stesso rettangolo (`clip_cache`, una
+   precisazione di ADR-0043 scelta dal proprietario): i dieci segmenti a cavallo del bordo
+   condividono una maschera sola.
+
+Senza nessuna maschera lo stesso scatto costa 14,4 M: quello che resta è ridisegnare il riquadro.
+Portare con sé il ritaglio costa un poco a ogni fotogramma: il clic del benchmark del nucleo (241
+widget, nessuna area scorrevole) è passato da 63 500 a 70 100 istruzioni, accettato come prezzo del
+ritaglio (il trailer di ADR-0017); alle foglie non si chiede il ritaglio, cosa che costava 18 000.
+
+**Dimensioni e barre (WF4).** L'area misura il contenuto secondo le regole di misura del contenuto
+stesso (`Fixed` esatto, `Fill` almeno il riquadro, `Content` libero nelle direzioni che scorrono e
+fino al riquadro nelle altre) e mostra una barra solo in una direzione in cui il contenuto è più
+grande; una barra toglie spazio al riquadro, e questo può rendere necessaria anche l'altra (il ciclo
+di adattamento fa al massimo tre giri, le barre si aggiungono soltanto). Le barre sono classiche e
+sempre visibili quando servono, spesse quanto lo spazio medio della densità (12 px comoda, 8
+compatta): una corsia `surface-sunken` e un cursore arrotondato `control-border`, `text-muted` sotto
+il puntatore o mentre lo si trascina. Un contenuto con controlli a filo dei bordi ha bisogno di un
+margine interno largo almeno quanto l'anello del fuoco, che altrimenti il riquadro taglierebbe.
+
+**Input (WF3, WF5).**
+- Rotella: uno scatto vale tre righe (una riga è l'altezza dei controlli), i pixel del touchpad si
+  usano così come arrivano; con Maiusc il movimento diventa orizzontale **solo in un'area che scorre
+  in orizzontale** (in una verticale resta verticale, così Maiusc+rotella sopra un cursore fa sempre
+  scorrere il pannello, ADR-0046 V5). Un'area che non può muoversi lascia risalire la rotella: alla
+  sua fine scorre l'area che la contiene.
+- Barre: si trascina il cursore della barra (in proporzione, con cattura), un clic sulla corsia
+  sposta di una pagina.
+- Tastiera: frecce (una riga), Pagina su/giù (il riquadro meno una riga), Inizio/Fine. Funzionano
+  quando un tasto premuto su un widget interno non viene usato lì e risale, e quando ha il fuoco
+  l'area stessa (`focusable()`, per un contenuto senza nulla che prenda il fuoco).
+- Fuoco: quando Tab (o l'applicazione, o un lettore di schermo) porta il fuoco su un widget
+  nascosto, l'interfaccia chiede alle aree che lo contengono, dalla più interna, di mostrarlo; un
+  widget più alto del riquadro si mostra dal suo bordo superiore.
+
+**Accessibilità (WF7).** Un nodo `ScrollView` che ritaglia i figli, con gli scostamenti e i loro
+limiti; le azioni per scorrere in su, in giù, a sinistra e a destra (di una riga, o di una pagina
+quando lo chiede il lettore di schermo), offerte solo dove c'è spazio per muoversi; ogni widget
+accetta "porta in vista".
+
+**Il divisore (WF6).** `Splitter::new(asse, frazione)` con due pannelli come figli: il valore è la
+quota di spazio del primo pannello (0–1, annunciata come percentuale), così tutti e due i pannelli
+seguono un ridimensionamento; ogni pannello ha un minimo (48 px di base, `minimum_sizes`). Segue le
+convenzioni dei controlli di valore: trascinamento con cattura e trascinamento fine con il
+modificatore primario, doppio clic al valore predefinito (`default_fraction`), frecce quando ha il
+fuoco (2%, 0,5% con il modificatore), Pagina su/giù, Inizio/Fine, aumenta, diminuisci e imposta di
+AccessKit; `on_change` manda la nuova quota. Due eccezioni, scritte entrambe nella sua
+documentazione: il trascinamento non è agganciato al passo (il divisore resta sotto il puntatore), e
+**la rotella non lo muove** (eccezione di ADR-0046 V1: la fascia è larga pochi pixel, il primo scatto
+la sposterebbe da sotto il puntatore e il successivo farebbe scorrere il pannello sotto). Nell'ordine
+di Tab sta **fra** i suoi pannelli, grazie al nuovo aggancio `tab_after_child`. Aspetto: una linea
+`border` al centro di una fascia larga quanto lo spazio piccolo (almeno 6 px), tre pixel di `accent`
+sotto il puntatore o mentre lo si trascina.
+
+**L'anteprima Riproduzione (WF8)** ora ha il titolo sopra un divisore: le opzioni a sinistra in
+un'area scorrevole verticale, il rigo a destra in un'area che scorre nei due sensi (in una finestra
+piccola il rigo è più largo del suo pannello).
+
+**Test**: `tests/scrolling.rs` (barre e dimensioni, rotella, Maiusc, risalita fra aree annidate,
+ritaglio del disegno e del puntatore, area che cresce, trascinamento del cursore della barra, pagina
+sulla corsia, tasti, un'area che prende il fuoco, Tab e un widget alto portati in vista, un cursore
+dentro l'area, il nodo di accessibilità e le sue azioni; quote e minimi del divisore, trascinamento
+normale e fine, doppio clic, rotella lasciata all'area, tasti solo con il fuoco, ordine di Tab, nodo
+e azioni, aspetto; la cache dei ritagli del renderer), un test unitario delle richieste di
+scorrimento di AccessKit, `tests/widgets_no_alloc.rs` (scorrere e spostare il divisore non allocano)
+e `crates/app/tests/demo.rs` (i due pannelli). Ventitré difetti iniettati: ventuno presi (sei dopo i
+test scritti apposta), due senza effetti visibili (la guardia "le barre si aggiungono soltanto" del
+ciclo di adattamento, e la cache dei ritagli in un caso annidato, che costa solo velocità).
+Benchmark: `scroll_wheel_notch` **17,7 M** e `splitter_drag_move` **19,1 M** istruzioni (spostare il
+divisore sposta tutti i widget del pannello).
+
+**Non ancora**: la forma del puntatore (una doppia freccia sopra il divisore) non esiste nel
+toolkit; è un passo a sé nella scaletta.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

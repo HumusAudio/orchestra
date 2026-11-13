@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.65, approvata dal proprietario il 2026-11-12.**
+> **Stato di questo documento: v0.66, approvata dal proprietario il 2026-11-13.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -697,7 +697,8 @@ controllo completo. Va fatta bene una volta sola.
 | F2.07b | **Testo, realizzazione** (ADR-0044): crate `orchestra-text` (font, shaping, `TextLayout`, a capo, metriche, profili), comando `GlyphRun`, cache dei glifi per `tiny-skia`, scelta della gamma a occhio, scelta fra `icu_segmenter` e il sottoinsieme nostro per l'a capo | ✅ | 2 |
 | F2.07c | **Token del testo** (ADR-0044 TX11) nel tema, testo nella scena di riferimento e nel catalogo degli screenshot, budget del fotogramma intero (33 M istruzioni) | ✅ | 1 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ✅ ADR-0045 | 2 |
-| F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ⬜ | 3–4 |
+| F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ✅ (F2.09a–d) | 3–4 |
+| F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ⬜ | 0,5 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
@@ -874,12 +875,25 @@ controllo completo. Va fatta bene una volta sola.
   segmenti si registrano senza trasformazioni; l'area scorrevole deve decidere come spostare i
   figli (una trasformazione con clip per il suo contenuto, rettangoli e test del puntatore nello
   spazio del contenuto).
+- **F2.09d** **Fatto il 2026-11-13** (scelte WF1–WF8, precisazioni in ADR-0045, ADR-0043 e
+  ADR-0046): `ScrollArea` e `Splitter`. Scelta WF1 "A oggi, B solo se misurato": il contenuto si
+  dispone di nuovo allo scostamento nuovo, ogni widget viene registrato dentro il ritaglio dei suoi
+  antenati. Prima misura 397 M istruzioni per scatto di rotella su 200 widget veri (una maschera
+  grande quanto il fotogramma per ogni segmento ritagliato); ritaglio solo ai widget sul bordo,
+  ritagli vuoti scartati e, per scelta del proprietario, la maschera del ritaglio rettangolare
+  riusata nel renderer: **17,7 M** (budget 33 M); trascinamento del divisore 19,1 M. Il divisore
+  non usa la rotella (eccezione ad ADR-0046 V2); Maiusc+rotella orizzontale solo dove l'area scorre
+  in orizzontale. Il clic del benchmark del nucleo +10,3% (costo fisso del ritaglio, accettato con il
+  trailer di ADR-0017). 23 difetti iniettati, 21 presi, 2 senza effetti visibili.
 - **F2.09** Da ADR-0045: AccessKit (`accesskit` 0.25, `accesskit_winit` 0.34) entra nel workspace
   qui, agganciato al punto di preparazione della finestra (ADR-0040 W7). Obiettivo dai benchmark: un
   evento su un pannello di 200 widget sotto 0,5 M istruzioni, disegno compreso; la finestra
   dimostrativa viene sostituita dai widget veri.
 - **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
   del tema.
+- **F2.10** Da F2.09d: un campo di testo dentro un'area scorrevole porta in vista il cursore di
+  testo con `Widget::scroll_into_view`, che esiste già; i controlli a filo del bordo di un'area
+  hanno bisogno di un margine interno per l'anello del fuoco.
 - **F2.10** Da ADR-0045 WA8 (parte di D12): qui si sceglie il crate degli appunti; candidato
   `arboard` 3.7.0 (2026-10-15, MIT OR Apache-2.0), da misurare (dipendenze native, Wayland).
 - **F2.10** Da F2.07b (scelta TB4): le funzioni per il cursore e il clic sul testo
@@ -1218,3 +1232,5 @@ raccomandato.
 | 2026-11-12 | 0.62 | F2.08 fatto (ADR-0045 Accepted, D12 chiusa: widget ritenuti, layout nostro, eventi, focus, AccessKit per widget); note in F2.09 (AccessKit, obiettivo 0,5 M per evento) e F2.10 (appunti, `arboard`); prossimo passo F2.09 | proprietario |
 | 2026-11-12 | 0.63 | F2.09 diviso in F2.09a–d; F2.09a fatto (nucleo dei widget, densità; un clic su 200 widget 63 000 istruzioni); nota in F2.09d (scorrimento e coordinate); prossimo passo F2.09b | proprietario |
 | 2026-11-12 | 0.64 | F2.09b fatto (AccessKit, etichetta, pulsante); aggiunto e fatto F2.09b2 (cache dei rettangoli arrotondati: un evento su un pulsante da 0,9 M a 0,37 M istruzioni); nota in F2.09c (prova con Orca); prossimo passo F2.09c | proprietario |
+| 2026-11-12 | 0.65 | F2.09c fatto (casella, interruttore, cursore, anteprima Riproduzione); aggiunto e fatto F2.09c2 (ADR-0046 Accepted: convenzioni dei controlli di valore); nota in F2.11 (registro delle scorciatoie personalizzabili); nuovo F2.12c (editor delle scorciatoie). *Riga ricostruita il 2026-11-13 dal registro della ROADMAP: mancava* | proprietario |
+| 2026-11-13 | 0.66 | F2.09d fatto e con esso F2.09 (area scorrevole e divisore; precisazioni in ADR-0043, ADR-0045, ADR-0046; uno scatto di rotella su 200 widget a 17,7 M istruzioni); nuovo F2.09e (forme del puntatore); nota in F2.10 (cursore di testo portato in vista, margine per l'anello del fuoco); prossimo passo F2.09e | proprietario |

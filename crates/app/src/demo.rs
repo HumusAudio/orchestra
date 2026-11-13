@@ -3,12 +3,16 @@
 //! The demonstration window (ADR-0040 W8; rebuilt with real widgets in F2.09c, choice WD5): what
 //! `cargo run -p orchestra-app` shows until the real interface arrives.
 //!
-//! It is a preview of the **Playback** options, built with the widgets of ADR-0045: a title, a
-//! check box (*Metronome*), a switch (*Count-in*), a slider (*Metronome volume*) and two buttons
-//! (*Restore defaults*, *OK*), above a staff with Bravura noteheads, bar numbers and stems (a
-//! widget of its own, [`StaffPreview`]). Every text comes from the catalogues ([`DemoTexts`],
+//! It is a preview of the **Playback** options, built with the widgets of ADR-0045: a title
+//! above a splitter (F2.09d, choice WF8). The left pane, a vertical scroll area, holds a check box
+//! (*Metronome*), a switch (*Count-in*), a slider (*Metronome volume*) and two buttons (*Restore
+//! defaults*, *OK*); the right pane, a scroll area in both directions, a staff with Bravura
+//! noteheads, bar numbers and stems (a widget of its own, [`StaffPreview`]), wider than the pane
+//! in a small window. Every text comes from the catalogues ([`DemoTexts`],
 //! CLAUDE.md §7). It exists to check by eye, and with a screen reader (AccessKit):
 //! - the widgets' looks in every theme and density, the focus ring, Tab order;
+//! - scrolling (wheel, bars, keyboard, a hidden control brought into view by Tab) and moving the
+//!   divider between the panes;
 //! - activation by pointer, keyboard and assistive technology;
 //! - text, symbols and crisp lines at every scale factor;
 //! - following the system's theme while the window is open (ADR-0038).
@@ -20,10 +24,10 @@
 use orchestra_i18n::{I18nError, Localizer};
 use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, TextLayout};
 use orchestra_ui::{
-    AccessAction, AccessUpdate, Align, Button, ButtonKind, ColorToken, Constraints, DisplayList,
-    FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length, Point, RecordCx, Recorder,
-    Rect, Size, SizeToken, Slider, Space, StrokeStyle, Theme, Toggle, Ui, Weight, Widget, WidgetId,
-    WindowApp,
+    AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ColorToken, Constraints,
+    DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length, Point,
+    RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space, Splitter, StrokeStyle,
+    Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
 };
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
@@ -124,9 +128,10 @@ impl Demo {
                 content,
             )
             .unwrap_or_else(|_| ui.root());
+        let (options, staff_area) = panes(&mut ui);
         let metronome = ui
             .add(
-                root,
+                options,
                 Toggle::checkbox(
                     texts.metronome.clone(),
                     DEFAULT_METRONOME,
@@ -137,7 +142,7 @@ impl Demo {
             .unwrap_or_else(|_| ui.root());
         let count_in = ui
             .add(
-                root,
+                options,
                 Toggle::switch(
                     texts.count_in.clone(),
                     DEFAULT_COUNT_IN,
@@ -148,9 +153,9 @@ impl Demo {
             .unwrap_or_else(|_| ui.root());
         let volume_row = ui
             .add(
-                root,
+                options,
                 Flex::row(Space::M, Space::None),
-                content.width(Length::Fixed(480.0)),
+                content.width(Length::Fill(1.0)),
             )
             .unwrap_or_else(|_| ui.root());
         let _ = ui.add(
@@ -167,7 +172,7 @@ impl Demo {
             )
             .unwrap_or_else(|_| ui.root());
         let buttons = ui
-            .add(root, Flex::row(Space::S, Space::None), content)
+            .add(options, Flex::row(Space::S, Space::None), content)
             .unwrap_or_else(|_| ui.root());
         let _ = ui.add(
             buttons,
@@ -180,7 +185,7 @@ impl Demo {
             content,
         );
         let _ = ui.add(
-            root,
+            staff_area,
             StaffPreview::new(faces),
             content
                 .width(Length::Fixed(480.0))
@@ -229,6 +234,41 @@ impl Demo {
             self.ui.frame(list);
         }
     }
+}
+
+/// The splitter under the title, filling the rest of the window (F2.09d, WF8): a vertical scroll
+/// area on the left (a little less than half) holding the options' column, and a scroll area in
+/// both directions on the right for the staff. Returns (the options' column, the staff's area).
+///
+/// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
+/// created: a failure would leave the demonstration incomplete, never crash it.
+fn panes(ui: &mut Ui<DemoMessage>) -> (WidgetId, WidgetId) {
+    let root = ui.root();
+    let fill = LayoutProps::default()
+        .width(Length::Fill(1.0))
+        .height(Length::Fill(1.0));
+    // The splitter under the title, filling the rest of the window: the options on the left
+    // (a little less than half), the staff on the right.
+    let splitter = ui
+        .add(root, Splitter::new(Axis::Horizontal, 0.45), fill)
+        .unwrap_or_else(|_| ui.root());
+    let options_area = ui
+        .add(splitter, ScrollArea::vertical(), fill)
+        .unwrap_or_else(|_| ui.root());
+    let staff_area = ui
+        .add(splitter, ScrollArea::both(), fill)
+        .unwrap_or_else(|_| ui.root());
+    // The options' column, as wide as its pane (the volume row stretches the slider), with a
+    // small padding: the viewport clips its content, and a focus ring drawn outside a control at
+    // the column's edge would be cut (the rule of `ScrollArea`'s documentation).
+    let options = ui
+        .add(
+            options_area,
+            Flex::column(Space::M, Space::S),
+            LayoutProps::default().width(Length::Fill(1.0)),
+        )
+        .unwrap_or_else(|_| ui.root());
+    (options, staff_area)
 }
 
 impl WindowApp for Demo {

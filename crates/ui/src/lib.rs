@@ -78,16 +78,20 @@ pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
-pub use widget::access::{AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate};
+pub use widget::access::{
+    AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate, ScrollInfo,
+};
 pub use widget::button::{Button, ButtonKind};
 pub use widget::label::Label;
 pub use widget::layout::{
     Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,
 };
+pub use widget::scroll::ScrollArea;
 pub use widget::slider::Slider;
+pub use widget::splitter::Splitter;
 pub use widget::toggle::{Toggle, ToggleKind};
 pub use widget::tree::{
-    AsAny, EventCx, Handled, LayoutCx, RecordCx, Widget, WidgetEvent, WidgetId,
+    AsAny, EventCx, Handled, LayoutCx, RecordCx, ScrollDirection, Widget, WidgetEvent, WidgetId,
 };
 pub use widget::ui::{Ui, UiError};
 pub use window::input::{

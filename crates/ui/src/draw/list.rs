@@ -501,12 +501,27 @@ impl Recorder<'_> {
     }
 
     /// Ends the innermost clip; ignored when no clip is open.
+    ///
+    /// A clip that nothing was drawn in (its push is the last command) is dropped instead of
+    /// closed: replaying it would cost the renderer a clip mask for no pixel (F2.09d: a
+    /// container inside a scroll area draws nothing, but the interface opens its viewport's clip
+    /// around every segment that crosses the viewport's edge).
     pub fn pop_clip(&mut self) {
         if self.stacks.clips.pop().is_some() {
-            self.entries.push(Entry {
-                command: Command::PopClip,
-                bounds: Rect::EMPTY,
-            });
+            if matches!(
+                self.entries.last(),
+                Some(Entry {
+                    command: Command::PushClip { .. },
+                    ..
+                })
+            ) {
+                self.entries.pop();
+            } else {
+                self.entries.push(Entry {
+                    command: Command::PopClip,
+                    bounds: Rect::EMPTY,
+                });
+            }
         }
     }
 

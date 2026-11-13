@@ -249,3 +249,40 @@ costs 0.22 M instructions with drawing, once its coloured track became a fixed c
 rectangle and its thumb sits on quarter pixels (0.55 M before: every move was a new shape for the
 cache). The commits stay `User-visible: no` (WD7): the demonstration is not in the guides.
 
+
+**F2.09d, WF1–WF8 (approved by the owner on 2026-11-13).** The scroll area and the splitter.
+- **WF1, scrolling without changing coordinates**: rectangles stay in window pixels (WB5). A scroll
+  area moves its content by **arranging it again** at the new offset, without measuring
+  (`EventCx::request_arrange`; the interface arranges the widget in its current rectangle at the
+  next frame). The recording walk gives each widget a **clip**, the intersection of its ancestors'
+  `child_clip` (a scroll area's viewport): a widget entirely inside is recorded without a clip,
+  one crossing the edge inside one, one entirely outside as an empty segment; a widget whose clip
+  changed is recorded again; hit testing ignores a widget outside its clip. Rejected for now (B):
+  content in coordinates of its own with a group offset in the display list; the owner's rule is
+  "A today, B only if measured". The recorder drops a clip in which nothing was drawn.
+- **WF2, budgets**: an event touching a few widgets stays under 0.5 M instructions; a scroll step,
+  which redraws the viewport, has a frame's budget, 33 M. Measured on 200 real widgets: a wheel notch
+  17.7 M, a divider drag move 19.1 M (after the clip mask precision of ADR-0043).
+- **WF3, the wheel**: a notch is three lines of the density's control height; a touchpad's pixels
+  as they come; Shift horizontal only where the area scrolls horizontally (precision of ADR-0046
+  V5); an area that cannot move lets the wheel bubble to the one around it.
+- **WF4, bars**: classic, shown when the content is larger, as thick as the medium gap (at least 8
+  px), taking room from the viewport; thumb drag with capture, a press on the track moves a page.
+  The content is measured by its own size rules (`Fixed`, `Fill` at least the viewport, `Content`).
+  A content's controls at its edges need a padding at least the focus ring's reach, or the viewport
+  cuts the ring.
+- **WF5, keyboard and focus**: arrows, Page Up/Down, Home/End scroll the area when it is focused
+  (`focusable()`) or when they bubble unhandled from inside; a widget reached by Tab, by
+  `Ui::set_focus` or by an assistive technology is brought into view by the areas around it
+  (`Widget::scroll_into_view`, innermost first), from its top when taller than the viewport.
+- **WF6, the splitter**: two panes and a divider; the value is the first pane's share (0–1), each
+  pane with a minimum; drag, fine drag, double click, keyboard when focused, AccessKit value actions;
+  no wheel (precision of ADR-0046). It sits between its panes in Tab order through a new hook,
+  `Widget::tab_after_child`.
+- **WF7, accessibility**: `ScrollView` nodes that clip their children, with offsets and limits, and
+  the scroll actions where there is somewhere to go; every node accepts "scroll into view";
+  `Splitter` nodes with the share in percent and the divider's orientation.
+- **WF8**: the Playback preview has a splitter with two scroll areas; the commits stay
+  `User-visible: no`.
+
+Open: the pointer's shape (a resize cursor over the divider) does not exist yet in the toolkit.

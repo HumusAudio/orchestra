@@ -15,11 +15,14 @@
 //! layout), its children and what its [`AccessInfo`] says. The first update carries every node
 //! and the tree's description; later ones only the nodes marked as changed (WC3), plus the focus.
 
-use accesskit::{Action, Node, NodeId, Role, Toggled, TreeId, TreeInfo, TreeUpdate};
+use accesskit::{
+    Action, Node, NodeId, Orientation, Role, ScrollUnit, Toggled, TreeId, TreeInfo, TreeUpdate,
+};
 
 use crate::draw::geometry::Rect;
 
-use super::tree::WidgetId;
+use super::layout::Axis;
+use super::tree::{ScrollDirection, WidgetId};
 
 /// The role of a widget, as assistive technologies announce it (WC2). Exhaustive: a new widget
 /// kind adds its role here and its translation below.
@@ -37,6 +40,10 @@ pub enum AccessRole {
     Switch,
     /// A slider (F2.09c).
     Slider,
+    /// A scroll area: a viewport on content larger than itself (F2.09d).
+    ScrollView,
+    /// The divider between two panes, which can be moved (F2.09d).
+    Splitter,
 }
 
 /// What a widget tells assistive technologies besides its role (WC2): all optional.
@@ -55,6 +62,27 @@ pub struct AccessInfo {
     pub disabled: bool,
     /// The widget can be activated (it answers [`WidgetEvent::Activate`](crate::WidgetEvent)).
     pub clickable: bool,
+    /// How far the content is scrolled, for scroll areas (F2.09d): assistive technologies then
+    /// offer to scroll it, and the widget clips its children.
+    pub scroll: Option<ScrollInfo>,
+    /// The direction the widget works in, for splitters (F2.09d): `Horizontal` for panes side by
+    /// side (the divider itself is then vertical, and assistive technologies say so).
+    pub orientation: Option<Axis>,
+}
+
+/// How far a scroll area's content is scrolled (F2.09d), logical pixels: the offset from the
+/// content's top left corner to the viewport's, and the largest offset possible in each
+/// direction (zero in a direction that does not scroll).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ScrollInfo {
+    /// The horizontal offset, from 0 to `max_x`.
+    pub x: f32,
+    /// The largest horizontal offset.
+    pub max_x: f32,
+    /// The vertical offset, from 0 to `max_y`.
+    pub y: f32,
+    /// The largest vertical offset.
+    pub max_y: f32,
 }
 
 /// What an assistive technology asks a widget to do (WC5), delivered by the window.
@@ -66,8 +94,7 @@ pub struct AccessAction {
     pub kind: AccessActionKind,
 }
 
-/// The actions understood (WC5; the value actions since F2.09c); scrolling comes with the scroll
-/// area.
+/// The actions understood (WC5; the value actions since F2.09c, scrolling since F2.09d).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AccessActionKind {
     /// Activate the widget, as a click or the Enter key would.
@@ -80,6 +107,15 @@ pub enum AccessActionKind {
     Decrement,
     /// Set the value.
     SetValue(f64),
+    /// Scroll the target (a scroll area) by a line or a page (F2.09d).
+    Scroll {
+        /// Which way the view moves.
+        direction: ScrollDirection,
+        /// A page (a viewport) instead of a line.
+        page: bool,
+    },
+    /// Scroll the areas around the target until it can be seen (F2.09d).
+    ScrollIntoView,
 }
 
 /// An update of the accessibility tree, ready for the window's adapter. Opaque: only the window
@@ -138,6 +174,8 @@ pub(crate) fn widget_node(
         AccessRole::CheckBox => Role::CheckBox,
         AccessRole::Switch => Role::Switch,
         AccessRole::Slider => Role::Slider,
+        AccessRole::ScrollView => Role::ScrollView,
+        AccessRole::Splitter => Role::Splitter,
     });
     if !rect.is_empty() {
         node.set_bounds(accesskit::Rect {
@@ -164,6 +202,25 @@ pub(crate) fn widget_node(
         node.set_max_numeric_value(max);
         node.set_numeric_value_step(step);
     }
+    if let Some(scroll) = info.scroll {
+        // The children outside the viewport are not visible: assistive technologies must not
+        // offer them as on screen (they can still ask to scroll them into view).
+        node.set_clips_children();
+        node.set_scroll_x(f64::from(scroll.x));
+        node.set_scroll_x_min(0.0);
+        node.set_scroll_x_max(f64::from(scroll.max_x));
+        node.set_scroll_y(f64::from(scroll.y));
+        node.set_scroll_y_min(0.0);
+        node.set_scroll_y_max(f64::from(scroll.max_y));
+    }
+    if let Some(axis) = info.orientation {
+        // AccessKit names a splitter's orientation after the divider: panes side by side are
+        // separated by a vertical divider.
+        node.set_orientation(match axis {
+            Axis::Horizontal => Orientation::Vertical,
+            Axis::Vertical => Orientation::Horizontal,
+        });
+    }
     if info.disabled {
         node.set_disabled();
     } else {
@@ -178,7 +235,25 @@ pub(crate) fn widget_node(
             node.add_action(Action::Decrement);
             node.add_action(Action::SetValue);
         }
+        if let Some(scroll) = info.scroll {
+            // Offered only in the directions there is somewhere to go.
+            if scroll.y > 0.0 {
+                node.add_action(Action::ScrollUp);
+            }
+            if scroll.y < scroll.max_y {
+                node.add_action(Action::ScrollDown);
+            }
+            if scroll.x > 0.0 {
+                node.add_action(Action::ScrollLeft);
+            }
+            if scroll.x < scroll.max_x {
+                node.add_action(Action::ScrollRight);
+            }
+        }
     }
+    // Every widget can be asked to come into view: the interface scrolls the areas around it
+    // (a widget outside any scroll area is already in view, and nothing happens).
+    node.add_action(Action::ScrollIntoView);
     node
 }
 
@@ -206,7 +281,74 @@ pub(crate) fn action_from(request: &accesskit::ActionRequest) -> Option<AccessAc
             }
             _ => return None,
         },
+        Action::ScrollUp => scroll(ScrollDirection::Up, request),
+        Action::ScrollDown => scroll(ScrollDirection::Down, request),
+        Action::ScrollLeft => scroll(ScrollDirection::Left, request),
+        Action::ScrollRight => scroll(ScrollDirection::Right, request),
+        Action::ScrollIntoView => AccessActionKind::ScrollIntoView,
         _ => return None,
     };
     Some(AccessAction { target, kind })
+}
+
+/// A scroll action towards `direction`: by a page when the request says so, by a line otherwise
+/// (AccessKit's unit is optional, and a line is the smaller, safer default).
+fn scroll(direction: ScrollDirection, request: &accesskit::ActionRequest) -> AccessActionKind {
+    let page = matches!(
+        request.data,
+        Some(accesskit::ActionData::ScrollUnit(ScrollUnit::Page))
+    );
+    AccessActionKind::Scroll { direction, page }
+}
+
+#[cfg(test)]
+mod tests {
+    //! The translation of AccessKit's scroll requests (F2.09d), which only the window's adapter
+    //! reaches otherwise.
+
+    use accesskit::{Action, ActionData, ActionRequest, NodeId, ScrollUnit, TreeId};
+
+    use super::{AccessActionKind, ScrollDirection, action_from};
+
+    /// A request for `action` on widget 7, with `data`.
+    fn request(action: Action, data: Option<ActionData>) -> ActionRequest {
+        ActionRequest {
+            action,
+            target_tree: TreeId::ROOT,
+            target_node: NodeId(7),
+            data,
+        }
+    }
+
+    #[test]
+    fn scroll_requests_become_lines_pages_and_reveals() {
+        let page = Some(ActionData::ScrollUnit(ScrollUnit::Page));
+        let item = Some(ActionData::ScrollUnit(ScrollUnit::Item));
+        let cases = [
+            (
+                Action::ScrollDown,
+                page.clone(),
+                ScrollDirection::Down,
+                true,
+            ),
+            (Action::ScrollUp, item, ScrollDirection::Up, false),
+            (Action::ScrollLeft, None, ScrollDirection::Left, false),
+            (Action::ScrollRight, page, ScrollDirection::Right, true),
+        ];
+        for (action, data, direction, is_page) in cases {
+            let kind = action_from(&request(action, data)).map(|action| action.kind);
+            assert_eq!(
+                kind,
+                Some(AccessActionKind::Scroll {
+                    direction,
+                    page: is_page
+                }),
+                "{action:?}"
+            );
+        }
+        let reveal = action_from(&request(Action::ScrollIntoView, None)).map(|a| a.kind);
+        assert_eq!(reveal, Some(AccessActionKind::ScrollIntoView));
+        // Scrolling to a point is not offered, so it is not understood.
+        assert_eq!(action_from(&request(Action::ScrollToPoint, None)), None);
+    }
 }
