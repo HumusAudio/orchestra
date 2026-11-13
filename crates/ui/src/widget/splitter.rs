@@ -40,11 +40,18 @@
 //! The divider is a band as wide as the density's small gap (at least 6 logical pixels, so it can
 //! be grabbed) with a `border` line along its middle; while hovered or dragged the line becomes
 //! three pixels of `accent`. The focus ring surrounds the band.
+//!
+//! # The pointer (F2.09e)
+//! Over the band, and during a drag wherever the pointer goes, the pointer takes the resize
+//! shape of the divider's direction: [`PointerShape::ResizeColumn`] for panes side by side,
+//! [`PointerShape::ResizeRow`] for panes one above the other. Over the panes the splitter says
+//! nothing, so their own widgets (or the arrow) decide.
 
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::list::Recorder;
 use crate::theme::token::ColorToken;
 use crate::window::input::{ButtonState, Key, NamedKey, PointerButton};
+use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole};
 use super::layout::{Axis, Constraints, Size};
@@ -488,6 +495,22 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Splitter<M> {
     fn tab_after_child(&self) -> Option<usize> {
         // Between the panes, where the divider is: first pane, divider, second pane.
         Some(0)
+    }
+
+    fn pointer_shape(&self, point: Point) -> Option<PointerShape> {
+        // During a drag the shape stays whatever the pointer is over (the interface asks only the
+        // capturing widget then, but the band test alone would drop the shape as soon as the
+        // pointer outruns the divider at a limit). Otherwise only over the band.
+        if self.drag.is_none() && !inside(self.handle, point) {
+            return None;
+        }
+        // The divider moves along the axis the panes are laid along: left and right between
+        // panes side by side (resizing columns), up and down between panes one above the other
+        // (resizing rows).
+        Some(match self.axis {
+            Axis::Horizontal => PointerShape::ResizeColumn,
+            Axis::Vertical => PointerShape::ResizeRow,
+        })
     }
 
     fn access_role(&self) -> AccessRole {

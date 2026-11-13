@@ -17,6 +17,7 @@ use winit::window::{Window, WindowId};
 use super::appearance::{ShellEvent, ThemeState, appearance_from_winit};
 use super::input::{self, ButtonState, InputEvent, Modifiers};
 use super::order::open_in_order;
+use super::pointer::{self, PointerShape};
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
 use super::{WindowApp, WindowError, WindowOptions};
 use crate::draw::device::DeviceRegions;
@@ -37,6 +38,10 @@ struct Open {
     scale: f64,
     /// AccessKit's adapter (ADR-0045 WA5), created before the window was shown (W7).
     access: accesskit_winit::Adapter,
+    /// The pointer's shape last given to the system (F2.09e). A new window starts with the
+    /// arrow (`winit`'s default), so this starts as [`PointerShape::Default`] and the system is
+    /// called only when the app's answer differs.
+    shape: PointerShape,
 }
 
 /// The handler of the event loop.
@@ -190,6 +195,7 @@ impl<A: WindowApp> Shell<A> {
             frame: None,
             scale,
             access,
+            shape: PointerShape::Default,
         });
         self.resize(size)?;
         Ok(())
@@ -221,7 +227,33 @@ impl<A: WindowApp> Shell<A> {
         self.app.layout(bounds, &mut self.list);
         self.list.damage_all();
         open.window.request_redraw();
+        // A new layout may have moved a widget under the pointer (a divider placed elsewhere).
+        self.sync_pointer();
         Ok(())
+    }
+
+    /// Gives the system the pointer shape the app asks for now (F2.09e), if it changed.
+    ///
+    /// # Why only on a change
+    /// The question is asked after every event, pointer moves included (hundreds per second);
+    /// `set_cursor` is a call into the display server on every platform (an X11 request, a
+    /// Wayland `set_cursor` with a buffer from the cursor theme, a Win32 `SetCursor`, an `AppKit`
+    /// call), so it is made only when the shape is not the one already shown.
+    ///
+    /// # When the pointer leaves the window and comes back
+    /// Nothing special is needed: the shape is a property of the window, and the system shows it
+    /// again when the pointer re-enters (`winit` keeps it per window on every platform). While the
+    /// pointer is outside, the app answers the arrow (nothing hovered), so a drag that ended
+    /// outside does not leave a resize shape waiting for the pointer's return.
+    fn sync_pointer(&mut self) {
+        let Some(open) = self.open.as_mut() else {
+            return;
+        };
+        let shape = self.app.pointer_shape();
+        if shape != open.shape {
+            open.window.set_cursor(pointer::to_winit(shape));
+            open.shape = shape;
+        }
     }
 
     /// Draws the damage into the frame and presents it (W4).
@@ -268,9 +300,12 @@ impl<A: WindowApp> Shell<A> {
         Ok(())
     }
 
-    /// Hands an input event to the app; the segments it re-records damage the list.
+    /// Hands an input event to the app (the segments it re-records damage the list), then updates
+    /// the pointer's shape.
     fn deliver(&mut self, event: &InputEvent) {
         self.app.input(event, &mut self.list);
+        // Every input event may change what is under the pointer or who captures it.
+        self.sync_pointer();
     }
 
     /// Sends AccessKit what changed in the interface, if an assistive technology is listening
@@ -296,6 +331,8 @@ impl<A: WindowApp> Shell<A> {
             accesskit_winit::WindowEvent::ActionRequested(request) => {
                 if let Some(action) = crate::widget::access::action_from(&request) {
                     self.app.access_action(action, &mut self.list);
+                    // An assistive technology may have moved a widget under the pointer.
+                    self.sync_pointer();
                     self.push_access(false);
                     if !self.list.damage().is_empty()
                         && let Some(open) = self.open.as_ref()

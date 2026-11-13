@@ -15,11 +15,13 @@
 //! - `input`: our input events and their translation from `winit` (W5);
 //! - `present`: from our RGBA frame to `softbuffer`'s buffer (W4);
 //! - `order`: invisible, set up, shown (W7);
+//! - `pointer`: the pointer's shape and its translation to `winit` (F2.09e);
 //! - `shell`: the event loop's handler.
 
 pub(crate) mod appearance;
 pub(crate) mod input;
 pub(crate) mod order;
+pub(crate) mod pointer;
 pub(crate) mod present;
 mod shell;
 #[cfg(test)]
@@ -56,6 +58,18 @@ pub trait WindowApp {
     /// on [`Ui`](crate::Ui) calls [`Ui::access_action`](crate::Ui)). The default ignores it.
     fn access_action(&mut self, action: crate::AccessAction, list: &mut DisplayList) {
         let _ = (action, list);
+    }
+
+    /// The shape the pointer should have now (F2.09e). The window asks after every input event,
+    /// layout and assistive-technology action, and changes the system's pointer only when the
+    /// answer differs from the last one, so answering is the whole job of the app: an app built
+    /// on [`Ui`](crate::Ui) answers [`Ui::pointer_shape`](crate::Ui). The default is the arrow.
+    ///
+    /// # Cost
+    /// Called once per event, so it must be cheap and must not allocate: `Ui`'s answer walks from
+    /// the hovered widget to the root, O(depth of the tree), asking each widget a rectangle test.
+    fn pointer_shape(&self) -> pointer::PointerShape {
+        pointer::PointerShape::Default
     }
 }
 

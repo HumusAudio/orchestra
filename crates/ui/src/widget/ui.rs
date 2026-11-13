@@ -21,6 +21,9 @@
 //! - A modal layer (the last opened) blocks pointer events outside it and keeps the focus inside.
 //! - A widget outside its ancestors' clip (a scroll area's viewport, F2.09d) cannot be hit: the
 //!   pointer reaches it only where it can be seen.
+//! - The pointer's shape (F2.09e, [`Ui::pointer_shape`]) is asked the same way: the capturing
+//!   widget alone during a drag, otherwise the hovered widget and then its ancestors, up to the
+//!   modal layer's root, until one answers.
 //!
 //! # Clipping and scrolling (F2.09d, choice WF1 of the owner: "A today, B only if measured")
 //! Rectangles stay in logical pixels of the window (WB5). A scroll area moves its content by
@@ -47,6 +50,7 @@ use orchestra_text::Faces;
 
 use crate::theme::token::{Shape, Theme};
 use crate::window::input::{ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton};
+use crate::window::pointer::PointerShape;
 
 use super::access::{
     AccessAction, AccessActionKind, AccessInfo, AccessUpdate, WINDOW_NODE, empty_update,
@@ -266,6 +270,58 @@ impl<M: 'static> Ui<M> {
     #[must_use]
     pub fn hovered(&self) -> Option<WidgetId> {
         self.hovered.and_then(|slot| self.id_of(slot))
+    }
+
+    /// The shape the pointer should have now (F2.09e, a precision of ADR-0045 WA3), for the
+    /// window to show ([`WindowApp::pointer_shape`](crate::WindowApp)).
+    ///
+    /// # Who decides
+    /// - During a capture (a drag), the capturing widget alone, at the pointer's last position,
+    ///   even outside its rectangle: dragging a divider past its limit keeps the resize shape.
+    ///   Its `None` means the arrow; the widgets under the pointer are not asked, because they
+    ///   will not receive the release.
+    /// - Otherwise the hovered widget, then its parent, and so on, until one answers (the
+    ///   bubbling of WB7). The walk stops at the innermost modal layer's root: what lies behind
+    ///   a dialog has no say. Over the area a modal layer blocks there is no hovered widget
+    ///   (hit testing stays inside the layer, WB9), so the answer is the arrow.
+    /// - When the pointer is outside the window, nothing is hovered: the arrow (the system owns
+    ///   the pointer there anyway).
+    ///
+    /// # Why it is asked, not stored
+    /// The answer depends on the pointer's position inside a widget (the divider is a band inside
+    /// the splitter, not a child) and on state that changes with layout (a divider moved by the
+    /// keyboard leaves the pointer over a pane). Asking at the moment, with the current
+    /// rectangles, is always right; a stored shape would need every widget to tell the interface
+    /// when it changes.
+    ///
+    /// # Cost
+    /// O(depth of the tree) calls to [`Widget::pointer_shape`], each a rectangle test in the
+    /// widgets we have; no allocation. The window asks once per event and touches the system's
+    /// pointer only when the answer changes.
+    #[must_use]
+    pub fn pointer_shape(&self) -> PointerShape {
+        // Asks the widget in `index` alone.
+        let ask = |index: usize| {
+            self.tree
+                .slot(index)
+                .and_then(|slot| slot.widget.as_deref())
+                .and_then(|widget| widget.pointer_shape(self.pointer))
+        };
+        if let Some(captured) = self.captured {
+            return ask(captured).unwrap_or_default();
+        }
+        let layer = self.modals.last().map(|&(layer, _)| layer);
+        let mut current = self.hovered;
+        while let Some(index) = current {
+            if let Some(shape) = ask(index) {
+                return shape;
+            }
+            if Some(index) == layer {
+                break;
+            }
+            current = self.tree.slot(index).and_then(|slot| slot.parent);
+        }
+        PointerShape::Default
     }
 
     /// Takes the messages the widgets emitted since the last call (WA7), keeping the queue's

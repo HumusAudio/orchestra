@@ -97,6 +97,7 @@ pub use widget::ui::{Ui, UiError};
 pub use window::input::{
     ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton, WheelDelta,
 };
+pub use window::pointer::PointerShape;
 pub use window::{WindowApp, WindowError, WindowOptions, run};
 
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.

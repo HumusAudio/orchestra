@@ -32,6 +32,7 @@ use crate::theme::density::Spacing;
 use crate::theme::text::{FamilyToken, SizeToken, Typography, Weight};
 use crate::theme::token::Shape;
 use crate::window::input::{ButtonState, Key, Modifiers, PointerButton, WheelDelta};
+use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole};
 use super::layout::{Constraints, LayoutProps, Size};
@@ -250,6 +251,31 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     fn scroll_into_view(&mut self, target: Rect) -> Point {
         let _ = target;
         Point::default()
+    }
+
+    /// The shape the pointer should take at `point` (logical pixels of the window), or `None`
+    /// (the default) to let the parent decide (F2.09e, a precision of ADR-0045 WA3).
+    ///
+    /// # How the interface asks
+    /// - While nothing captures the pointer, it asks the **hovered** widget first and then its
+    ///   ancestors, up to the root (or to the open modal layer's root), until one answers
+    ///   `Some`: the same bubbling as the pointer's events (WB7). Nobody answering means the
+    ///   ordinary arrow. So a widget answers only for the parts of itself that want a shape: the
+    ///   splitter answers over its divider's band and `None` elsewhere, and a pane's widgets
+    ///   that answer nothing get the arrow, not the splitter's resize shape.
+    /// - While a widget **captures** the pointer (a drag), only that widget is asked, wherever
+    ///   the pointer is, even outside the widget or the window: the shape of a drag stays the
+    ///   same from press to release. `None` then means the arrow.
+    /// - Over the part of the window that an open modal layer blocks (WB9), nobody is asked.
+    ///
+    /// # Rules for implementers
+    /// Answer from what the last `arrange` stored (rectangles, state), with no allocation: the
+    /// question comes after every input event. A disabled widget answers `None`, whatever it
+    /// would ask for when enabled, so the parent's shape (usually the arrow) shows: a shape
+    /// promises an action, and a disabled widget has none to offer.
+    fn pointer_shape(&self, point: Point) -> Option<PointerShape> {
+        let _ = point;
+        None
     }
 }
 

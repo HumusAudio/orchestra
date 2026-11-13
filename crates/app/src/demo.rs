@@ -26,8 +26,8 @@ use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, TextLayout};
 use orchestra_ui::{
     AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ColorToken, Constraints,
     DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length, Point,
-    RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space, Splitter, StrokeStyle,
-    Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
+    PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space, Splitter,
+    StrokeStyle, Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
 };
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
@@ -293,6 +293,12 @@ impl WindowApp for Demo {
         // get the current tree with the next update.
         let _ = self.ui.access_action(action, list);
         self.handle_messages(list);
+    }
+
+    fn pointer_shape(&self) -> PointerShape {
+        // The interface decides (F2.09e): the resize shape over the splitter's divider, the arrow
+        // elsewhere.
+        self.ui.pointer_shape()
     }
 }
 

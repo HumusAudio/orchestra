@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The demonstration window (F2.09c, WD5): its widgets work together through messages, and its
-//! accessibility tree names every control.
+//! accessibility tree names every control; its divider shows the resize shape (F2.09e).
 
 #![allow(
     clippy::unwrap_used,
@@ -12,7 +12,8 @@
 use accesskit::Role;
 use orchestra_app::{Demo, SceneContext};
 use orchestra_ui::{
-    ButtonState, DisplayList, InputEvent, Point, PointerButton, Rect, WidgetId, WindowApp,
+    ButtonState, DisplayList, InputEvent, Point, PointerButton, PointerShape, Rect, WidgetId,
+    WindowApp,
 };
 
 /// The demonstration, laid out in a 640 × 370 window.
@@ -125,4 +126,29 @@ fn the_options_and_the_staff_are_two_scrolling_panes() {
         .filter(|(_, n)| n.role() == Role::ScrollView)
         .find(|(_, n)| n.scroll_x_max().is_some_and(|max| max > 0.0));
     assert!(staff.is_some(), "the staff's pane should scroll sideways");
+}
+
+#[test]
+fn the_divider_shows_the_column_resize_shape() {
+    // F2.09e: somewhere across the window, at mid height, the pointer meets the splitter's band
+    // and takes the column-resize shape; at the window's left edge, over the options, the arrow.
+    // The band is found by sweeping instead of computing it, so the test does not depend on the
+    // preview's initial share.
+    let (mut demo, mut list) = demo();
+    let mut at = |demo: &mut Demo, x: f32| {
+        demo.input(
+            &InputEvent::PointerMoved {
+                position: Point::new(x, 200.0),
+            },
+            &mut list,
+        );
+        demo.pointer_shape()
+    };
+    assert_eq!(at(&mut demo, 5.0), PointerShape::Default);
+    let hits = (0..640u16)
+        .map(f32::from)
+        .filter(|&x| at(&mut demo, x) == PointerShape::ResizeColumn)
+        .count();
+    // The band is as wide as the small gap in comfortable density: 8 logical pixels.
+    assert_eq!(hits, 8, "the divider's band should give the resize shape");
 }
