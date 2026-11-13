@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); next F2.10.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); next F2.10b.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1146,6 +1146,22 @@ pointer cannot be seen in the sandbox: **the owner checked it by hand** with `ca
 the Playback preview's divider (2026-11-13): it works as intended. On the owner's request the divider became quieter (WG5): one pixel of
 `control-border` under the pointer, two of `accent` only while dragged. SCALETTA v0.67. Commits `User-visible: no`.
 
+Step **F2.10a** (`feature/f2-10a-text-field-adr`, 2026-11-13): F2.10 split in three parts
+(approved by the owner at the briefing). **ADR-0047 Accepted**, the text field: UTF-8 byte
+offsets on grapheme boundaries (`icu_segmenter`, already in the workspace, also for words); one
+line for now (owner); the platform's editing keys, fixed inside a field; the mouse with double and
+triple clicks and the text beam; `InputEvent::Text` from `KeyEvent::text` and IME events, the
+input method on only while a field has the focus; a local undo grouped by words and kinds of edit
+(never by time), one document command at the commit, Escape restores; a blinking caret that stops
+after 10 s (owner; a timed wake-up, precision of ADR-0040 W2 to come); the selection redrawn in
+`on-selection`; AccessKit `TextInput` and `TextRun`; budgets 0.5 M per key, 0.1 M per blink.
+**Clipboard measured on the real app** (stripped release, Linux): `arboard` X11 only +187 KB and
+5 crates; with `wayland-data-control` +561 KB and 13 crates; with `smithay-clipboard` +661 KB, a
+second `smithay-client-toolkit` and an `unsafe` exception. Mutter (GNOME) offers no data-control
+protocol, KWin 6.7 and the wlroots family do. The owner chose `arboard` with data-control behind a
+trait (XWayland on GNOME). The Linux primary selection is postponed (owner). No source code
+changed. Next: F2.10b.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -1208,6 +1224,12 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 
 - **Pointer shapes (F2.09d, 2026-11-13): done in F2.09e** (the resize shape over the splitter's
   divider), checked by hand by the owner on Linux; Windows and macOS are only built by the CI.
+- **Text field limits (ADR-0047, 2026-11-13):** one line only; left to right; words of complex
+  scripts without dictionaries; no Linux primary selection (postponed by the owner); on GNOME the
+  clipboard goes through XWayland (no data-control in Mutter: if users meet problems, the
+  `smithay-clipboard` variant replaces it behind the same trait); what was copied is lost at exit
+  without a clipboard manager. The IME's double-insertion rule is decided in F2.10c by tests by
+  hand.
 - **Splitter names (F2.09d):** the demo's splitter has no accessible name (no catalogue text was
   added for a throw-away view); real views name theirs with `labelled`.
 
