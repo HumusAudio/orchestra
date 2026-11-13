@@ -4008,6 +4008,9 @@ quanto il fotogramma** per ogni ritaglio che riproduce. Tre modifiche l'hanno po
    condividono una maschera sola.
 
 Senza nessuna maschera lo stesso scatto costa 14,4 M: quello che resta è ridisegnare il riquadro.
+Portare con sé il ritaglio costa un poco a ogni fotogramma: il clic del benchmark del nucleo (241
+widget, nessuna area scorrevole) è passato da 63 500 a 70 100 istruzioni, accettato come prezzo del
+ritaglio (il trailer di ADR-0017); alle foglie non si chiede il ritaglio, cosa che costava 18 000.
 
 **Dimensioni e barre (WF4).** L'area misura il contenuto secondo le regole di misura del contenuto
 stesso (`Fixed` esatto, `Fill` almeno il riquadro, `Content` libero nelle direzioni che scorrono e

@@ -3751,7 +3751,10 @@ replays. Three changes brought it to **17.7 M**:
    and reuses it for the next segment with the same rectangle (`clip_cache`, a precision of
    ADR-0043 chosen by the owner): the ten segments crossing the edge share one mask.
 
-Without any mask the same notch costs 14.4 M: what remains is redrawing the viewport.
+Without any mask the same notch costs 14.4 M: what remains is redrawing the viewport. Carrying
+the clip costs every frame a little: the core benchmark's click (241 widgets, no scroll area)
+went from 63 500 to 70 100 instructions, accepted as the price of clipping (ADR-0017's trailer);
+leaves are not asked for a clip, which had cost 18 000.
 
 **Sizes and bars (WF4).** The area measures its content by the content's own size rules (`Fixed`
 exact, `Fill` at least the viewport, `Content` free in the directions that scroll and up to the

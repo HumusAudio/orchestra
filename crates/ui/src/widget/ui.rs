@@ -370,16 +370,22 @@ impl<M: 'static> Ui<M> {
                 slot.clip = clip;
                 slot.needs_record = true;
             }
-            // The clip of the children: this one's, narrowed by what the widget clips to.
-            let own = slot.widget.as_deref().and_then(Widget::child_clip);
-            let inner = match (clip, own) {
-                (Some(outer), Some(own)) => Some(outer.intersect(&own)),
-                (outer, None) => outer,
-                (None, own) => own,
-            };
-            // Children pushed in reverse so they pop in order.
-            self.walk
-                .extend(slot.children.iter().rev().map(|&child| (child, inner)));
+            if !slot.children.is_empty() {
+                // The clip of the children: this one's, narrowed by what the widget clips to.
+                // Asked only of widgets with children (a leaf's answer would serve nobody): the
+                // walk visits every widget at every frame, and most are leaves (measured in
+                // F2.09d: asking all 241 widgets of the core benchmark's panel cost a click
+                // 18 000 instructions, +29%).
+                let own = slot.widget.as_deref().and_then(Widget::child_clip);
+                let inner = match (clip, own) {
+                    (Some(outer), Some(own)) => Some(outer.intersect(&own)),
+                    (outer, None) => outer,
+                    (None, own) => own,
+                };
+                // Children pushed in reverse so they pop in order.
+                self.walk
+                    .extend(slot.children.iter().rev().map(|&child| (child, inner)));
+            }
             if !slot.needs_record {
                 continue;
             }
