@@ -699,7 +699,10 @@ controllo completo. Va fatta bene una volta sola.
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ✅ ADR-0045 | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ✅ (F2.09a–d) | 3–4 |
 | F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
-| F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
+| F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | 🔄 (F2.10a–c) | 3 |
+| F2.10a | **ADR del campo di testo** (posizioni e grafemi, tasti di ogni piattaforma, mouse, eventi di testo, IME, undo locale e undo del documento, cursore, selezione, accessibilità) e **misura del crate degli appunti** | 🔄 ADR-0047 | 0,5 |
+| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | ⬜ | 1,5 |
+| F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ⬜ | 1 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
