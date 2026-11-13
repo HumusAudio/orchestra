@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.66, approvata dal proprietario il 2026-11-13.**
+> **Stato di questo documento: v0.67, approvata dal proprietario il 2026-11-13.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -698,7 +698,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.07c | **Token del testo** (ADR-0044 TX11) nel tema, testo nella scena di riferimento e nel catalogo degli screenshot, budget del fotogramma intero (33 M istruzioni) | ✅ | 1 |
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ✅ ADR-0045 | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ✅ (F2.09a–d) | 3–4 |
-| F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ⬜ | 0,5 |
+| F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ⬜ | 3 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
@@ -894,6 +894,9 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.10** Da F2.09d: un campo di testo dentro un'area scorrevole porta in vista il cursore di
   testo con `Widget::scroll_into_view`, che esiste già; i controlli a filo del bordo di un'area
   hanno bisogno di un margine interno per l'anello del fuoco.
+- **F2.10** Da F2.09e (ADR-0045 WG4): il campo di testo aggiunge la forma `Text` (la barra del
+  testo) a `PointerShape` e la sua traduzione verso `winit`, e la risponde con
+  `Widget::pointer_shape` sopra il testo modificabile.
 - **F2.10** Da ADR-0045 WA8 (parte di D12): qui si sceglie il crate degli appunti; candidato
   `arboard` 3.7.0 (2026-10-15, MIT OR Apache-2.0), da misurare (dipendenze native, Wayland).
 - **F2.10** Da F2.07b (scelta TB4): le funzioni per il cursore e il clic sul testo
@@ -911,6 +914,9 @@ controllo completo. Va fatta bene una volta sola.
   torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
   Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
   barra del titolo, lì il problema sparisce su Linux.
+- **F2.11b** Da F2.09e (ADR-0045 WG4): i bordi e gli angoli della nostra barra del titolo e della
+  finestra aggiungono le loro forme di ridimensionamento a `PointerShape` (orizzontale, verticale,
+  le due diagonali), con le corrispondenti di `winit`.
 - **F2.11** Richiesta del proprietario del 2026-11-12: **tutte le scorciatoie dei comandi sono
   personalizzabili**. Qui un ADR fissa il registro unico dei comandi con le scorciatoie predefinite
   per piattaforma (menu e scorciatoie nascono insieme) e il salvataggio delle modifiche
@@ -1234,3 +1240,4 @@ raccomandato.
 | 2026-11-12 | 0.64 | F2.09b fatto (AccessKit, etichetta, pulsante); aggiunto e fatto F2.09b2 (cache dei rettangoli arrotondati: un evento su un pulsante da 0,9 M a 0,37 M istruzioni); nota in F2.09c (prova con Orca); prossimo passo F2.09c | proprietario |
 | 2026-11-12 | 0.65 | F2.09c fatto (casella, interruttore, cursore, anteprima Riproduzione); aggiunto e fatto F2.09c2 (ADR-0046 Accepted: convenzioni dei controlli di valore); nota in F2.11 (registro delle scorciatoie personalizzabili); nuovo F2.12c (editor delle scorciatoie). *Riga ricostruita il 2026-11-13 dal registro della ROADMAP: mancava* | proprietario |
 | 2026-11-13 | 0.66 | F2.09d fatto e con esso F2.09 (area scorrevole e divisore; precisazioni in ADR-0043, ADR-0045, ADR-0046; uno scatto di rotella su 200 widget a 17,7 M istruzioni); nuovo F2.09e (forme del puntatore); nota in F2.10 (cursore di testo portato in vista, margine per l'anello del fuoco); prossimo passo F2.09e | proprietario |
+| 2026-11-13 | 0.67 | F2.09e fatto (PR #71; precisazioni WG1–WG4 di ADR-0045 e una di ADR-0040: la forma del puntatore chiesta al widget per un punto, doppia freccia sopra il divisore; 621 istruzioni per la domanda; provato a mano dal proprietario); note in F2.10 (forma `Text`) e F2.11b (forme dei bordi della finestra); prossimo passo F2.10 | proprietario |

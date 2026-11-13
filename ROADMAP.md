@@ -1142,8 +1142,8 @@ band and for the whole drag. Buttons keep the arrow (the hand is for links); the
 with F2.10, the window's edges with F2.11b. Tests: `tests/pointer.rs` (7), a unit test of the
 translation, the question added to the no-allocation test, the demo's divider band (8 px); two injected bugs, both caught.
 Benchmark `pointer_shape_over_a_widget`: 621 instructions, the other benchmarks unchanged. The real
-pointer cannot be seen in the sandbox: **the owner checks it by hand** over the Playback
-preview's divider. Commits `User-visible: no`.
+pointer cannot be seen in the sandbox: **the owner checked it by hand** with `cargo run` over
+the Playback preview's divider (2026-11-13): it works as intended. SCALETTA v0.67. Commits `User-visible: no`.
 
 | Step | What | Status |
 |---|---|---|
@@ -1206,8 +1206,7 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 ## Open decisions and open items
 
 - **Pointer shapes (F2.09d, 2026-11-13): done in F2.09e** (the resize shape over the splitter's
-  divider). Still to see on a real desktop: the owner checks the shape by hand (the sandbox has no
-  display), and Windows and macOS are only built by the CI.
+  divider), checked by hand by the owner on Linux; Windows and macOS are only built by the CI.
 - **Splitter names (F2.09d):** the demo's splitter has no accessible name (no catalogue text was
   added for a throw-away view); real views name theirs with `labelled`.
 
