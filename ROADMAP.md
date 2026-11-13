@@ -1160,7 +1160,7 @@ after 10 s (owner; a timed wake-up, precision of ADR-0040 W2 to come); the selec
 second `smithay-client-toolkit` and an `unsafe` exception. Mutter (GNOME) offers no data-control
 protocol, KWin 6.7 and the wlroots family do. The owner chose `arboard` with data-control behind a
 trait (XWayland on GNOME). The Linux primary selection is postponed (owner). No source code
-changed. Next: F2.10b.
+changed. SCALETTA v0.68. Next: F2.10b.
 
 | Step | What | Status |
 |---|---|---|
