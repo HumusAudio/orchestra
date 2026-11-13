@@ -22,8 +22,19 @@
 //! - `slider_wheel_notch` (F2.09c2, ADR-0046 V2): the same rows, one wheel notch over the 20th
 //!   slider under the pointer (the value moves the coarse step, re-recorded, drawn, sent).
 //!
-//! # Target (ADR-0045, SCALETTA F2.09)
-//! An event under 0.5 M instructions with drawing; the spike's retained click was 0.17 M.
+//! - `scroll_wheel_notch` (F2.09d): the real panel (a label and four buttons per row, 200
+//!   widgets) inside a vertical scroll area filling a 1000 × 1000 window, the right pane of a
+//!   splitter; one wheel notch: the content arranged again at the new offset, every widget
+//!   re-recorded inside the viewport (those outside as empty segments), the viewport drawn, the
+//!   moved nodes sent to the accessibility tree.
+//! - `splitter_drag_move` (F2.09d): the same window, one move while the divider is dragged: the
+//!   panes arranged again (the content keeps its rectangles, only the area's bar moves), drawn,
+//!   sent.
+//!
+//! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
+//! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
+//! retained click was 0.17 M). A scroll step redraws the whole viewport, so its budget is a
+//! frame's: 33 M instructions, 30 frames per second in software (F2.07c).
 
 #![allow(
     missing_docs,
@@ -50,6 +61,7 @@ use orchestra_ui::{
     Point, PointerButton, RecordCx, Recorder, Rect, Renderer, Size, Slider, Space, Theme, Ui,
     WheelDelta, Widget, WidgetEvent, WidgetId,
 };
+use orchestra_ui::{Axis, ScrollArea, Splitter};
 
 // A button-like leaf whose width can change.
 #[derive(Debug)]
@@ -476,4 +488,156 @@ library_benchmark_group!(
     ]
 );
 
-main!(library_benchmark_groups = core, controls);
+// The real panel inside a vertical scroll area, the right pane of a splitter (an empty column on
+// the left), in a 1000 × 1000 window: shown once (drawn, accessibility tree handed out), the
+// pointer over the content.
+struct Scrolled {
+    ui: Ui<usize>,
+    list: DisplayList,
+    renderer: CpuRenderer,
+    image: Image,
+    band: Point,
+}
+
+fn scrolled_shown() -> Scrolled {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        faces.clone(),
+    );
+    ui.set_title("Benchmark");
+    let root = ui.root();
+    let fill = LayoutProps::default()
+        .width(Length::Fill(1.0))
+        .height(Length::Fill(1.0));
+    let splitter = ui
+        .add(root, Splitter::new(Axis::Horizontal, 0.2), fill)
+        .unwrap();
+    ui.add(splitter, Flex::column(Space::None, Space::None), fill)
+        .unwrap();
+    let scroll = ui.add(splitter, ScrollArea::vertical(), fill).unwrap();
+    let column = ui
+        .add(
+            scroll,
+            Flex::column(Space::Xs, Space::M),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    for row_index in 0..40 {
+        let row = ui
+            .add(
+                column,
+                Flex::row(Space::S, Space::None),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        ui.add(
+            row,
+            Label::new(format!("Track {row_index}: Violin I")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        for button in 0..4 {
+            ui.add(
+                row,
+                Button::new(format!("Action {button}"), row_index * 4 + button),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        }
+    }
+    let mut list = DisplayList::new();
+    ui.layout(BOUNDS, &mut list);
+    let mut renderer = CpuRenderer::new(faces);
+    let mut image = Image::new(1000, 1000).unwrap();
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    let area = ui.rect(scroll).unwrap();
+    let band = Point::new(area.x0 - 4.0, 500.0);
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(area.x0 + 100.0, 500.0),
+        },
+        &mut list,
+    );
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    Scrolled {
+        ui,
+        list,
+        renderer,
+        image,
+        band,
+    }
+}
+
+// The same, with the divider pressed (captured), ready to be dragged.
+fn scrolled_dragging() -> Scrolled {
+    let mut scrolled = scrolled_shown();
+    let band = scrolled.band;
+    scrolled.ui.input(
+        &InputEvent::PointerMoved { position: band },
+        &mut scrolled.list,
+    );
+    scrolled.ui.input(
+        &InputEvent::PointerButton {
+            button: PointerButton::Left,
+            state: ButtonState::Pressed,
+            position: band,
+            clicks: 1,
+        },
+        &mut scrolled.list,
+    );
+    scrolled_draw(&mut scrolled);
+    let _ = scrolled.ui.take_access_update();
+    scrolled
+}
+
+fn scrolled_draw(scrolled: &mut Scrolled) {
+    let damage = scrolled.list.take_damage();
+    scrolled
+        .renderer
+        .render(&scrolled.list, &theme(), &damage, 1.0, &mut scrolled.image)
+        .unwrap();
+}
+
+#[library_benchmark]
+#[bench::panel(scrolled_shown())]
+fn scroll_wheel_notch(mut scrolled: Scrolled) -> Scrolled {
+    scrolled.ui.input(
+        black_box(&InputEvent::Wheel {
+            delta: WheelDelta::Lines { x: 0.0, y: -1.0 },
+        }),
+        &mut scrolled.list,
+    );
+    scrolled_draw(&mut scrolled);
+    black_box(scrolled.ui.take_access_update());
+    scrolled
+}
+
+#[library_benchmark]
+#[bench::panel(scrolled_dragging())]
+fn splitter_drag_move(mut scrolled: Scrolled) -> Scrolled {
+    let to = Point::new(scrolled.band.x + 30.0, scrolled.band.y);
+    scrolled.ui.input(
+        black_box(&InputEvent::PointerMoved { position: to }),
+        &mut scrolled.list,
+    );
+    scrolled_draw(&mut scrolled);
+    black_box(scrolled.ui.take_access_update());
+    scrolled
+}
+
+library_benchmark_group!(
+    name = scrolling,
+    benchmarks = [scroll_wheel_notch, splitter_drag_move]
+);
+
+main!(library_benchmark_groups = core, controls, scrolling);

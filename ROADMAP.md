@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; next F2.09d.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; next: the rest of F2.09 (pointer shapes, proposed as a new step) or F2.10.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1107,6 +1107,27 @@ Benchmark `slider_wheel_notch`: 0.36 M instructions per notch. Guides: a new sec
 values". SCALETTA v0.65: F2.09c2 recorded, the shortcut registry noted in F2.11 and the new step F2.12c
 (shortcut editor).
 
+**F2.09d** (2026-11-13, `feature/f2-09d-scroll-splitter`): the scroll area and the splitter.
+Outline WF1–WF8 approved by the owner (recorded as precisions of ADR-0045). `ScrollArea`
+(vertical, horizontal, both): scrolling arranges the content again at the new offset
+(`EventCx::request_arrange`), the recording walk clips each widget to its ancestors' viewports
+(`Widget::child_clip`), hit testing ignores what is clipped away; bars (thumb drag, track paging),
+wheel (three lines a notch; Shift horizontal only where the area scrolls horizontally, a precision
+of ADR-0046 V5; bubbling at the ends), keyboard (bubbling from inside, or a `focusable()` area), the
+focus brought into view (`Widget::scroll_into_view`), AccessKit `ScrollView` with scroll actions
+and "scroll into view". `Splitter`: the first pane's share with minimums, drag and fine drag,
+double click, keys when focused, AccessKit `Splitter`; between its panes in Tab order
+(`Widget::tab_after_child`); **no wheel**, an exception to ADR-0046 V2 found by the tests (the
+band moves from under the pointer). The scroll area honours its content's size rules. **Measured**:
+the first version cost 397 M instructions per wheel notch on 200 real widgets (a frame-sized clip
+mask per clipped segment); clipping only the widgets crossing the edge, dropping empty clips and,
+by the owner's choice, reusing the last rectangular clip's mask in the renderer (precision of
+ADR-0043) brought it to 17.7 M, within the 33 M of a frame (WF2); a divider drag move 19.1 M. Tests:
+`tests/scrolling.rs` (25), an AccessKit unit test, no allocation while scrolling or dragging the
+divider, the demo's panes; twenty-three injected bugs, twenty-one caught (six after tests written
+for them), two without visible effect. The Playback preview has a splitter with two scroll areas
+(its option column padded so focus rings are not cut). Commits `User-visible: no`.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -1166,6 +1187,13 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 `check (macos-latest)` from the required checks of the `main` ruleset.
 
 ## Open decisions and open items
+
+- **Pointer shapes (F2.09d, 2026-11-13):** the toolkit has no way to change the pointer's shape,
+  so the splitter's divider shows no resize cursor and is hard to find. Proposed to the owner as a
+  step of its own (a widget says which shape it wants under the pointer; the window sets it with
+  `winit`), or inside F2.11b.
+- **Splitter names (F2.09d):** the demo's splitter has no accessible name (no catalogue text was
+  added for a throw-away view); real views name theirs with `labelled`.
 
 - **Customisable keyboard shortcuts (owner's request, 2026-11-12, with F2.09c2):** "every keyboard
   shortcut must be customisable by the user". Reading approved by the owner the same day: every

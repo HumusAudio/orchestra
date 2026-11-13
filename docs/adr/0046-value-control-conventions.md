@@ -104,3 +104,15 @@ its focus ring is drawn again too); a drag move stays at 0.22 M.
   by the user**. That is a separate decision (a command registry with per-platform default
   bindings, user overrides in the settings file, conflict detection), planned with the menus and
   the settings in SCALETTA; this ADR only notes that the fine modifier of V3 may join it.
+
+## Precisions of F2.09d (owner, 2026-11-13)
+
+- **The splitter is an exception to V2** (as V1 allows, with the reason in its documentation): the
+  wheel does not move a splitter's divider and goes on to the area around it. The divider's band
+  is a few pixels wide; the first notch moved it from under the pointer, and the next notch landed
+  on the pane below (found by the step's tests). Its drag, double click, keyboard and assistive
+  actions follow V3, V4 and V6; its drag is not snapped to the step, so the divider stays under the
+  pointer.
+- **V5 in a vertical scroll area**: Shift turns a vertical wheel movement into a horizontal one only
+  in an area that scrolls horizontally. In an area that only scrolls vertically, Shift+wheel stays
+  vertical, so it scrolls the panel when the pointer rests on a control, which is V5's purpose.

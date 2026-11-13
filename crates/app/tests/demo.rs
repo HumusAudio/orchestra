@@ -109,3 +109,20 @@ fn restore_defaults_puts_the_controls_back() {
     assert_eq!(on(&demo, check), check_before);
     assert_eq!(on(&demo, switch), switch_before);
 }
+
+#[test]
+fn the_options_and_the_staff_are_two_scrolling_panes() {
+    // F2.09d (WF8): a splitter with two scroll areas; in a 640 × 370 window the staff (480 wide)
+    // does not fit its pane, which then scrolls horizontally.
+    let (mut demo, _) = demo();
+    let update = demo.access_update(true).unwrap();
+    let nodes = &update.tree_update().nodes;
+    let count = |role: Role| nodes.iter().filter(|(_, n)| n.role() == role).count();
+    assert_eq!(count(Role::Splitter), 1);
+    assert_eq!(count(Role::ScrollView), 2);
+    let staff = nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::ScrollView)
+        .find(|(_, n)| n.scroll_x_max().is_some_and(|max| max > 0.0));
+    assert!(staff.is_some(), "the staff's pane should scroll sideways");
+}

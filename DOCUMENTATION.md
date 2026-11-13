@@ -3698,6 +3698,120 @@ Shift; the coarse step's rounding; double click with and without `default_value`
 and re-anchoring both ways; modifiers forgotten on focus loss) and the click counter's unit test.
 Twenty-five injected bugs: twenty-four caught (three after the tests written for them), one equivalent (a redundant line, removed). The benchmark `slider_wheel_notch` measures one notch: **0.36 M instructions** with drawing and the accessibility update (the slider is focused by its earlier press, so its focus ring is drawn again too), within the 0.5 M of ADR-0045; a drag move stays at 0.22 M.
 
+#### Scroll areas and splitters
+
+Step F2.09d (choices WF1–WF8 and their precisions, in ADR-0045, ADR-0043 and ADR-0046), in
+`src/widget/scroll.rs`, `src/widget/splitter.rs`, `src/widget/ui.rs`, `src/widget/tree.rs`,
+`src/widget/access.rs`, `src/draw/list.rs`, `src/draw/skia.rs` and the application's `demo.rs`.
+
+**How a scroll area scrolls (WF1).** Widget rectangles stay in logical pixels of the window. A
+`ScrollArea` (`vertical()`, `horizontal()`, `both()`) has one child, its content, and keeps an
+*offset*; scrolling changes the offset and asks to be **arranged again** in the rectangle it already
+has (`EventCx::request_arrange`, new): the content is placed at `viewport − offset`, its descendants
+get their new rectangles and are recorded again. Nothing above the area is measured again. The
+alternative (content in coordinates of its own, with an offset in the display list) was set aside:
+it makes the list no longer flat, and both ways redraw the whole viewport at every step, which is
+the real cost.
+
+**Clipping.** Two new hooks of the `Widget` trait: `child_clip` (the rectangle a widget's children
+can be seen in; the area answers its viewport) and `scroll_into_view` (below). The recording walk of
+`Ui::frame` carries each widget's **clip**, the intersection of its ancestors' `child_clip`, and
+keeps it in its slot:
+- a widget entirely inside its clip (focus ring included) is recorded as before;
+- one crossing the clip's edge is recorded inside a clip command;
+- one entirely outside records an empty segment (its old pixels are damaged and cleared);
+- one whose clip changed (the area grew, for instance) is recorded again even if it did not move;
+- hit testing ignores a widget where it cannot be seen, so the content under a scroll bar is not
+  reachable.
+
+```rust
+match clip {
+    None => list.record(segment, |recorder| widget.record(&cx, recorder)),
+    Some(clip) if encloses(clip, reach) => {
+        list.record(segment, |recorder| widget.record(&cx, recorder));
+    }
+    Some(clip) if !reach.intersects(&clip) => {
+        list.record(segment, |_| {});
+    }
+    Some(clip) => list.record(segment, |recorder| {
+        recorder.push_clip_rect(clip);
+        widget.record(&cx, recorder);
+        recorder.pop_clip();
+    }),
+}
+```
+
+**What the measures taught (WF2).** The first version clipped every widget of the area: one wheel
+notch on 200 real widgets cost **397 M instructions**, against a budget of 33 M (a frame at 30 fps
+in software). The cause: the renderer builds a clip mask **the size of the frame** for every clip it
+replays. Three changes brought it to **17.7 M**:
+1. only the widgets crossing the viewport's edge are clipped (38.3 M);
+2. the recorder drops a clip in which nothing was drawn (a container records nothing);
+3. the renderer keeps the mask of the last outermost rectangular clip of the region it is drawing
+   and reuses it for the next segment with the same rectangle (`clip_cache`, a precision of
+   ADR-0043 chosen by the owner): the ten segments crossing the edge share one mask.
+
+Without any mask the same notch costs 14.4 M: what remains is redrawing the viewport.
+
+**Sizes and bars (WF4).** The area measures its content by the content's own size rules (`Fixed`
+exact, `Fill` at least the viewport, `Content` free in the directions that scroll and up to the
+viewport in the others) and shows a bar only in a direction where the content is larger; a bar takes
+room from the viewport, which can make the other bar necessary (the fitting loop runs at most three
+rounds, bars are only added). Bars are classic and always visible when needed, as thick as the
+medium gap of the density (12 px comfortable, 8 compact): a `surface-sunken` track and a rounded
+`control-border` thumb, `text-muted` under the pointer or dragged. Content whose controls touch its
+edges needs a padding at least as wide as the focus ring, which the viewport would otherwise cut.
+
+**Input (WF3, WF5).**
+- Wheel: a notch is three lines (a line is the control height), touchpad pixels are used as they
+  come; with Shift the movement becomes horizontal **only in an area that scrolls horizontally**
+  (in a vertical one it stays vertical, so Shift+wheel over a slider always scrolls the panel,
+  ADR-0046 V5). An area that cannot move lets the wheel bubble: at its end, the area around it
+  scrolls.
+- Bars: drag the thumb (proportionally, with capture), press on the track to move one page.
+- Keyboard: arrows (a line), Page Up/Down (the viewport less a line), Home/End. They work when a key
+  pressed on a widget inside is not handled there and bubbles up, and when the area itself is
+  focused (`focusable()`, for content with nothing focusable).
+- Focus: when Tab (or the application, or a screen reader) moves the focus to a hidden widget, the
+  interface asks the areas around it, innermost first, to bring it into view; a widget taller than
+  the viewport is shown from its top.
+
+**Accessibility (WF7).** A `ScrollView` node that clips its children, with the offsets and their
+limits; the actions to scroll up, down, left and right (by a line, or a page when the screen
+reader asks), offered only where there is somewhere to go; every widget accepts "scroll into view".
+
+**The splitter (WF6).** `Splitter::new(axis, fraction)` with two panes as children: the value is
+the first pane's share of the space (0–1, announced as a percentage), so both panes follow a resize;
+each pane keeps a minimum (48 px by default, `minimum_sizes`). It follows the value-control
+conventions: drag with capture and fine drag with the primary modifier, double click to the default
+(`default_fraction`), arrows when focused (2%, 0.5% with the modifier), Page Up/Down, Home/End,
+AccessKit's increase, decrease and set value; `on_change` sends the new share. Two exceptions, each
+written in its documentation: a drag is not snapped to the step (the divider stays under the
+pointer), and **the wheel does not move it** (ADR-0046 V1 exception: the band is a few pixels wide,
+the first notch would move it from under the pointer and the next would scroll the pane below).
+In Tab order it sits **between** its panes, thanks to the new hook `tab_after_child`. Looks: a
+`border` line in the middle of a band as wide as the small gap (at least 6 px), three pixels of
+`accent` while hovered or dragged.
+
+**The Playback preview (WF8)** now has the title above a splitter: the options on the left in a
+vertical scroll area, the staff on the right in an area scrolling both ways (in a small window the
+staff is wider than its pane).
+
+**Tests**: `tests/scrolling.rs` (bars and sizes, wheel, Shift, bubbling between nested areas,
+clipping of drawing and pointer, growing area, thumb drag, track paging, keys, a focusable area,
+Tab and a tall widget brought into view, a slider inside, the accessibility node and its actions;
+the splitter's shares and minimums, drag and fine drag, double click, wheel left to the area, keys
+only when focused, Tab order, node and actions, looks; the renderer's clip cache), a unit test of
+AccessKit's scroll requests, `tests/widgets_no_alloc.rs` (scrolling and moving the divider do not
+allocate) and `crates/app/tests/demo.rs` (the two panes). Twenty-three injected bugs: twenty-one
+caught (six after the tests written for them), two without a visible effect (the fitting loop's
+"bars only grow" guard, and the clip cache in a nested case, which only costs speed). Benchmarks:
+`scroll_wheel_notch` **17.7 M** and `splitter_drag_move` **19.1 M** instructions (moving the divider
+moves every widget of the pane).
+
+**Not yet**: the pointer's shape (a double arrow over the divider) does not exist in the toolkit;
+it is a step of its own in the plan.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
