@@ -83,6 +83,107 @@ pub(crate) struct CoverageMask {
     pub(crate) height: u32,
     /// Coverage 0–255, row by row, `width × height` bytes.
     pub(crate) coverage: Vec<u8>,
+    /// The shape of each row ([`RowRuns`]), computed once with the mask: what blending may skip
+    /// or copy (F2.10b2). Empty for masks narrower than [`RUNS_MIN_WIDTH`] (glyphs), which are
+    /// blended byte by byte.
+    pub(crate) rows: Vec<RowRuns>,
+}
+
+/// The narrowest mask whose rows get [`RowRuns`], device pixels. A glyph's mask is a dozen pixels
+/// wide: splitting its rows into runs costs more than it saves (measured in F2.10b2: drawing a
+/// frame of labels went from 15.5 M to 22.5 M instructions with runs on every mask), while a
+/// control's border or background, hundreds of pixels wide, gains most of its blending.
+pub(crate) const RUNS_MIN_WIDTH: u32 = 48;
+
+/// Where a mask's row has ink, in mask columns, so blending skips what changes nothing and
+/// copies what is fully covered (F2.10b2, a precision of ADR-0044 TX6).
+///
+/// # Why
+/// The shape cache's masks are as wide as the control they draw: a text field's border or focus
+/// ring is a 300-pixel mask whose middle rows are zero but for a few pixels at each end, and its
+/// background is 255 across. Looking at every byte of such rows cost a typed key in a field about
+/// a third of its drawing (measured: 0.29 M instructions). With the runs, the zero hole is
+/// skipped and the full run is copied as a block, giving exactly the bytes the per-pixel path
+/// gives (zero changes nothing; 255 with an opaque source and no clip is the source's bytes).
+///
+/// All ranges are half-open and inside `0..width`; an empty range is `start == end`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct RowRuns {
+    /// The first column with ink (`width` if none).
+    pub(crate) start: u16,
+    /// One past the last column with ink (`start` if none).
+    pub(crate) end: u16,
+    /// The longest run of zero coverage strictly inside `start..end` (empty if none).
+    pub(crate) hole: (u16, u16),
+    /// The longest run of coverage 255 (empty if none).
+    pub(crate) full: (u16, u16),
+}
+
+impl CoverageMask {
+    /// A mask from its placement and its coverage (`width × height` bytes, row by row), with its
+    /// rows' runs computed when it is at least [`RUNS_MIN_WIDTH`] wide.
+    ///
+    /// # Complexity
+    /// O(width × height), once per rasterisation; the runs add 10 bytes per row.
+    pub(crate) fn new(left: i32, top: i32, width: u32, height: u32, coverage: Vec<u8>) -> Self {
+        let stride = usize::try_from(width).unwrap_or(0).max(1);
+        let rows = if width >= RUNS_MIN_WIDTH {
+            coverage.chunks(stride).map(RowRuns::of).collect()
+        } else {
+            Vec::new()
+        };
+        Self {
+            left,
+            top,
+            width,
+            height,
+            coverage,
+            rows,
+        }
+    }
+}
+
+impl RowRuns {
+    /// The runs of one row of coverage (at most `u16::MAX` wide: masks are at most 512).
+    fn of(row: &[u8]) -> Self {
+        // Columns as u16: the caches' masks are at most a few hundred pixels wide.
+        let column = |index: usize| u16::try_from(index).unwrap_or(u16::MAX);
+        let Some(first) = row.iter().position(|&value| value != 0) else {
+            let width = column(row.len());
+            return Self {
+                start: width,
+                end: width,
+                hole: (width, width),
+                full: (width, width),
+            };
+        };
+        let last = row.iter().rposition(|&value| value != 0).unwrap_or(first);
+        let mut runs = Self {
+            start: column(first),
+            end: column(last + 1),
+            hole: (0, 0),
+            full: (0, 0),
+        };
+        // The runs of zeros and of 255s inside the inked part: `chunk_by` groups equal classes of
+        // consecutive bytes, so each run is one slice whose length is compared once (a byte-by-byte
+        // state machine cost a first frame of 200 buttons 5% more, measured in F2.10b2).
+        let inked = row.get(first..=last).unwrap_or_default();
+        let mut at = first;
+        for run in inked.chunk_by(|a, b| (*a == 0) == (*b == 0) && (*a == 255) == (*b == 255)) {
+            let (from, to) = (at, at + run.len());
+            match run.first() {
+                Some(0) if to - from > usize::from(runs.hole.1 - runs.hole.0) => {
+                    runs.hole = (column(from), column(to));
+                }
+                Some(255) if to - from > usize::from(runs.full.1 - runs.full.0) => {
+                    runs.full = (column(from), column(to));
+                }
+                _ => {}
+            }
+            at = to;
+        }
+        runs
+    }
 }
 
 impl Raster {
@@ -93,7 +194,9 @@ impl Raster {
         const OVERHEAD: usize = 64;
         match self {
             Self::Empty | Self::Large => OVERHEAD,
-            Self::Mask(mask) => OVERHEAD + mask.coverage.len(),
+            Self::Mask(mask) => {
+                OVERHEAD + mask.coverage.len() + mask.rows.len() * size_of::<RowRuns>()
+            }
         }
     }
 }
@@ -270,13 +373,13 @@ mod tests {
 
     /// A mask of `side × side` pixels.
     fn mask(side: u32) -> Raster {
-        Raster::Mask(CoverageMask {
-            left: 0,
-            top: 0,
-            width: side,
-            height: side,
-            coverage: vec![255; (side * side) as usize],
-        })
+        Raster::Mask(CoverageMask::new(
+            0,
+            0,
+            side,
+            side,
+            vec![255; (side * side) as usize],
+        ))
     }
 
     #[test]
@@ -344,5 +447,21 @@ mod tests {
             });
             assert!(rasterised, "{other:?} was taken for {base:?}");
         }
+    }
+
+    /// The runs of a row: its inked part, the zero hole inside it, the full run.
+    #[test]
+    fn a_rows_runs_find_its_ink_its_hole_and_its_full_part() {
+        let runs = RowRuns::of(&[0, 0, 40, 255, 255, 0, 0, 0, 255, 90, 0]);
+        assert_eq!((runs.start, runs.end), (2, 10));
+        assert_eq!(runs.hole, (5, 8));
+        assert_eq!(runs.full, (3, 5));
+        // A full run reaching the end of the ink is found too.
+        let runs = RowRuns::of(&[10, 255, 255, 255]);
+        assert_eq!(runs.full, (1, 4));
+        assert_eq!(runs.hole, (0, 0));
+        // An empty row has an empty inked part at its end.
+        let runs = RowRuns::of(&[0, 0, 0]);
+        assert_eq!((runs.start, runs.end), (3, 3));
     }
 }

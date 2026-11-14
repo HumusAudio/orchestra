@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.68, approvata dal proprietario il 2026-11-13.**
+> **Stato di questo documento: v0.69, approvata dal proprietario il 2026-11-14.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -701,9 +701,10 @@ controllo completo. Va fatta bene una volta sola.
 | F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | 🔄 (F2.10a–c) | 3 |
 | F2.10a | **ADR del campo di testo** (posizioni e grafemi, tasti di ogni piattaforma, mouse, eventi di testo, IME, undo locale e undo del documento, cursore, selezione, accessibilità) e **misura del crate degli appunti** | ✅ ADR-0047 | 0,5 |
-| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | 🔄 (F2.10b1–b2) | 1,5 |
-| F2.10b1 | **Nucleo di modifica, senza display**: confini di grafemi e parole, `caret_x` e `hit_test`, `InputEvent::Text`, tabelle dei tasti delle tre piattaforme, `TextEditor`, undo locale, test di proprietà e "non alloca" | 🔄 | 0,5 |
-| F2.10b2 | **Il widget**: disegno, selezione in `on-selection`, cursore lampeggiante con la sveglia a tempo, mouse (doppio e triplo clic), forma `Text`, scorrimento interno, conferma ed Esc, AccessKit, benchmark, il campo nell'anteprima | ⬜ | 1 |
+| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | 🔄 (F2.10b1–b3) | 2 |
+| F2.10b1 | **Nucleo di modifica, senza display**: confini di grafemi e parole, `caret_x` e `hit_test`, `InputEvent::Text`, tabelle dei tasti delle tre piattaforme, `TextEditor`, undo locale, test di proprietà e "non alloca" | ✅ | 0,5 |
+| F2.10b2 | **Il widget**: disegno, selezione in `on-selection`, segnaposto, cursore lampeggiante con la sveglia a tempo, mouse (doppio e triplo clic), forma `Text`, scorrimento interno, conferma ed Esc, benchmark, il campo "Nome della traccia" nell'anteprima | 🔄 | 1 |
+| F2.10b3 | **Accessibilità del campo**: nodo `TextInput` con il figlio `TextRun` (identificativo con il bit alto riservato, precisazione di ADR-0045), azioni `SetValue` di testo, `ReplaceSelectedText`, `SetTextSelection` | ⬜ | 0,5 |
 | F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ⬜ | 1 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
@@ -1268,3 +1269,4 @@ raccomandato.
 | 2026-11-13 | 0.66 | F2.09d fatto e con esso F2.09 (area scorrevole e divisore; precisazioni in ADR-0043, ADR-0045, ADR-0046; uno scatto di rotella su 200 widget a 17,7 M istruzioni); nuovo F2.09e (forme del puntatore); nota in F2.10 (cursore di testo portato in vista, margine per l'anello del fuoco); prossimo passo F2.09e | proprietario |
 | 2026-11-13 | 0.67 | F2.09e fatto (PR #71; precisazioni WG1–WG5 di ADR-0045 e una di ADR-0040: la forma del puntatore chiesta al widget per un punto, doppia freccia sopra il divisore, divisore più discreto sotto il puntatore per scelta del proprietario; 621 istruzioni per la domanda; provato a mano dal proprietario); note in F2.10 (forma `Text`) e F2.11b (forme dei bordi della finestra); prossimo passo F2.10 | proprietario |
 | 2026-11-13 | 0.68 | F2.10 diviso in F2.10a–c; F2.10a fatto (PR #72, ADR-0047 Accepted: il campo di testo; appunti `arboard` con *data-control*, scelti dal proprietario sulle misure); note in F2.10b, F2.10c, F2.11 (menu Modifica e campo con il fuoco), F2.12 (lampeggio del cursore); rimandati la selezione primaria e il campo multiriga; prossimo passo F2.10b | proprietario |
+| 2026-11-14 | 0.69 | F2.10b1 fatto (PR #73: il nucleo di modifica senza display); F2.10b diviso in F2.10b1–b3: l'accessibilità del campo passa nel nuovo F2.10b3; in F2.10b2 il segnaposto e il campo "Nome della traccia" nell'anteprima (scelte del proprietario); prossimo passo F2.10b2 | proprietario |

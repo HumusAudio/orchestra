@@ -10,8 +10,8 @@
 //!
 //! # Why so few shapes
 //! Only the shapes a widget uses today are here (SCALETTA §1, rule 6: no work "for later"): the
-//! ordinary arrow and the two resize shapes of the splitter's divider. The text beam comes with
-//! the text field (F2.10), the shapes of the window's edges and corners with our own title bar
+//! ordinary arrow, the two resize shapes of the splitter's divider and the text field's text beam
+//! (F2.10b2). The shapes of the window's edges and corners come with our own title bar
 //! (F2.11b). Buttons keep the arrow, as on Windows, macOS, GNOME and KDE: the pointing hand is
 //! the convention of links, and none exist yet (owner's choice, 2026-11-13).
 
@@ -29,6 +29,9 @@ pub enum PointerShape {
     /// Resizing **rows**: a boundary that moves up and down, such as the divider between two
     /// panes one above the other (a vertical splitter).
     ResizeRow,
+    /// The text beam (an I-bar): over text that can be edited or selected, such as a text field
+    /// (ADR-0047 TF4, F2.10b2).
+    Text,
 }
 
 /// `winit`'s cursor for `shape`.
@@ -46,6 +49,9 @@ pub(crate) const fn to_winit(shape: PointerShape) -> CursorIcon {
         PointerShape::Default => CursorIcon::Default,
         PointerShape::ResizeColumn => CursorIcon::ColResize,
         PointerShape::ResizeRow => CursorIcon::RowResize,
+        // `Text` is the I-beam everywhere: `IDC_IBEAM` on Windows, `IBeamCursor` on macOS, the
+        // cursor theme's `text` (aliased `xterm`) on X11 and Wayland.
+        PointerShape::Text => CursorIcon::Text,
     }
 }
 
@@ -59,6 +65,7 @@ mod tests {
         assert_eq!(to_winit(PointerShape::Default), CursorIcon::Default);
         assert_eq!(to_winit(PointerShape::ResizeColumn), CursorIcon::ColResize);
         assert_eq!(to_winit(PointerShape::ResizeRow), CursorIcon::RowResize);
+        assert_eq!(to_winit(PointerShape::Text), CursorIcon::Text);
         assert_eq!(PointerShape::default(), PointerShape::Default);
     }
 }

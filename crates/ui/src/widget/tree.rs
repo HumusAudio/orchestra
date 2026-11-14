@@ -22,6 +22,7 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use std::num::NonZeroU64;
+use std::time::Instant;
 
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::glyph_cache::KeyHasher;
@@ -63,7 +64,24 @@ impl WidgetId {
     pub const fn get(self) -> u64 {
         self.0.get()
     }
+
+    /// The display-list segment of this widget's **overlay** ([`Widget::has_overlay`]): the
+    /// widget's number with the high bit set (F2.10b2, a precision of ADR-0045 WA6).
+    ///
+    /// # Why the high bit cannot collide
+    /// Widget numbers come from a counter that starts at 1 and grows by one per widget: reaching
+    /// 2⁶³ would take a new widget every nanosecond for 292 years. So every number below 2⁶³ is
+    /// a widget's main segment and every number above is an overlay, and the two sets never meet.
+    /// F2.10b3 reserves the same bit for the accessibility node of a field's text run.
+    #[must_use]
+    pub(crate) const fn overlay_segment(self) -> crate::draw::list::SegmentId {
+        crate::draw::list::SegmentId(self.0.get() | HIGH_BIT)
+    }
 }
+
+/// The bit that tells a widget's second name (its overlay segment) from its first: see
+/// [`WidgetId::overlay_segment`].
+const HIGH_BIT: u64 = 1 << 63;
 
 /// Lets a boxed widget be looked at as its concrete type (to read or change its state from the
 /// application). Implemented for every `'static` type.
@@ -153,6 +171,11 @@ pub enum WidgetEvent<'a> {
     Decrement,
     /// An assistive technology asked to set the value.
     SetValue(f64),
+    /// The time this widget asked for came ([`EventCx::request_wakeup`], a precision of ADR-0040
+    /// W2 made in F2.10b2): a text field's caret blinks with it. Sent to that widget alone,
+    /// without bubbling, at the first frame at or after the time asked; the time of the frame is
+    /// [`EventCx::now`]. A widget that wants another wake-up asks again while handling this one.
+    WakeUp,
     /// An assistive technology asked to scroll (AccessKit's scroll actions, F2.09d): a scroll
     /// area moves its content by a line (`page == false`) or by a viewport (`page == true`).
     Scroll {
@@ -281,6 +304,40 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
         let _ = point;
         None
     }
+
+    /// `true` if the widget draws an **overlay**: a second, small segment of its own, recorded
+    /// right after its main segment and drawn on top of it, that the widget can re-record alone
+    /// ([`EventCx::request_overlay`]), so that a tiny change redraws only a tiny area (F2.10b2, a
+    /// precision of ADR-0045 WA6). The text field's caret is its overlay: a blink damages the
+    /// caret's 2 × 20 pixels, not the whole field (ADR-0047 TF8). `false` by default; asked only
+    /// when the widget is recorded, so it costs nothing to the widgets without one.
+    ///
+    /// # Why the overlay is recorded with the main segment
+    /// Segments are drawn in the order they were **first** recorded (ADR-0039 D1). Recording the
+    /// overlay (even empty) at the same moment as the main segment puts it right after it, below
+    /// every widget recorded later (a dialog opened afterwards covers the caret, as it should);
+    /// an overlay first recorded at a later blink would land on top of everything.
+    fn has_overlay(&self) -> bool {
+        false
+    }
+
+    /// Records the widget's overlay (see [`Widget::has_overlay`]), with the same context and the
+    /// same clip as its main segment. Nothing by default.
+    fn record_overlay(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        let _ = (cx, recorder);
+    }
+}
+
+/// What a widget asked about its wake-up while handling an event ([`EventCx::request_wakeup`],
+/// [`EventCx::cancel_wakeup`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WakeRequest {
+    /// Nothing: a pending wake-up stays as it was.
+    Keep,
+    /// Wake the widget at this time (replacing a pending wake-up: a widget has at most one).
+    At(Instant),
+    /// Drop the pending wake-up, if any.
+    Cancel,
 }
 
 /// What a widget can do while handling an event (WB6): send messages to the application and ask
@@ -288,8 +345,8 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
 #[derive(Debug)]
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "four independent requests a widget may make in any combination (lay out, record, \
-              focus, arrange); a bit set would only hide them"
+    reason = "five independent requests a widget may make in any combination (lay out, record, \
+              focus, arrange, overlay); a bit set would only hide them"
 )]
 pub struct EventCx<'a, M> {
     /// The widget receiving the event.
@@ -309,6 +366,12 @@ pub struct EventCx<'a, M> {
     pub(crate) rearrange: bool,
     /// The modifiers held when the event arrived (ADR-0046 V3: the fine adjustment).
     pub(crate) modifiers: Modifiers,
+    /// Record this widget's overlay again ([`Widget::has_overlay`]), without its main segment.
+    pub(crate) overlay: bool,
+    /// The time of the frame the event belongs to ([`Ui::advance`](crate::Ui::advance)).
+    pub(crate) now: Instant,
+    /// What the widget asked about its wake-up.
+    pub(crate) wakeup: WakeRequest,
 }
 
 impl<M> EventCx<'_, M> {
@@ -360,10 +423,49 @@ impl<M> EventCx<'_, M> {
     pub const fn request_focus(&mut self) {
         self.focus = true;
     }
+
+    /// Asks the tree to record this widget's **overlay** again, and only it
+    /// ([`Widget::has_overlay`]): the caret blinked. A widget without an overlay asking this
+    /// changes nothing.
+    pub const fn request_overlay(&mut self) {
+        self.overlay = true;
+    }
+
+    /// The time of the frame this event belongs to: the last time the window gave the interface
+    /// with [`Ui::advance`](crate::Ui::advance) (F2.10b2, a precision of ADR-0040 W2).
+    ///
+    /// # Why widgets never read the clock themselves
+    /// So that every behaviour in time (a caret's blink, its stop after 10 s) is tested with
+    /// made-up times, without waiting and without a window: the tests advance the interface's
+    /// time as they like, the window advances it with the real clock. One time per frame also
+    /// means two widgets reacting to the same frame agree on what "now" is.
+    #[must_use]
+    pub const fn now(&self) -> Instant {
+        self.now
+    }
+
+    /// Asks to receive [`WidgetEvent::WakeUp`] at `at` (or at the first frame after it),
+    /// replacing this widget's pending wake-up if it had one: a widget has at most one. The
+    /// window sleeps until the earliest wake-up of all its widgets
+    /// ([`Ui::next_wakeup`](crate::Ui::next_wakeup)) and is never woken for nothing: without
+    /// wake-ups it waits for the next input event (frames on demand, ADR-0040 W2).
+    pub const fn request_wakeup(&mut self, at: Instant) {
+        self.wakeup = WakeRequest::At(at);
+    }
+
+    /// Drops this widget's pending wake-up, if any (a field that lost the focus stops blinking).
+    pub const fn cancel_wakeup(&mut self) {
+        self.wakeup = WakeRequest::Cancel;
+    }
 }
 
 /// One slot of the arena.
 #[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "four independent marks of what a slot must redo (layout, record, overlay, \
+              accessibility), each cleared by a different pass; a bit set would only hide them"
+)]
 pub(crate) struct Slot<M> {
     /// The widget's ID.
     pub(crate) id: WidgetId,
@@ -388,6 +490,9 @@ pub(crate) struct Slot<M> {
     pub(crate) needs_layout: bool,
     /// Must be recorded again.
     pub(crate) needs_record: bool,
+    /// Its overlay alone must be recorded again ([`Widget::has_overlay`]); implied by
+    /// `needs_record`, which records both.
+    pub(crate) needs_overlay: bool,
     /// Its accessibility node must be sent again (WC3).
     pub(crate) needs_access: bool,
 }
@@ -475,6 +580,7 @@ impl<M: 'static> WidgetTree<M> {
             measured: None,
             needs_layout: true,
             needs_record: true,
+            needs_overlay: false,
             needs_access: true,
         };
         let index = if let Some(index) = self.free.pop() {

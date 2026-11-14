@@ -40,6 +40,14 @@
 //!   its grouping into the open undo step, the caret's grapheme boundary), and one Ctrl+→ (a
 //!   walk of the word segmenter over the text). The field's whole keystroke, with shaping and
 //!   drawing, is measured in F2.10b2 against the 0.5 M of an event.
+//! - `field_type_key`, `field_caret_blink` (F2.10b2, ADR-0047 TF13): the real panel (200 widgets)
+//!   with a text field of 300 pixels on top, holding the same 60-character name (wider than the
+//!   field, so it scrolls and is clipped), focused by a click in its middle with one letter typed
+//!   since. `field_type_key` is one letter as a keyboard sends it (the key, its text, the
+//!   release): the edit, the line shaped again, the scroll offset, the field and its caret
+//!   re-recorded, the damage drawn, the accessibility update. `field_caret_blink` is the wake-up
+//!   of the caret's next half: the overlay re-recorded and its small damage drawn. Targets: 0.5 M
+//!   instructions for the key, 0.1 M for the blink.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -73,6 +81,8 @@ use orchestra_ui::{
 };
 use orchestra_ui::{Axis, ScrollArea, Splitter};
 use orchestra_ui::{Direction, EditAction, EditConvention, TextEditor, Unit};
+use orchestra_ui::{Key, Modifiers, NamedKey, TextField};
+use std::time::Instant;
 
 // A button-like leaf whose width can change.
 #[derive(Debug)]
@@ -695,7 +705,175 @@ fn edit_word_move(mut editor: TextEditor) -> TextEditor {
     editor
 }
 
-library_benchmark_group!(name = editing, benchmarks = [edit_type_key, edit_word_move]);
+// The real panel with a text field on top, focused, with one letter typed (F2.10b2).
+struct Fielded {
+    ui: Ui<usize>,
+    list: DisplayList,
+    renderer: CpuRenderer,
+    image: Image,
+    // When the caret's next half starts: the blink benchmark advances to it.
+    wakeup: Instant,
+}
+
+fn fielded_shown() -> Fielded {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(Flex::column(Space::Xs, Space::M), &theme(), faces.clone());
+    ui.set_title("Benchmark");
+    let root = ui.root();
+    let mut field = TextField::new(
+        "Violin I, solo, con sordino - tutti divisi, sul ponticello mp",
+        |_| 0,
+    )
+    .convention(EditConvention::Linux);
+    field.reserve(256, 4096, 256);
+    let field = ui
+        .add(
+            root,
+            field,
+            LayoutProps::default().width(Length::Fixed(300.0)),
+        )
+        .unwrap();
+    for row_index in 0..40 {
+        let row = ui
+            .add(
+                root,
+                Flex::row(Space::S, Space::None),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        ui.add(
+            row,
+            Label::new(format!("Track {row_index}: Violin I")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        for column in 0..4 {
+            ui.add(
+                row,
+                Button::new(format!("Action {column}"), row_index * 4 + column),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        }
+    }
+    let mut list = DisplayList::new();
+    let start = Instant::now();
+    ui.advance(start, &mut list);
+    ui.layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut list);
+    let rect = ui.rect(field).unwrap();
+    let middle = Point::new(
+        f32::midpoint(rect.x0, rect.x1),
+        f32::midpoint(rect.y0, rect.y1),
+    );
+    ui.input(&InputEvent::PointerMoved { position: middle }, &mut list);
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        ui.input(
+            &InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state,
+                position: middle,
+                clicks: 1,
+            },
+            &mut list,
+        );
+    }
+    for event in typed_key("a") {
+        ui.input(&event, &mut list);
+    }
+    // The measured letter typed and deleted once, drawn each time: its glyph and the glyphs it
+    // pushes along are then in the glyph cache at the very positions the measured key gives
+    // them, the steady state of typing (a letter's first appearance at a new quarter-pixel
+    // phase rasterises it once, about 0.14 M instructions measured, outside this budget).
+    let mut renderer = CpuRenderer::new(faces.clone());
+    let mut image = Image::new(1000, 1600).unwrap();
+    let backspace = InputEvent::Key {
+        key: Key::Named(NamedKey::Backspace),
+        state: ButtonState::Pressed,
+        repeat: false,
+        modifiers: Modifiers::default(),
+    };
+    for event in [typed_key("b").as_slice(), &[backspace]].concat() {
+        ui.input(&event, &mut list);
+        let damage = list.take_damage();
+        renderer
+            .render(&list, &theme(), &damage, 1.0, &mut image)
+            .unwrap();
+    }
+    let mut fielded = Fielded {
+        wakeup: ui.next_wakeup().unwrap(),
+        ui,
+        list,
+        renderer,
+        image,
+    };
+    let damage = fielded.list.take_damage();
+    fielded
+        .renderer
+        .render(&fielded.list, &theme(), &damage, 1.0, &mut fielded.image)
+        .unwrap();
+    let _ = fielded.ui.take_access_update();
+    fielded
+}
+
+// A letter as a keyboard sends it: the key, its text, the release.
+fn typed_key(letter: &str) -> [InputEvent; 3] {
+    let key = |state| InputEvent::Key {
+        key: Key::Character(letter.to_owned()),
+        state,
+        repeat: false,
+        modifiers: Modifiers::default(),
+    };
+    [
+        key(ButtonState::Pressed),
+        InputEvent::Text(letter.to_owned()),
+        key(ButtonState::Released),
+    ]
+}
+
+fn fielded_draw(fielded: &mut Fielded) {
+    let damage = fielded.list.take_damage();
+    fielded
+        .renderer
+        .render(&fielded.list, &theme(), &damage, 1.0, &mut fielded.image)
+        .unwrap();
+}
+
+#[library_benchmark]
+#[bench::panel(setup = fielded_typing)]
+fn field_type_key(input: (Fielded, [InputEvent; 3])) -> Fielded {
+    let (mut fielded, events) = input;
+    for event in &events {
+        fielded.ui.input(black_box(event), &mut fielded.list);
+    }
+    black_box(fielded.ui.take_messages().count());
+    fielded_draw(&mut fielded);
+    black_box(fielded.ui.take_access_update());
+    fielded
+}
+
+// The panel and the events of one letter, built outside the measured region.
+fn fielded_typing() -> (Fielded, [InputEvent; 3]) {
+    (fielded_shown(), typed_key("b"))
+}
+
+#[library_benchmark]
+#[bench::panel(fielded_shown())]
+fn field_caret_blink(mut fielded: Fielded) -> Fielded {
+    let at = fielded.wakeup;
+    fielded.ui.advance(black_box(at), &mut fielded.list);
+    fielded_draw(&mut fielded);
+    fielded
+}
+
+library_benchmark_group!(
+    name = editing,
+    benchmarks = [
+        edit_type_key,
+        edit_word_move,
+        field_type_key,
+        field_caret_blink
+    ]
+);
 
 main!(
     library_benchmark_groups = core,

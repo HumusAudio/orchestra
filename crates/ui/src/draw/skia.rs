@@ -247,7 +247,7 @@ impl CpuRenderer {
         target: &mut Image,
     ) {
         let (width, height) = (target.width(), target.height());
-        let area = Self::scratch_area(list, scale, region, width, height);
+        let area = Self::scratch_area(list, &self.faces, scale, region, width, height);
         let whole = area.x == 0 && area.y == 0 && area.width == width && area.height == height;
         if whole {
             // Drawing the whole frame gives every pixel its final value, the region's included.
@@ -261,8 +261,15 @@ impl CpuRenderer {
             return;
         };
         let mut scratch = std::mem::take(&mut self.scratch);
-        scratch.clear();
-        scratch.resize(len, 0);
+        // Not cleared: `draw_region` fills the whole pixmap with the `surface` colour before
+        // anything else, so zeroing it first would write every byte twice (measured in F2.10b2:
+        // about 60 000 instructions for a text field's region). Only a growing buffer gets new
+        // (zeroed) bytes.
+        if scratch.len() > len {
+            scratch.truncate(len);
+        } else {
+            scratch.resize(len, 0);
+        }
         if let Some(pixmap) = PixmapMut::from_bytes(&mut scratch, area.width, area.height) {
             self.draw_region(list, theme, scale, area, pixmap);
         }
@@ -274,10 +281,18 @@ impl CpuRenderer {
     /// bounds of every drawing command and clip of the segments that meet it, when they meet it,
     /// clamped to the frame (see [`render_region`](Self::render_region)).
     ///
+    /// # Transforms
+    /// Whether a shape or a glyph comes from a cache depends on its size in device pixels, so on
+    /// the transforms in effect. The scan does not keep a transform stack (it would be one more
+    /// vector to manage for a command no widget records today): inside a pushed transform every
+    /// rounded shape and glyph run counts as needing its whole shape, the safe side.
+    ///
     /// # Complexity
-    /// O(commands of the segments meeting the region), the same scan the replay does.
+    /// O(commands of the segments meeting the region), the same scan the replay does; one face
+    /// lookup per glyph run meeting the region.
     fn scratch_area(
         list: &DisplayList,
+        faces: &Faces,
         scale: f32,
         region: DeviceRect,
         width: u32,
@@ -293,8 +308,15 @@ impl CpuRenderer {
             if !segment.bounds.intersects(&logical) {
                 continue;
             }
+            // How many transforms are pushed at this entry (see "Transforms" above).
+            let mut transformed = 0_usize;
             for entry in &segment.entries {
-                if needs_whole_shape(&entry.command)
+                match entry.command {
+                    Command::PushTransform(_) => transformed += 1,
+                    Command::PopTransform => transformed = transformed.saturating_sub(1),
+                    _ => {}
+                }
+                if needs_whole_shape(&entry.command, scale, transformed > 0, faces)
                     && entry.bounds.intersects(&logical)
                     && let Some(device) = device_region(&entry.bounds, scale, width, height)
                 {
@@ -1094,6 +1116,15 @@ impl CpuRenderer {
                 self.masks.push(mask);
                 return;
             };
+            if self.masks.is_empty() {
+                // The outermost rectangular clip: its mask is the snapped rectangle's pixels at
+                // 255, written row by row (a path fill would compute the same coverage through
+                // the rasteriser, measured at 46 000 instructions for a text field's clip).
+                fill_rect_mask(&mut mask, snapped);
+                self.builder = Some(builder);
+                self.masks.push(mask);
+                return;
+            }
             builder.push_rect(snapped);
             SkiaTransform::identity()
         } else {
@@ -1185,10 +1216,48 @@ impl Renderer for CpuRenderer {
 /// pixel by pixel from a formula. Growing the scratch area for them would only cost time: the
 /// owner saw it in F2.04a, where growing it for the demonstration's shadowed panel made every
 /// pointer move redraw the whole shadow (68 ms a frame).
-fn needs_whole_shape(command: &Command) -> bool {
+///
+/// # Cached shapes and glyphs (F2.10b2, a precision of ADR-0043)
+/// A rounded rectangle drawn from the shape cache and a glyph drawn from the glyph cache are
+/// blended from a coverage mask that is a function of its key alone, placed on whole device
+/// pixels ([`CpuRenderer::cached_rounded`], [`CpuRenderer::glyph_run`]): the same pixels in any
+/// area, cut or not by the scratch buffer's edge. So they need their whole shape only when they
+/// are too large for their cache, which is known here from the scale (`scale`, and no transform
+/// pushed: `transformed` is `false`):
+/// - a rounded rectangle is cached when its device width and height are at most
+///   [`MAX_CACHED_SHAPE`] (the test of `cached_rounded`); its entry's bounds, which contain the
+///   shape (and its stroke and fringe), are measured instead, a little larger: the safe side;
+/// - a glyph is cached when its outline's pixel box is at most [`MAX_CACHED_SIDE`] on each side
+///   (the test of `rasterise`); every glyph lies inside its face's box (`head`'s bounding box,
+///   [`Faces::bounds`]), so a run whose face box at the device size fits, with a margin of four
+///   pixels for the rounding outwards and the quarter-pixel phase, is cached glyph by glyph.
+///
+/// Measured: a caret's blink in a text field redrew the whole field (its rounded background,
+/// border, focus ring and 60 glyphs), 0.57 M instructions, for a 2 × 20 pixel caret.
+fn needs_whole_shape(command: &Command, scale: f32, transformed: bool, faces: &Faces) -> bool {
+    let fits = |side: f32, limit: u32| {
+        // The limits are small whole numbers, exact in f32.
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "the two cache limits are small whole numbers, below 2^24"
+        )]
+        let limit = limit as f32;
+        side.is_finite() && side <= limit
+    };
     match command {
         Command::FillRoundedRect { shape, .. } | Command::StrokeRoundedRect { shape, .. } => {
-            shape.clamped_radius() > 0.0
+            let cached = !transformed
+                && fits((shape.rect.width() + 4.0) * scale, MAX_CACHED_SHAPE)
+                && fits((shape.rect.height() + 4.0) * scale, MAX_CACHED_SHAPE);
+            shape.clamped_radius() > 0.0 && !cached
+        }
+        Command::GlyphRun { face, size, .. } => {
+            let cached = !transformed
+                && faces.bounds(*face, *size * scale).is_ok_and(|face_box| {
+                    fits(face_box.right - face_box.left + 4.0, MAX_CACHED_SIDE)
+                        && fits(face_box.bottom - face_box.top + 4.0, MAX_CACHED_SIDE)
+                });
+            !cached
         }
         // A line is snapped only when it is horizontal or vertical with butt or square caps;
         // our transforms (translate, uniform scale) keep it so. "Straight" means bit-for-bit equal
@@ -1203,14 +1272,10 @@ fn needs_whole_shape(command: &Command) -> bool {
         }
         // A sharp shadow (blur 0) is an ordinary fill, a path when its corners are rounded.
         Command::Shadow { shape, blur, .. } => *blur <= 0.0 && shape.clamped_radius() > 0.0,
-        Command::FillPath { .. }
-        | Command::StrokePath { .. }
-        | Command::Image { .. }
-        | Command::PushClip { .. }
-        // Cached glyphs are blended from masks placed on whole pixels of the frame, the same in
-        // any area; but a glyph too large for the cache is filled as a path, and whether it is
-        // depends on the scale, unknown here. Conservative, and cheap: text runs are small.
-        | Command::GlyphRun { .. } => true,
+        Command::FillPath { .. } | Command::StrokePath { .. } | Command::Image { .. } => true,
+        // A rectangular clip is snapped to whole device pixels before its mask is made
+        // (`push_clip`): coverage 255 inside, 0 outside, in any area. A rounded one is a path.
+        Command::PushClip { shape } => transformed || shape.clamped_radius() > 0.0,
         Command::FillRect { .. }
         | Command::StrokeRect { .. }
         | Command::PopClip
@@ -1645,13 +1710,13 @@ fn rasterise(
                     true,
                     SkiaTransform::from_translate(-left, -top),
                 );
-                Raster::Mask(CoverageMask {
-                    left: left_px,
-                    top: top_px,
-                    width: width_px,
-                    height: height_px,
-                    coverage: mask.take(),
-                })
+                Raster::Mask(CoverageMask::new(
+                    left_px,
+                    top_px,
+                    width_px,
+                    height_px,
+                    mask.take(),
+                ))
             }
             // A zero-sized mask: a degenerate outline with no area.
             None => Raster::Empty,
@@ -1709,6 +1774,20 @@ fn blit_glyph(
     )]
     let solid = (source[3] >= 255.0 && cover[255] >= 1.0)
         .then(|| source.map(|channel| (channel + 0.5) as u8));
+    if !mask.rows.is_empty() {
+        // A wide mask (a control's shape) with its rows' runs: see `blit_runs`.
+        blit_runs(
+            pixmap,
+            mask,
+            (x, y),
+            (col0, col1, row0, row1),
+            clip,
+            source,
+            cover,
+            solid,
+        );
+        return;
+    }
     let data = pixmap.data_mut();
     for row in row0..row1 {
         // Offsets: the mask's row and the pixmap's, both as indices of whole pixels. Every value
@@ -1723,30 +1802,136 @@ fn blit_glyph(
             continue;
         };
         let clip_row = clip.and_then(|clip| clip.get(pixel_row..pixel_row + count));
-        for (index, (pixel, &value)) in pixels
-            .as_chunks_mut::<4>()
-            .0
-            .iter_mut()
-            .zip(coverage)
-            .enumerate()
+        blit_span(pixels, coverage, clip_row, source, cover, solid);
+    }
+}
+
+/// The part of [`blit_glyph`] for a mask with [`RowRuns`] (F2.10b2): per row, the inked part
+/// inside the pixmap, without its zero hole, blended, and its full run copied as a block when the
+/// source is opaque and nothing clips. Kept apart so the glyphs' loop stays as small as it was
+/// (measured: one function for both cost a frame of labels 10%). `origin` is the mask's top-left
+/// pixel in the pixmap, `visible` the pixmap columns and rows it covers (`col0, col1, row0, row1`).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the inputs blit_glyph already computed, passed on rather than computed again"
+)]
+fn blit_runs(
+    pixmap: &mut PixmapMut<'_>,
+    mask: &CoverageMask,
+    origin: (i64, i64),
+    visible: (i64, i64, i64, i64),
+    clip: Option<&[u8]>,
+    source: &[f32; 4],
+    cover: &[f32; 256],
+    solid: Option<[u8; 4]>,
+) {
+    let (x, y) = origin;
+    let (col0, col1, row0, row1) = visible;
+    let width = i64::from(pixmap.width());
+    let mask_width = i64::from(mask.width);
+    let data = pixmap.data_mut();
+    for row in row0..row1 {
+        let mask_index = usize::try_from(row - y).unwrap_or(0);
+        let Some(&runs) = mask.rows.get(mask_index) else {
+            continue;
+        };
+        // The row's part inside the pixmap, in mask columns, narrowed to its ink.
+        let visible = (
+            usize::try_from(col0 - x).unwrap_or(0),
+            usize::try_from(col1 - x).unwrap_or(0),
+        );
+        let ink = (
+            visible.0.max(usize::from(runs.start)),
+            visible.1.min(usize::from(runs.end)),
+        );
+        if ink.0 >= ink.1 {
+            continue;
+        }
+        let row_start = mask_index * usize::try_from(mask_width).unwrap_or(0);
+        let pixel_row = usize::try_from(row * width + col0).unwrap_or(0);
+        // Mask column `c` is pixmap pixel `pixel_row + (c - visible.0)`.
+        // Blends mask columns `from..to`, or, with `copy`, writes the solid source's bytes there
+        // (only called so for a full run with a solid source and no clip).
+        let mut blit = |from: usize, to: usize, copy: bool| {
+            if from >= to {
+                return;
+            }
+            let pixel = pixel_row + (from - visible.0);
+            let count = to - from;
+            let (Some(coverage), Some(pixels)) = (
+                mask.coverage.get(row_start + from..row_start + to),
+                data.get_mut(pixel * 4..(pixel + count) * 4),
+            ) else {
+                return;
+            };
+            match solid {
+                Some(solid) if copy => {
+                    for chunk in pixels.as_chunks_mut::<4>().0 {
+                        *chunk = solid;
+                    }
+                }
+                _ => {
+                    let clip_row = clip.and_then(|clip| clip.get(pixel..pixel + count));
+                    blit_span(pixels, coverage, clip_row, source, cover, solid);
+                }
+            }
+        };
+        // The zero hole inside the ink is skipped; the rest is blended (or copied) in parts.
+        let hole = (
+            usize::from(runs.hole.0).clamp(ink.0, ink.1),
+            usize::from(runs.hole.1).clamp(ink.0, ink.1),
+        );
+        let full = (usize::from(runs.full.0), usize::from(runs.full.1));
+        for part in [(ink.0, hole.0), (hole.1.max(hole.0), ink.1)] {
+            // Inside each part, the full run (when the source is solid and nothing clips) is a
+            // block copy of the source's bytes; what is around it is blended pixel by pixel.
+            let block = (full.0.clamp(part.0, part.1), full.1.clamp(part.0, part.1));
+            if block.0 < block.1 && clip.is_none() && solid.is_some() {
+                blit(part.0, block.0, false);
+                blit(block.0, block.1, true);
+                blit(block.1, part.1, false);
+            } else {
+                blit(part.0, part.1, false);
+            }
+        }
+    }
+}
+
+/// Blends one span of a mask's row into the pixmap: the per-pixel path of [`blit_glyph`].
+/// `clip_row`, if any, is the clip mask's span for the same pixels: the inner loop of every glyph
+/// and every cached shape.
+#[inline]
+fn blit_span(
+    pixels: &mut [u8],
+    coverage: &[u8],
+    clip_row: Option<&[u8]>,
+    source: &[f32; 4],
+    cover: &[f32; 256],
+    solid: Option<[u8; 4]>,
+) {
+    for (index, (pixel, &value)) in pixels
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(coverage)
+        .enumerate()
+    {
+        if value == 0 {
+            continue;
+        }
+        if value == 255
+            && clip_row.is_none()
+            && let Some(solid) = solid
         {
-            if value == 0 {
-                continue;
-            }
-            if value == 255
-                && clip_row.is_none()
-                && let Some(solid) = solid
-            {
-                pixel.copy_from_slice(&solid);
-                continue;
-            }
-            let mut amount = cover.get(usize::from(value)).copied().unwrap_or(1.0);
-            if let Some(clip_row) = clip_row {
-                amount *= f32::from(clip_row.get(index).copied().unwrap_or(0)) / 255.0;
-            }
-            if amount > 0.0 {
-                blend_over(pixel, source, amount);
-            }
+            pixel.copy_from_slice(&solid);
+            continue;
+        }
+        let mut amount = cover.get(usize::from(value)).copied().unwrap_or(1.0);
+        if let Some(clip_row) = clip_row {
+            amount *= f32::from(clip_row.get(index).copied().unwrap_or(0)) / 255.0;
+        }
+        if amount > 0.0 {
+            blend_over(pixel, source, amount);
         }
     }
 }
@@ -1839,13 +2024,13 @@ fn rasterise_rounded(builder: &mut Option<SkiaPathBuilder>, key: ShapeKey) -> Ra
         true,
         SkiaTransform::identity(),
     );
-    Raster::Mask(CoverageMask {
-        left: -margin_px,
-        top: -margin_px,
-        width: mask_width,
-        height: mask_height,
-        coverage: mask.take(),
-    })
+    Raster::Mask(CoverageMask::new(
+        -margin_px,
+        -margin_px,
+        mask_width,
+        mask_height,
+        mask.take(),
+    ))
 }
 
 /// The identity cover table: coverage `c` blended at `c / 255`.
@@ -1855,6 +2040,37 @@ fn plain_cover_table() -> [f32; 256] {
         *entry = f32::from(value) / 255.0;
     }
     table
+}
+
+/// Sets to 255 the coverage of `mask` inside `rect` (device pixels of the mask, already snapped
+/// to whole pixels by [`snap_rect`]), leaving the rest as it is (zeros, for a fresh mask): an
+/// axis-aligned rectangle on whole pixels covers its pixels fully and nothing else, exactly what
+/// the rasteriser would compute.
+///
+/// # Complexity
+/// O(pixels of the rectangle inside the mask), one `fill` per row.
+fn fill_rect_mask(mask: &mut Mask, rect: SkiaRect) {
+    let (width, height) = (mask.width(), mask.height());
+    // The rectangle's edges as whole pixels, clamped to the mask (the conversions saturate: a
+    // rectangle left of or above the mask starts at 0).
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "snapped whole numbers, clamped to the mask's size"
+    )]
+    let clamp = |value: f32, max: u32| (value.max(0.0) as u32).min(max) as usize;
+    let (x0, x1) = (clamp(rect.left(), width), clamp(rect.right(), width));
+    let (y0, y1) = (clamp(rect.top(), height), clamp(rect.bottom(), height));
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+    let stride = width as usize;
+    let data = mask.data_mut();
+    for row in y0..y1 {
+        if let Some(span) = data.get_mut(row * stride + x0..row * stride + x1) {
+            span.fill(255);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1890,13 +2106,7 @@ mod tests {
     fn glyph_pixels_are_blended_through_the_contrast_table() {
         let mut bytes = vec![255_u8; 4];
         let mut pixmap = super::PixmapMut::from_bytes(&mut bytes, 1, 1).unwrap();
-        let mask = super::CoverageMask {
-            left: 0,
-            top: 0,
-            width: 1,
-            height: 1,
-            coverage: vec![128],
-        };
+        let mask = super::CoverageMask::new(0, 0, 1, 1, vec![128]);
         let table = super::text_cover_table();
         // Opaque black text over a white pixel.
         let source = [0.0, 0.0, 0.0, 255.0];

@@ -3965,6 +3965,108 @@ Three injected bugs: the word groups (caught), the caret's snap after an edit (c
 test was added), the redo branch's bytes left in the arena (no visible effect: memory only).
 Benchmarks: a typed key 4 175 instructions, a word movement 12 206.
 
+#### The text field
+
+Step F2.10b2 (ADR-0047, with precisions of ADR-0040, ADR-0043, ADR-0045 and ADR-0047), in
+`orchestra-ui` (`src/widget/field.rs` new; `src/widget/tree.rs`, `src/widget/ui.rs`,
+`src/widget/access.rs`, `src/window/mod.rs`, `src/window/shell.rs`, `src/window/pointer.rs`,
+`src/draw/skia.rs`, `src/draw/glyph_cache.rs`) and `orchestra-app` (`src/demo.rs`). The editing
+core of F2.10b1 becomes a widget you can click and type into: `TextField`.
+
+**Using it.** A field is built with its text and the message it sends when the text is
+*committed*; the rest is optional:
+
+```rust
+let field = TextField::new("", |text| DemoMessage::TrackName(text.to_owned()))
+    .placeholder(texts.track_name_placeholder.clone())
+    .labelled(texts.track_name.clone());
+```
+
+`placeholder` is shown in `text-muted` while the field is empty, `labelled` names it for screen
+readers, `on_change` adds a message at every edit (for a search that filters as you type), and
+`convention` picks another platform's keys (tests only; the default is the platform's).
+
+**What it does.** Tab focuses it and selects everything, so typing replaces the text; a click
+focuses it and puts the caret where it lands. The keys are the platform's (F2.10b1); typed text
+arrives after its key, and the field swallows plain character keys so a single-key shortcut never
+fires while typing, while Ctrl+K and friends bubble to the application. Enter **commits** (the
+`on_commit` message, only if the text changed) and bubbles, so a dialog can treat it as OK; leaving
+the field commits too. Escape brings back the text the field had when it got the focus, and a
+second Escape bubbles (to close a dialog). With the pointer: click, Shift+click, drag, double click
+for a word (then dragging by words), triple click for everything, and the text beam over the
+field. A text wider than the field scrolls to keep the caret in view with a margin of about three
+characters, and comes back when you delete at the end. Disabled, it takes no focus and shows the
+arrow.
+
+**When the text is laid out again.** The field's size does not depend on its text, so an edit does
+not ask for a layout (which would measure every ancestor again) but for an **arrange**
+(`EventCx::request_arrange`): `arrange` receives a `LayoutCx`, which reaches the shaper, so the line
+is shaped again there and the scroll offset recomputed. A caret movement asks the same, for the
+offset alone.
+
+**The caret's blink, and time.** The caret blinks 530 ms on, 530 ms off and stops, visible, 10 s
+after the last input. That needs the window to wake without an event, which W2 of ADR-0040 did not
+allow: now `WindowApp` has `next_wakeup()` and `advance(now, list)`. The window calls `advance` with
+the real clock at the start of each batch of events (`new_events`) and, after the batch
+(`about_to_wait`), sleeps until the next wake-up (`ControlFlow::WaitUntil`) or, without one, until
+the next event, as before. Inside the interface, a widget asks `cx.request_wakeup(at)` (one pending
+wake-up per widget), receives `WidgetEvent::WakeUp` and reads the time with `cx.now()`: it never
+reads the clock, so the tests drive the blink with made-up instants:
+
+```rust
+bench.tab();
+assert_eq!(bench.ui.next_wakeup(), Some(bench.start + ms(530)));
+bench.at(ms(530));
+assert!(!bench.field().caret_on());
+```
+
+The halves are counted from the last input rather than toggled, so a late wake-up keeps the rhythm.
+
+**Overlays: redrawing only the caret.** A blink must not redraw the whole field. A widget may now
+own a second segment, its **overlay** (`Widget::has_overlay`, `record_overlay`), recorded right
+after its main segment and re-recorded alone with `cx.request_overlay()`. Its `SegmentId` is the
+widget's number with the high bit set (`WidgetId::overlay_segment`), which no widget number ever
+reaches. Recording it together with the main segment the first time keeps it just above the field
+and below anything recorded later, such as a dialog.
+
+**The renderer had to learn something too.** The first measures were far above the budgets of
+ADR-0047 TF13: a key 1.24 M instructions (budget 0.5 M), a blink 0.59 M (budget 0.1 M). Almost all
+of it was drawing. A partial redraw grows its scratch area to every anti-aliased shape it touches
+(F2.04a), and that rule grew it for the field's rounded background, border, focus ring and text even
+though they come from the shape and glyph caches, whose masks give the same pixels anywhere. Four
+changes, a precision of ADR-0043:
+- cached rounded rectangles and glyph runs no longer grow the area (only those too large for their
+  cache do), nor do rectangular clips, which are snapped to whole pixels;
+- the outermost rectangular clip's mask is written row by row instead of being filled as a path;
+- every cached mask keeps, per row, where its ink is, its longest zero run and its longest fully
+  covered run (`RowRuns`): blending skips the zeros in the middle of a border and copies the full
+  part of a background as a block, with the same bytes as before; only masks at least 48 pixels
+  wide get the runs (a control's shapes): on glyphs, a dozen pixels wide, they cost more than they
+  saved (a frame of labels +45% at first), so glyphs keep their old loop; the runs are found with
+  `chunk_by`, one slice per run, cheaper than a byte-by-byte walk (a first frame of 200 buttons
+  went from +5% to −2%);
+- the scratch buffer is no longer zeroed before being filled with `surface`.
+
+The result: a key 0.43 M, a blink 68 thousand instructions. A first try that blended eight pixels
+at a time was slower and was dropped.
+
+**In the preview.** The Playback preview has a *Track name* field (`playback-track-name`, placeholder
+`playback-track-name-placeholder`: *Unnamed*, researched in Ardour's catalogues and added to the
+glossary as `track_name` and `unnamed`). The committed name is written above the staff, the way a
+score names its instrument; `Demo` passes the time and the wake-ups through to its `Ui`.
+
+**Tests and cost.** `tests/field.rs` (17 tests: focus and its selection, typing, keys that bubble
+and keys swallowed, Enter, leaving, Escape, the local undo, click and Shift+click, drag and
+double and triple clicks, the text beam, scrolling, the blink and its stop, focus lost, the small
+damage of a blink, drawing of text, placeholder, caret and selection, `set_text`, the width given
+by the parent, removing a blinking field), `tests/field_no_alloc.rs` (typing, moving and blinking
+allocate nothing), a draw test that redraws caret-sized regions through a field at scales 1, 1.5
+and 2 against a full frame, a unit test of `RowRuns`, and the preview's test of the committed name.
+Five injected bugs: four caught (the full run skipped, the zero run one pixel too long, a commit
+without a change, the blink inverted); the fifth (rounded clips no longer growing the area) gave
+the same pixels at the positions tried, and that rule was left as it was. Benchmarks
+`field_type_key` and `field_caret_blink` in `benches/widgets.rs`.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

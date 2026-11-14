@@ -87,6 +87,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::Activate => "activate",
             WidgetEvent::Increment | WidgetEvent::Decrement | WidgetEvent::SetValue(_) => "value",
             WidgetEvent::Scroll { .. } => "scroll",
+            WidgetEvent::WakeUp => "wake",
         };
         self.log.push(name);
         match event {

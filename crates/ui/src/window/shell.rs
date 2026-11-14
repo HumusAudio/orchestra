@@ -10,8 +10,8 @@ use std::rc::Rc;
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
+use winit::event::{StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use super::appearance::{ShellEvent, ThemeState, appearance_from_winit};
@@ -352,6 +352,35 @@ impl<A: WindowApp> Shell<A> {
 }
 
 impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
+    /// A new batch of events begins, after a wait, a timed wake-up or the start (F2.10b2, a
+    /// precision of W2): the app receives the time first, so the batch's events share it and a
+    /// wake-up that came is handled before them. A frame is asked for if that damaged anything (a
+    /// caret that blinked).
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        // Before `resumed` there is no window and nothing to wake.
+        if matches!(cause, StartCause::Init) {
+            return;
+        }
+        self.app.advance(std::time::Instant::now(), &mut self.list);
+        if !self.list.damage().is_empty()
+            && let Some(open) = self.open.as_ref()
+        {
+            open.window.request_redraw();
+            self.push_access(false);
+        }
+    }
+
+    /// The batch is over: sleep until the app's next wake-up, or until the next event when it has
+    /// none (frames on demand, W2). Set after every batch, so a wake-up asked by any event of it
+    /// (a key that restarted the caret's blink) is in effect before the loop sleeps.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let flow = self
+            .app
+            .next_wakeup()
+            .map_or(ControlFlow::Wait, ControlFlow::WaitUntil);
+        event_loop.set_control_flow(flow);
+    }
+
     /// Creates the window the first time the application is resumed (`winit` 0.30 allows window
     /// creation only from here on), after starting to observe the system's preference.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {

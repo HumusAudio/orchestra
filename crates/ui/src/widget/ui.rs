@@ -41,12 +41,28 @@
 //! scroll step, which is the dominant cost, so B saves little; it stays open if the measures of
 //! F2.09d ever ask for it.
 //!
+//! # Time and wake-ups (F2.10b2, a precision of ADR-0040 W2)
+//! The interface has a time of its own, [`Ui::advance`]d by the window with the real clock at the
+//! start of each batch of events and by the tests with made-up times; widgets read it
+//! ([`EventCx::now`]) and never the clock. A widget may ask to be woken at a time
+//! ([`EventCx::request_wakeup`], at most one pending wake-up per widget): [`Ui::next_wakeup`] is
+//! the earliest of them, for the window to sleep until, and [`Ui::advance`] sends
+//! [`WidgetEvent::WakeUp`] to the widgets whose time has come. Without wake-ups the window waits
+//! for input, as before: an idle window costs nothing.
+//!
+//! # Overlays (F2.10b2, a precision of ADR-0045 WA6)
+//! A widget may own a second segment, its overlay ([`Widget::has_overlay`]), recorded after its
+//! main one and re-recorded alone on request ([`EventCx::request_overlay`]): the text field's
+//! caret, so that a blink damages the caret and not the field.
+//!
 //! # Allocation
 //! Routing an event allocates nothing (hit testing recurses on the tree, bubbling follows parent
 //! links, Tab order walks with a reused stack). Messages go into a queue that keeps its capacity.
 
+use std::time::Instant;
+
 use crate::draw::geometry::{Point, Rect};
-use crate::draw::list::{DisplayList, SegmentId};
+use crate::draw::list::{DisplayList, Recorder, SegmentId};
 use orchestra_text::Faces;
 
 use crate::theme::token::{Shape, Theme};
@@ -58,7 +74,9 @@ use super::access::{
     widget_node, window_node,
 };
 use super::layout::{Constraints, LayoutProps, Size};
-use super::tree::{EventCx, Handled, RecordCx, Widget, WidgetEvent, WidgetId, WidgetTree};
+use super::tree::{
+    EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId, WidgetTree,
+};
 
 /// Why an operation on the interface was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +137,16 @@ pub struct Ui<M> {
     /// `false` until the whole accessibility tree has been handed out (and again when an
     /// assistive technology asks for it from the start).
     access_sent: bool,
+    /// The interface's time: the last one given to [`Ui::advance`] (never going back), or the
+    /// moment the interface was created (see the module documentation).
+    now: Instant,
+    /// The pending wake-ups, one at most per widget, in no order. By ID, not by slot: a slot
+    /// freed and reused must not inherit a wake-up. A handful at most (a blinking caret), so a
+    /// linear scan beats any ordered structure.
+    wakeups: Vec<(WidgetId, Instant)>,
+    /// The widgets whose wake-up came, collected by [`Ui::advance`] before they are called
+    /// (reused).
+    due: Vec<WidgetId>,
 }
 
 /// The root slot (always 0).
@@ -133,6 +161,9 @@ impl<M: 'static> Ui<M> {
             shape: theme.shape(),
             title: String::new(),
             access_sent: false,
+            now: Instant::now(),
+            wakeups: Vec::new(),
+            due: Vec::new(),
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -193,7 +224,11 @@ impl<M: 'static> Ui<M> {
         self.tree.remove(slot, &mut removed);
         for gone in &removed {
             list.remove(SegmentId(gone.get()));
+            // An overlay segment exists only for widgets with an overlay; removing an unknown id
+            // is one hash lookup.
+            list.remove(gone.overlay_segment());
         }
+        self.wakeups.retain(|(id, _)| !removed.contains(id));
         self.removed = removed;
         // Routing state pointing into the removed subtree is dropped.
         let alive =
@@ -443,13 +478,19 @@ impl<M: 'static> Ui<M> {
                 self.walk
                     .extend(slot.children.iter().rev().map(|&child| (child, inner)));
             }
-            if !slot.needs_record {
+            // The main segment and the overlay together, or the overlay alone (a blink).
+            let main = slot.needs_record;
+            if !main && !slot.needs_overlay {
                 continue;
             }
             slot.needs_record = false;
-            // A widget that looks different (or moved) may describe itself differently: its
-            // accessibility node is sent again (WC3).
-            slot.needs_access = true;
+            slot.needs_overlay = false;
+            if main {
+                // A widget that looks different (or moved) may describe itself differently: its
+                // accessibility node is sent again (WC3). A new overlay alone changes nothing an
+                // assistive technology sees.
+                slot.needs_access = true;
+            }
             let cx = RecordCx {
                 rect: slot.rect,
                 focused: focused == Some(index),
@@ -459,32 +500,77 @@ impl<M: 'static> Ui<M> {
             let Some(widget) = slot.widget.as_deref() else {
                 continue;
             };
-            let segment = SegmentId(slot.id.get());
             let reach = slot.rect.inflate(DRAW_MARGIN);
-            match clip {
-                // Not clipped, or entirely inside its clip (focus ring included): recorded
-                // without the clip. Measured in F2.09d: the renderer builds a clip mask the size
-                // of the frame for every clip it replays, so clipping the 200 widgets of a
-                // scrolled panel cost 397 M instructions per wheel notch; only the widgets
-                // crossing the viewport's edge need it.
-                None => list.record(segment, |recorder| widget.record(&cx, recorder)),
-                Some(clip) if encloses(clip, reach) => {
-                    list.record(segment, |recorder| widget.record(&cx, recorder));
-                }
-                // Entirely outside its clip, focus ring included: an empty segment. Its old area
-                // is still damaged (it may have been visible before this scroll step), but
-                // nothing is replayed for it, and recording nothing is cheaper than recording
-                // commands the clip would drop one by one.
-                Some(clip) if !reach.intersects(&clip) => {
-                    list.record(segment, |_| {});
-                }
-                Some(clip) => list.record(segment, |recorder| {
-                    recorder.push_clip_rect(clip);
+            if main {
+                record_clipped(list, SegmentId(slot.id.get()), clip, reach, |recorder| {
                     widget.record(&cx, recorder);
-                    recorder.pop_clip();
-                }),
+                });
+            }
+            // Asked only of a widget being recorded, so the many widgets without an overlay pay
+            // one call per recording, never one per frame.
+            if widget.has_overlay() {
+                record_clipped(list, slot.id.overlay_segment(), clip, reach, |recorder| {
+                    widget.record_overlay(&cx, recorder);
+                });
             }
         }
+    }
+
+    /// The interface's time ([`Ui::advance`]).
+    #[must_use]
+    pub const fn now(&self) -> Instant {
+        self.now
+    }
+
+    /// Moves the interface's time to `now` (it never goes back: an earlier `now` is ignored) and
+    /// wakes the widgets whose wake-up has come ([`WidgetEvent::WakeUp`], each alone, without
+    /// bubbling), then runs a frame if any was woken (F2.10b2, a precision of ADR-0040 W2).
+    ///
+    /// The window calls it with the real clock at the start of every batch of events, before
+    /// handing them over, so the events of a batch share one time; tests call it with made-up
+    /// times.
+    ///
+    /// # Complexity
+    /// O(pending wake-ups) (a handful), plus the woken widgets' work and, only then, a frame. No
+    /// allocation once the reused vectors have their capacity.
+    pub fn advance(&mut self, now: Instant, list: &mut DisplayList) {
+        if now > self.now {
+            self.now = now;
+        }
+        let now = self.now;
+        // Collected first and called after: a woken widget asks for its next wake-up while it is
+        // called, which changes `wakeups`; and a widget asking for a time already past is woken
+        // at the next advance, not again in this one (no endless loop).
+        let mut due = std::mem::take(&mut self.due);
+        due.clear();
+        self.wakeups.retain(|&(id, at)| {
+            if at <= now {
+                due.push(id);
+                false
+            } else {
+                true
+            }
+        });
+        for &id in &due {
+            if let Some(slot) = self.tree.slot_of(id) {
+                self.deliver(slot, &WidgetEvent::WakeUp, false);
+            }
+        }
+        let woken = !due.is_empty();
+        self.due = due;
+        if woken {
+            self.frame(list);
+        }
+    }
+
+    /// The earliest pending wake-up, if any: the window sleeps until then
+    /// (`ControlFlow::WaitUntil`), or until the next input event when `None`.
+    ///
+    /// # Complexity
+    /// O(pending wake-ups), no allocation.
+    #[must_use]
+    pub fn next_wakeup(&self) -> Option<Instant> {
+        self.wakeups.iter().map(|&(_, at)| at).min()
     }
 
     /// Handles one input event of the window (WA3), then runs a frame.
@@ -652,13 +738,35 @@ impl<M: 'static> Ui<M> {
             focus: false,
             rearrange: false,
             modifiers: self.modifiers,
+            overlay: false,
+            now: self.now,
+            wakeup: WakeRequest::Keep,
         };
         let handled = widget.event(&mut cx, event);
-        let (relayout, rerecord, focus, rearrange) =
-            (cx.relayout, cx.rerecord, cx.focus, cx.rearrange);
+        let (relayout, rerecord, focus, rearrange, overlay, wakeup) = (
+            cx.relayout,
+            cx.rerecord,
+            cx.focus,
+            cx.rearrange,
+            cx.overlay,
+            cx.wakeup,
+        );
         if let Some(slot) = self.tree.slot_mut(index) {
             slot.widget = Some(widget);
             slot.needs_record |= rerecord;
+            slot.needs_overlay |= overlay;
+        }
+        match wakeup {
+            WakeRequest::Keep => {}
+            WakeRequest::At(at) => {
+                // One pending wake-up per widget: a new request replaces the old one.
+                if let Some(entry) = self.wakeups.iter_mut().find(|(owner, _)| *owner == id) {
+                    entry.1 = at;
+                } else {
+                    self.wakeups.push((id, at));
+                }
+            }
+            WakeRequest::Cancel => self.wakeups.retain(|(owner, _)| *owner != id),
         }
         if relayout {
             self.tree.invalidate_layout(index);
@@ -1033,6 +1141,38 @@ const DEFERRED: usize = 1 << (usize::BITS - 1);
 /// to decide that a widget is entirely outside its clip, and to bring a focused widget into view
 /// with its ring (F2.09d).
 const DRAW_MARGIN: f32 = 6.0;
+
+/// Records `segment` with `draw`, inside `clip` (the widget's clip, see the module
+/// documentation), for a widget whose drawing reaches `reach` (its rectangle with room for the
+/// focus ring). Shared by the main segment and the overlay, which have the same clip.
+///
+/// # Why the clip is avoided where it can be
+/// Measured in F2.09d: the renderer builds a clip mask the size of the region it draws for every
+/// clip it replays, so clipping the 200 widgets of a scrolled panel cost 397 M instructions per
+/// wheel notch; only the widgets crossing the viewport's edge need it.
+fn record_clipped(
+    list: &mut DisplayList,
+    segment: SegmentId,
+    clip: Option<Rect>,
+    reach: Rect,
+    draw: impl FnOnce(&mut Recorder<'_>),
+) {
+    match clip {
+        // Not clipped, or entirely inside its clip (focus ring included): recorded without it.
+        None => list.record(segment, draw),
+        Some(clip) if encloses(clip, reach) => list.record(segment, draw),
+        // Entirely outside its clip, focus ring included: an empty segment. Its old area is still
+        // damaged (it may have been visible before this scroll step), but nothing is replayed for
+        // it, and recording nothing is cheaper than recording commands the clip would drop one
+        // by one.
+        Some(clip) if !reach.intersects(&clip) => list.record(segment, |_| {}),
+        Some(clip) => list.record(segment, |recorder| {
+            recorder.push_clip_rect(clip);
+            draw(recorder);
+            recorder.pop_clip();
+        }),
+    }
+}
 
 /// `true` when `inner` lies entirely within `outer` (edges may touch).
 fn encloses(outer: Rect, inner: Rect) -> bool {

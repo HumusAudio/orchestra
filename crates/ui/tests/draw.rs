@@ -1129,3 +1129,92 @@ fn cached_rounded_rectangles_respect_the_clip() {
         assert_eq!(px(&image, x, 30), surface, "outside the clip at x = {x}");
     }
 }
+
+/// A small damaged region cutting through cached shapes, a glyph run and a rectangular clip
+/// (F2.10b2, precision of ADR-0043): what a text field's blinking caret redraws. Since F2.10b2
+/// these no longer grow the redrawn area to their whole shape (they come from the caches, the
+/// same pixels in any area), and the rectangular clip's mask is written row by row; a rounded
+/// clip, a path, still grows it. The frame must still equal a full redraw, byte for byte, at
+/// every scale.
+#[test]
+fn a_caret_sized_redraw_through_a_field_equals_a_full_redraw() {
+    use orchestra_text::{FaceId, Faces, Features, Shaper, TextLayout, TextStyle};
+    let theme = light();
+    let faces = Faces::bundled().unwrap();
+    let mut layout = TextLayout::new();
+    Shaper::new()
+        .layout(
+            &faces,
+            "Violin I, solo, con sordino - tutti divisi, sul ponticello mp",
+            TextStyle {
+                face: FaceId::InterRegular,
+                size: 13.0,
+                features: Features::default(),
+            },
+            None,
+            &mut layout,
+        )
+        .unwrap();
+    // A field: rounded background, border, focus ring, its text clipped to the padded area.
+    let field = Rect::new(20.3, 30.6, 320.3, 58.6);
+    let record_field = |list: &mut DisplayList| {
+        list.record(SegmentId(1), |r| {
+            r.fill_rounded_rect(RoundedRect::new(field, 4.0), ColorToken::SurfaceSunken);
+            r.stroke_rounded_rect(
+                RoundedRect::new(field.inflate(-0.5), 3.5),
+                StrokeStyle::new(1.0),
+                ColorToken::ControlBorder,
+            );
+            r.push_clip_rect(Rect::new(28.3, field.y0, 312.3, field.y1));
+            r.text(&layout, Point::new(28.3 - 40.0, 35.6), ColorToken::Text);
+            r.pop_clip();
+            r.stroke_rounded_rect(
+                RoundedRect::new(field.inflate(2.0), 6.0),
+                StrokeStyle::new(2.0),
+                ColorToken::Focus,
+            );
+        });
+    };
+    for scale in [1.0_f32, 1.5, 2.0] {
+        let (w, h) = ((360.0 * scale) as u32, (90.0 * scale) as u32);
+        let mut list = DisplayList::new();
+        record_field(&mut list);
+        // A rounded clip across the caret's places (a path: it must still grow the area).
+        list.record(SegmentId(3), |r| {
+            r.push_clip(RoundedRect::new(Rect::new(140.4, 33.2, 215.9, 56.1), 9.0));
+            r.fill_rect(Rect::new(120.0, 20.0, 240.0, 70.0), ColorToken::Accent);
+            r.pop_clip();
+        });
+        let caret = |x: f32| Rect::new(x, 35.6, x + 1.5, 53.6);
+        list.record(SegmentId(2), |r| {
+            r.fill_rect(caret(150.2), ColorToken::Text);
+        });
+        let mut renderer = CpuRenderer::new(faces.clone());
+        let mut frame = Image::new(w, h).unwrap();
+        renderer
+            .render(&list, &theme, &Damage::all(), scale, &mut frame)
+            .unwrap();
+        let _ = list.take_damage();
+        // The caret blinks off, then shows again elsewhere: two small redraws.
+        list.record(SegmentId(2), |_| {});
+        let damage = list.take_damage();
+        renderer
+            .render(&list, &theme, &damage, scale, &mut frame)
+            .unwrap();
+        list.record(SegmentId(2), |r| {
+            r.fill_rect(caret(201.7), ColorToken::Text);
+        });
+        let damage = list.take_damage();
+        renderer
+            .render(&list, &theme, &damage, scale, &mut frame)
+            .unwrap();
+        let full = CpuRenderer::new(faces.clone())
+            .render_to_image(&list, &theme, w, h, scale)
+            .unwrap();
+        assert!(
+            frame == full,
+            "scale {scale}: partial redraw differs by up to {}",
+            max_difference(&frame, &full)
+        );
+    }
+}

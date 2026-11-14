@@ -47,11 +47,11 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0037](0037-themes-tokens-and-customisation.md) | Themes: tokens, ten built-in pairs, user customisation (amends ADR-0014) | Accepted |
 | [0038](0038-system-theme-detection.md) | Reading the system light/dark preference: our portal code on Linux, winit elsewhere | Accepted |
 | [0039](0039-drawing-abstraction.md) | The drawing abstraction: a segmented display list of themed commands | Accepted |
-| [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted (precision F2.09e) |
+| [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted (precisions F2.09e, F2.10b2) |
 | [0041](0041-headless-screenshots.md) | Headless screenshots: a scene catalogue, rendered by the app, never committed (amends ADR-0014 §7, ADR-0037 T10) | Accepted |
 | [0042](0042-cpu-renderer-vello-cpu.md) | The interface renderer: `vello_cpu` behind our display list, no GPU for now (amends ADR-0039 D9, ADR-0036, ADR-0012) | Accepted; R1, R3, R5, R6 superseded by ADR-0043 |
-| [0043](0043-keep-tiny-skia-cache-shadows.md) | Keep `tiny-skia`, cache shadows; `vello_cpu` is dropped (supersedes part of ADR-0042) | Accepted (precisions F2.09b2, F2.09d) |
+| [0043](0043-keep-tiny-skia-cache-shadows.md) | Keep `tiny-skia`, cache shadows; `vello_cpu` is dropped (supersedes part of ADR-0042) | Accepted (precisions F2.09b2, F2.09d, F2.10b2) |
 | [0044](0044-text-fonts-shaping-glyph-cache.md) | Text: bundled fonts, shaping, measuring and a glyph cache (amends ADR-0036 B1, ADR-0039 D4) | Accepted |
-| [0045](0045-widget-architecture.md) | Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget | Accepted (precisions F2.09a–e) |
+| [0045](0045-widget-architecture.md) | Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget | Accepted (precisions F2.09a–e, F2.10b2) |
 | [0046](0046-value-control-conventions.md) | Value-control conventions: wheel, double click to the default, fine adjustment | Accepted |
-| [0047](0047-text-field.md) | The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard | Accepted (precisions F2.10b1) |
+| [0047](0047-text-field.md) | The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard | Accepted (precisions F2.10b1, F2.10b2) |
