@@ -5,15 +5,19 @@
 //!
 //! It is a preview of the **Playback** options, built with the widgets of ADR-0045: a title
 //! above a splitter (F2.09d, choice WF8). The left pane, a vertical scroll area, holds a check box
-//! (*Metronome*), a switch (*Count-in*), a slider (*Metronome volume*) and two buttons (*Restore
-//! defaults*, *OK*); the right pane, a scroll area in both directions, a staff with Bravura
-//! noteheads, bar numbers and stems (a widget of its own, [`StaffPreview`]), wider than the pane
-//! in a small window. Every text comes from the catalogues ([`DemoTexts`],
+//! (*Metronome*), a switch (*Count-in*), a slider (*Metronome volume*), a text field (*Track
+//! name*, F2.10b2) and two buttons (*Restore defaults*, *OK*); the right pane, a scroll area in
+//! both directions, a staff with Bravura noteheads, bar numbers and stems (a widget of its own,
+//! [`StaffPreview`]), wider than the pane in a small window. The name committed in the field
+//! (Enter, or leaving it) is written above the staff, as a score names its instrument: it shows
+//! the commit of ADR-0047 TF7 at work, and Escape bringing the old name back. Every text comes from the catalogues ([`DemoTexts`],
 //! CLAUDE.md §7). It exists to check by eye, and with a screen reader (AccessKit):
 //! - the widgets' looks in every theme and density, the focus ring, Tab order;
 //! - scrolling (wheel, bars, keyboard, a hidden control brought into view by Tab) and moving the
 //!   divider between the panes;
 //! - activation by pointer, keyboard and assistive technology;
+//! - the text field: typing, the platform's editing keys, the selection by keyboard and pointer,
+//!   the blinking caret, scrolling a long name inside the field, commit and Escape;
 //! - text, symbols and crisp lines at every scale factor;
 //! - following the system's theme while the window is open (ADR-0038).
 //!
@@ -21,17 +25,19 @@
 //! to their default values, to show the application changing widgets itself (ADR-0045 WA7).
 //! Nothing here is business logic (the crate's rule): it is a throw-away view.
 
+use std::time::Instant;
+
 use orchestra_i18n::{I18nError, Localizer};
 use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, TextLayout};
 use orchestra_ui::{
     AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ColorToken, Constraints,
     DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length, Point,
     PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space, Splitter,
-    StrokeStyle, Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
+    StrokeStyle, TextField, Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
 };
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DemoMessage {
     /// The metronome check box changed.
     Metronome(bool),
@@ -39,6 +45,8 @@ pub enum DemoMessage {
     CountIn(bool),
     /// The metronome volume changed (0–100).
     Volume(f64),
+    /// The track's name was committed in its field (F2.10b2).
+    TrackName(String),
     /// *Restore defaults* was pressed.
     RestoreDefaults,
     /// *OK* was pressed.
@@ -56,6 +64,10 @@ pub struct DemoTexts {
     pub count_in: String,
     /// `playback-metronome-volume`.
     pub volume: String,
+    /// `playback-track-name`.
+    pub track_name: String,
+    /// `playback-track-name-placeholder`.
+    pub track_name_placeholder: String,
     /// `dialog-restore-defaults`.
     pub restore_defaults: String,
     /// `dialog-ok`.
@@ -73,6 +85,8 @@ impl DemoTexts {
             metronome: localizer.format("playback-metronome", None)?,
             count_in: localizer.format("playback-count-in", None)?,
             volume: localizer.format("playback-metronome-volume", None)?,
+            track_name: localizer.format("playback-track-name", None)?,
+            track_name_placeholder: localizer.format("playback-track-name-placeholder", None)?,
             restore_defaults: localizer.format("dialog-restore-defaults", None)?,
             ok: localizer.format("dialog-ok", None)?,
         })
@@ -99,6 +113,10 @@ pub struct Demo {
     count_in: WidgetId,
     /// The volume slider.
     volume: WidgetId,
+    /// The track name's field.
+    track_name: WidgetId,
+    /// The staff, which shows the committed name.
+    staff: WidgetId,
 }
 
 impl Demo {
@@ -171,6 +189,7 @@ impl Demo {
                 content.width(Length::Fill(1.0)),
             )
             .unwrap_or_else(|_| ui.root());
+        let track_name = track_name_row(&mut ui, options, texts);
         let buttons = ui
             .add(options, Flex::row(Space::S, Space::None), content)
             .unwrap_or_else(|_| ui.root());
@@ -184,19 +203,23 @@ impl Demo {
             Button::new(texts.ok.clone(), DemoMessage::Ok).kind(ButtonKind::Primary),
             content,
         );
-        let _ = ui.add(
-            staff_area,
-            StaffPreview::new(faces),
-            content
-                .width(Length::Fixed(480.0))
-                .height(Length::Fixed(110.0)),
-        );
+        let staff = ui
+            .add(
+                staff_area,
+                StaffPreview::new(faces),
+                content
+                    .width(Length::Fixed(480.0))
+                    .height(Length::Fixed(110.0)),
+            )
+            .unwrap_or_else(|_| ui.root());
         Self {
             ui,
             title,
             metronome,
             count_in,
             volume,
+            track_name,
+            staff,
         }
     }
 
@@ -212,12 +235,37 @@ impl Demo {
         self.title
     }
 
-    /// Acts on the widgets' messages (ADR-0045 WA7): only *Restore defaults* does something today.
+    /// The track name's field.
+    #[must_use]
+    pub const fn track_name(&self) -> WidgetId {
+        self.track_name
+    }
+
+    /// The staff preview.
+    #[must_use]
+    pub const fn staff(&self) -> WidgetId {
+        self.staff
+    }
+
+    /// Acts on the widgets' messages (ADR-0045 WA7): *Restore defaults* puts the options back,
+    /// a committed track name is written above the staff.
     fn handle_messages(&mut self, list: &mut DisplayList) {
-        let restore = self
-            .ui
-            .take_messages()
-            .any(|message| message == DemoMessage::RestoreDefaults);
+        let mut restore = false;
+        let mut name = None;
+        for message in self.ui.take_messages() {
+            match message {
+                DemoMessage::RestoreDefaults => restore = true,
+                DemoMessage::TrackName(text) => name = Some(text),
+                _ => {}
+            }
+        }
+        if let Some(name) = name {
+            if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.staff) {
+                staff.set_name(&name);
+            }
+            self.ui.request_layout(self.staff);
+            self.ui.frame(list);
+        }
         if restore {
             if let Some(check) = self.ui.widget_mut::<Toggle<DemoMessage>>(self.metronome) {
                 check.set_on(DEFAULT_METRONOME);
@@ -234,6 +282,35 @@ impl Demo {
             self.ui.frame(list);
         }
     }
+}
+
+/// The *Track name* row of the options (F2.10b2): a label and a text field filling the rest of
+/// the row, with its placeholder and its name for assistive technologies. Returns the field.
+///
+/// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
+/// created: a failure would leave the demonstration incomplete, never crash it.
+fn track_name_row(ui: &mut Ui<DemoMessage>, options: WidgetId, texts: &DemoTexts) -> WidgetId {
+    let content = LayoutProps::default();
+    let name_row = ui
+        .add(
+            options,
+            Flex::row(Space::M, Space::None),
+            content.width(Length::Fill(1.0)),
+        )
+        .unwrap_or_else(|_| ui.root());
+    let _ = ui.add(
+        name_row,
+        Label::new(texts.track_name.clone()),
+        content.align(Align::Start, Align::Center),
+    );
+    ui.add(
+        name_row,
+        TextField::new("", |text| DemoMessage::TrackName(text.to_owned()))
+            .placeholder(texts.track_name_placeholder.clone())
+            .labelled(texts.track_name.clone()),
+        content.width(Length::Fill(1.0)),
+    )
+    .unwrap_or_else(|_| ui.root())
 }
 
 /// The splitter under the title, filling the rest of the window (F2.09d, WF8): a vertical scroll
@@ -296,9 +373,18 @@ impl WindowApp for Demo {
     }
 
     fn pointer_shape(&self) -> PointerShape {
-        // The interface decides (F2.09e): the resize shape over the splitter's divider, the arrow
-        // elsewhere.
+        // The interface decides (F2.09e): the resize shape over the splitter's divider, the text
+        // beam over the field, the arrow elsewhere.
         self.ui.pointer_shape()
+    }
+
+    fn advance(&mut self, now: Instant, list: &mut DisplayList) {
+        // The field's caret blinks with the interface's wake-ups (F2.10b2).
+        self.ui.advance(now, list);
+    }
+
+    fn next_wakeup(&self) -> Option<Instant> {
+        self.ui.next_wakeup()
     }
 }
 
@@ -310,8 +396,13 @@ pub struct StaffPreview {
     notehead: Option<(GlyphId, GlyphBox)>,
     /// The bar numbers 1, 2, 3, laid out.
     numbers: [TextLayout; 3],
-    /// The text generation the numbers were laid out with.
+    /// The text generation the numbers and the name were laid out with.
     laid_out: Option<u64>,
+    /// The track's name written above the staff (F2.10b2): what the field committed, the user's
+    /// own text (nothing to translate). Empty: none.
+    name: String,
+    /// The name laid out.
+    name_layout: TextLayout,
 }
 
 /// The staff space, logical pixels: Bravura at 40 px per em (an em is four staff spaces).
@@ -338,7 +429,23 @@ impl StaffPreview {
             notehead,
             numbers: [TextLayout::new(), TextLayout::new(), TextLayout::new()],
             laid_out: None,
+            name: String::new(),
+            name_layout: TextLayout::new(),
         }
+    }
+
+    /// Writes `name` above the staff; the caller asks the interface to lay the staff out again.
+    pub fn set_name(&mut self, name: &str) {
+        if name != self.name {
+            name.clone_into(&mut self.name);
+            self.laid_out = None;
+        }
+    }
+
+    /// The name written above the staff.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -352,6 +459,13 @@ impl<M: 'static> Widget<M> for StaffPreview {
                     *layout = TextLayout::new();
                 }
             }
+            let style = (FamilyToken::Ui, SizeToken::Body, Weight::Bold);
+            if cx
+                .lay_out_text(&self.name, style, None, &mut self.name_layout)
+                .is_err()
+            {
+                self.name_layout = TextLayout::new();
+            }
             self.laid_out = Some(generation);
         }
         constraints.constrain(Size::new(480.0, 110.0))
@@ -362,6 +476,12 @@ impl<M: 'static> Widget<M> for StaffPreview {
         let top = cx.rect.y0 + 40.0;
         let bar_width = f32::from(NOTES_PER_BAR) * 34.0;
         recorder.push_clip_rect(cx.rect);
+        // The track's name at the top left, above the bar numbers (empty: nothing drawn).
+        recorder.text(
+            &self.name_layout,
+            Point::new(left, cx.rect.y0),
+            ColorToken::Text,
+        );
         for line in 0..5_u8 {
             let y = top + f32::from(line) * SPACE;
             recorder.line(

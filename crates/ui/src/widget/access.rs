@@ -44,6 +44,9 @@ pub enum AccessRole {
     ScrollView,
     /// The divider between two panes, which can be moved (F2.09d).
     Splitter,
+    /// A one-line text field (F2.10b2): its name and state now; its text, caret and selection
+    /// (AccessKit's text runs) come with F2.10b3 (ADR-0047 TF11).
+    TextInput,
 }
 
 /// What a widget tells assistive technologies besides its role (WC2): all optional.
@@ -176,6 +179,7 @@ pub(crate) fn widget_node(
         AccessRole::Slider => Role::Slider,
         AccessRole::ScrollView => Role::ScrollView,
         AccessRole::Splitter => Role::Splitter,
+        AccessRole::TextInput => Role::TextInput,
     });
     if !rect.is_empty() {
         node.set_bounds(accesskit::Rect {

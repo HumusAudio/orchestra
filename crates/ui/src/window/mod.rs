@@ -10,6 +10,15 @@
 //! pair and mode of [`WindowOptions`] and follows the system's light/dark preference while it runs
 //! (ADR-0038 S3, step F2.04b).
 //!
+//! # Timed wake-ups (F2.10b2, a precision of W2)
+//! Frames on demand stay the rule: the loop waits for the next event. When the app wants to be
+//! woken at a time without an event (a text field's blinking caret, ADR-0047 TF8), it says so
+//! with [`WindowApp::next_wakeup`], asked after every batch of events; the loop then sleeps until
+//! that time (`ControlFlow::WaitUntil`) or until an event, whichever comes first. At the start of
+//! each batch, timed or not, the app receives the time ([`WindowApp::advance`]), so its widgets
+//! never read the clock (and are tested with made-up times). Without a wake-up the loop goes back
+//! to waiting: an idle window, caret included once it stopped blinking, uses no processor time.
+//!
 //! # Files
 //! - `appearance`: following the system's preference, our proxy event, the theme in use (W3);
 //! - `input`: our input events and their translation from `winit` (W5);
@@ -70,6 +79,25 @@ pub trait WindowApp {
     /// the hovered widget to the root, O(depth of the tree), asking each widget a rectangle test.
     fn pointer_shape(&self) -> pointer::PointerShape {
         pointer::PointerShape::Default
+    }
+
+    /// Tells the app the time, at the start of every batch of events and when its wake-up came
+    /// (see the module documentation), re-recording what that changes (a caret that blinked). An
+    /// app built on [`Ui`](crate::Ui) calls [`Ui::advance`](crate::Ui::advance). The default
+    /// ignores it.
+    ///
+    /// # Cost
+    /// Called before every batch of events, so it must be cheap when nothing is due: `Ui`'s
+    /// answer scans its few pending wake-ups and runs a frame only if one came.
+    fn advance(&mut self, now: std::time::Instant, list: &mut DisplayList) {
+        let _ = (now, list);
+    }
+
+    /// When the app wants to be woken without an event (an [`advance`](Self::advance) at that
+    /// time), or `None` to wait for the next event (the default). Asked after every batch of
+    /// events; an app built on [`Ui`](crate::Ui) answers [`Ui::next_wakeup`](crate::Ui).
+    fn next_wakeup(&self) -> Option<std::time::Instant> {
+        None
     }
 }
 

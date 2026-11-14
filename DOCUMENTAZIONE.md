@@ -4232,6 +4232,113 @@ spostamento del cursore al confine dopo una modifica (preso dopo aver aggiunto u
 bandiera), i byte del ramo di redo lasciati nell'arena (nessun effetto visibile: solo memoria).
 Benchmark: un tasto digitato 4 175 istruzioni, uno spostamento per parola 12 206.
 
+#### Il campo di testo
+
+Passo F2.10b2 (ADR-0047, con precisazioni di ADR-0040, ADR-0043, ADR-0045 e ADR-0047), in
+`orchestra-ui` (`src/widget/field.rs` nuovo; `src/widget/tree.rs`, `src/widget/ui.rs`,
+`src/widget/access.rs`, `src/window/mod.rs`, `src/window/shell.rs`, `src/window/pointer.rs`,
+`src/draw/skia.rs`, `src/draw/glyph_cache.rs`) e `orchestra-app` (`src/demo.rs`). Il nucleo di
+modifica di F2.10b1 diventa un widget su cui si clicca e in cui si scrive: `TextField`.
+
+**Come si usa.** Un campo si costruisce con il suo testo e con il messaggio che manda quando il
+testo viene *confermato*; il resto è facoltativo:
+
+```rust
+let field = TextField::new("", |text| DemoMessage::TrackName(text.to_owned()))
+    .placeholder(texts.track_name_placeholder.clone())
+    .labelled(texts.track_name.clone());
+```
+
+`placeholder` compare in `text-muted` finché il campo è vuoto, `labelled` gli dà il nome per i
+lettori di schermo, `on_change` aggiunge un messaggio a ogni modifica (per una ricerca che filtra
+mentre si scrive), e `convention` sceglie i tasti di un'altra piattaforma (solo per i test; di
+norma valgono quelli della piattaforma).
+
+**Che cosa fa.** Tab gli dà il fuoco e seleziona tutto, così ciò che si scrive sostituisce il
+testo; un clic gli dà il fuoco e mette il cursore dove arriva. I tasti sono quelli della
+piattaforma (F2.10b1); il testo scritto arriva dopo il suo tasto, e il campo si tiene i tasti dei
+caratteri semplici, così una scorciatoia di un tasto solo non scatta mentre si scrive, mentre
+Ctrl+K e simili risalgono all'applicazione. Invio **conferma** (il messaggio `on_commit`, solo se
+il testo è cambiato) e poi risale, così una finestra di dialogo può trattarlo come OK; anche
+uscire dal campo conferma. Esc riporta il testo che il campo aveva quando ha preso il fuoco, e un
+secondo Esc risale (per chiudere un dialogo). Con il puntatore: clic, Maiusc+clic, trascinamento,
+doppio clic per una parola (poi il trascinamento va a parole), triplo clic per tutto, e la barra
+del testo sopra il campo. Un testo più largo del campo scorre per tenere in vista il cursore con un
+margine di circa tre caratteri, e torna indietro quando si cancella in fondo. Disattivato, non
+prende il fuoco e mostra la freccia.
+
+**Quando il testo viene impaginato di nuovo.** La dimensione del campo non dipende dal suo testo,
+quindi una modifica non chiede un layout (che rimisurerebbe tutti gli antenati) ma un nuovo
+**arrange** (`EventCx::request_arrange`): `arrange` riceve un `LayoutCx`, che arriva allo shaper,
+quindi lì la riga viene modellata di nuovo e lo scorrimento ricalcolato. Uno spostamento del
+cursore chiede lo stesso, solo per lo scorrimento.
+
+**Il lampeggio del cursore, e il tempo.** Il cursore lampeggia 530 ms acceso e 530 ms spento, e si
+ferma, visibile, 10 s dopo l'ultimo input. Per questo la finestra deve svegliarsi senza un evento,
+cosa che W2 di ADR-0040 non prevedeva: ora `WindowApp` ha `next_wakeup()` e `advance(now, list)`.
+La finestra chiama `advance` con l'orologio vero all'inizio di ogni gruppo di eventi
+(`new_events`) e, finito il gruppo (`about_to_wait`), dorme fino alla prossima sveglia
+(`ControlFlow::WaitUntil`) oppure, se non ce n'è, fino al prossimo evento, come prima. Dentro
+l'interfaccia, un widget chiede `cx.request_wakeup(at)` (al massimo una sveglia in sospeso per
+widget), riceve `WidgetEvent::WakeUp` e legge l'ora con `cx.now()`: non legge mai l'orologio,
+quindi i test fanno lampeggiare il cursore con istanti inventati:
+
+```rust
+bench.tab();
+assert_eq!(bench.ui.next_wakeup(), Some(bench.start + ms(530)));
+bench.at(ms(530));
+assert!(!bench.field().caret_on());
+```
+
+Le metà si contano dall'ultimo input invece di alternarle, così una sveglia in ritardo mantiene il
+ritmo.
+
+**Segmenti sovrapposti: ridisegnare solo il cursore.** Un lampeggio non deve ridisegnare tutto il
+campo. Un widget può ora avere un secondo segmento, il suo **segmento sovrapposto**
+(`Widget::has_overlay`, `record_overlay`), registrato subito dopo quello principale e registrato
+di nuovo da solo con `cx.request_overlay()`. Il suo `SegmentId` è il numero del widget con il bit
+più alto acceso (`WidgetId::overlay_segment`), che nessun numero di widget raggiunge mai.
+Registrarlo insieme al segmento principale la prima volta lo tiene appena sopra il campo e sotto
+tutto ciò che viene registrato dopo, per esempio un dialogo.
+
+**Anche il renderer ha dovuto imparare qualcosa.** Le prime misure erano molto sopra i budget di
+ADR-0047 TF13: un tasto 1,24 M istruzioni (budget 0,5 M), un lampeggio 0,59 M (budget 0,1 M). Quasi
+tutto era disegno. Un ridisegno parziale allarga la sua area di lavoro a ogni forma antialiasata che
+tocca (F2.04a), e quella regola la allargava allo sfondo arrotondato del campo, al bordo, all'anello
+del fuoco e al testo, anche se vengono dalle cache delle forme e dei glifi, le cui maschere danno
+gli stessi pixel ovunque. Quattro modifiche, una precisazione di ADR-0043:
+- i rettangoli arrotondati e le sequenze di glifi delle cache non allargano più l'area (solo quelli
+  troppo grandi per la loro cache), e nemmeno i ritagli rettangolari, che sono allineati ai pixel
+  interi;
+- la maschera del ritaglio rettangolare più esterno si scrive riga per riga invece di riempirla come
+  un tracciato;
+- ogni maschera in cache tiene, riga per riga, dove c'è inchiostro, il tratto di zeri più lungo e il
+  tratto pieno più lungo (`RowRuns`): la fusione salta gli zeri in mezzo a un bordo e copia in un
+  blocco la parte piena di uno sfondo, con gli stessi byte di prima;
+- il buffer di lavoro non viene più azzerato prima di riempirlo con `surface`.
+
+Risultato: un tasto 0,49 M, un lampeggio 70 mila istruzioni. Un primo tentativo che fondeva otto
+pixel alla volta era più lento ed è stato scartato.
+
+**Nell'anteprima.** L'anteprima di Riproduzione ha un campo *Nome traccia* (`playback-track-name`,
+segnaposto `playback-track-name-placeholder`: *Senza nome*, cercati nei cataloghi di Ardour e
+aggiunti al glossario come `track_name` e `unnamed`). Il nome confermato viene scritto sopra il
+rigo, come una partitura dà il nome al suo strumento; `Demo` passa l'ora e le sveglie al suo `Ui`.
+
+**Test e costo.** `tests/field.rs` (17 test: il fuoco e la sua selezione, la scrittura, i tasti che
+risalgono e quelli trattenuti, Invio, l'uscita, Esc, l'annullamento locale, clic e Maiusc+clic,
+trascinamento e doppio e triplo clic, la barra del testo, lo scorrimento, il lampeggio e il suo
+arresto, il fuoco perso, il piccolo danno di un lampeggio, il disegno di testo, segnaposto, cursore
+e selezione, `set_text`, la larghezza data dal genitore, la rimozione di un campo che lampeggia),
+`tests/field_no_alloc.rs` (scrivere, muoversi e lampeggiare non allocano), un test di disegno che
+ridisegna regioni grandi come il cursore attraverso un campo a scala 1, 1,5 e 2 contro un
+fotogramma intero, un test unitario di `RowRuns`, e il test dell'anteprima sul nome confermato.
+Cinque errori inseriti apposta: quattro presi (il tratto pieno saltato, il tratto di zeri lungo un
+pixel di troppo, una conferma senza modifica, il lampeggio invertito); il quinto (i ritagli
+arrotondati che non allargano più l'area) dava gli stessi pixel nelle posizioni provate, e quella
+regola è rimasta com'era. Benchmark `field_type_key` e `field_caret_blink` in
+`benches/widgets.rs`.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

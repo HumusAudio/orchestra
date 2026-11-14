@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-11-13; outline TF1–TF13 presented first, with the owner's
   choices on TF2, TF8, TF12 and the primary selection's postponement, then the text). Precisions
-  of F2.10b1 below.
+  of F2.10b1 and F2.10b2 below.
 - **Date:** 2026-11-13
 - **Implements:** ADR-0045 (retained widgets, routed events, focus, AccessKit per widget; WA8
   leaves the clipboard to this step), ADR-0044 (text: shaping, clusters, left to right only,
@@ -276,6 +276,38 @@ Found while writing the editing core, within the decisions above:
   with the next one).
 - **TF13.** Measured: a typed key 4 175 instructions in the editing core, a word movement 12 206;
   editing allocates nothing within `TextEditor::reserve`'s capacity (tested).
+
+## Precisions of the implementation (F2.10b2, 2026-11-14, presented to the owner with the step)
+
+Found while writing the widget, `TextField`, within the decisions above:
+- **TF4, focus.** Focus by the keyboard (Tab) selects the whole text, the convention of GTK,
+  Windows and macOS, so typing replaces it; the click that gives the focus places the caret
+  instead (and ignores Shift: there is no selection of the user's to extend yet). A double click
+  selects the word of the grapheme *under* the pointer (not of the nearest boundary, which past the
+  middle of a word's last letter is the space after it). Dragging past the field's edges scrolls
+  it with the pointer's moves; there is no automatic scrolling while the pointer stands still.
+- **TF7, Enter.** Enter commits and then **bubbles**, so a dialog around the field can take it as
+  its default action after the commit message; Escape stays as written (restores, then bubbles
+  when there is nothing to restore). Restoring is an edit the `on_change` listener hears about.
+  `TextField::set_text` (the application changing the text) is not an edit and becomes the
+  committed text.
+- **TF8, the blink.** The halves are counted from the last input, not toggled, so a late wake-up
+  (a busy machine) keeps the rhythm and the 10 s stop exact; the next wake-up is the next half's
+  start or the stop, whichever comes first. The caret is hidden while text is selected.
+- **TF9, looks.** The field is `surface-sunken` with a `control-border` line; the text is clipped
+  to the padded area only when it overflows it (a clip costs a mask); the placeholder is
+  `text-muted` (`text-disabled` when disabled).
+- **TF10, the margin.** 1.5 em (about three characters), at most a quarter of the text area.
+- **TF5, keys swallowed.** A focused field swallows plain character keys and Space (their text
+  follows), with their releases; with the primary modifier alone (Ctrl+K) they bubble, with Alt
+  (⌥ on macOS types characters) they are swallowed. Cut, Copy and Paste are recognised and do
+  nothing until F2.10c.
+- **TF13, measured** in the 200-widget panel with a 300-pixel field holding 60 characters (it
+  scrolls, so its text is clipped): a typed key 0.49 M instructions with drawing and the
+  accessibility update (in the steady state of typing: a glyph's first appearance at a new
+  quarter-pixel phase rasterises it once, about 0.14 M more), the caret's blink 70 thousand. Both
+  needed the renderer's precision of ADR-0043 (F2.10b2). Typing, moving and blinking allocate
+  nothing within capacity (tested).
 
 ## Alternatives rejected
 

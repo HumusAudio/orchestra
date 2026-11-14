@@ -12,8 +12,8 @@
 use accesskit::Role;
 use orchestra_app::{Demo, SceneContext};
 use orchestra_ui::{
-    ButtonState, DisplayList, InputEvent, Point, PointerButton, PointerShape, Rect, WidgetId,
-    WindowApp,
+    ButtonState, DisplayList, InputEvent, Key, Modifiers, NamedKey, Point, PointerButton,
+    PointerShape, Rect, WidgetId, WindowApp,
 };
 
 /// The demonstration, laid out in a 640 × 370 window.
@@ -75,6 +75,7 @@ fn every_control_is_named_for_assistive_technologies() {
     assert!(named(Role::Slider, "Metronome volume"));
     assert!(named(Role::Button, "Restore defaults"));
     assert!(named(Role::Button, "OK"));
+    assert!(named(Role::TextInput, "Track name"));
 }
 
 #[test]
@@ -151,4 +152,50 @@ fn the_divider_shows_the_column_resize_shape() {
         .count();
     // The band is as wide as the small gap in comfortable density: 8 logical pixels.
     assert_eq!(hits, 8, "the divider's band should give the resize shape");
+}
+
+/// Presses `key` alone.
+fn press(demo: &mut Demo, list: &mut DisplayList, key: NamedKey) {
+    demo.input(
+        &InputEvent::Key {
+            key: Key::Named(key),
+            state: ButtonState::Pressed,
+            repeat: false,
+            modifiers: Modifiers::default(),
+        },
+        list,
+    );
+}
+
+#[test]
+fn the_committed_track_name_is_written_above_the_staff() {
+    // F2.10b2: typing a name in the field and pressing Enter commits it (ADR-0047 TF7), and the
+    // staff shows it; Escape after more typing brings the committed name back.
+    let (mut demo, mut list) = demo();
+    let field = demo.track_name();
+    click(&mut demo, &mut list, field);
+    for c in ["F", "l", "u", "t", "e"] {
+        demo.input(&InputEvent::Text(c.to_owned()), &mut list);
+    }
+    press(&mut demo, &mut list, NamedKey::Enter);
+    let staff = |demo: &Demo| {
+        demo.ui()
+            .widget::<orchestra_app::StaffPreview>(demo.staff())
+            .unwrap()
+            .name()
+            .to_owned()
+    };
+    assert_eq!(staff(&demo), "Flute");
+    demo.input(&InputEvent::Text("s".to_owned()), &mut list);
+    press(&mut demo, &mut list, NamedKey::Escape);
+    let text = demo
+        .ui()
+        .widget::<orchestra_ui::TextField<orchestra_app::DemoMessage>>(field)
+        .unwrap()
+        .text()
+        .to_owned();
+    assert_eq!(text, "Flute");
+    assert_eq!(staff(&demo), "Flute");
+    // The caret blinks: the window has a wake-up to sleep until.
+    assert!(demo.next_wakeup().is_some());
 }

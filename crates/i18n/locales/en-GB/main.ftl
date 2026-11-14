@@ -26,12 +26,14 @@ status-measures-selected =
        *[other] { $count } bars selected
     }
 
-## Playback options (glossary: playback, metronome, count_in, volume)
+## Playback options (glossary: playback, metronome, count_in, volume, track_name, unnamed)
 
 playback-title = Playback
 playback-metronome = Metronome
 playback-count-in = Count-in
 playback-metronome-volume = Metronome volume
+playback-track-name = Track name
+playback-track-name-placeholder = Unnamed
 
 ## Dialog buttons (glossary: restore_defaults, ok)
 

@@ -84,6 +84,7 @@ pub use widget::access::{
 pub use widget::button::{Button, ButtonKind};
 pub use widget::edit::keys::{Direction, EditAction, EditConvention, Unit, edit_action};
 pub use widget::edit::{EditResponse, TextEditor};
+pub use widget::field::TextField;
 pub use widget::label::Label;
 pub use widget::layout::{
     Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,

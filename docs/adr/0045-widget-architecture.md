@@ -306,3 +306,20 @@ Open: the pointer's shape (a resize cursor over the divider) does not exist yet 
 - **WG5, a quieter divider** (owner's choice after trying the step): with the resize shape telling
   the hover, the splitter's line stays one pixel under the pointer and turns `control-border`;
   two pixels of `accent` only while dragged (it was three pixels of `accent` for both).
+
+**F2.10b2, the text field's widget (2026-11-14, presented to the owner with the step).** Precisions
+of WA3, WA5 and WA6.
+- **WH1, overlays (WA6)**: a widget may own a second segment, its *overlay*
+  (`Widget::has_overlay`, `Widget::record_overlay`), recorded right after its main segment (so
+  drawn just above it and below every widget recorded later) and re-recorded alone on request
+  (`EventCx::request_overlay`). Its `SegmentId` is the widget's number with the high bit set
+  (`WidgetId::overlay_segment`): widget numbers come from a counter and stay below 2⁶³. The text
+  field's caret is its overlay, so a blink damages the caret only. The same bit is reserved for
+  the accessibility node of a field's text run (F2.10b3).
+- **WH2, time and wake-ups**: the interface has a time (`Ui::advance`, `Ui::now`, `EventCx::now`)
+  and pending wake-ups, one per widget at most (`EventCx::request_wakeup`, `cancel_wakeup`),
+  delivered as `WidgetEvent::WakeUp` to that widget alone; `Ui::next_wakeup` is what the window
+  sleeps until (ADR-0040, precision of F2.10b2). A removed widget's wake-up and overlay go with it.
+- **WH3, the text beam (WG4)**: `PointerShape::Text`, mapped to `winit`'s `CursorIcon::Text`.
+- **WH4, a role for the field (WA5)**: `AccessRole::TextInput` (AccessKit's `TextInput`) with
+  the field's name and state; its value, caret and selection as text runs come with F2.10b3.

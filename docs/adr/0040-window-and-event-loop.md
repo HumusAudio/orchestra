@@ -146,3 +146,16 @@ differs from the shape it last set (a new window starts with the arrow, `winit`'
 W1 and W5 require; `ColResize` and `RowResize` are used for the divider's shapes, which `winit`
 maps to the native resize shapes on every platform. Nothing is done when the pointer leaves the
 window: the shape belongs to the window, and the system restores it on re-entry.
+
+## Precision of the implementation (F2.10b2, 2026-11-14, presented to the owner with the step)
+
+**Timed wake-ups (W2).** A text field's caret blinks (ADR-0047 TF8), so the window must wake
+without an event. W2 stays the rule (the loop waits), with one addition: `WindowApp` gains
+`next_wakeup() -> Option<Instant>` (`None` by default) and `advance(now, list)` (nothing by
+default). The window calls `advance` with the real clock at the start of every batch of events
+(`ApplicationHandler::new_events`, except at the loop's start), so the events of a batch share
+one time and a wake-up that came is handled before them; after the batch (`about_to_wait`) it
+sets `ControlFlow::WaitUntil(t)` when the app has a wake-up and `ControlFlow::Wait` otherwise.
+Widgets never read the clock: `Ui::advance` gives them the time (`EventCx::now`), so blinking and
+its 10 s stop are tested with made-up times. Without a wake-up (no focused field, or a caret that
+stopped blinking) the loop waits for input exactly as before.

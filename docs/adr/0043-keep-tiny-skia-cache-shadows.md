@@ -114,3 +114,29 @@ every region (another pixmap); nested and rounded clips are built as before, and
 attached to another clip's key. Result: the notch at 17.7 M (14.4 M with no masks at all); no other
 benchmark changed. B (rectangular clips without masks: rectangles and glyphs cut directly, a mask
 only for paths crossing the edge) stays available if a measure ever asks for it.
+
+## Precision of F2.10b2 (2026-11-14, presented to the owner with the step): cached shapes do not grow a partial redraw
+
+A partial redraw draws into a scratch area grown to the whole of every anti-aliased path that
+meets the region, because `tiny-skia` rasterises a path cut by the pixmap's edge differently
+(F2.04a). That rule also grew it for **cached** rounded rectangles and glyphs, which are blended
+from masks that depend on their key alone and give the same pixels in any area (F2.09b2,
+ADR-0044 TX8): a text field's caret blink (a 2 × 20 pixel damage) redrew the whole field,
+0.57 M instructions against the 0.1 M of ADR-0047 TF13. Now:
+- a rounded rectangle needs its whole shape only when it is too large for the shape cache (its
+  entry's device bounds above 512 pixels a side), a glyph run only when its face's box at the
+  device size does not fit the glyph cache's 256 pixels (with a margin of four); inside a pushed
+  transform both stay conservative;
+- a **rectangular** clip no longer grows the area: it is snapped to whole pixels, so its mask is
+  255 inside and 0 outside in any area; the outermost one is written row by row instead of being
+  filled as a path; rounded clips are unchanged;
+- each cached mask keeps, per row, its inked part, its longest zero run inside it and its longest
+  run of 255 (`RowRuns`): blending skips the zero run (a border's or a focus ring's middle rows)
+  and copies the full run as a block when the source is opaque and nothing clips, with the same
+  bytes as the per-pixel path;
+- the scratch buffer is no longer zeroed before `draw_region` fills it with `surface`.
+
+Measured: the caret blink at 70 thousand instructions, a key typed in a field of the 200-widget
+panel from 1.24 M to 0.49 M. A new test redraws caret-sized regions through a field (rounded
+background, border, focus ring, clipped text, a rounded clip) at scales 1, 1.5 and 2 and compares
+them with a full frame byte for byte; the existing partial-redraw tests are unchanged and pass.

@@ -776,3 +776,33 @@ sources = ["musescore-ui"]
 note = """Researched 2026-11-12 (F2.09c): MuseScore 'OK' → fr 'OK', de 'OK', es 'Aceptar' (also the Windows \
 convention); its Italian 'ok' in lower case is not followed: 'OK' is the Italian interface norm."""
 review = false
+
+[[term]]
+id = "track_name"
+category = "daw"
+en-US = "Track name"
+en-GB = "Track name"
+it = "Nome traccia"
+fr = "Nom de la piste"
+de = "Spurname"
+es = "Nombre de pista"
+sources = ["ardour-ui"]
+note = """Researched 2026-11-14 (F2.10b2): Ardour's exact string 'Track name' (msgid, non-fuzzy) in each \
+language. Consistent with the 'track' entry (traccia, piste, Spur, pista). Italian drops the article \
+('Nome traccia', not 'Nome della traccia'), as Ardour and Italian DAW manuals do in field labels."""
+review = false
+
+[[term]]
+id = "unnamed"
+category = "general"
+en-US = "Unnamed"
+en-GB = "Unnamed"
+it = "Senza nome"
+fr = "Sans nom"
+de = "Unbenannt"
+es = "Sin nombre"
+sources = ["ardour-ui"]
+note = """Researched 2026-11-14 (F2.10b2): Ardour's 'unnamed' (it 'senza nome', fr 'sans nom', de 'unbenannt', \
+es 'sin nombre'), capitalised because it stands alone as a field's placeholder: an empty name means \
+an unnamed track."""
+review = false
