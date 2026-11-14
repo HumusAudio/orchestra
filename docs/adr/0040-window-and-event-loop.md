@@ -147,7 +147,7 @@ W1 and W5 require; `ColResize` and `RowResize` are used for the divider's shapes
 maps to the native resize shapes on every platform. Nothing is done when the pointer leaves the
 window: the shape belongs to the window, and the system restores it on re-entry.
 
-## Precision of the implementation (F2.10b2, 2026-11-14, presented to the owner with the step)
+## Precision of the implementation (F2.10b2, approved by the owner on 2026-11-14)
 
 **Timed wake-ups (W2).** A text field's caret blinks (ADR-0047 TF8), so the window must wake
 without an event. W2 stays the rule (the loop waits), with one addition: `WindowApp` gains

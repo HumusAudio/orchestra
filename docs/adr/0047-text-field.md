@@ -277,7 +277,7 @@ Found while writing the editing core, within the decisions above:
 - **TF13.** Measured: a typed key 4 175 instructions in the editing core, a word movement 12 206;
   editing allocates nothing within `TextEditor::reserve`'s capacity (tested).
 
-## Precisions of the implementation (F2.10b2, 2026-11-14, presented to the owner with the step)
+## Precisions of the implementation (F2.10b2, approved by the owner on 2026-11-14)
 
 Found while writing the widget, `TextField`, within the decisions above:
 - **TF4, focus.** Focus by the keyboard (Tab) selects the whole text, the convention of GTK,
