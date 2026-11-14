@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b2, F2.10b1 done (the editing core, headless); next F2.10b2.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 to be confirmed by the owner); next F2.10b3 (the field's accessibility).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1176,6 +1176,40 @@ test, `tests/editing.rs` (15, a property test of random edit sequences in the th
 with undo/redo round trips), no allocation while editing, `typed_text`; three injected bugs, two
 caught (one after a flag test was added), one without visible effect. Benchmarks: a typed key
 4 175 instructions, a word movement 12 206. Commits `User-visible: no`. Next: F2.10b2, the widget.
+
+Step **F2.10b2** (`feature/f2-10b2-text-field-widget`, 2026-11-14): PR #73 merged first, SCALETTA
+v0.69 (F2.10b split in b1–b3, the field's accessibility moved to the new F2.10b3; the placeholder
+and the *Track name* field in the preview, the owner's choices). `orchestra-ui`: the widget
+`TextField` (`src/widget/field.rs`): drawing (`surface-sunken`, `control-border`, the selection in
+`selection` with the selected glyphs again in `on-selection`, the placeholder in `text-muted`, the
+text clipped only when it overflows), focus (Tab selects all, a click places the caret), keys
+(editing keys fixed, plain characters swallowed, shortcuts bubbling), Enter commits and bubbles,
+Escape restores then bubbles, commit on leaving, the pointer (click, Shift+click, drag, double and
+triple clicks, the text beam `PointerShape::Text`), scrolling inside with a 1.5 em margin, the
+caret's blink (530 ms, stops visible after 10 s, halves counted from the last input). New in the
+toolkit: the interface's time and wake-ups (`Ui::advance`, `Ui::next_wakeup`,
+`EventCx::now/request_wakeup/cancel_wakeup`, `WidgetEvent::WakeUp`) and the window's timed wake-up
+(`WindowApp::advance/next_wakeup`, `new_events`, `about_to_wait`, `ControlFlow::WaitUntil`),
+overlays (a second segment per widget, the caret: `Widget::has_overlay/record_overlay`,
+`EventCx::request_overlay`, high-bit segment ids), `AccessRole::TextInput` (name and state only;
+the runs in F2.10b3). The first measures were 1.24 M instructions for a key and 0.59 M for a blink,
+almost all drawing: in the renderer (precision of ADR-0043) cached rounded shapes, cached glyph runs
+and rectangular clips no longer grow a partial redraw, the outermost rectangular clip's mask is
+written row by row, cached masks keep per-row runs (`RowRuns`: ink, zero hole, full run) so
+blending skips and copies, and the scratch buffer is no longer zeroed twice; a try that blended
+eight pixels at a time was slower and dropped. Now: a key **0.49 M** (steady state; a glyph's first
+appearance at a new quarter-pixel phase adds about 0.14 M), a blink **70 thousand**. The preview has
+a *Track name* field whose committed name is written above the staff (`playback-track-name`
+*Track name / Nome traccia / Nom de la piste / Spurname / Nombre de pista*, placeholder *Unnamed /
+Senza nome / Sans nom / Unbenannt / Sin nombre*, researched in Ardour's catalogues; glossary
+`track_name`, `unnamed`; the Italian is *Nome traccia*, as Ardour, not the *Nome della traccia*
+proposed at the briefing). Tests: `tests/field.rs` (17), `tests/field_no_alloc.rs`, a caret-sized
+partial redraw through a field at three scales, `RowRuns`, the preview's committed name; five
+injected bugs, four caught, the fifth (rounded clips not growing the area) without visible effect
+at the positions tried, its rule left as it was. Precisions written in ADR-0040 (timed wake-ups),
+ADR-0043 (cached shapes in partial redraws), ADR-0045 (WH1–WH4) and ADR-0047 (F2.10b2), presented to
+the owner with the step. Not tried by hand on a screen yet. Commits `User-visible: no`. Next:
+F2.10b3.
 
 | Step | What | Status |
 |---|---|---|
