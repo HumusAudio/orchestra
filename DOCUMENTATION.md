@@ -3717,7 +3717,8 @@ the real cost.
 can be seen in; the area answers its viewport) and `scroll_into_view` (below). The recording walk of
 `Ui::frame` carries each widget's **clip**, the intersection of its ancestors' `child_clip`, and
 keeps it in its slot:
-- a widget entirely inside its clip (focus ring included) is recorded as before;
+- a widget whose rectangle is entirely inside its clip (focus ring included) is recorded without
+  the clip, unless what it **drew** reaches outside it (`DisplayList::record_inside`, below);
 - one crossing the clip's edge is recorded inside a clip command;
 - one entirely outside records an empty segment (its old pixels are damaged and cleared);
 - one whose clip changed (the area grew, for instance) is recorded again even if it did not move;
@@ -3740,6 +3741,39 @@ match clip {
     }),
 }
 ```
+
+**Drawing wider than its rectangle (fix after F2.10b2).** The rectangle is only a guess of where a
+widget draws: a label given less width than its text (the options' pane narrowed by the splitter)
+still draws the whole text. Deciding from the rectangle alone let that text cross the divider into
+the staff's pane, as the owner saw on screen. So a widget whose rectangle is inside goes through
+`DisplayList::record_inside`, which records it without the clip, looks at the **bounds of the
+commands** it recorded (exact, computed anyway for the damage) and, only when they leave the clip,
+records it again inside it. Only the old area and the final one are damaged: the unclipped attempt
+leaves no trace. The common case costs one comparison of rectangles; the rare widget that spills
+over is recorded twice. The test `drawing_wider_than_its_rectangle_stays_inside_its_pane`
+(`tests/scrolling.rs`) checks the pixels beyond the pane and the damage. One case stays decided by
+the rectangle: a widget entirely outside its clip records nothing, even if its drawing would
+reach back in (it has been scrolled away).
+
+```rust
+let mut new_bounds = self.fill(index, &draw);
+let inside = new_bounds.is_empty()
+    || (new_bounds.x0 >= clip.x0
+        && new_bounds.y0 >= clip.y0
+        && new_bounds.x1 <= clip.x1
+        && new_bounds.y1 <= clip.y1);
+if !inside {
+    new_bounds = self.fill(index, |recorder| {
+        recorder.push_clip_rect(clip);
+        draw(recorder);
+        recorder.pop_clip();
+    });
+}
+```
+
+In the demonstration the options' pane also keeps at least 160 logical pixels
+(`OPTIONS_MIN_WIDTH`, `Splitter::minimum_sizes`): with the default 48 every label was cut to a
+few letters. Shortening labels with an ellipsis is left to a later widget step.
 
 **What the measures taught (WF2).** The first version clipped every widget of the area: one wheel
 notch on 200 real widgets cost **397 M instructions**, against a budget of 33 M (a frame at 30 fps

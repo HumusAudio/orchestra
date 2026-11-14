@@ -105,21 +105,92 @@ impl DisplayList {
     where
         F: FnOnce(&mut Recorder<'_>),
     {
-        let index = if let Some(&index) = self.index.get(&id) {
-            index
-        } else {
-            let index = self.segments.len();
-            self.segments.push(Segment {
-                id: Some(id),
-                ..Segment::default()
+        let index = self.slot(id);
+        let old_bounds = self.bounds_at(index);
+        let new_bounds = self.fill(index, draw);
+        self.damage.add(old_bounds);
+        self.damage.add(new_bounds);
+    }
+
+    /// Records the segment `id` like [`record`](Self::record), clipped to `clip` (list
+    /// coordinates) **only if what `draw` draws reaches outside it**.
+    ///
+    /// # Why decide after drawing
+    /// The interface avoids clips where it can (a clip costs the renderer a mask the size of the
+    /// region it draws, F2.09d), and used to decide from the widget's rectangle. But a widget may
+    /// draw outside its rectangle: a label given less width than its text (a pane narrowed by a
+    /// splitter) still draws the whole text, which then crossed the pane's edge unclipped and
+    /// overlapped the next pane (found by the owner on screen, after F2.10b2). The commands'
+    /// bounds are exact where the rectangle is only a promise, so the segment is recorded first
+    /// without the clip, and recorded again inside it only when its bounds leave the clip.
+    ///
+    /// # Damage
+    /// Only the segment's old area and its final area are damaged, never the unclipped attempt:
+    /// a clipped re-recording does not make the renderer repaint pixels outside the clip.
+    ///
+    /// # Complexity
+    /// O(commands recorded); twice that for the rare segment that does leave its clip.
+    pub(crate) fn record_inside<F>(&mut self, id: SegmentId, clip: Rect, draw: F)
+    where
+        F: Fn(&mut Recorder<'_>),
+    {
+        let index = self.slot(id);
+        let old_bounds = self.bounds_at(index);
+        let mut new_bounds = self.fill(index, &draw);
+        // Empty bounds (nothing drawn) need no clip; otherwise the hull must lie in the clip.
+        let inside = new_bounds.is_empty()
+            || (new_bounds.x0 >= clip.x0
+                && new_bounds.y0 >= clip.y0
+                && new_bounds.x1 <= clip.x1
+                && new_bounds.y1 <= clip.y1);
+        if !inside {
+            new_bounds = self.fill(index, |recorder| {
+                recorder.push_clip_rect(clip);
+                draw(recorder);
+                recorder.pop_clip();
             });
-            self.index.insert(id, index);
-            index
-        };
+        }
+        self.damage.add(old_bounds);
+        self.damage.add(new_bounds);
+    }
+
+    /// The index of the segment `id`, appended on top (empty) when the id is new.
+    ///
+    /// # Complexity
+    /// One hash lookup (plus an insertion for a new id).
+    fn slot(&mut self, id: SegmentId) -> usize {
+        if let Some(&index) = self.index.get(&id) {
+            return index;
+        }
+        let index = self.segments.len();
+        self.segments.push(Segment {
+            id: Some(id),
+            ..Segment::default()
+        });
+        self.index.insert(id, index);
+        index
+    }
+
+    /// The bounds the segment at `index` has now; empty for an index out of range (impossible:
+    /// indices come from [`slot`](Self::slot)).
+    fn bounds_at(&self, index: usize) -> Rect {
+        self.segments
+            .get(index)
+            .map_or(Rect::EMPTY, |segment| segment.bounds)
+    }
+
+    /// Replaces the commands of the segment at `index` with what `draw` records, and returns its
+    /// new bounds. Adds no damage: the callers decide which areas changed.
+    ///
+    /// The vectors keep their capacity, so re-recording a segment of the same size does not
+    /// allocate (ADR-0039 D1).
+    fn fill<F>(&mut self, index: usize, draw: F) -> Rect
+    where
+        F: FnOnce(&mut Recorder<'_>),
+    {
         let Some(segment) = self.segments.get_mut(index) else {
-            return;
+            return Rect::EMPTY;
         };
-        let old_bounds = segment.bounds;
         segment.entries.clear();
         segment.elements.clear();
         segment.glyphs.clear();
@@ -134,10 +205,9 @@ impl DisplayList {
         };
         draw(&mut recorder);
         recorder.finish();
-        let new_bounds = recorder.bounds;
-        segment.bounds = new_bounds;
-        self.damage.add(old_bounds);
-        self.damage.add(new_bounds);
+        let bounds = recorder.bounds;
+        segment.bounds = bounds;
+        bounds
     }
 
     /// Removes the segment `id`, damaging its area. Unknown ids are ignored.

@@ -323,3 +323,13 @@ of WA3, WA5 and WA6.
 - **WH3, the text beam (WG4)**: `PointerShape::Text`, mapped to `winit`'s `CursorIcon::Text`.
 - **WH4, a role for the field (WA5)**: `AccessRole::TextInput` (AccessKit's `TextInput`) with
   the field's name and state; its value, caret and selection as text runs come with F2.10b3.
+
+**F2.10b2 follow-up, clipping by what is drawn (approved by the owner on 2026-11-14).** Precision
+of WF1. "A widget entirely inside its clip" means **what it draws**, not its rectangle: a widget
+may draw outside its rectangle (a label narrowed below its text's width by a splitter). A widget
+whose rectangle (with the focus ring's margin) is inside is recorded without the clip and, when
+the bounds of the commands it recorded leave the clip, recorded again inside it
+(`DisplayList::record_inside`); only the old and the final areas are damaged. The cases decided by
+the rectangle stay as they were: crossing the edge, clipped; entirely outside, an empty segment.
+Found by the owner on screen: the demonstration's labels crossed the divider into the staff's
+pane.

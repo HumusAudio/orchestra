@@ -1143,24 +1143,34 @@ const DEFERRED: usize = 1 << (usize::BITS - 1);
 const DRAW_MARGIN: f32 = 6.0;
 
 /// Records `segment` with `draw`, inside `clip` (the widget's clip, see the module
-/// documentation), for a widget whose drawing reaches `reach` (its rectangle with room for the
-/// focus ring). Shared by the main segment and the overlay, which have the same clip.
+/// documentation), for a widget whose rectangle, with room for the focus ring, is `reach`. Shared
+/// by the main segment and the overlay, which have the same clip.
 ///
 /// # Why the clip is avoided where it can be
 /// Measured in F2.09d: the renderer builds a clip mask the size of the region it draws for every
 /// clip it replays, so clipping the 200 widgets of a scrolled panel cost 397 M instructions per
-/// wheel notch; only the widgets crossing the viewport's edge need it.
+/// wheel notch; only the widgets whose drawing crosses the viewport's edge need it.
+///
+/// # The rectangle is a guess, the drawing decides
+/// A widget whose `reach` crosses the clip's edge is clipped, and one entirely outside records
+/// nothing, both decided from the rectangle alone (cheap). A widget whose `reach` lies inside is
+/// recorded through [`DisplayList::record_inside`], which looks at what it actually drew: a widget
+/// may draw outside its rectangle (a label narrowed below its text's width by a splitter still
+/// draws the whole text), and that drawing must not cross into the next pane. Until this fix the
+/// rectangle alone decided, and such text overlapped the pane beside it.
 fn record_clipped(
     list: &mut DisplayList,
     segment: SegmentId,
     clip: Option<Rect>,
     reach: Rect,
-    draw: impl FnOnce(&mut Recorder<'_>),
+    draw: impl Fn(&mut Recorder<'_>),
 ) {
     match clip {
-        // Not clipped, or entirely inside its clip (focus ring included): recorded without it.
+        // Not clipped: recorded as it is.
         None => list.record(segment, draw),
-        Some(clip) if encloses(clip, reach) => list.record(segment, draw),
+        // Inside its clip as far as its rectangle says: recorded without the clip, unless what it
+        // drew reaches out.
+        Some(clip) if encloses(clip, reach) => list.record_inside(segment, clip, draw),
         // Entirely outside its clip, focus ring included: an empty segment. Its old area is still
         // damaged (it may have been visible before this scroll step), but nothing is replayed for
         // it, and recording nothing is cheaper than recording commands the clip would drop one

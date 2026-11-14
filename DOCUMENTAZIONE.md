@@ -3970,7 +3970,9 @@ in tutti e due i modi a ogni scatto si ridisegna tutto il riquadro, che è il co
 figli di un widget; l'area risponde con il suo riquadro) e `scroll_into_view` (più sotto). Il giro di
 registrazione di `Ui::frame` porta con sé il **ritaglio** di ogni widget, l'intersezione dei
 `child_clip` dei suoi antenati, e lo conserva nel suo posto:
-- un widget tutto dentro il suo ritaglio (anello del fuoco compreso) si registra come prima;
+- un widget il cui rettangolo è tutto dentro il suo ritaglio (anello del fuoco compreso) si registra
+  senza ritaglio, a meno che ciò che **ha disegnato** ne esca (`DisplayList::record_inside`, più
+  sotto);
 - uno che ne attraversa il bordo si registra dentro un comando di ritaglio;
 - uno tutto fuori registra un segmento vuoto (i suoi vecchi pixel vengono danneggiati e puliti);
 - uno il cui ritaglio è cambiato (per esempio l'area è cresciuta) si registra di nuovo anche se non
@@ -3994,6 +3996,39 @@ match clip {
     }),
 }
 ```
+
+**Disegnare oltre il proprio rettangolo (correzione dopo F2.10b2).** Il rettangolo è solo una stima
+di dove un widget disegna: un'etichetta che riceve meno larghezza del suo testo (il pannello delle
+opzioni stretto dal divisore) disegna comunque tutto il testo. Decidere solo dal rettangolo lasciava
+passare quel testo oltre il divisore, nel pannello del pentagramma, come il proprietario ha visto a
+schermo. Così un widget il cui rettangolo è dentro passa da `DisplayList::record_inside`, che lo
+registra senza ritaglio, guarda i **confini dei comandi** registrati (esatti, calcolati comunque per
+il danno) e, solo se escono dal ritaglio, lo registra di nuovo dentro di esso. Si danneggiano solo la
+vecchia area e quella finale: il tentativo senza ritaglio non lascia traccia. Il caso comune costa un
+confronto di rettangoli; il raro widget che sborda si registra due volte. Il test
+`drawing_wider_than_its_rectangle_stays_inside_its_pane` (`tests/scrolling.rs`) controlla i pixel
+oltre il pannello e il danno. Un caso resta deciso dal rettangolo: un widget tutto fuori dal suo
+ritaglio non registra nulla, anche se il suo disegno rientrerebbe (è stato fatto scorrere via).
+
+```rust
+let mut new_bounds = self.fill(index, &draw);
+let inside = new_bounds.is_empty()
+    || (new_bounds.x0 >= clip.x0
+        && new_bounds.y0 >= clip.y0
+        && new_bounds.x1 <= clip.x1
+        && new_bounds.y1 <= clip.y1);
+if !inside {
+    new_bounds = self.fill(index, |recorder| {
+        recorder.push_clip_rect(clip);
+        draw(recorder);
+        recorder.pop_clip();
+    });
+}
+```
+
+Nella dimostrazione, inoltre, il pannello delle opzioni resta largo almeno 160 pixel logici
+(`OPTIONS_MIN_WIDTH`, `Splitter::minimum_sizes`): con i 48 predefiniti ogni etichetta si riduceva a
+poche lettere. Accorciare le etichette con i puntini è lasciato a un passo futuro sui widget.
 
 **Cosa hanno insegnato le misure (WF2).** La prima versione ritagliava ogni widget dell'area: uno
 scatto di rotella su 200 widget veri costava **397 M istruzioni**, contro un budget di 33 M (un

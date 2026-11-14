@@ -81,6 +81,27 @@ impl Widget<Msg> for Pad {
     }
 }
 
+/// A leaf that draws wider than the rectangle it is given, like a label narrowed below its
+/// text's width: it asks for 40 × 40 and fills `reach` pixels to the right of its left edge.
+#[derive(Debug)]
+struct Overflow {
+    /// How far right of its rectangle's left edge it draws, logical pixels.
+    reach: f32,
+}
+
+impl Widget<Msg> for Overflow {
+    fn measure(&mut self, _cx: &mut LayoutCx<'_, Msg>, constraints: Constraints) -> Size {
+        constraints.constrain(Size::new(40.0, 40.0))
+    }
+    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        let r = cx.rect;
+        recorder.fill_rect(
+            Rect::new(r.x0, r.y0, r.x0 + self.reach, r.y1),
+            ColorToken::Accent,
+        );
+    }
+}
+
 /// Studio light.
 fn theme() -> Theme {
     *BuiltInTheme::Studio.pair().instance(Appearance::Light)
@@ -483,6 +504,69 @@ fn content_outside_a_smaller_area_is_neither_drawn_nor_hit() {
     // Pad 2 is cut at the area's bottom edge (80–120 → 80–100).
     assert_eq!(pixel(&list, 50, 95), rgba(ColorToken::Accent));
     assert_eq!(pixel(&list, 50, 105), rgba(ColorToken::Surface));
+}
+
+#[test]
+fn drawing_wider_than_its_rectangle_stays_inside_its_pane() {
+    // Found on screen after F2.10b2: with the divider moved left, the labels of the left pane
+    // (narrowed below their text's width) drew across the divider into the right pane. Their
+    // rectangles were inside the pane, so the clip was skipped; what they draw now decides.
+    let mut ui: Ui<Msg> = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let fill = LayoutProps::default()
+        .width(Length::Fill(1.0))
+        .height(Length::Fill(1.0));
+    let splitter = ui
+        .add(
+            root,
+            Splitter::new(Axis::Horizontal, 0.3).minimum_sizes(0.0, 0.0),
+            fill,
+        )
+        .unwrap();
+    let left = ui.add(splitter, ScrollArea::vertical(), fill).unwrap();
+    ui.add(splitter, ScrollArea::vertical(), fill).unwrap();
+    // In a padded column, as the demonstration's options are: the widget's rectangle (with the
+    // room kept for a focus ring) is then well inside the pane.
+    let column = ui
+        .add(
+            left,
+            Flex::column(Space::None, Space::M),
+            LayoutProps::default().width(Length::Fill(1.0)),
+        )
+        .unwrap();
+    let wide = ui
+        .add(column, Overflow { reach: 250.0 }, LayoutProps::default())
+        .unwrap();
+    let mut list = DisplayList::new();
+    ui.layout(BOUNDS, &mut list);
+    let pane = viewport(&ui, left);
+    let rect = ui.rect(wide).unwrap();
+    // The premise: the widget's rectangle lies inside its pane, its drawing does not.
+    assert!(rect.x1 <= pane.x1 && rect.x0 + 250.0 > pane.x1);
+    // Drawn up to the pane's edge, not past it (the right pane shows its background).
+    let y = (rect.y0 + 20.0) as u32;
+    assert_eq!(
+        pixel(&list, (pane.x1 - 2.0) as u32, y),
+        rgba(ColorToken::Accent)
+    );
+    assert_eq!(
+        pixel(&list, (pane.x1 + 20.0) as u32, y),
+        rgba(ColorToken::Surface)
+    );
+    assert_eq!(pixel(&list, 250, y), rgba(ColorToken::Surface));
+    // Recording it again damages only inside the pane: the unclipped attempt leaves no trace.
+    let _ = list.take_damage();
+    ui.request_record(wide);
+    ui.layout(BOUNDS, &mut list);
+    let damage = list.take_damage();
+    assert_ne!(damage.rects(), &[] as &[Rect]);
+    for r in damage.rects() {
+        assert!(r.x1 <= pane.x1, "damage {r:?} leaves the pane {pane:?}");
+    }
 }
 
 #[test]

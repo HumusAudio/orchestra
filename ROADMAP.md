@@ -1209,8 +1209,20 @@ partial redraw through a field at three scales, `RowRuns`, the preview's committ
 injected bugs, four caught, the fifth (rounded clips not growing the area) without visible effect
 at the positions tried, its rule left as it was. Precisions written in ADR-0040 (timed wake-ups),
 ADR-0043 (cached shapes in partial redraws), ADR-0045 (WH1–WH4) and ADR-0047 (F2.10b2), approved
-by the owner on 2026-11-14; merged with PR #74; SCALETTA v0.70. Not tried by hand on a screen yet. Commits `User-visible: no`. Next:
+by the owner on 2026-11-14; merged with PR #74; SCALETTA v0.70. Commits `User-visible: no`. Next:
 F2.10b3.
+
+Fix **clipping by what is drawn** (`fix/clip-overflowing-drawing`, 2026-11-14), found by the owner
+trying F2.10b2 on screen: with the divider moved far left, the options' labels (narrowed below
+their text's width) drew across the divider into the staff's pane. The defect predates F2.10b2
+(reproduced headless on `main` before it): the recording walk skipped the clip for widgets whose
+**rectangle** was inside, and a label draws its whole text whatever width it gets. Now such a
+widget goes through `DisplayList::record_inside`, recorded again inside the clip only when its
+commands' bounds leave it, damaging only the old and final areas. The demonstration's options pane
+keeps at least 160 logical pixels (`OPTIONS_MIN_WIDTH`). Precision of ADR-0045 WF1 approved by the
+owner on 2026-11-14. Test `drawing_wider_than_its_rectangle_stays_inside_its_pane` (two injected
+bugs, both caught). Open: shortening labels with an ellipsis, a later widget step. Commit
+`User-visible: no`.
 
 | Step | What | Status |
 |---|---|---|
