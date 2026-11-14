@@ -164,31 +164,23 @@ impl RowRuns {
             hole: (0, 0),
             full: (0, 0),
         };
-        // One walk over the inked part, tracking the current run of zeros and of 255s.
-        let (mut zeros_from, mut full_from) = (None, None);
-        for (index, &value) in row.iter().enumerate().take(last + 1).skip(first) {
-            // A run of zeros starts at its first zero and ends at the next ink.
-            if value == 0 {
-                zeros_from.get_or_insert(index);
-            } else if let Some(from) = zeros_from.take()
-                && index - from > usize::from(runs.hole.1 - runs.hole.0)
-            {
-                runs.hole = (column(from), column(index));
+        // The runs of zeros and of 255s inside the inked part: `chunk_by` groups equal classes of
+        // consecutive bytes, so each run is one slice whose length is compared once (a byte-by-byte
+        // state machine cost a first frame of 200 buttons 5% more, measured in F2.10b2).
+        let inked = row.get(first..=last).unwrap_or_default();
+        let mut at = first;
+        for run in inked.chunk_by(|a, b| (*a == 0) == (*b == 0) && (*a == 255) == (*b == 255)) {
+            let (from, to) = (at, at + run.len());
+            match run.first() {
+                Some(0) if to - from > usize::from(runs.hole.1 - runs.hole.0) => {
+                    runs.hole = (column(from), column(to));
+                }
+                Some(255) if to - from > usize::from(runs.full.1 - runs.full.0) => {
+                    runs.full = (column(from), column(to));
+                }
+                _ => {}
             }
-            // A run of 255 starts at its first 255 and ends at anything else.
-            if value == 255 {
-                full_from.get_or_insert(index);
-            } else if let Some(from) = full_from.take()
-                && index - from > usize::from(runs.full.1 - runs.full.0)
-            {
-                runs.full = (column(from), column(index));
-            }
-        }
-        // A run of 255 may reach the inked part's end (a zero run cannot: `last` has ink).
-        if let Some(from) = full_from
-            && last + 1 - from > usize::from(runs.full.1 - runs.full.0)
-        {
-            runs.full = (column(from), column(last + 1));
+            at = to;
         }
         runs
     }

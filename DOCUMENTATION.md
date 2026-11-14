@@ -4042,7 +4042,9 @@ changes, a precision of ADR-0043:
   covered run (`RowRuns`): blending skips the zeros in the middle of a border and copies the full
   part of a background as a block, with the same bytes as before; only masks at least 48 pixels
   wide get the runs (a control's shapes): on glyphs, a dozen pixels wide, they cost more than they
-  saved (a frame of labels +45% at first), so glyphs keep their old loop;
+  saved (a frame of labels +45% at first), so glyphs keep their old loop; the runs are found with
+  `chunk_by`, one slice per run, cheaper than a byte-by-byte walk (a first frame of 200 buttons
+  went from +5% to −2%);
 - the scratch buffer is no longer zeroed before being filled with `surface`.
 
 The result: a key 0.43 M, a blink 68 thousand instructions. A first try that blended eight pixels

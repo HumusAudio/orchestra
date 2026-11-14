@@ -4317,7 +4317,9 @@ gli stessi pixel ovunque. Quattro modifiche, una precisazione di ADR-0043:
   blocco la parte piena di uno sfondo, con gli stessi byte di prima; solo le maschere larghe almeno
   48 pixel hanno i tratti (le forme dei controlli): sui glifi, larghi una dozzina di pixel, costavano
   più di quanto facevano risparmiare (un fotogramma di etichette +45% al primo tentativo), quindi i
-  glifi tengono il loro ciclo di prima;
+  glifi tengono il loro ciclo di prima; i tratti si trovano con `chunk_by`, una fetta per tratto,
+  più economico di un giro byte per byte (un primo fotogramma di 200 pulsanti è passato da +5% a
+  −2%);
 - il buffer di lavoro non viene più azzerato prima di riempirlo con `surface`.
 
 Risultato: un tasto 0,43 M, un lampeggio 68 mila istruzioni. Un primo tentativo che fondeva otto
