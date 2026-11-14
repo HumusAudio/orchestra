@@ -313,6 +313,15 @@ fn track_name_row(ui: &mut Ui<DemoMessage>, options: WidgetId, texts: &DemoTexts
     .unwrap_or_else(|_| ui.root())
 }
 
+/// The narrowest the options' pane gets, logical pixels (owner's choice after F2.10b2).
+///
+/// Why 160: the splitter's default minimum (48) let the pane shrink until every label was cut to
+/// a few letters, which is a useless state. 160 keeps the switches with the start of their labels
+/// and a usable volume slider, while still letting the staff take most of a small window. Labels
+/// longer than the pane are clipped at its edge (they never cross the divider); shortening them
+/// with an ellipsis is a later widget step.
+const OPTIONS_MIN_WIDTH: f32 = 160.0;
+
 /// The splitter under the title, filling the rest of the window (F2.09d, WF8): a vertical scroll
 /// area on the left (a little less than half) holding the options' column, and a scroll area in
 /// both directions on the right for the staff. Returns (the options' column, the staff's area).
@@ -325,9 +334,15 @@ fn panes(ui: &mut Ui<DemoMessage>) -> (WidgetId, WidgetId) {
         .width(Length::Fill(1.0))
         .height(Length::Fill(1.0));
     // The splitter under the title, filling the rest of the window: the options on the left
-    // (a little less than half), the staff on the right.
+    // (a little less than half), the staff on the right. The options' pane keeps at least
+    // OPTIONS_MIN_WIDTH, so its labels are not cut to a few letters (the staff's pane keeps the
+    // splitter's default minimum).
     let splitter = ui
-        .add(root, Splitter::new(Axis::Horizontal, 0.45), fill)
+        .add(
+            root,
+            Splitter::new(Axis::Horizontal, 0.45).minimum_sizes(OPTIONS_MIN_WIDTH, 48.0),
+            fill,
+        )
         .unwrap_or_else(|_| ui.root());
     let options_area = ui
         .add(splitter, ScrollArea::vertical(), fill)
