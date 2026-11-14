@@ -4150,6 +4150,88 @@ finestra (sei widget, nessuno risponde): **621 istruzioni**, molto sotto gli 0,5
 Quello che poi disegna il sistema non si può provare senza display: lo verifica a mano il
 proprietario.
 
+#### Il nucleo di modifica del campo di testo
+
+Passo F2.10b1 (ADR-0047, il campo di testo), in `orchestra-text` (`src/boundary.rs` nuovo,
+`src/layout.rs`, `src/wrap.rs`) e in `orchestra-ui` (`src/widget/edit/` nuovo: `mod.rs`,
+`keys.rs`, `history.rs`; `src/window/input.rs`, `src/window/shell.rs`, `src/widget/tree.rs`,
+`src/widget/ui.rs`). Qui tutto funziona senza finestra: il widget che lo disegna arriva in F2.10b2.
+
+**Dove può stare il cursore (TF1).** Ogni offset è un offset in byte UTF-8, sempre su un confine di
+**grafema**: una `é` scritta come `e` più un accento, o una bandiera fatta di due indicatori
+regionali, è un solo passo per le frecce e per Backspace. `orchestra-text` risponde con funzioni
+libere sul testo: `next_grapheme`, `prev_grapheme`, `floor_grapheme`, `ceil_grapheme`,
+`grapheme_boundaries`, e per le parole `prev_word_start`, `next_word_end`, `next_word_start`,
+`word_at`. Usano `icu_segmenter` (già nel workspace) senza dizionari; ognuna percorre il testo
+dall'inizio, O(n) e senza allocare, che per un campo di una riga va bene.
+
+**Dove si disegna il cursore.** Il layout ora registra le **fermate del cursore**: per ogni
+cluster la posizione della penna al suo inizio, più una alla fine di ogni riga
+(`TextLayout::caret_stops`, `Line::carets`). La penna e non la x del glifo, perché lo scostamento
+di un segno diacritico sposterebbe il confine. `caret_x(text, offset)` è una ricerca binaria su di
+esse (252 istruzioni su una riga di 40 caratteri); dentro una legatura, l'avanzamento del cluster si
+divide in parti uguali fra i suoi grafemi. `hit_test(text, x, y)` dà l'offset di un clic: il confine
+di grafema più vicino nella riga, trovato in una sola passata sui confini insieme alle fermate
+(6 977 istruzioni). La prima versione chiedeva i confini una volta per cluster, O(n²), e costava
+225 585: riscritta prima di andare avanti. I candidati sono i confini UAX #29, non le fermate,
+perché i cluster dello shaper possono dividere ciò che UAX #29 tiene unito (le metà di una
+bandiera). Registrare le fermate costa all'impaginazione del testo l'1,7% in più.
+
+**Il testo digitato (TF5).** Un nuovo evento di input, `InputEvent::Text`, porta ciò che un tasto
+ha scritto, preso da `KeyEvent::text` di `winit` (così i tasti morti e le sequenze di composizione
+danno il loro risultato), subito dopo l'evento del tasto stesso; `WidgetEvent::Text` lo porta al
+widget con il fuoco. La funzione pura `typed_text` scarta i caratteri di controllo (Ctrl+A riporta
+U+0001) e il testo dei tasti premuti con il solo modificatore primario (⌘A riporta `"a"` su macOS);
+con Alt lo lascia passare, perché su Windows AltGr è Ctrl+Alt.
+
+**I tasti di ogni piattaforma (TF3).** `edit_action(key, modifiers, convention)` trasforma un tasto
+in una `EditAction` (sposta, cancella, seleziona tutto, annulla, ripeti, taglia, copia, incolla)
+secondo la tabella di `EditConvention::Linux`, `Windows` o `MacOs`. La convenzione è un valore, non
+un `cfg`, così la CI su Linux prova tutte e tre le tabelle. Precisazioni emerse scrivendole, dentro
+"la convenzione della piattaforma": Ctrl+→ va alla fine della parola su Linux e macOS ma all'inizio
+della parola seguente su Windows; ↑ e ↓ vanno agli estremi di un campo a una riga su macOS e altrove
+non sono assegnati (risalgono); Maiusc+Backspace cancella come Backspace; i tasti con ⌃ di macOS
+(stile Emacs) non sono assegnati.
+
+**L'editor.** `TextEditor` tiene il testo, l'ancora e il fuoco della selezione, la cronologia
+dell'undo e la convenzione:
+
+```rust
+let mut editor = TextEditor::new("Violin", EditConvention::current());
+editor.type_text(" solo");
+let key = Key::Named(NamedKey::ArrowLeft);
+let primary = Modifiers { primary: true, ..Modifiers::default() };
+if let Some(action) = edit_action(&key, primary, editor.convention()) {
+    editor.apply(action); // Ctrl+← on Linux: to the start of "solo"
+}
+editor.apply(EditAction::Undo); // takes back " solo", one word
+```
+
+Tiene una sola riga: gli a capo e le tabulazioni incollati diventano spazi, gli altri caratteri di
+controllo spariscono. Dopo ogni modifica il cursore va al confine di grafema uguale o successivo
+(un indicatore regionale digitato può fare del carattere dopo una bandiera). Senza Maiusc, ← e →
+chiudono una selezione sul suo bordo; uno spostamento per parola o per riga prosegue da lì. Le
+azioni degli appunti tornano come `EditResponse::Clipboard`: il widget le eseguirà con
+`selected_text`, `delete_selection` e `paste` (gli appunti sono F2.10c).
+
+**L'undo locale (TF7).** Ogni cambiamento è una modifica (a un byte, un testo tolto sostituito da
+un testo inserito, con la selezione prima e dopo) dentro gruppi: la digitazione consecutiva è un
+gruppo finché non comincia una parola nuova dopo uno spazio, Backspace e Canc fanno lo specchio, un
+incolla, un taglia o una parola cancellata sono un gruppo a sé, qualunque spostamento chiude il
+gruppo. Mai per tempo (ADR-0026). I testi di tutte le modifiche stanno in un'unica `String`
+"arena" con intervalli che vi puntano, così dopo `TextEditor::reserve` niente alloca.
+
+**Test e costo.** I test unitari dei confini di `orchestra-text` e `tests/caret.rs` (fermate, spazi
+finali, accenti, legature, clic, righe a capo, e un test di proprietà: un clic alla x di ogni
+cursore cade su un cursore con la stessa x); in `orchestra-ui` `tests/editing.rs` (le tre tabelle,
+digitazione, incolla, spostamenti, selezione, cancellazioni, gruppi dell'undo, e un test di
+proprietà di sequenze casuali di modifiche nelle tre convenzioni: invarianti, digitazione contro un
+modello `String`, undo di tutto fino all'inizio, redo fino alla fine), `tests/editing_no_alloc.rs`
+e un test unitario di `typed_text`. Tre difetti iniettati: i gruppi per parola (preso), lo
+spostamento del cursore al confine dopo una modifica (preso dopo aver aggiunto un test con una
+bandiera), i byte del ramo di redo lasciati nell'arena (nessun effetto visibile: solo memoria).
+Benchmark: un tasto digitato 4 175 istruzioni, uno spostamento per parola 12 206.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); next F2.10b.
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b2, F2.10b1 done (the editing core, headless); next F2.10b2.
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1161,6 +1161,21 @@ second `smithay-client-toolkit` and an `unsafe` exception. Mutter (GNOME) offers
 protocol, KWin 6.7 and the wlroots family do. The owner chose `arboard` with data-control behind a
 trait (XWayland on GNOME). The Linux primary selection is postponed (owner). No source code
 changed. SCALETTA v0.68. Next: F2.10b.
+
+Step **F2.10b1** (`feature/f2-10b1-text-editing-core`, 2026-11-13): F2.10b split in two parts
+(owner, at the briefing); this one is the **editing core, headless**. `orchestra-text`: grapheme
+and word boundaries (`icu_segmenter`, no dictionaries), caret stops in the layout, `caret_x` (252
+instructions) and `hit_test` (6 977; a first O(n²) version at 225 585 was rewritten); shaping costs
+1.7% more for the stops. `orchestra-ui`: `InputEvent::Text` from `KeyEvent::text` and
+`WidgetEvent::Text` (control characters and primary-only shortcuts dropped, AltGr kept); the key
+tables of Linux, Windows and macOS (`edit_action`, `EditConvention`); `TextEditor` (one line,
+grapheme-boundary invariant, selection, deletion, paste cleaning); the local undo grouped by words
+and kinds of edit, in one arena. Precisions of ADR-0047 (Ctrl+→ differs on Windows, ↑/↓ on macOS,
+Shift+Backspace, no Emacs keys, pasted tabs). Tests: boundaries, `tests/caret.rs` with a property
+test, `tests/editing.rs` (15, a property test of random edit sequences in the three conventions
+with undo/redo round trips), no allocation while editing, `typed_text`; three injected bugs, two
+caught (one after a flag test was added), one without visible effect. Benchmarks: a typed key
+4 175 instructions, a word movement 12 206. Commits `User-visible: no`. Next: F2.10b2, the widget.
 
 | Step | What | Status |
 |---|---|---|

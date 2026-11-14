@@ -54,4 +54,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0044](0044-text-fonts-shaping-glyph-cache.md) | Text: bundled fonts, shaping, measuring and a glyph cache (amends ADR-0036 B1, ADR-0039 D4) | Accepted |
 | [0045](0045-widget-architecture.md) | Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget | Accepted (precisions F2.09a–e) |
 | [0046](0046-value-control-conventions.md) | Value-control conventions: wheel, double click to the default, fine adjustment | Accepted |
-| [0047](0047-text-field.md) | The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard | Accepted |
+| [0047](0047-text-field.md) | The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard | Accepted (precisions F2.10b1) |

@@ -1,7 +1,8 @@
 # ADR-0047 — The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard
 
 - **Status:** Accepted (owner, 2026-11-13; outline TF1–TF13 presented first, with the owner's
-  choices on TF2, TF8, TF12 and the primary selection's postponement, then the text).
+  choices on TF2, TF8, TF12 and the primary selection's postponement, then the text). Precisions
+  of F2.10b1 below.
 - **Date:** 2026-11-13
 - **Implements:** ADR-0045 (retained widgets, routed events, focus, AccessKit per widget; WA8
   leaves the clipboard to this step), ADR-0044 (text: shaping, clusters, left to right only,
@@ -246,6 +247,35 @@ data-control).
   value, not by `cfg`, so Linux CI tests the macOS table too), of the mouse (TF4), the IME
   sequence (TF6) with synthetic events, the commit and Escape (TF7), the blink's wake-ups (TF8),
   and the accessibility node (TF11).
+
+## Precisions of the implementation (F2.10b1, 2026-11-13)
+
+Found while writing the editing core, within the decisions above:
+- **TF1.** The boundaries are free functions of `orchestra-text` (`next_grapheme`,
+  `prev_word_start`, `word_at`…), each O(n) from the text's start, no allocation. The layout
+  records **caret stops** (the pen at each cluster's start and at each line's end);
+  `caret_x` is a binary search on them (252 instructions on 40 characters) and interpolates only
+  inside a ligature; `hit_test` walks the UAX #29 boundaries once alongside the stops (6 977
+  instructions; a first version was O(n²), 225 585, and was rewritten). The candidates are UAX #29
+  boundaries, not the shaper's clusters, which can split a flag. Recording the stops costs shaping
+  1.7% more.
+- **TF2.** Pasted tabs become spaces, like line breaks.
+- **TF3.** Ctrl+→ goes to the end of the word on Linux and macOS, to the start of the next word on
+  Windows (`EditConvention::word_forward_to_start`); ↑ and ↓ go to the ends of the field on macOS
+  and are not mapped on Linux and Windows (they bubble); Shift+Backspace deletes like Backspace;
+  macOS's ⌃ (Emacs-style) keys are not mapped; keys with modifiers the tables do not use map to
+  nothing and bubble. Without Shift, a word or line movement collapses a selection to its edge
+  and goes on from there.
+- **TF5.** `typed_text` drops control characters and the text of keys pressed with the primary
+  modifier without Alt (⌘A types "a" on macOS; AltGr is Ctrl+Alt on Windows); the text event
+  follows its key event. A field swallows plain character keys so they do not reach single-key
+  shortcuts (F2.10b2).
+- **TF7.** The history stores every edit's texts in one arena with ranges; typing and forward
+  deletions extend the last edit, backward deletions add edits to the group. After an edit the
+  caret goes to the grapheme boundary at or after it (a typed regional indicator can make a flag
+  with the next one).
+- **TF13.** Measured: a typed key 4 175 instructions in the editing core, a word movement 12 206;
+  editing allocates nothing within `TextEditor::reserve`'s capacity (tested).
 
 ## Alternatives rejected
 

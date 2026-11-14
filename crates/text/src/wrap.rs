@@ -28,7 +28,7 @@
 //! by the spaces between two words) and the emergency cut, which visits each glyph of an
 //! over-long word once per line it produces.
 
-use crate::{GlyphId, Line, LineMetrics, PositionedGlyph, TextLayout};
+use crate::{CaretStop, GlyphId, Line, LineMetrics, PositionedGlyph, TextLayout};
 
 /// A glyph as the shaper produced it, in logical pixels.
 #[derive(Debug, Clone, Copy)]
@@ -349,8 +349,20 @@ impl Walk<'_> {
         let row = self.layout.lines.len() as f32;
         let baseline = self.metrics.ascent + row * self.metrics.line_height();
         let first_output = self.layout.glyphs.len();
+        let first_caret = self.layout.carets.len();
         let mut pen = 0.0;
+        // The last cluster a caret stop was recorded for: the glyphs of one cluster (a letter and
+        // its mark) share one stop, at the pen before the first of them.
+        let mut last_cluster = None;
         for glyph in self.shaped.get(self.start_glyph..end).unwrap_or_default() {
+            if last_cluster != Some(glyph.cluster) {
+                last_cluster = Some(glyph.cluster);
+                self.layout.carets.push(CaretStop {
+                    // Byte offsets fit in u32: the caller refused texts of 4 GiB or more.
+                    offset: u32::try_from(glyph.cluster).unwrap_or(u32::MAX),
+                    x: pen,
+                });
+            }
             if !glyph.hidden {
                 self.layout.glyphs.push(PositionedGlyph {
                     glyph: glyph.glyph,
@@ -372,6 +384,12 @@ impl Walk<'_> {
                 cluster: u32::try_from(end_byte.saturating_sub(2)).unwrap_or(u32::MAX),
             });
         }
+        // The line's end: after its last cluster, trailing spaces included (they have a width
+        // the caret must pass), the added hyphen excluded (it is not in the text).
+        self.layout.carets.push(CaretStop {
+            offset: u32::try_from(end_byte).unwrap_or(u32::MAX),
+            x: pen,
+        });
         self.layout.width = self.layout.width.max(content);
         self.layout.lines.push(Line {
             glyphs: first_output..self.layout.glyphs.len(),
@@ -379,6 +397,7 @@ impl Walk<'_> {
             baseline,
             width: content,
             hyphenated: hyphen,
+            carets: first_caret..self.layout.carets.len(),
         });
     }
 }

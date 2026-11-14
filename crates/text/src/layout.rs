@@ -10,6 +10,7 @@
 
 use std::ops::Range;
 
+use crate::boundary::grapheme_boundaries;
 use crate::{FaceId, GlyphBox, LineMetrics};
 
 /// A glyph of a face: the index of an outline in the font file.
@@ -42,6 +43,23 @@ pub struct PositionedGlyph {
     pub cluster: u32,
 }
 
+/// A place where a caret can stand in a line (ADR-0047 TF1): the start of a cluster, with the
+/// pen's position there.
+///
+/// # Why the pen and not the glyph's x
+/// A glyph's x includes its own horizontal offset (a mark moved over its letter), so the
+/// boundary between two clusters is where the **pen** is: the sum of the advances before the
+/// cluster. Hanging spaces at the end of a line are included, so a caret typed after a space moves
+/// past it, although the line's content width does not count it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CaretStop {
+    /// The cluster's first byte in the laid-out text. The last stop of each line has the line's
+    /// end (after its last cluster).
+    pub offset: u32,
+    /// The pen there, logical pixels from the left edge of the layout.
+    pub x: f32,
+}
+
 /// One line of a layout.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Line {
@@ -59,6 +77,10 @@ pub struct Line {
     /// `true` when the line ends at a soft hyphen (U+00AD) where it was broken, so a visible
     /// hyphen was added as its last glyph (TB6).
     pub hyphenated: bool,
+    /// The line's caret stops, a range of [`TextLayout::caret_stops`]: one per cluster in text
+    /// order (control characters included: they have a place, if no width), then one for the
+    /// line's end. An empty line has only the end, at x 0.
+    pub carets: Range<usize>,
 }
 
 /// Shaped, wrapped text: its glyphs, its lines and its extent.
@@ -72,6 +94,8 @@ pub struct TextLayout {
     pub(crate) glyphs: Vec<PositionedGlyph>,
     /// The lines, top to bottom.
     pub(crate) lines: Vec<Line>,
+    /// The caret stops of every line, line after line (ADR-0047 TF1).
+    pub(crate) carets: Vec<CaretStop>,
     /// The face the glyphs belong to (one run per style, TX9).
     pub(crate) face: FaceId,
     /// The size the glyphs were placed at, logical pixels per em.
@@ -99,6 +123,7 @@ impl TextLayout {
         Self {
             glyphs: Vec::new(),
             lines: Vec::new(),
+            carets: Vec::new(),
             face: FaceId::InterRegular,
             size: 0.0,
             metrics: LineMetrics {
@@ -121,6 +146,12 @@ impl TextLayout {
     #[must_use]
     pub fn lines(&self) -> &[Line] {
         &self.lines
+    }
+
+    /// Every caret stop of the layout, line after line ([`Line::carets`] gives each line's).
+    #[must_use]
+    pub fn caret_stops(&self) -> &[CaretStop] {
+        &self.carets
     }
 
     /// The face of every glyph.
@@ -155,6 +186,127 @@ impl TextLayout {
     #[must_use]
     pub const fn bounds(&self) -> Option<GlyphBox> {
         self.bounds
+    }
+
+    /// The line a caret at `offset` stands on: the last line starting at or before it. An offset
+    /// at a line's end that is also the next line's start (after a hard break, or where a line
+    /// was wrapped) belongs to the next line, where typing would continue.
+    ///
+    /// O(log lines) (a binary search on the lines' starts).
+    #[must_use]
+    pub fn line_of(&self, offset: usize) -> usize {
+        self.lines
+            .partition_point(|line| line.text.start <= offset)
+            .saturating_sub(1)
+    }
+
+    /// The x of a caret at `offset` in `text` (the text this layout was made from), logical pixels
+    /// from the layout's left edge (ADR-0047 TF1). The caret's line is [`TextLayout::line_of`].
+    ///
+    /// `offset` is meant to be a grapheme boundary (the text field's always are). At the start of
+    /// a cluster the answer is the pen there; **inside a cluster** that covers several graphemes
+    /// (a ligature such as "fi", drawn as one glyph), the cluster's advance is split evenly among
+    /// its graphemes, which is what browsers do: the font gives no finer positions (OpenType's
+    /// ligature caret positions are rare in interface fonts and Inter has none). An offset inside
+    /// a grapheme gets the x of that grapheme's start.
+    ///
+    /// # Complexity
+    /// O(log stops) (a binary search) when `offset` starts a cluster, the usual case; inside a
+    /// cluster, also O(n) in the text's bytes (its grapheme boundaries are walked from the
+    /// start). No allocation.
+    #[must_use]
+    pub fn caret_x(&self, text: &str, offset: usize) -> f32 {
+        let offset = offset.min(text.len());
+        let Some(line) = self.lines.get(self.line_of(offset)) else {
+            return 0.0;
+        };
+        let stops = self.carets.get(line.carets.clone()).unwrap_or_default();
+        // The last stop at or before the offset; its successor (if any) ends that cluster.
+        let index = stops
+            .partition_point(|stop| stop.offset as usize <= offset)
+            .saturating_sub(1);
+        let Some(&stop) = stops.get(index) else {
+            return 0.0;
+        };
+        match stops.get(index + 1) {
+            Some(&next) if stop.offset as usize != offset => interpolate(text, stop, next, offset),
+            _ => stop.x,
+        }
+    }
+
+    /// The caret offset nearest to the point (`x`, `y`), logical pixels from the layout's
+    /// top-left corner (ADR-0047 TF4): where a click puts the caret. Always a grapheme boundary.
+    ///
+    /// The line is the one whose band contains `y` (above the first line: the first; below the
+    /// last: the last); in it, the nearest grapheme boundary, with ties going to the earlier one.
+    /// On every line but the last, the line's end is left out: it is also the next line's start,
+    /// where [`TextLayout::caret_x`] would draw it, so a click past the end of a wrapped line puts
+    /// the caret before its last grapheme (a precise "end of this line" needs a caret *affinity*,
+    /// left for the multi-line field, TF2).
+    ///
+    /// # Why the boundaries and not the stops
+    /// The shaper groups characters into clusters by its own approximation of graphemes, which
+    /// can differ from UAX #29 (the two halves of a flag may be two clusters): the caret must
+    /// only stand where the text field's offsets can be, so the candidates are the UAX #29
+    /// boundaries, each placed with the stops.
+    ///
+    /// # Complexity
+    /// One walk of the text's grapheme boundaries, advancing through the line's stops alongside
+    /// (both are sorted): O(n + stops). A boundary strictly inside a cluster (a ligature, rare)
+    /// costs one more O(n) walk. No allocation.
+    #[must_use]
+    pub fn hit_test(&self, text: &str, x: f32, y: f32) -> usize {
+        let line_height = self.metrics.line_height();
+        let last = self.lines.len().saturating_sub(1);
+        let row = if line_height > 0.0 && y > 0.0 {
+            #[allow(
+                clippy::cast_possible_truncation,
+                clippy::cast_sign_loss,
+                reason = "a positive quotient, floored, then clamped to the line count"
+            )]
+            let row = (y / line_height).floor() as usize;
+            row.min(last)
+        } else {
+            0
+        };
+        let Some(line) = self.lines.get(row) else {
+            return 0;
+        };
+        let stops = self.carets.get(line.carets.clone()).unwrap_or_default();
+        // The line's end is a candidate only on the last line (see above).
+        let end = if row == last {
+            line.text.end
+        } else {
+            line.text.end.saturating_sub(1)
+        };
+        let mut best: Option<(f32, usize)> = None;
+        let mut index = 0;
+        for boundary in grapheme_boundaries(text)
+            .skip_while(|&b| b < line.text.start)
+            .take_while(|&b| b <= end)
+        {
+            // The cluster holding this boundary: the last stop at or before it.
+            while stops
+                .get(index + 1)
+                .is_some_and(|next| next.offset as usize <= boundary)
+            {
+                index += 1;
+            }
+            let Some(&stop) = stops.get(index) else {
+                break;
+            };
+            let place = match stops.get(index + 1) {
+                Some(&next) if stop.offset as usize != boundary => {
+                    interpolate(text, stop, next, boundary)
+                }
+                _ => stop.x,
+            };
+            let distance = (place - x).abs();
+            if best.is_none_or(|(nearest, _)| distance < nearest) {
+                best = Some((distance, boundary));
+            }
+        }
+        best.map_or(line.text.start, |(_, offset)| offset)
     }
 
     /// Computes [`TextLayout::bounds`] from the glyphs and the face's box, in one pass.
@@ -196,7 +348,30 @@ impl TextLayout {
     pub(crate) fn clear(&mut self) {
         self.glyphs.clear();
         self.lines.clear();
+        self.carets.clear();
         self.width = 0.0;
         self.bounds = None;
     }
+}
+
+/// The x of the grapheme boundary `offset` inside the cluster that starts at `stop` and ends at
+/// `next`: the cluster's advance split evenly among the graphemes it holds (see
+/// [`TextLayout::caret_x`]). O(n) in the text's bytes, no allocation.
+fn interpolate(text: &str, stop: CaretStop, next: CaretStop, offset: usize) -> f32 {
+    let (start, end) = (stop.offset as usize, next.offset as usize);
+    // The boundaries strictly inside the cluster split it into `inside + 1` graphemes; `before`
+    // of them end at or before `offset`.
+    let (mut inside, mut before) = (0_u32, 0_u32);
+    for boundary in grapheme_boundaries(text).filter(|&b| b > start && b < end) {
+        inside += 1;
+        if boundary <= offset {
+            before += 1;
+        }
+    }
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "grapheme counts of one cluster are tiny, exact in f32"
+    )]
+    let fraction = before as f32 / (inside + 1) as f32;
+    stop.x + (next.x - stop.x) * fraction
 }

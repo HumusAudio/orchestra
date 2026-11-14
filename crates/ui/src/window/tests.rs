@@ -13,7 +13,7 @@ use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey
 
 use super::appearance::{ThemeState, appearance_from_winit};
 use super::input::{
-    self, ButtonState, Key, Modifiers, NamedKey, PointerButton, WheelDelta, to_logical,
+    self, ButtonState, Key, Modifiers, NamedKey, PointerButton, WheelDelta, to_logical, typed_text,
 };
 use super::order::{Showable, open_in_order};
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect, to_0rgb};
@@ -73,6 +73,40 @@ fn keys_keep_their_character_or_name() {
         input::key(&WinitKey::Named(WinitNamedKey::MediaPlayPause)),
         Key::Unknown
     );
+}
+
+#[test]
+fn typed_text_drops_control_characters_and_shortcuts() {
+    // ADR-0047 TF5. Plain typing, a dead key's result, several characters.
+    let none = Modifiers::default();
+    assert_eq!(typed_text(Some("a"), none).as_deref(), Some("a"));
+    assert_eq!(typed_text(Some("é"), none).as_deref(), Some("é"));
+    assert_eq!(typed_text(Some("ab"), none).as_deref(), Some("ab"));
+    // Control characters (Ctrl+A, Backspace, Enter, Tab, Escape, DEL) type nothing.
+    for control in ["\u{1}", "\u{8}", "\r", "\t", "\u{1b}", "\u{7f}"] {
+        assert_eq!(typed_text(Some(control), none), None, "{control:?}");
+    }
+    assert_eq!(typed_text(Some("a\u{7f}"), none).as_deref(), Some("a"));
+    assert_eq!(typed_text(None, none), None);
+    // The primary modifier alone: a shortcut (⌘A reports "a" on macOS).
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    assert_eq!(typed_text(Some("a"), primary), None);
+    // Primary with Alt: `AltGr` on Windows, which types "@" on many layouts.
+    let alt_gr = Modifiers {
+        primary: true,
+        alt: true,
+        ..Modifiers::default()
+    };
+    assert_eq!(typed_text(Some("@"), alt_gr).as_deref(), Some("@"));
+    // Shift and Alt alone type as usual (capitals, Option characters on macOS).
+    let shift = Modifiers {
+        shift: true,
+        ..Modifiers::default()
+    };
+    assert_eq!(typed_text(Some("A"), shift).as_deref(), Some("A"));
 }
 
 #[test]

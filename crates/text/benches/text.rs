@@ -11,6 +11,10 @@
 //! - `outline_glyphs`: the outlines of the 26 lowercase letters of Inter at 13 px and of a
 //!   Bravura G clef at 32 px, into a sink that only counts: what filling the glyph cache costs
 //!   per glyph before rasterising (step F2.07b part 2).
+//! - `caret_x_line`, `hit_test_line` (F2.10b1, ADR-0047 TF1, TF4): on the 40-character line,
+//!   the caret's x at its middle (a binary search on the caret stops) and the offset of a click
+//!   at its middle (a walk of the stops, with the grapheme boundaries of each cluster): what the
+//!   text field pays to draw its caret and to answer a click.
 //!
 //! # Budgets (CLAUDE.md §5, with the rule of F1.16c: 1 instruction per nanosecond)
 //! Text changes must fit in the 50 ms from input to frame together with everything else, and a
@@ -162,9 +166,36 @@ fn outline_glyphs(input: (Faces, Vec<GlyphId>, GlyphId)) -> usize {
     count.0
 }
 
+// The input is returned, not dropped: dropping the faces, the shaper and the layout inside the
+// measured region would count their deallocation (thousands of instructions) as the call's cost.
+#[library_benchmark]
+#[bench::line(warm(LINE, None))]
+fn caret_x_line(input: Prepared) -> Prepared {
+    black_box(input.layout.caret_x(black_box(LINE), black_box(20)));
+    input
+}
+
+#[library_benchmark]
+#[bench::line(warm(LINE, None))]
+fn hit_test_line(input: Prepared) -> Prepared {
+    let middle = input.layout.width() / 2.0;
+    black_box(
+        input
+            .layout
+            .hit_test(black_box(LINE), black_box(middle), black_box(5.0)),
+    );
+    input
+}
+
 library_benchmark_group!(
     name = text,
-    benchmarks = [shape_line, wrap_paragraph, outline_glyphs]
+    benchmarks = [
+        shape_line,
+        wrap_paragraph,
+        outline_glyphs,
+        caret_x_line,
+        hit_test_line
+    ]
 );
 
 main!(library_benchmark_groups = text);

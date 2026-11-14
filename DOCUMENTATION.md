@@ -3886,6 +3886,85 @@ the longest walk of that window (six widgets, nobody answering): **621 instructi
 the 0.5 M of an event. What the system then draws cannot be tested without a display: the owner
 checks it by hand.
 
+#### The text field's editing core
+
+Step F2.10b1 (ADR-0047, the text field), in `orchestra-text` (`src/boundary.rs` new,
+`src/layout.rs`, `src/wrap.rs`) and `orchestra-ui` (`src/widget/edit/` new: `mod.rs`, `keys.rs`,
+`history.rs`; `src/window/input.rs`, `src/window/shell.rs`, `src/widget/tree.rs`,
+`src/widget/ui.rs`). Everything here works without a window: the widget that draws it comes in
+F2.10b2.
+
+**Where a caret may stand (TF1).** Every offset is a UTF-8 byte offset, always on a **grapheme**
+boundary: `é` written as `e` plus an accent, or a flag made of two regional indicators, is one
+step for the arrows and for Backspace. `orchestra-text` answers with free functions on the text:
+`next_grapheme`, `prev_grapheme`, `floor_grapheme`, `ceil_grapheme`, `grapheme_boundaries`, and for
+words `prev_word_start`, `next_word_end`, `next_word_start`, `word_at`. They use `icu_segmenter`
+(already in the workspace) without dictionaries; each walks the text from its start, O(n) and
+without allocating, which is right for a one-line field.
+
+**Where the caret is drawn.** The layout now records **caret stops**: for each cluster, the pen's
+position at its start, plus one at the end of each line (`TextLayout::caret_stops`,
+`Line::carets`). The pen, not the glyph's x, because a mark's offset would move the boundary.
+`caret_x(text, offset)` is a binary search on them (252 instructions on a 40-character line); inside
+a ligature, the cluster's advance is split evenly among its graphemes. `hit_test(text, x, y)` gives
+a click's offset: the nearest grapheme boundary of the line, found in one walk of the boundaries
+together with the stops (6 977 instructions). The first version asked the boundaries once per
+cluster, O(n²), and cost 225 585: rewritten before going further. The candidates are UAX #29
+boundaries, not the stops, because the shaper's clusters can split what UAX #29 keeps together (the
+halves of a flag). Recording the stops costs shaping 1.7% more.
+
+**Typed text (TF5).** A new input event, `InputEvent::Text`, carries what a key press typed, taken
+from `winit`'s `KeyEvent::text` (so dead keys and compose sequences give their result), right after
+the key's own event; `WidgetEvent::Text` brings it to the focused widget. The pure function
+`typed_text` drops control characters (Ctrl+A reports U+0001) and the text of keys pressed with the
+primary modifier alone (⌘A reports `"a"` on macOS); with Alt it lets text through, because AltGr is
+Ctrl+Alt on Windows.
+
+**The keys of each platform (TF3).** `edit_action(key, modifiers, convention)` turns a key into an
+`EditAction` (move, delete, select all, undo, redo, cut, copy, paste) by the table of
+`EditConvention::Linux`, `Windows` or `MacOs`. The convention is a value, not a `cfg`, so the Linux
+CI tests all three tables. Precisions found while writing them, within "the platform's convention":
+Ctrl+→ goes to the end of the word on Linux and macOS but to the start of the next word on Windows;
+↑ and ↓ go to the ends of a one-line field on macOS and are not mapped elsewhere (they bubble);
+Shift+Backspace deletes like Backspace; macOS's ⌃ keys (Emacs style) are not mapped.
+
+**The editor.** `TextEditor` holds the text, the anchor and the focus of the selection, the undo
+history and the convention:
+
+```rust
+let mut editor = TextEditor::new("Violin", EditConvention::current());
+editor.type_text(" solo");
+let key = Key::Named(NamedKey::ArrowLeft);
+let primary = Modifiers { primary: true, ..Modifiers::default() };
+if let Some(action) = edit_action(&key, primary, editor.convention()) {
+    editor.apply(action); // Ctrl+← on Linux: to the start of "solo"
+}
+editor.apply(EditAction::Undo); // takes back " solo", one word
+```
+
+It keeps one line: pasted line breaks and tabs become spaces, other control characters go. After
+every edit the caret goes to the grapheme boundary at or after it (a typed regional indicator can
+turn the character after it into a flag). Without Shift, ← and → collapse a selection to its edge;
+a word or line movement goes on from there. Clipboard actions come back as
+`EditResponse::Clipboard`: the widget will carry them out with `selected_text`,
+`delete_selection` and `paste` (the clipboard is F2.10c).
+
+**The local undo (TF7).** Every change is an edit (at a byte, a removed text replaced by an inserted
+text, with the selection before and after) in groups: consecutive typing is one group until a new
+word starts after a space, Backspace and Delete mirror it, a paste, a cut or a deleted word is a
+group of its own, any movement closes the group. Never by time (ADR-0026). The texts of all edits
+live in one arena `String` with ranges into it, so after `TextEditor::reserve` nothing allocates.
+
+**Tests and cost.** `orchestra-text`'s boundary unit tests and `tests/caret.rs` (stops, trailing
+spaces, accents, ligatures, clicks, wrapped lines, and a property test: a click at every caret's x
+lands on a caret with the same x); `orchestra-ui`'s `tests/editing.rs` (the three tables, typing,
+pasting, movements, selection, deletions, undo groups, and a property test of random edit sequences
+in the three conventions: invariants, typing against a `String` model, undo of everything back to
+the start, redo back to the end), `tests/editing_no_alloc.rs` and a unit test of `typed_text`.
+Three injected bugs: the word groups (caught), the caret's snap after an edit (caught once a flag
+test was added), the redo branch's bytes left in the arena (no visible effect: memory only).
+Benchmarks: a typed key 4 175 instructions, a word movement 12 206.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

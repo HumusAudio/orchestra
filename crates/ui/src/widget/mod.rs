@@ -9,10 +9,13 @@
 //! - `access`: how widgets describe themselves to assistive technologies, and AccessKit's tree;
 //! - `label`, `button`, `toggle`, `slider`: the controls of F2.09b–c;
 //! - `scroll`, `splitter`: the scroll area and the splitter of F2.09d;
+//! - `edit`: the text field's editing core (ADR-0047, F2.10b1): text, caret, selection, keys,
+//!   undo;
 //! - `look`: what every control draws the same way (the focus ring).
 
 pub(crate) mod access;
 pub(crate) mod button;
+pub(crate) mod edit;
 pub(crate) mod label;
 pub(crate) mod layout;
 pub(crate) mod look;

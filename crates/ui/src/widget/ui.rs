@@ -16,7 +16,8 @@
 //!   a press captures the pointer until the release: moves and the release go to it alone.
 //! - Entering and leaving are generated when the widget under the pointer changes (while nothing
 //!   captures the pointer).
-//! - Keys go to the focused widget and bubble; an unhandled Tab moves the focus (WA4).
+//! - Keys go to the focused widget and bubble; an unhandled Tab moves the focus (WA4). Typed
+//!   text (ADR-0047 TF5) goes the same way.
 //! - The wheel goes to the widget under the pointer and bubbles.
 //! - A modal layer (the last opened) blocks pointer events outside it and keeps the focus inside.
 //! - A widget outside its ancestors' clip (a scroll area's viewport, F2.09d) cannot be hit: the
@@ -555,6 +556,15 @@ impl<M: 'static> Ui<M> {
                     && *key == Key::Named(NamedKey::Tab)
                 {
                     self.move_focus(!modifiers.shift);
+                }
+            }
+            InputEvent::Text(text) => {
+                // Like a key (WA3): to the focused widget, or the open modal layer, bubbling.
+                let start = self
+                    .focused
+                    .or_else(|| self.modals.last().map(|&(layer, _)| layer));
+                if let Some(start) = start {
+                    self.deliver(start, &WidgetEvent::Text(text), true);
                 }
             }
             InputEvent::ModifiersChanged { modifiers } => self.modifiers = *modifiers,

@@ -49,6 +49,12 @@ pub enum InputEvent {
         /// The modifiers held at that moment.
         modifiers: Modifiers,
     },
+    /// Text typed (ADR-0047 TF5): what a key press produced, as the keyboard layout and the
+    /// system's dead keys and compose sequences made it (`"é"` after a dead acute and `e`), sent
+    /// right after that key's [`InputEvent::Key`]. Never empty, never a control character, never
+    /// produced while the primary modifier alone is held (a shortcut, not typing). Text fields
+    /// insert it; everything else ignores it.
+    Text(String),
     /// The modifiers held changed (also sent when they change without another key).
     ModifiersChanged {
         /// The modifiers held now.
@@ -268,6 +274,31 @@ pub(crate) fn key(key: &WinitKey) -> Key {
         WinitKey::Named(named) => named_key(*named).map_or(Key::Unknown, Key::Named),
         WinitKey::Unidentified(_) | WinitKey::Dead(_) => Key::Unknown,
     }
+}
+
+/// The text a key press typed (ADR-0047 TF5), from `winit`'s `KeyEvent::text`, or `None` when
+/// it typed nothing a text field should insert.
+///
+/// # What is dropped, and why
+/// - **Control characters** (C0 and C1, DEL): Ctrl+A reports U+0001, Backspace U+0008, Enter
+///   U+000D, Tab U+0009, Escape U+001B on some platforms. Those keys act through their
+///   [`InputEvent::Key`]; inserting them would put invisible characters in a name.
+/// - **Text while the primary modifier is held without Alt**: on macOS ⌘A reports `"a"` as its
+///   text, and the shortcut must not also type. Alt is let through because on Windows `AltGr` is
+///   reported as Ctrl+Alt, and `AltGr` is how many layouts type `@`, `€`, `[` or `{`.
+///
+/// A press of several characters (an IME-less compose result, a key mapped to a string) keeps
+/// them all, minus the control characters. Pure, so it is tested without a display.
+#[must_use]
+pub(crate) fn typed_text(text: Option<&str>, modifiers: Modifiers) -> Option<String> {
+    if modifiers.primary && !modifiers.alt {
+        return None;
+    }
+    let text = text?;
+    // One small `String` per typed key, the one the event carries (keys arrive a few per second;
+    // the field copies the text into its own buffer, which keeps its capacity).
+    let kept: String = text.chars().filter(|c| !c.is_control()).collect();
+    (!kept.is_empty()).then_some(kept)
 }
 
 /// `winit`'s named key as ours, if we use it.

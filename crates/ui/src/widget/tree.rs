@@ -136,6 +136,10 @@ pub enum WidgetEvent<'a> {
         /// The modifiers held.
         modifiers: Modifiers,
     },
+    /// Text typed (ADR-0047 TF5), to the focused widget (bubbling up): a text field inserts it.
+    /// It follows the [`WidgetEvent::Key`] of the same press, which a field handles for its
+    /// editing keys and swallows for plain characters.
+    Text(&'a str),
     /// This widget got the keyboard focus.
     FocusGained,
     /// This widget lost the keyboard focus.

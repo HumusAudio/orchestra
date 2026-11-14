@@ -35,6 +35,11 @@
 //!   walks the whole way up (the widget, its row, the column, the scroll area, the splitter, the
 //!   root), the longest walk this window has. Asked alone, without an event, so its own cost is
 //!   what is counted: the event's cost is in the cases above.
+//! - `edit_type_key`, `edit_word_move` (F2.10b1, ADR-0047 TF13): the editing core alone, without
+//!   drawing, in a 60-character name with the caret in the middle: one typed letter (the edit,
+//!   its grouping into the open undo step, the caret's grapheme boundary), and one Ctrl+→ (a
+//!   walk of the word segmenter over the text). The field's whole keystroke, with shaping and
+//!   drawing, is measured in F2.10b2 against the 0.5 M of an event.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -67,6 +72,7 @@ use orchestra_ui::{
     WheelDelta, Widget, WidgetEvent, WidgetId,
 };
 use orchestra_ui::{Axis, ScrollArea, Splitter};
+use orchestra_ui::{Direction, EditAction, EditConvention, TextEditor, Unit};
 
 // A button-like leaf whose width can change.
 #[derive(Debug)]
@@ -658,4 +664,42 @@ library_benchmark_group!(
     ]
 );
 
-main!(library_benchmark_groups = core, controls, scrolling);
+// The editing core (F2.10b1): a 60-character name, the caret in the middle, an open typing group
+// (one letter typed before), capacity reserved as a field does.
+fn editor_ready() -> TextEditor {
+    let mut editor = TextEditor::new(
+        "Violin I, solo, con sordino - tutti divisi, sul ponticello mp",
+        EditConvention::Linux,
+    );
+    editor.reserve(256, 4096, 256);
+    editor.select(30, 30);
+    editor.type_text("a");
+    editor
+}
+
+#[library_benchmark]
+#[bench::name(editor_ready())]
+fn edit_type_key(mut editor: TextEditor) -> TextEditor {
+    black_box(editor.type_text(black_box("b")));
+    editor
+}
+
+#[library_benchmark]
+#[bench::name(editor_ready())]
+fn edit_word_move(mut editor: TextEditor) -> TextEditor {
+    black_box(editor.apply(black_box(EditAction::Move {
+        direction: Direction::Forward,
+        unit: Unit::Word,
+        extend: false,
+    })));
+    editor
+}
+
+library_benchmark_group!(name = editing, benchmarks = [edit_type_key, edit_word_move]);
+
+main!(
+    library_benchmark_groups = core,
+    controls,
+    scrolling,
+    editing
+);
