@@ -3750,7 +3750,9 @@ the staff's pane, as the owner saw on screen. So a widget whose rectangle is ins
 commands** it recorded (exact, computed anyway for the damage) and, only when they leave the clip,
 records it again inside it. Only the old area and the final one are damaged: the unclipped attempt
 leaves no trace. The common case costs one comparison of rectangles; the rare widget that spills
-over is recorded twice. The test `drawing_wider_than_its_rectangle_stays_inside_its_pane`
+over is recorded twice. `record` and `record_inside` share three small helpers (`slot`, `bounds_at`,
+`fill`), marked `#[inline]` so that splitting `record` does not cost the plain recording path
+anything. The test `drawing_wider_than_its_rectangle_stays_inside_its_pane`
 (`tests/scrolling.rs`) checks the pixels beyond the pane and the damage. One case stays decided by
 the rectangle: a widget entirely outside its clip records nothing, even if its drawing would
 reach back in (it has been scrolled away).

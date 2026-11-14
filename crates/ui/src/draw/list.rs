@@ -158,6 +158,7 @@ impl DisplayList {
     ///
     /// # Complexity
     /// One hash lookup (plus an insertion for a new id).
+    #[inline]
     fn slot(&mut self, id: SegmentId) -> usize {
         if let Some(&index) = self.index.get(&id) {
             return index;
@@ -173,6 +174,7 @@ impl DisplayList {
 
     /// The bounds the segment at `index` has now; empty for an index out of range (impossible:
     /// indices come from [`slot`](Self::slot)).
+    #[inline]
     fn bounds_at(&self, index: usize) -> Rect {
         self.segments
             .get(index)
@@ -184,6 +186,7 @@ impl DisplayList {
     ///
     /// The vectors keep their capacity, so re-recording a segment of the same size does not
     /// allocate (ADR-0039 D1).
+    #[inline]
     fn fill<F>(&mut self, index: usize, draw: F) -> Rect
     where
         F: FnOnce(&mut Recorder<'_>),

@@ -4005,7 +4005,9 @@ schermo. Così un widget il cui rettangolo è dentro passa da `DisplayList::reco
 registra senza ritaglio, guarda i **confini dei comandi** registrati (esatti, calcolati comunque per
 il danno) e, solo se escono dal ritaglio, lo registra di nuovo dentro di esso. Si danneggiano solo la
 vecchia area e quella finale: il tentativo senza ritaglio non lascia traccia. Il caso comune costa un
-confronto di rettangoli; il raro widget che sborda si registra due volte. Il test
+confronto di rettangoli; il raro widget che sborda si registra due volte. `record` e `record_inside` condividono tre piccole funzioni (`slot`,
+`bounds_at`, `fill`), marcate `#[inline]` perché dividere `record` non costi nulla alla registrazione
+semplice. Il test
 `drawing_wider_than_its_rectangle_stays_inside_its_pane` (`tests/scrolling.rs`) controlla i pixel
 oltre il pannello e il danno. Un caso resta deciso dal rettangolo: un widget tutto fuori dal suo
 ritaglio non registra nulla, anche se il suo disegno rientrerebbe (è stato fatto scorrere via).
