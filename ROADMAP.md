@@ -1196,9 +1196,10 @@ the runs in F2.10b3). The first measures were 1.24 M instructions for a key and 
 almost all drawing: in the renderer (precision of ADR-0043) cached rounded shapes, cached glyph runs
 and rectangular clips no longer grow a partial redraw, the outermost rectangular clip's mask is
 written row by row, cached masks keep per-row runs (`RowRuns`: ink, zero hole, full run) so
-blending skips and copies, and the scratch buffer is no longer zeroed twice; a try that blended
-eight pixels at a time was slower and dropped. Now: a key **0.49 M** (steady state; a glyph's first
-appearance at a new quarter-pixel phase adds about 0.14 M), a blink **70 thousand**. The preview has
+blending skips and copies (only on masks at least 48 pixels wide: on glyphs they made a frame of
+labels 45% slower, found by the regression gate), and the scratch buffer is no longer zeroed twice; a try that blended
+eight pixels at a time was slower and dropped. Now: a key **0.43 M** (steady state; a glyph's first
+appearance at a new quarter-pixel phase adds about 0.14 M), a blink **68 thousand**. The preview has
 a *Track name* field whose committed name is written above the staff (`playback-track-name`
 *Track name / Nome traccia / Nom de la piste / Spurname / Nombre de pista*, placeholder *Unnamed /
 Senza nome / Sans nom / Unbenannt / Sin nombre*, researched in Ardour's catalogues; glossary

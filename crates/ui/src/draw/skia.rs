@@ -1774,12 +1774,67 @@ fn blit_glyph(
     )]
     let solid = (source[3] >= 255.0 && cover[255] >= 1.0)
         .then(|| source.map(|channel| (channel + 0.5) as u8));
+    if !mask.rows.is_empty() {
+        // A wide mask (a control's shape) with its rows' runs: see `blit_runs`.
+        blit_runs(
+            pixmap,
+            mask,
+            (x, y),
+            (col0, col1, row0, row1),
+            clip,
+            source,
+            cover,
+            solid,
+        );
+        return;
+    }
     let data = pixmap.data_mut();
     for row in row0..row1 {
         // Offsets: the mask's row and the pixmap's, both as indices of whole pixels. Every value
         // is non-negative and inside its buffer by the clamping above.
+        let mask_row = usize::try_from((row - y) * mask_width + (col0 - x)).unwrap_or(0);
+        let pixel_row = usize::try_from(row * width + col0).unwrap_or(0);
+        let count = usize::try_from(col1 - col0).unwrap_or(0);
+        let Some(coverage) = mask.coverage.get(mask_row..mask_row + count) else {
+            continue;
+        };
+        let Some(pixels) = data.get_mut(pixel_row * 4..(pixel_row + count) * 4) else {
+            continue;
+        };
+        let clip_row = clip.and_then(|clip| clip.get(pixel_row..pixel_row + count));
+        blit_span(pixels, coverage, clip_row, source, cover, solid);
+    }
+}
+
+/// The part of [`blit_glyph`] for a mask with [`RowRuns`] (F2.10b2): per row, the inked part
+/// inside the pixmap, without its zero hole, blended, and its full run copied as a block when the
+/// source is opaque and nothing clips. Kept apart so the glyphs' loop stays as small as it was
+/// (measured: one function for both cost a frame of labels 10%). `origin` is the mask's top-left
+/// pixel in the pixmap, `visible` the pixmap columns and rows it covers (`col0, col1, row0, row1`).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the inputs blit_glyph already computed, passed on rather than computed again"
+)]
+fn blit_runs(
+    pixmap: &mut PixmapMut<'_>,
+    mask: &CoverageMask,
+    origin: (i64, i64),
+    visible: (i64, i64, i64, i64),
+    clip: Option<&[u8]>,
+    source: &[f32; 4],
+    cover: &[f32; 256],
+    solid: Option<[u8; 4]>,
+) {
+    let (x, y) = origin;
+    let (col0, col1, row0, row1) = visible;
+    let width = i64::from(pixmap.width());
+    let mask_width = i64::from(mask.width);
+    let data = pixmap.data_mut();
+    for row in row0..row1 {
         let mask_index = usize::try_from(row - y).unwrap_or(0);
-        let runs = mask.rows.get(mask_index).copied().unwrap_or_default();
+        let Some(&runs) = mask.rows.get(mask_index) else {
+            continue;
+        };
         // The row's part inside the pixmap, in mask columns, narrowed to its ink.
         let visible = (
             usize::try_from(col0 - x).unwrap_or(0),
@@ -1843,7 +1898,9 @@ fn blit_glyph(
 }
 
 /// Blends one span of a mask's row into the pixmap: the per-pixel path of [`blit_glyph`].
-/// `clip_row`, if any, is the clip mask's span for the same pixels.
+/// `clip_row`, if any, is the clip mask's span for the same pixels: the inner loop of every glyph
+/// and every cached shape.
+#[inline]
 fn blit_span(
     pixels: &mut [u8],
     coverage: &[u8],

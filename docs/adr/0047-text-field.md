@@ -303,9 +303,9 @@ Found while writing the widget, `TextField`, within the decisions above:
   (⌥ on macOS types characters) they are swallowed. Cut, Copy and Paste are recognised and do
   nothing until F2.10c.
 - **TF13, measured** in the 200-widget panel with a 300-pixel field holding 60 characters (it
-  scrolls, so its text is clipped): a typed key 0.49 M instructions with drawing and the
+  scrolls, so its text is clipped): a typed key 0.43 M instructions with drawing and the
   accessibility update (in the steady state of typing: a glyph's first appearance at a new
-  quarter-pixel phase rasterises it once, about 0.14 M more), the caret's blink 70 thousand. Both
+  quarter-pixel phase rasterises it once, about 0.14 M more), the caret's blink 68 thousand. Both
   needed the renderer's precision of ADR-0043 (F2.10b2). Typing, moving and blinking allocate
   nothing within capacity (tested).
 

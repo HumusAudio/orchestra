@@ -133,10 +133,12 @@ ADR-0044 TX8): a text field's caret blink (a 2 × 20 pixel damage) redrew the wh
 - each cached mask keeps, per row, its inked part, its longest zero run inside it and its longest
   run of 255 (`RowRuns`): blending skips the zero run (a border's or a focus ring's middle rows)
   and copies the full run as a block when the source is opaque and nothing clips, with the same
-  bytes as the per-pixel path;
+  bytes as the per-pixel path; only masks at least 48 pixels wide get runs (a control's shapes):
+  on glyphs they cost more than they saved (a frame of labels +45% at first), so glyphs keep their
+  loop, and the text benchmarks stay within 3% of before;
 - the scratch buffer is no longer zeroed before `draw_region` fills it with `surface`.
 
-Measured: the caret blink at 70 thousand instructions, a key typed in a field of the 200-widget
-panel from 1.24 M to 0.49 M. A new test redraws caret-sized regions through a field (rounded
+Measured: the caret blink at 68 thousand instructions, a key typed in a field of the 200-widget
+panel from 1.24 M to 0.43 M. A new test redraws caret-sized regions through a field (rounded
 background, border, focus ring, clipped text, a rounded clip) at scales 1, 1.5 and 2 and compares
 them with a full frame byte for byte; the existing partial-redraw tests are unchanged and pass.

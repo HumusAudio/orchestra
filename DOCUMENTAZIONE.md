@@ -4314,10 +4314,13 @@ gli stessi pixel ovunque. Quattro modifiche, una precisazione di ADR-0043:
   un tracciato;
 - ogni maschera in cache tiene, riga per riga, dove c'è inchiostro, il tratto di zeri più lungo e il
   tratto pieno più lungo (`RowRuns`): la fusione salta gli zeri in mezzo a un bordo e copia in un
-  blocco la parte piena di uno sfondo, con gli stessi byte di prima;
+  blocco la parte piena di uno sfondo, con gli stessi byte di prima; solo le maschere larghe almeno
+  48 pixel hanno i tratti (le forme dei controlli): sui glifi, larghi una dozzina di pixel, costavano
+  più di quanto facevano risparmiare (un fotogramma di etichette +45% al primo tentativo), quindi i
+  glifi tengono il loro ciclo di prima;
 - il buffer di lavoro non viene più azzerato prima di riempirlo con `surface`.
 
-Risultato: un tasto 0,49 M, un lampeggio 70 mila istruzioni. Un primo tentativo che fondeva otto
+Risultato: un tasto 0,43 M, un lampeggio 68 mila istruzioni. Un primo tentativo che fondeva otto
 pixel alla volta era più lento ed è stato scartato.
 
 **Nell'anteprima.** L'anteprima di Riproduzione ha un campo *Nome traccia* (`playback-track-name`,

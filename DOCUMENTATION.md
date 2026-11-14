@@ -4040,10 +4040,12 @@ changes, a precision of ADR-0043:
 - the outermost rectangular clip's mask is written row by row instead of being filled as a path;
 - every cached mask keeps, per row, where its ink is, its longest zero run and its longest fully
   covered run (`RowRuns`): blending skips the zeros in the middle of a border and copies the full
-  part of a background as a block, with the same bytes as before;
+  part of a background as a block, with the same bytes as before; only masks at least 48 pixels
+  wide get the runs (a control's shapes): on glyphs, a dozen pixels wide, they cost more than they
+  saved (a frame of labels +45% at first), so glyphs keep their old loop;
 - the scratch buffer is no longer zeroed before being filled with `surface`.
 
-The result: a key 0.49 M, a blink 70 thousand instructions. A first try that blended eight pixels
+The result: a key 0.43 M, a blink 68 thousand instructions. A first try that blended eight pixels
 at a time was slower and was dropped.
 
 **In the preview.** The Playback preview has a *Track name* field (`playback-track-name`, placeholder

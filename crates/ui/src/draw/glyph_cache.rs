@@ -84,9 +84,16 @@ pub(crate) struct CoverageMask {
     /// Coverage 0–255, row by row, `width × height` bytes.
     pub(crate) coverage: Vec<u8>,
     /// The shape of each row ([`RowRuns`]), computed once with the mask: what blending may skip
-    /// or copy (F2.10b2).
+    /// or copy (F2.10b2). Empty for masks narrower than [`RUNS_MIN_WIDTH`] (glyphs), which are
+    /// blended byte by byte.
     pub(crate) rows: Vec<RowRuns>,
 }
+
+/// The narrowest mask whose rows get [`RowRuns`], device pixels. A glyph's mask is a dozen pixels
+/// wide: splitting its rows into runs costs more than it saves (measured in F2.10b2: drawing a
+/// frame of labels went from 15.5 M to 22.5 M instructions with runs on every mask), while a
+/// control's border or background, hundreds of pixels wide, gains most of its blending.
+pub(crate) const RUNS_MIN_WIDTH: u32 = 48;
 
 /// Where a mask's row has ink, in mask columns, so blending skips what changes nothing and
 /// copies what is fully covered (F2.10b2, a precision of ADR-0044 TX6).
@@ -114,13 +121,17 @@ pub(crate) struct RowRuns {
 
 impl CoverageMask {
     /// A mask from its placement and its coverage (`width × height` bytes, row by row), with its
-    /// rows' runs computed.
+    /// rows' runs computed when it is at least [`RUNS_MIN_WIDTH`] wide.
     ///
     /// # Complexity
     /// O(width × height), once per rasterisation; the runs add 10 bytes per row.
     pub(crate) fn new(left: i32, top: i32, width: u32, height: u32, coverage: Vec<u8>) -> Self {
         let stride = usize::try_from(width).unwrap_or(0).max(1);
-        let rows = coverage.chunks(stride).map(RowRuns::of).collect();
+        let rows = if width >= RUNS_MIN_WIDTH {
+            coverage.chunks(stride).map(RowRuns::of).collect()
+        } else {
+            Vec::new()
+        };
         Self {
             left,
             top,
