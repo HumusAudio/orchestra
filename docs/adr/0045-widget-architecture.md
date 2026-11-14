@@ -307,7 +307,7 @@ Open: the pointer's shape (a resize cursor over the divider) does not exist yet 
   the hover, the splitter's line stays one pixel under the pointer and turns `control-border`;
   two pixels of `accent` only while dragged (it was three pixels of `accent` for both).
 
-**F2.10b2, the text field's widget (2026-11-14, presented to the owner with the step).** Precisions
+**F2.10b2, the text field's widget (approved by the owner on 2026-11-14).** Precisions
 of WA3, WA5 and WA6.
 - **WH1, overlays (WA6)**: a widget may own a second segment, its *overlay*
   (`Widget::has_overlay`, `Widget::record_overlay`), recorded right after its main segment (so

@@ -115,7 +115,7 @@ attached to another clip's key. Result: the notch at 17.7 M (14.4 M with no mask
 benchmark changed. B (rectangular clips without masks: rectangles and glyphs cut directly, a mask
 only for paths crossing the edge) stays available if a measure ever asks for it.
 
-## Precision of F2.10b2 (2026-11-14, presented to the owner with the step): cached shapes do not grow a partial redraw
+## Precision of F2.10b2 (approved by the owner on 2026-11-14): cached shapes do not grow a partial redraw
 
 A partial redraw draws into a scratch area grown to the whole of every anti-aliased path that
 meets the region, because `tiny-skia` rasterises a path cut by the pixmap's edge differently
