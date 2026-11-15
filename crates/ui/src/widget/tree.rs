@@ -27,7 +27,7 @@ use std::time::Instant;
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::glyph_cache::KeyHasher;
 use crate::draw::list::Recorder;
-use orchestra_text::{Faces, Shaper, TextError, TextLayout};
+use orchestra_text::{Elision, Faces, Shaper, TextError, TextLayout};
 
 use crate::theme::density::Spacing;
 use crate::theme::text::{FamilyToken, SizeToken, Typography, Weight};
@@ -886,5 +886,27 @@ impl<M: 'static> LayoutCx<'_, M> {
         let tree = &mut *self.tree;
         tree.shaper
             .layout(&tree.faces, text, style, max_width, layout)
+    }
+
+    /// Shortens the one-line `text` to `max_width` logical pixels with an ellipsis, into `out`
+    /// (step F2.09f, ADR-0045 WJ2). `full` is the layout of the same text in the same style from
+    /// [`LayoutCx::lay_out_text`] without a width; `out` is touched only when the text is cut.
+    /// Controls go through [`ElidedText`](super::elide::ElidedText), which keeps both layouts.
+    ///
+    /// # Errors
+    /// As [`Shaper::elide`].
+    pub(crate) fn elide_text(
+        &mut self,
+        text: &str,
+        style: (FamilyToken, SizeToken, Weight),
+        max_width: f32,
+        full: &TextLayout,
+        out: &mut TextLayout,
+    ) -> Result<Elision, TextError> {
+        let (family, size, weight) = style;
+        let style = self.tree.typography.text_style(family, size, weight);
+        let tree = &mut *self.tree;
+        tree.shaper
+            .elide(&tree.faces, text, style, max_width, full, out)
     }
 }

@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 approved by the owner; merged with PR #74; SCALETTA v0.70); F2.10b3 done (the field's accessibility: text runs, the three text actions; precisions of ADR-0045 WI1–WI4 and ADR-0047 approved by the owner; merged with PR #77, checked with Orca by the owner; SCALETTA v0.71); F2.10c split in F2.10c1 (the clipboard) and F2.10c2 (the input methods), SCALETTA v0.72; F2.10c1 done (`arboard` behind `ClipboardSource`, Cut, Copy and Paste in the field; precisions of ADR-0040 and ADR-0047 approved by the owner; checked by hand by the owner on Wayland and on X11 through XWayland; PR #79; SCALETTA v0.73); next F2.10c2 (an input method, Fcitx5, must be installed first).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 approved by the owner; merged with PR #74; SCALETTA v0.70); F2.10b3 done (the field's accessibility: text runs, the three text actions; precisions of ADR-0045 WI1–WI4 and ADR-0047 approved by the owner; merged with PR #77, checked with Orca by the owner; SCALETTA v0.71); F2.10c split in F2.10c1 (the clipboard) and F2.10c2 (the input methods), SCALETTA v0.72; F2.10c1 done (`arboard` behind `ClipboardSource`, Cut, Copy and Paste in the field; precisions of ADR-0040 and ADR-0047 approved by the owner; checked by hand by the owner on Wayland and on X11 through XWayland; PR #79; SCALETTA v0.73); F2.09f written (texts shortened with an ellipsis in labels, toggles and buttons: `Shaper::elide`, precisions WJ1–WJ7 of ADR-0045 and one of ADR-0044 approved by the owner; checked on screen by the owner; PR #80; SCALETTA v0.74); next F2.10c2 (an input method, Fcitx5, must be installed first).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1276,6 +1276,34 @@ as expected. PR #79; SCALETTA v0.73. Next: F2.10c2, for which Fcitx5 must be ins
 development machine (neither Fcitx5 nor IBus is there today), or F2.09f, which has no
 prerequisite.
 
+PR #79 (F2.10c1) was merged on 2026-11-15 with every check green on its head commit, macOS
+included; its branch was deleted.
+
+Step **F2.09f**, texts shortened with an ellipsis (`feature/f2-09f-label-ellipsis`, 2026-11-15).
+The analysis found that the texts cut in the demonstration were those of the switches, not of
+labels, so the owner approved WJ1–WJ7 (precisions of ADR-0045, with one of ADR-0044): one-line
+`Label`, `Toggle` and `Button` through one shared piece; the rule in `orchestra-text`, shaping
+"start + ellipsis" again as one run; U+2026 as a typographic constant, not a catalogue key; a
+cut at the end on a grapheme boundary, the white space before it dropped, the longest start
+that fits; the ellipsis alone, then nothing, at tiny widths; always on, decided in `arrange`
+while `measure` still answers the natural size; wrapping labels unchanged. The owner also
+approved a note in SCALETTA for a future tooltip showing the whole text (the controls answer
+`is_elided()` for it). Implemented: `crates/text/src/elide.rs` (`Shaper::elide`, `Elision`),
+`crates/ui/src/widget/elide.rs` (`ElidedText`), `LayoutCx::elide_text`, `arrange` in the three
+controls. Tests: `orchestra-text` `tests/elide.rs` (eleven cases, width sweeps and a property
+test against an oracle sharing no code with the library) and the no-allocation round;
+`orchestra-ui` `tests/eliding.rs` (ten cases reading the rendered pixels) and a no-allocation
+divider drag; nineteen injected bugs, seventeen caught, two equivalent. Benchmarks:
+`elide_line` ≈ 149 000 instructions; `splitter_drag_eliding` (a divider narrowing 80 texts
+already shortened) 9.5 M, within a frame's 33 M; the existing benchmarks unchanged (at most
++0.13 %), so no `Bench-regression` trailer. Commits `User-visible: no` (the demonstration is not
+in the guides, ADR-0041 S7). Recorded limits: left to right only; a one-line text with a
+mandatory line break left as it was; the field's placeholder not shortened; no cut in the
+middle yet. The owner checked it on screen on 2026-11-15 (`cargo run -p orchestra-app --bin orchestra`,
+moving the divider to the left: the options' labels end with an ellipsis and never touch the
+divider): everything as expected. PR #80; SCALETTA v0.74, with the tooltip note in F2.11.
+Next: F2.10c2, once Fcitx5 is installed on the development machine.
+
 | Step | What | Status |
 |---|---|---|
 | 1 | Environment check (CachyOS, Rust, tools) | ✅ |
@@ -1344,6 +1372,10 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
   `smithay-clipboard` variant replaces it behind the same trait); what was copied is lost at exit
   without a clipboard manager. The IME's double-insertion rule is decided in F2.10c by tests by
   hand.
+- **Shortened texts (F2.09f, 2026-11-15):** a text drawn with an ellipsis cannot be read whole
+  on screen (assistive technologies do get it whole): a tooltip is the usual answer and no such
+  widget exists yet; the controls already answer `is_elided()`. Limits: left to right only; no
+  cut in the middle (file paths); a text field's placeholder is clipped, not shortened.
 - **Splitter names (F2.09d):** the demo's splitter has no accessible name (no catalogue text was
   added for a throw-away view); real views name theirs with `labelled`.
 

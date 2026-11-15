@@ -355,3 +355,32 @@ WA5 and WH1.
   target's runs). An action aimed at a run node itself is ignored. `AccessAction` and
   `AccessActionKind` own their text and are no longer `Copy`.
 - **WI4, the placeholder**: `AccessInfo::placeholder`, announced on an empty field.
+
+**F2.09f, texts shortened with an ellipsis (approved by the owner on 2026-11-15).** Precisions of
+WA2 and WC7. Before this step a control that got a rectangle narrower than its text drew the
+whole text anyway: clipped at the edge inside a scroll area (the follow-up above), over its
+neighbours anywhere else.
+- **WJ1, which controls**: one-line `Label`, `Toggle` (check box and switch) and `Button`,
+  through one shared piece (`widget/elide.rs`, `ElidedText`). The text given to assistive
+  technologies stays whole. Each control answers `is_elided()`, what a future tooltip with the
+  whole text would ask (SCALETTA, note in F2.11).
+- **WJ2, where the rule lives**: in `orchestra-text` (`Shaper::elide`, precision of ADR-0044):
+  the shortened text, "start + ellipsis", is shaped again as one run, so ligatures and kerning
+  are right at the cut. Rejected: cutting the glyphs of the full layout and appending the
+  ellipsis glyph (cheaper, wrong on ligatures and kerning).
+- **WJ3, the sign**: the single character U+2026, a typographic constant, the same in the six
+  languages, not a Fluent key (three full stops only in a face without it).
+- **WJ4, where it is cut**: at the end, on a grapheme boundary, dropping the white space before
+  the ellipsis; the longest start that fits. Rejected: whole words only (shows less). Deferred
+  until something needs it: cutting in the middle (file paths).
+- **WJ5, tiny widths**: the ellipsis alone when no grapheme fits before it, nothing when the
+  ellipsis does not fit either. A control's text therefore never draws outside the room the
+  control gives it (a button's width without its padding, a toggle's without its indicator and
+  gap; the indicator itself is never shrunk).
+- **WJ6, when**: always, with no option. `measure` still answers the natural size; the
+  shortening is decided in `arrange`, from the rectangle really received, and costs nothing when
+  the text fits.
+- **WJ7, wrapping labels**: unchanged, they wrap and have no limit of lines.
+- **Recorded limits**: left to right only (ADR-0044 TX5); a one-line text holding a mandatory
+  line break is left as it was; a text field's placeholder is not shortened (the field clips
+  it).

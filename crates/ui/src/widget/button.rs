@@ -19,8 +19,6 @@
 //! `focus-width`, outside the button. Height `control-height`, side padding `control-padding`
 //! (the density, WB10).
 
-use orchestra_text::TextLayout;
-
 use crate::draw::geometry::{Point, Rect, RoundedRect};
 use crate::draw::list::Recorder;
 use crate::draw::paint::StrokeStyle;
@@ -29,8 +27,12 @@ use crate::theme::token::ColorToken;
 use crate::window::input::{ButtonState, Key, NamedKey, PointerButton};
 
 use super::access::{AccessInfo, AccessRole};
+use super::elide::ElidedText;
 use super::layout::{Constraints, Size};
 use super::tree::{EventCx, Handled, LayoutCx, RecordCx, Widget, WidgetEvent};
+
+/// The style of the control's text: the interface family, body size, regular weight.
+const STYLE: (FamilyToken, SizeToken, Weight) = (FamilyToken::Ui, SizeToken::Body, Weight::Regular);
 
 /// The two looks of a button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -57,11 +59,9 @@ pub struct Button<M> {
     hovered: bool,
     /// A press inside is held (the pointer is captured).
     pressed: bool,
-    /// The laid-out text.
-    layout: TextLayout,
-    /// The text generation `layout` was made for (see [`LayoutCx::text_generation`]), or `None`
-    /// when it must be made again.
-    laid_out: Option<u64>,
+    /// The laid-out text: whole and, when the button is narrower than its text and padding,
+    /// shortened with an ellipsis (F2.09f, ADR-0045 WJ1).
+    layout: ElidedText,
 }
 
 impl<M: Clone> Button<M> {
@@ -75,8 +75,7 @@ impl<M: Clone> Button<M> {
             enabled: true,
             hovered: false,
             pressed: false,
-            layout: TextLayout::new(),
-            laid_out: None,
+            layout: ElidedText::new(),
         }
     }
 
@@ -105,8 +104,15 @@ impl<M: Clone> Button<M> {
     pub fn set_text(&mut self, text: &str) {
         if text != self.text {
             text.clone_into(&mut self.text);
-            self.laid_out = None;
+            self.layout.invalidate();
         }
+    }
+
+    /// `true` when the last layout gave the button less width than its text needs, so the text
+    /// is drawn shortened with an ellipsis (F2.09f).
+    #[must_use]
+    pub const fn is_elided(&self) -> bool {
+        self.layout.is_elided()
     }
 
     /// Emits the message.
@@ -151,22 +157,19 @@ fn contains(rect: Rect, point: Point) -> bool {
 
 impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for Button<M> {
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
-        let generation = cx.text_generation();
-        if self.laid_out != Some(generation) {
-            let style = (FamilyToken::Ui, SizeToken::Body, Weight::Regular);
-            if cx
-                .lay_out_text(&self.text, style, None, &mut self.layout)
-                .is_err()
-            {
-                self.layout = TextLayout::new();
-            }
-            self.laid_out = Some(generation);
-        }
+        let text = self.layout.measure(cx, &self.text, STYLE, None);
         let spacing = cx.spacing();
         constraints.constrain(Size::new(
-            self.layout.width() + 2.0 * spacing.control_padding,
-            spacing.control_height.max(self.layout.height()),
+            text.width + 2.0 * spacing.control_padding,
+            spacing.control_height.max(text.height),
         ))
+    }
+
+    fn arrange(&mut self, cx: &mut LayoutCx<'_, M>, rect: Rect) {
+        // The text has the button's width without the padding on both sides; narrower than the
+        // text, it is shortened with an ellipsis (F2.09f), so it never reaches the border.
+        let room = rect.width() - 2.0 * cx.spacing().control_padding;
+        self.layout.fit(cx, &self.text, STYLE, room);
     }
 
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
@@ -183,10 +186,11 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for Button<M> {
                 ColorToken::ControlBorder,
             );
         }
-        // The text centred in the button.
-        let x = rect.x0 + (rect.width() - self.layout.width()) / 2.0;
-        let y = rect.y0 + (rect.height() - self.layout.height()) / 2.0;
-        recorder.text(&self.layout, Point::new(x, y), text);
+        // The text (whole, or shortened by `arrange`) centred in the button.
+        let layout = self.layout.shown();
+        let x = rect.x0 + (rect.width() - layout.width()) / 2.0;
+        let y = rect.y0 + (rect.height() - layout.height()) / 2.0;
+        recorder.text(layout, Point::new(x, y), text);
         if cx.focused && self.enabled {
             super::look::focus_ring(recorder, rect, radius, cx.shape);
         }

@@ -5,6 +5,8 @@
 //! state, emit messages and re-record segments without touching the heap. Since F2.09d the same
 //! holds for scrolling (wheel, thumb drag, Tab into a hidden widget) and for dragging a
 //! splitter's divider, and since F2.09e for asking the pointer's shape after each event.
+//! Since F2.09f it also holds while the divider narrows real labels, toggles and buttons below
+//! their texts' widths: shortening a text with an ellipsis uses the shaper's own working memory.
 //!
 //! This file is its own test binary with the counting allocator installed (ADR-0016 §5).
 
@@ -222,4 +224,102 @@ fn scrolling_and_moving_a_divider_never_allocate() {
     round(&mut ui, &mut list);
     round(&mut ui, &mut list);
     assert_no_allocations(|| round(&mut ui, &mut list));
+}
+
+#[test]
+fn eliding_while_a_divider_moves_never_allocates() {
+    use orchestra_ui::{Button, Label, Toggle};
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui: Ui<()> = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let fill = LayoutProps::default()
+        .width(Length::Fill(1.0))
+        .height(Length::Fill(1.0));
+    // A splitter: on the left a column of real controls whose texts are wider than the pane at
+    // every position the divider takes below, on the right a pad.
+    let splitter = ui
+        .add(
+            root,
+            Splitter::new(Axis::Horizontal, 0.3).minimum_sizes(0.0, 0.0),
+            fill,
+        )
+        .unwrap();
+    let column = ui
+        .add(splitter, Flex::column(Space::None, Space::None), fill)
+        .unwrap();
+    ui.add(splitter, Pad { on: false }, fill).unwrap();
+    let label = ui
+        .add(
+            column,
+            Label::new("Metronome during the count-in bars of a recording"),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    let toggle = ui
+        .add(
+            column,
+            Toggle::switch("Follow the playback cursor while playing", true, |_| ()),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    let button = ui
+        .add(
+            column,
+            Button::new("Restore every option to its default value", ()),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 600.0, 400.0), &mut list);
+    let band = ui.rect(column).unwrap().x1 + 2.0;
+    let round = |ui: &mut Ui<()>, list: &mut DisplayList| {
+        ui.input(
+            &InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state: ButtonState::Pressed,
+                position: Point::new(band, 200.0),
+                clicks: 1,
+            },
+            list,
+        );
+        // Narrower and narrower, down to no room at all, then back: every move gives the three
+        // controls a new width, so each shortens its text again.
+        for x in [
+            band - 30.0,
+            band - 90.0,
+            band - 150.0,
+            2.0,
+            band - 60.0,
+            band,
+        ] {
+            ui.input(
+                &InputEvent::PointerMoved {
+                    position: Point::new(x, 200.0),
+                },
+                list,
+            );
+        }
+        ui.input(
+            &InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state: ButtonState::Released,
+                position: Point::new(band, 200.0),
+                clicks: 1,
+            },
+            list,
+        );
+        black_box(ui.take_messages().count());
+        black_box(list.take_damage());
+    };
+    round(&mut ui, &mut list);
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
+    // The premise: the three texts really are shortened at the end.
+    assert!(ui.widget::<Label>(label).unwrap().is_elided());
+    assert!(ui.widget::<Toggle<()>>(toggle).unwrap().is_elided());
+    assert!(ui.widget::<Button<()>>(button).unwrap().is_elided());
 }
