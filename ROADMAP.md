@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 approved by the owner; merged with PR #74; SCALETTA v0.70); next F2.10b3 (the field's accessibility).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 approved by the owner; merged with PR #74; SCALETTA v0.70); F2.10b3 done (the field's accessibility: text runs, the three text actions; precisions of ADR-0045 WI1–WI4 and ADR-0047 approved by the owner; branch `feature/f2-10b3-field-accessibility`); next F2.10c (the clipboard and the IME).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1223,6 +1223,33 @@ keeps at least 160 logical pixels (`OPTIONS_MIN_WIDTH`). Precision of ADR-0045 W
 owner on 2026-11-14. Test `drawing_wider_than_its_rectangle_stays_inside_its_pane` (two injected
 bugs, both caught). Open: shortening labels with an ellipsis, a later widget step. Commit
 `User-visible: no`.
+
+Step **F2.10b3**, the text field's accessibility (`feature/f2-10b3-field-accessibility`,
+2026-11-15). Reading AccessKit 0.25.2's types before coding showed two limits that ADR-0047 TF11
+and ADR-0045 WH1 had not seen: a run's word starts are bytes and a character's index is read as
+one, so a run holds at most 255 characters; a character's length is a byte too. The owner
+approved (2026-11-15): several runs per line, named with bit 63, the run's number in bits 62–48
+and the widget's in bits 47–0 (option A); a grapheme over 255 bytes given in pieces; `AccessInfo`
+gaining `text` (`TextInfo`) and `placeholder`, translated to `TextRun` nodes in `access.rs` only;
+run rectangles following the scrolled text, the field clipping its children; word starts from the
+new `orchestra_text::word_starts`; AccessKit's set value (text), replace selected text and set
+text selection delivered as `WidgetEvent::SetText`, `ReplaceSelectedText` and `SetTextSelection`
+through `TextEditor`; **without the focus a changed text is committed at once**; `AccessAction`
+and `AccessActionKind` no longer `Copy`; a disabled field readable, without the actions;
+`accesskit_consumer` 0.39.2 as a dev-dependency of `orchestra-ui`, pinned (`=`) to the version
+already in the lock file. Written as precisions WI1–WI4 of ADR-0045 and "F2.10b3" of ADR-0047. I
+applied the immediate commit to replace-selected-text too (the same reasoning as for set value;
+the owner's ok named set value). Tests: `tests/field_access.rs` (12 cases read through
+`accesskit_consumer` and a property test on random texts and selections), unit tests in
+`access.rs`; the property test found that a word can start inside a grapheme (after a joiner),
+which the library already listed once; eleven injected bugs, all caught. Benchmarks:
+`field_type_key` (a key with the accessibility update) 435 → 473 thousand instructions (+8.8%,
+the field's run built again at every key; 481 before one `caret_x` per grapheme instead of two),
+under ADR-0047 TF13's 0.5 M and unchanged without a listening reader: accepted by the owner with
+`Bench-regression: accepted`, which must stay on the PR's head commit; the blink unchanged (68
+thousand), the whole tree +1.7%.
+**Open:** the owner's check by ear with Orca (or Accerciser) on the real application, outside the
+sandbox; it does not block the step. Commits `User-visible: no`. Next: F2.10c.
 
 | Step | What | Status |
 |---|---|---|

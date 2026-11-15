@@ -72,12 +72,60 @@ impl WidgetId {
     /// Widget numbers come from a counter that starts at 1 and grows by one per widget: reaching
     /// 2⁶³ would take a new widget every nanosecond for 292 years. So every number below 2⁶³ is
     /// a widget's main segment and every number above is an overlay, and the two sets never meet.
-    /// F2.10b3 reserves the same bit for the accessibility node of a field's text run.
+    /// The accessibility tree uses the same bit for the nodes of a widget's text runs
+    /// ([`WidgetId::text_run_node`]); the display list and the accessibility tree are separate
+    /// name spaces, so the two uses never meet.
     #[must_use]
     pub(crate) const fn overlay_segment(self) -> crate::draw::list::SegmentId {
         crate::draw::list::SegmentId(self.0.get() | HIGH_BIT)
     }
+
+    /// The number of the accessibility node of this widget's text run number `run` (F2.10b3,
+    /// ADR-0045 WI2): bit 63 set, the run's number in bits 62–48, the widget's number in bits
+    /// 47–0. `None` when either does not fit: a run past [`MAX_TEXT_RUNS`] (the text is then cut
+    /// short for assistive technologies), or a widget number of 2⁴⁸ or more (a new widget every
+    /// microsecond for almost nine years).
+    ///
+    /// # Why several runs
+    /// AccessKit keeps a run's word starts in bytes, so a run holds at most 255 characters and a
+    /// long line is several runs; each needs a node number that is stable, unique, and that no
+    /// widget has.
+    #[must_use]
+    pub(crate) const fn text_run_node(self, run: usize) -> Option<u64> {
+        let widget = self.0.get();
+        if run >= MAX_TEXT_RUNS || widget > RUN_WIDGET_MASK {
+            return None;
+        }
+        // `run` is below 2¹⁵, so the conversion is exact and the shift stays below bit 63.
+        Some(HIGH_BIT | ((run as u64) << RUN_SHIFT) | widget)
+    }
+
+    /// The widget and the run a text run's node number names, the inverse of
+    /// [`WidgetId::text_run_node`]; `None` for a number without the high bit (a widget's own
+    /// node) or with no widget in it.
+    #[must_use]
+    pub(crate) const fn text_run_of(node: u64) -> Option<(Self, usize)> {
+        if node & HIGH_BIT == 0 {
+            return None;
+        }
+        let run = ((node & !HIGH_BIT) >> RUN_SHIFT) as usize;
+        match Self::from_raw(node & RUN_WIDGET_MASK) {
+            Some(widget) => Some((widget, run)),
+            None => None,
+        }
+    }
 }
+
+/// How many bits of a text run's node number hold the widget's number
+/// ([`WidgetId::text_run_node`]).
+const RUN_SHIFT: u32 = 48;
+
+/// The bits of a text run's node number that hold the widget's number.
+const RUN_WIDGET_MASK: u64 = (1 << RUN_SHIFT) - 1;
+
+/// How many text runs a widget can name (bits 62–48 of the node number): with 255 characters
+/// each, about 8.3 million characters.
+pub(crate) const MAX_TEXT_RUNS: usize = 1 << (63 - RUN_SHIFT);
 
 /// The bit that tells a widget's second name (its overlay segment) from its first: see
 /// [`WidgetId::overlay_segment`].
@@ -171,6 +219,20 @@ pub enum WidgetEvent<'a> {
     Decrement,
     /// An assistive technology asked to set the value.
     SetValue(f64),
+    /// An assistive technology asked to replace the whole text (AccessKit's set value with a
+    /// text; F2.10b3, ADR-0045 WI3): a text field takes it as a paste over everything.
+    SetText(&'a str),
+    /// An assistive technology asked to replace the selected text (or to insert at the caret).
+    ReplaceSelectedText(&'a str),
+    /// An assistive technology asked to select from `anchor` to `focus` (equal: only the caret
+    /// moves). Both count **characters** as the widget's
+    /// [`TextInfo`](super::access::TextInfo) lists them, not bytes.
+    SetTextSelection {
+        /// Where the selection starts.
+        anchor: usize,
+        /// Where the caret goes.
+        focus: usize,
+    },
     /// The time this widget asked for came ([`EventCx::request_wakeup`], a precision of ADR-0040
     /// W2 made in F2.10b2): a text field's caret blinks with it. Sent to that widget alone,
     /// without bubbling, at the first frame at or after the time asked; the time of the frame is

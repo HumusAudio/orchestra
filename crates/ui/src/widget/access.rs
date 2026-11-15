@@ -14,15 +14,30 @@
 //! the root widget; then one node per widget with its role, its bounds (the rectangle of the last
 //! layout), its children and what its [`AccessInfo`] says. The first update carries every node
 //! and the tree's description; later ones only the nodes marked as changed (WC3), plus the focus.
+//!
+//! # Text (F2.10b3, ADR-0045 WI1–WI3, ADR-0047 TF11)
+//! A widget that holds editable text fills [`AccessInfo::text`] with a [`TextInfo`], and this
+//! file turns it into AccessKit's `TextRun` nodes, children of the widget's node: the only nodes
+//! of the tree that are not widgets. A run holds at most [`RUN_CHARACTERS`] characters, because
+//! AccessKit keeps a run's word starts in bytes; a longer line becomes several runs linked as one
+//! line. Their node numbers come from [`WidgetId::text_run_node`]. The requests that come back
+//! (set the text, replace the selection, select) name positions by run and character: they are
+//! turned into characters of the whole text here, so a widget never sees a run.
 
 use accesskit::{
-    Action, Node, NodeId, Orientation, Role, ScrollUnit, Toggled, TreeId, TreeInfo, TreeUpdate,
+    Action, Node, NodeId, Orientation, Role, ScrollUnit, TextDirection, TextPosition,
+    TextSelection, Toggled, TreeId, TreeInfo, TreeUpdate,
 };
 
 use crate::draw::geometry::Rect;
 
 use super::layout::Axis;
 use super::tree::{ScrollDirection, WidgetId};
+
+/// How many characters one text run holds at most (ADR-0045 WI2): AccessKit keeps a run's word
+/// starts as bytes and reads a character's index as one, so the 256th character of a run could
+/// not be named.
+pub const RUN_CHARACTERS: usize = 255;
 
 /// The role of a widget, as assistive technologies announce it (WC2). Exhaustive: a new widget
 /// kind adds its role here and its translation below.
@@ -44,8 +59,8 @@ pub enum AccessRole {
     ScrollView,
     /// The divider between two panes, which can be moved (F2.09d).
     Splitter,
-    /// A one-line text field (F2.10b2): its name and state now; its text, caret and selection
-    /// (AccessKit's text runs) come with F2.10b3 (ADR-0047 TF11).
+    /// A one-line text field (F2.10b2), with its text, caret and selection in
+    /// [`AccessInfo::text`] (F2.10b3, ADR-0047 TF11).
     TextInput,
 }
 
@@ -71,6 +86,48 @@ pub struct AccessInfo {
     /// The direction the widget works in, for splitters (F2.09d): `Horizontal` for panes side by
     /// side (the divider itself is then vertical, and assistive technologies say so).
     pub orientation: Option<Axis>,
+    /// The text the widget holds, with its caret and selection, for text fields (F2.10b3):
+    /// assistive technologies then read it by character and word, follow the caret, and offer to
+    /// set the text, replace the selection and select.
+    pub text: Option<TextInfo>,
+    /// The hint shown while a text field is empty, announced then (F2.10b3, ADR-0045 WI4).
+    pub placeholder: Option<String>,
+}
+
+/// One line of text as assistive technologies read it (F2.10b3, ADR-0045 WI1, ADR-0047 TF11).
+///
+/// # Characters
+/// Everything is counted in **characters**: the smallest pieces a caret can stand between, so
+/// graphemes, not code points ("é" written as "e" and a combining accent is one). A character is
+/// at most 255 bytes long (AccessKit's limit): the widget gives a longer grapheme as several
+/// characters.
+///
+/// # Invariants the widget keeps
+/// `character_lengths`, `character_positions` and `character_widths` have one item per character,
+/// and the lengths add up to `value`'s length in bytes. A description that breaks them is cut at
+/// the first character that does not fit, never a panic.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TextInfo {
+    /// The whole text.
+    pub value: String,
+    /// The length of each character, bytes of `value` (UTF-8).
+    pub character_lengths: Vec<u8>,
+    /// Where each character starts: logical pixels from the line's left edge (`rect.x0`),
+    /// growing to the right (texts are left to right only, ADR-0044 TX5).
+    pub character_positions: Vec<f32>,
+    /// The advance of each character, logical pixels.
+    pub character_widths: Vec<f32>,
+    /// The characters at which a word starts, increasing. The line's first character starts a
+    /// word whether listed or not; spaces and punctuation belong to the word before them.
+    pub word_starts: Vec<usize>,
+    /// Where the selection starts, in characters from 0 to their number (the end of the text);
+    /// equal to `focus` when nothing is selected.
+    pub anchor: usize,
+    /// Where the caret is, in characters.
+    pub focus: usize,
+    /// The whole line's rectangle, logical pixels of the window: it may reach outside the
+    /// widget's own rectangle when the text is scrolled inside it (the widget's node then clips).
+    pub rect: Rect,
 }
 
 /// How far a scroll area's content is scrolled (F2.09d), logical pixels: the offset from the
@@ -89,7 +146,9 @@ pub struct ScrollInfo {
 }
 
 /// What an assistive technology asks a widget to do (WC5), delivered by the window.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Not `Copy` since F2.10b3: a request to set a text owns that text.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AccessAction {
     /// The widget.
     pub target: WidgetId,
@@ -97,8 +156,9 @@ pub struct AccessAction {
     pub kind: AccessActionKind,
 }
 
-/// The actions understood (WC5; the value actions since F2.09c, scrolling since F2.09d).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// The actions understood (WC5; the value actions since F2.09c, scrolling since F2.09d, the text
+/// actions since F2.10b3).
+#[derive(Debug, Clone, PartialEq)]
 pub enum AccessActionKind {
     /// Activate the widget, as a click or the Enter key would.
     Click,
@@ -119,6 +179,18 @@ pub enum AccessActionKind {
     },
     /// Scroll the areas around the target until it can be seen (F2.09d).
     ScrollIntoView,
+    /// Replace the whole text of the target (a text field) with this one (F2.10b3).
+    SetText(String),
+    /// Replace the target's selected text with this one, or insert it at the caret.
+    ReplaceSelectedText(String),
+    /// Select from `anchor` to `focus` in the target's text, both in characters of its
+    /// [`TextInfo`] (equal: only the caret moves).
+    SetTextSelection {
+        /// Where the selection starts.
+        anchor: usize,
+        /// Where the caret goes.
+        focus: usize,
+    },
 }
 
 /// An update of the accessibility tree, ready for the window's adapter. Opaque: only the window
@@ -162,14 +234,18 @@ pub(crate) fn window_node(title: &str, root: WidgetId) -> Node {
     node
 }
 
-/// The node of one widget from its role, its rectangle, its children and its information.
-pub(crate) fn widget_node(
+/// Adds to `nodes` the node of the widget `id`, built from its role, its rectangle, its children
+/// and its information, followed by the nodes of its text runs if it describes a text
+/// ([`AccessInfo::text`]).
+pub(crate) fn push_widget_nodes(
+    nodes: &mut Vec<(NodeId, Node)>,
+    id: WidgetId,
     role: AccessRole,
     rect: Rect,
     children: impl Iterator<Item = WidgetId>,
     info: &AccessInfo,
     focusable: bool,
-) -> Node {
+) {
     let mut node = Node::new(match role {
         AccessRole::Group => Role::GenericContainer,
         AccessRole::Label => Role::Label,
@@ -225,9 +301,22 @@ pub(crate) fn widget_node(
             Axis::Vertical => Orientation::Horizontal,
         });
     }
+    if let Some(placeholder) = &info.placeholder {
+        node.set_placeholder(placeholder.as_str());
+    }
+    if info.text.is_some() {
+        // The line may be scrolled inside the widget and reach past its edges (TF11).
+        node.set_clips_children();
+    }
     if info.disabled {
         node.set_disabled();
     } else {
+        if info.text.is_some() {
+            // A disabled field keeps its text readable and offers none of these (TF11).
+            node.add_action(Action::SetValue);
+            node.add_action(Action::ReplaceSelectedText);
+            node.add_action(Action::SetTextSelection);
+        }
         if info.clickable {
             node.add_action(Action::Click);
         }
@@ -258,7 +347,168 @@ pub(crate) fn widget_node(
     // Every widget can be asked to come into view: the interface scrolls the areas around it
     // (a widget outside any scroll area is already in view, and nothing happens).
     node.add_action(Action::ScrollIntoView);
-    node
+    // The widget's node goes first and its runs after it; the runs are pushed as its children
+    // while they are built, so the node is put in its place at the end.
+    let at = nodes.len();
+    if let Some(text) = &info.text {
+        push_text_runs(nodes, &mut node, id, text);
+    }
+    nodes.insert(at, (NodeId(id.get()), node));
+}
+
+/// Adds to `nodes` the text runs of `text`, held by the widget `owner`, and to `parent` (the
+/// widget's node) those runs as children and the selection.
+///
+/// # The runs
+/// One run per [`RUN_CHARACTERS`] characters, in order, and one empty run for an empty text (a
+/// caret needs a run to stand in). Each has its part of the value, its characters' lengths,
+/// their positions from the run's own left edge and their widths, the word starts that fall in
+/// it, and its rectangle: its part of the line. Runs are linked to their neighbours as parts of
+/// one line, so "end of line" is the text's end and not a run's.
+///
+/// # Complexity
+/// O(characters + word starts); allocates the nodes and their lists (WC10: not a hot path, it
+/// runs only while an assistive technology listens).
+fn push_text_runs(
+    nodes: &mut Vec<(NodeId, Node)>,
+    parent: &mut Node,
+    owner: WidgetId,
+    text: &TextInfo,
+) {
+    // The characters fully described: a description that breaks its invariants is cut at the
+    // shortest list.
+    let described = text
+        .character_lengths
+        .len()
+        .min(text.character_positions.len())
+        .min(text.character_widths.len());
+    // The run each character index belongs to is its index divided by the run size, so the
+    // number of runs is the division rounded up, and at least one. The names may allow fewer
+    // (`WidgetId::text_run_node`): the loop stops there.
+    let wanted = described.div_ceil(RUN_CHARACTERS).max(1);
+    // Where the run being built starts: in characters, and in bytes of the value.
+    let mut first = 0_usize;
+    let mut byte = 0_usize;
+    // The word starts not yet given to a run (they are sorted).
+    let mut words = text.word_starts.iter().copied().peekable();
+    // The node number of the previous run, to link the two.
+    let mut previous: Option<NodeId> = None;
+    // How many characters and runs were really built, for the selection.
+    let mut built_characters = 0_usize;
+    let mut built_runs = 0_usize;
+    for run in 0..wanted {
+        let Some(id) = owner.text_run_node(run).map(NodeId) else {
+            // Past the last name (ADR-0045 WI2): the text is cut short here.
+            break;
+        };
+        let last = first.saturating_add(RUN_CHARACTERS).min(described);
+        let lengths = text.character_lengths.get(first..last).unwrap_or_default();
+        let positions = text
+            .character_positions
+            .get(first..last)
+            .unwrap_or_default();
+        let widths = text.character_widths.get(first..last).unwrap_or_default();
+        let bytes: usize = lengths.iter().map(|&length| usize::from(length)).sum();
+        let Some(value) = text.value.get(byte..byte.saturating_add(bytes)) else {
+            // The lengths do not describe the value (they end inside a code point or past the
+            // end): nothing from here on can be trusted.
+            break;
+        };
+        let mut node = Node::new(Role::TextRun);
+        node.set_value(value);
+        node.set_character_lengths(lengths);
+        node.set_text_direction(TextDirection::LeftToRight);
+        // The run's left edge: where its first character starts (an empty run sits at the
+        // line's start). Positions inside the run are counted from it.
+        let left = positions.first().copied().unwrap_or(0.0);
+        let right = positions
+            .last()
+            .zip(widths.last())
+            .map_or(left, |(position, width)| position + width);
+        node.set_character_positions(
+            positions
+                .iter()
+                .map(|position| position - left)
+                .collect::<Vec<f32>>(),
+        );
+        node.set_character_widths(widths);
+        node.set_bounds(accesskit::Rect {
+            x0: f64::from(text.rect.x0 + left),
+            y0: f64::from(text.rect.y0),
+            x1: f64::from(text.rect.x0 + right),
+            y1: f64::from(text.rect.y1),
+        });
+        // The word starts inside this run, as indices from its first character: below 255, so
+        // they fit AccessKit's bytes. Starts before the run (a list out of order) are dropped.
+        let mut starts = Vec::new();
+        while let Some(&start) = words.peek() {
+            if start >= last {
+                break;
+            }
+            words.next();
+            if let Some(index) = start
+                .checked_sub(first)
+                .and_then(|index| u8::try_from(index).ok())
+                && starts.last() != Some(&index)
+            {
+                starts.push(index);
+            }
+        }
+        node.set_word_starts(starts);
+        if let Some(previous) = previous {
+            node.set_previous_on_line(previous);
+            // The previous run is the last node pushed: it learns its successor now.
+            if let Some((_, previous_node)) = nodes.last_mut() {
+                previous_node.set_next_on_line(id);
+            }
+        }
+        parent.push_child(id);
+        nodes.push((id, node));
+        previous = Some(id);
+        built_characters = last;
+        built_runs = run.saturating_add(1);
+        first = last;
+        byte = byte.saturating_add(bytes);
+    }
+    if built_runs == 0 {
+        return;
+    }
+    let position = |character: usize| run_position(owner, character, built_characters, built_runs);
+    if let (Some(anchor), Some(focus)) = (position(text.anchor), position(text.focus)) {
+        parent.set_text_selection(TextSelection { anchor, focus });
+    }
+}
+
+/// The position AccessKit names `character` by, in a text of `characters` characters split in
+/// `runs` runs of [`RUN_CHARACTERS`]: the run and the index inside it.
+///
+/// A character on the border of two runs is the first of the later one; only the end of the
+/// whole text is "after the last character" of the last run.
+fn run_position(
+    owner: WidgetId,
+    character: usize,
+    characters: usize,
+    runs: usize,
+) -> Option<TextPosition> {
+    let character = character.min(characters);
+    let last_run = runs.checked_sub(1)?;
+    let run = (character / RUN_CHARACTERS).min(last_run);
+    // Counted from the run's first character: 0 to 254 inside a run, up to 255 at the text's end.
+    let index = character.saturating_sub(run.saturating_mul(RUN_CHARACTERS));
+    Some(TextPosition {
+        node: NodeId(owner.text_run_node(run)?),
+        character_index: index,
+    })
+}
+
+/// The character of the whole text that `position` names, if it is in a run of `target`: the
+/// inverse of [`run_position`]. The widget brings an index past its text back to the end.
+fn character_of(target: WidgetId, position: TextPosition) -> Option<usize> {
+    let (owner, run) = WidgetId::text_run_of(position.node.0)?;
+    (owner == target).then(|| {
+        run.saturating_mul(RUN_CHARACTERS)
+            .saturating_add(position.character_index.min(RUN_CHARACTERS))
+    })
 }
 
 /// A tree with only the window in it, for an app that describes nothing (WC6): assistive
@@ -279,9 +529,29 @@ pub(crate) fn action_from(request: &accesskit::ActionRequest) -> Option<AccessAc
         Action::Focus => AccessActionKind::Focus,
         Action::Increment => AccessActionKind::Increment,
         Action::Decrement => AccessActionKind::Decrement,
-        Action::SetValue => match request.data {
+        Action::SetValue => match &request.data {
             Some(accesskit::ActionData::NumericValue(value)) if value.is_finite() => {
-                AccessActionKind::SetValue(value)
+                AccessActionKind::SetValue(*value)
+            }
+            // The same action with a text is for a text field (F2.10b3).
+            Some(accesskit::ActionData::Value(text)) => {
+                AccessActionKind::SetText(text.as_ref().to_owned())
+            }
+            _ => return None,
+        },
+        Action::ReplaceSelectedText => match &request.data {
+            Some(accesskit::ActionData::Value(text)) => {
+                AccessActionKind::ReplaceSelectedText(text.as_ref().to_owned())
+            }
+            _ => return None,
+        },
+        Action::SetTextSelection => match &request.data {
+            // Both ends must be in the target's own runs; anything else is not understood.
+            Some(accesskit::ActionData::SetTextSelection(selection)) => {
+                AccessActionKind::SetTextSelection {
+                    anchor: character_of(target, selection.anchor)?,
+                    focus: character_of(target, selection.focus)?,
+                }
             }
             _ => return None,
         },
@@ -310,9 +580,14 @@ mod tests {
     //! The translation of AccessKit's scroll requests (F2.09d), which only the window's adapter
     //! reaches otherwise.
 
-    use accesskit::{Action, ActionData, ActionRequest, NodeId, ScrollUnit, TreeId};
+    use accesskit::{
+        Action, ActionData, ActionRequest, NodeId, ScrollUnit, TextPosition, TextSelection, TreeId,
+    };
 
-    use super::{AccessActionKind, ScrollDirection, action_from};
+    use super::{
+        AccessActionKind, RUN_CHARACTERS, ScrollDirection, WidgetId, action_from, character_of,
+        run_position,
+    };
 
     /// A request for `action` on widget 7, with `data`.
     fn request(action: Action, data: Option<ActionData>) -> ActionRequest {
@@ -354,5 +629,109 @@ mod tests {
         assert_eq!(reveal, Some(AccessActionKind::ScrollIntoView));
         // Scrolling to a point is not offered, so it is not understood.
         assert_eq!(action_from(&request(Action::ScrollToPoint, None)), None);
+    }
+
+    /// The widget the requests of [`request`] aim at.
+    fn seven() -> WidgetId {
+        WidgetId::from_raw(7).unwrap_or(WidgetId::MAX)
+    }
+
+    /// The text requests (F2.10b3): a text value, a replacement, and a selection whose ends are
+    /// named by run and character.
+    #[test]
+    fn text_requests_become_texts_and_characters() {
+        let text = || Some(ActionData::Value("Cello".into()));
+        assert_eq!(
+            action_from(&request(Action::SetValue, text())).map(|action| action.kind),
+            Some(AccessActionKind::SetText("Cello".to_owned()))
+        );
+        assert_eq!(
+            action_from(&request(Action::ReplaceSelectedText, text())).map(|action| action.kind),
+            Some(AccessActionKind::ReplaceSelectedText("Cello".to_owned()))
+        );
+        // A replacement without a text is not understood.
+        assert_eq!(
+            action_from(&request(Action::ReplaceSelectedText, None)),
+            None
+        );
+        // Run 0 character 3 to run 2 character 10 of widget 7: characters 3 and 520.
+        let node = |run: u64| NodeId((1 << 63) | (run << 48) | 7);
+        let selection = |anchor: NodeId, focus: NodeId| {
+            Some(ActionData::SetTextSelection(TextSelection {
+                anchor: TextPosition {
+                    node: anchor,
+                    character_index: 3,
+                },
+                focus: TextPosition {
+                    node: focus,
+                    character_index: 10,
+                },
+            }))
+        };
+        assert_eq!(
+            action_from(&request(
+                Action::SetTextSelection,
+                selection(node(0), node(2))
+            ))
+            .map(|action| action.kind),
+            Some(AccessActionKind::SetTextSelection {
+                anchor: 3,
+                focus: 520
+            })
+        );
+        // An end in another widget's run (widget 8), or on a widget's own node: not understood.
+        let foreign = NodeId((1 << 63) | 8);
+        assert_eq!(
+            action_from(&request(
+                Action::SetTextSelection,
+                selection(node(0), foreign)
+            )),
+            None
+        );
+        assert_eq!(
+            action_from(&request(
+                Action::SetTextSelection,
+                selection(NodeId(7), node(0))
+            )),
+            None
+        );
+    }
+
+    /// Every character of texts around the run size is named by a position that names it back,
+    /// inside the run it belongs to; the text's end is after the last character of the last run.
+    #[test]
+    fn positions_and_characters_are_inverse() {
+        for characters in [0_usize, 1, 254, 255, 256, 509, 510, 511, 1000] {
+            let runs = usize::max(characters.div_ceil(RUN_CHARACTERS), 1);
+            for character in 0..=characters {
+                let position = run_position(seven(), character, characters, runs);
+                let Some(position) = position else {
+                    panic!("no position for {character} of {characters}");
+                };
+                assert_eq!(character_of(seven(), position), Some(character));
+                let (owner, run) = WidgetId::text_run_of(position.node.0).unwrap_or((seven(), 99));
+                assert_eq!(owner, seven());
+                assert!(run < runs, "{character} of {characters}: run {run}");
+                // Inside a run, except at the very end of the text.
+                let in_run = characters.min((run + 1) * RUN_CHARACTERS) - run * RUN_CHARACTERS;
+                if character < characters {
+                    assert!(position.character_index < in_run);
+                } else {
+                    assert_eq!(position.character_index, in_run);
+                }
+            }
+            // Past the end: the end.
+            assert_eq!(
+                run_position(seven(), characters + 5, characters, runs),
+                run_position(seven(), characters, characters, runs)
+            );
+        }
+        // Names that do not fit: a run past the last one, a widget number of 2⁴⁸.
+        assert_eq!(seven().text_run_node(1 << 15), None);
+        assert!(seven().text_run_node((1 << 15) - 1).is_some());
+        let huge = WidgetId::from_raw(1 << 48).unwrap_or(seven());
+        assert_eq!(huge.text_run_node(0), None);
+        // A widget's own number names no run.
+        assert_eq!(WidgetId::text_run_of(7), None);
     }
 }

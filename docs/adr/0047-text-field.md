@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-11-13; outline TF1–TF13 presented first, with the owner's
   choices on TF2, TF8, TF12 and the primary selection's postponement, then the text). Precisions
-  of F2.10b1 and F2.10b2 below.
+  of F2.10b1, F2.10b2 and F2.10b3 below.
 - **Date:** 2026-11-13
 - **Implements:** ADR-0045 (retained widgets, routed events, focus, AccessKit per widget; WA8
   leaves the clipboard to this step), ADR-0044 (text: shaping, clusters, left to right only,
@@ -308,6 +308,41 @@ Found while writing the widget, `TextField`, within the decisions above:
   quarter-pixel phase rasterises it once, about 0.14 M more), the caret's blink 68 thousand. Both
   needed the renderer's precision of ADR-0043 (F2.10b2). Typing, moving and blinking allocate
   nothing within capacity (tested).
+
+## Precisions of the implementation (F2.10b3, approved by the owner on 2026-11-15)
+
+Found while writing the field's accessibility (TF11), after reading AccessKit 0.25.2's types:
+- **TF11, several runs.** AccessKit's word starts are bytes (`u8`) and its reader takes a
+  character's index as one: a run holds at most 255 characters. "One `TextRun` child for its
+  line" becomes one run per 255 characters of the line, linked with `next_on_line` and
+  `previous_on_line`, named as ADR-0045 WI2 says.
+- **TF11, characters.** A character is a grapheme, but its length is a byte too: a grapheme
+  longer than 255 bytes (a pile of combining marks) is given as several characters of at most 255
+  bytes each, cut at code points; the first has the grapheme's width, the others none. A
+  selection that lands inside goes to the grapheme boundary at or after it, as every selection
+  does (`TextEditor::select`).
+- **TF11, geometry.** A run's rectangle is its part of the whole line, moved by the field's inner
+  scroll, so it can reach outside the field, which says that it clips its children. Positions and
+  widths are relative to the run's left edge. Always left to right (ADR-0044 TX5).
+- **TF11, words.** A word starts at the line's start and where a word (letters or numbers) starts
+  (`orchestra_text::word_starts`, the same segments as the editing keys): spaces and punctuation
+  belong to the word before them, as AccessKit asks.
+- **TF11, actions.** Set value replaces the whole text and replace selected text the selection,
+  both as a paste would (one line, one undo step, the `on_change` listener told); set text
+  selection selects. With the focus they are edits like any other, committed by Enter or by the
+  focus leaving. **Without the focus a changed text is committed at once** and the local history
+  cleared (owner's choice): nothing would commit it later. A disabled field keeps its text
+  readable and offers none of the three.
+- **TF11, the placeholder** is given to assistive technologies, which announce it while the field
+  is empty.
+- **Tests.** `accesskit_consumer` 0.39.2 (the code AccessKit's own adapters read the tree with,
+  already in the lock file under them) is a dev-dependency of `orchestra-ui`, pinned to the
+  version `accesskit` 0.25.2 is used with: the tests read the text, the caret, the words and the
+  rectangles as a screen reader would.
+- **TF13, measured.** A typed key with the accessibility update goes from 0.435 M to 0.473 M
+  instructions (the field's run is built again at every key), under the 0.5 M of TF13; accepted
+  by the owner (`Bench-regression: accepted`). Without a listening assistive technology nothing
+  is built. The blink is unchanged.
 
 ## Alternatives rejected
 

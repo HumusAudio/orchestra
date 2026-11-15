@@ -154,6 +154,20 @@ pub fn next_word_start(text: &str, offset: usize) -> usize {
         .map_or(text.len(), |(range, _)| range.start)
 }
 
+/// Where each word (letters or numbers) of `text` starts, in increasing order: the stops of
+/// [`next_word_start`], all at once. The accessibility node of a text field lists them
+/// (ADR-0047 TF11, precision of F2.10b3), so a screen reader's "next word" stops where the
+/// editing keys do; spaces and punctuation then belong to the word before them.
+///
+/// # Complexity
+/// One pass of the word segmenter, O(n), no allocation; asking [`next_word_start`] again and
+/// again would be O(n²).
+pub fn word_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
+    word_segments(text)
+        .filter(|(_, word)| *word)
+        .map(|(range, _)| range.start)
+}
+
 /// The segment that contains the grapheme starting at `offset`: the word a double click selects,
 /// or the run of spaces or the punctuation when the click falls there. At (or past) the end, the
 /// last segment; in an empty text, the empty range at 0.
@@ -234,6 +248,11 @@ mod tests {
         assert_eq!(word_at(text, 8), 8..9);
         assert_eq!(word_at(text, 9), 9..10);
         assert_eq!(word_at(text, 14), 10..14);
+        // Every stop of `next_word_start`, with the first word's own start.
+        assert_eq!(word_starts(text).collect::<Vec<_>>(), vec![0, 7, 10]);
+        // Leading spaces are no word: the first start is the first letter.
+        assert_eq!(word_starts("  a b").collect::<Vec<_>>(), vec![2, 4]);
+        assert_eq!(word_starts("").count(), 0);
     }
 
     /// Accented letters belong to their word, and numbers are words.
