@@ -929,7 +929,8 @@ controllo completo. Va fatta bene una volta sola.
   fuoco un testo cambiato è confermato subito (anche per "sostituisci la selezione"); test letti
   con `accesskit_consumer` (solo test). Un tasto con l'aggiornamento di accessibilità 0,47 M
   istruzioni (+8,8%, accettato dal proprietario). Precisazioni WI1–WI4 di ADR-0045 e di ADR-0047.
-  Resta la prova a orecchio con Orca sull'app vera, che non blocca.
+  Provato a orecchio con Orca sull'app vera dal proprietario il 2026-11-15 (KDE, Wayland): tutto
+  a posto.
 - **F2.10c** Da F2.10b3: la composizione IME cambia testo e selezione, quindi i `TextRun` del
   campo vanno rimandati anche durante il preedit.
 - **F2.10c** Da ADR-0047: `arboard` dietro il trait `ClipboardSource` (le versioni doppie in
