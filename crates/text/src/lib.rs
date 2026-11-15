@@ -13,6 +13,8 @@
 //! - **Shapes** text with `harfrust` (kerning, ligatures, marks) and **wraps** it into lines at
 //!   the break opportunities of the Unicode line breaking algorithm, UAX #14, from
 //!   `icu_segmenter` ([`Shaper`], [`TextLayout`]; TX9, TX10).
+//! - **Elides** a one-line text that does not fit a width: its start followed by an ellipsis
+//!   ([`Shaper::elide`], [`Elision`]; step F2.09f).
 //! - **Measures**: line metrics, face bounds, single advances ([`LineMetrics`],
 //!   [`GlyphBox`], [`Faces::advance`]).
 //! - Delivers **glyph outlines** to an [`OutlineSink`], unhinted, y down (TX2, TX6).
@@ -52,6 +54,7 @@
 #![forbid(unsafe_code)]
 
 mod boundary;
+mod elide;
 mod error;
 mod face;
 mod layout;
@@ -65,6 +68,7 @@ pub use boundary::{
     ceil_grapheme, floor_grapheme, grapheme_boundaries, is_grapheme_boundary, next_grapheme,
     next_word_end, next_word_start, prev_grapheme, prev_word_start, word_at, word_starts,
 };
+pub use elide::Elision;
 pub use error::TextError;
 pub use face::{FaceId, Faces};
 pub use layout::{CaretStop, GlyphId, Line, PositionedGlyph, TextLayout};

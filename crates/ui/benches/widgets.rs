@@ -30,6 +30,12 @@
 //! - `splitter_drag_move` (F2.09d): the same window, one move while the divider is dragged: the
 //!   panes arranged again (the content keeps its rectangles, only the area's bar moves), drawn,
 //!   sent.
+//! - `splitter_drag_eliding` (F2.09f, ADR-0045 WJ1–WJ7): a 1000 × 1000 window whose left pane, a
+//!   vertical scroll area 150 pixels wide, holds 40 labels and 40 switches whose texts are all
+//!   wider than the pane, so all 80 are drawn shortened with an ellipsis; one move while the
+//!   divider is dragged 30 pixels to the left: the panes arranged again, each of the 80 texts
+//!   shortened again for its new width (two shapings each), the pane drawn, the nodes sent. The
+//!   worst case of eliding: every control of a pane narrowed at once. Budget: a frame's, 33 M.
 //! - `pointer_shape_over_a_widget` (F2.09e): the same window with the pointer over a widget of
 //!   the scrolled content, which answers nothing: the question the window asks after every event
 //!   walks the whole way up (the widget, its row, the column, the scroll area, the splitter, the
@@ -79,7 +85,7 @@ use orchestra_ui::{
     Point, PointerButton, RecordCx, Recorder, Rect, Renderer, Size, Slider, Space, Theme, Ui,
     WheelDelta, Widget, WidgetEvent, WidgetId,
 };
-use orchestra_ui::{Axis, ScrollArea, Splitter};
+use orchestra_ui::{Axis, ScrollArea, Splitter, Toggle};
 use orchestra_ui::{Direction, EditAction, EditConvention, TextEditor, Unit};
 use orchestra_ui::{Key, Modifiers, NamedKey, TextField};
 use std::time::Instant;
@@ -656,6 +662,107 @@ fn splitter_drag_move(mut scrolled: Scrolled) -> Scrolled {
     scrolled
 }
 
+// A window whose left pane holds 40 labels and 40 switches all wider than it (F2.09f), with the
+// divider pressed, ready to be dragged: every text is already drawn shortened.
+fn eliding_dragging() -> Scrolled {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        faces.clone(),
+    );
+    ui.set_title("Benchmark");
+    let root = ui.root();
+    let fill = LayoutProps::default()
+        .width(Length::Fill(1.0))
+        .height(Length::Fill(1.0));
+    let splitter = ui
+        .add(root, Splitter::new(Axis::Horizontal, 0.15), fill)
+        .unwrap();
+    let scroll = ui.add(splitter, ScrollArea::vertical(), fill).unwrap();
+    ui.add(splitter, Flex::column(Space::None, Space::None), fill)
+        .unwrap();
+    let column = ui
+        .add(
+            scroll,
+            Flex::column(Space::Xs, Space::M),
+            LayoutProps::default().width(Length::Fill(1.0)),
+        )
+        .unwrap();
+    for row_index in 0..40 {
+        ui.add(
+            column,
+            Label::new(format!("Track {row_index}: Violin I, solo, con sordino")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        ui.add(
+            column,
+            Toggle::switch(
+                format!("Follow the playback cursor on track {row_index}"),
+                row_index % 2 == 0,
+                |_| 0,
+            ),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    }
+    let mut list = DisplayList::new();
+    ui.layout(BOUNDS, &mut list);
+    let mut renderer = CpuRenderer::new(faces);
+    let mut image = Image::new(1000, 1000).unwrap();
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    let area = ui.rect(scroll).unwrap();
+    let mut scrolled = Scrolled {
+        ui,
+        list,
+        renderer,
+        image,
+        band: Point::new(area.x1 + 4.0, 500.0),
+    };
+    // Dragged once to the measured position and back, drawn each time: the shortened texts'
+    // glyphs are then in the glyph cache at the positions the measured move gives them, and the
+    // shaper's working memory has its size (the steady state of a drag).
+    let band = scrolled.band;
+    let moved = |scrolled: &mut Scrolled, position: Point| {
+        scrolled
+            .ui
+            .input(&InputEvent::PointerMoved { position }, &mut scrolled.list);
+        scrolled_draw(scrolled);
+        let _ = scrolled.ui.take_access_update();
+    };
+    moved(&mut scrolled, band);
+    scrolled.ui.input(
+        &InputEvent::PointerButton {
+            button: PointerButton::Left,
+            state: ButtonState::Pressed,
+            position: band,
+            clicks: 1,
+        },
+        &mut scrolled.list,
+    );
+    moved(&mut scrolled, Point::new(band.x - 30.0, band.y));
+    moved(&mut scrolled, band);
+    scrolled
+}
+
+#[library_benchmark]
+#[bench::panel(eliding_dragging())]
+fn splitter_drag_eliding(mut scrolled: Scrolled) -> Scrolled {
+    let to = Point::new(scrolled.band.x - 30.0, scrolled.band.y);
+    scrolled.ui.input(
+        black_box(&InputEvent::PointerMoved { position: to }),
+        &mut scrolled.list,
+    );
+    scrolled_draw(&mut scrolled);
+    black_box(scrolled.ui.take_access_update());
+    scrolled
+}
+
 // One question of the pointer's shape (F2.09e), as the window asks after each event. The answer
 // is the arrow: nobody on the way up asks for a shape, so every ancestor is asked.
 #[library_benchmark]
@@ -670,6 +777,7 @@ library_benchmark_group!(
     benchmarks = [
         scroll_wheel_notch,
         splitter_drag_move,
+        splitter_drag_eliding,
         pointer_shape_over_a_widget
     ]
 );

@@ -60,6 +60,34 @@ fn relaying_out_the_same_texts_does_not_allocate() {
 }
 
 #[test]
+fn eliding_the_same_texts_again_does_not_allocate() {
+    // What a label pays at every move of a splitter's divider (step F2.09f): the shortened
+    // string and the scratch layout are the shaper's own, grown by the first round.
+    let faces = Faces::bundled().unwrap();
+    let mut shaper = Shaper::new();
+    let style = TextStyle::new(FaceId::InterRegular, 13.0);
+    let mut full = TextLayout::new();
+    let mut out = TextLayout::new();
+    // Widths that hide everything, leave the ellipsis alone, cut at several places, and fit.
+    let widths = [0.0, 12.0, 40.0, 41.0, 90.0, 150.0, 1000.0];
+    let mut round = |shaper: &mut Shaper| {
+        for text in TEXTS {
+            shaper.layout(&faces, text, style, None, &mut full).unwrap();
+            for width in widths {
+                black_box(
+                    shaper
+                        .elide(&faces, black_box(text), style, width, &full, &mut out)
+                        .unwrap(),
+                );
+                black_box(&out);
+            }
+        }
+    };
+    round(&mut shaper);
+    assert_no_allocations(|| round(&mut shaper));
+}
+
+#[test]
 fn measuring_does_not_allocate() {
     let faces = Faces::bundled().unwrap();
     let notehead = faces.glyph_for_char(FaceId::Bravura, '\u{E0A4}').unwrap();

@@ -2664,6 +2664,9 @@ leaks into `ui` nor `tiny-skia` into this crate.
   5 000 cases.
 - `tests/no_alloc.rs`: a second round of layouts (five texts, three styles, with and without a
   width) and every measurement allocate nothing.
+- `tests/elide.rs` and the eliding round of `tests/no_alloc.rs` (step F2.09f): see "Texts shortened
+  with an ellipsis" under `orchestra-ui`, where the rule (`Shaper::elide`) is explained with the
+  widgets that use it.
 
 Twelve bugs were injected on purpose: eleven were caught (two only after strengthening a test: the
 Hebrew text now comes first, and the accent is on a `q`, which has no precomposed form, so it stays
@@ -3775,7 +3778,8 @@ if !inside {
 
 In the demonstration the options' pane also keeps at least 160 logical pixels
 (`OPTIONS_MIN_WIDTH`, `Splitter::minimum_sizes`): with the default 48 every label was cut to a
-few letters. Shortening labels with an ellipsis is left to a later widget step.
+few letters. Since step F2.09f the labels are shortened with an ellipsis (see "Texts shortened
+with an ellipsis" below); the minimum stays, to keep enough of each label readable.
 
 **What the measures taught (WF2).** The first version clipped every widget of the area: one wheel
 notch on 200 real widgets cost **397 M instructions**, against a budget of 33 M (a frame at 30 fps
@@ -4289,6 +4293,87 @@ fails: copy, copy and cut with nothing selected, cut and its undo, paste (one li
 steps, the commit), an empty clipboard, a failing clipboard. Three injected bugs, all caught. The
 `arboard` file is not exercised in CI (it needs a display and another program): the owner checks
 it by hand on Wayland and on X11 through XWayland.
+
+#### Texts shortened with an ellipsis
+
+Step F2.09f (precisions WJ1–WJ7 of ADR-0045 and one of ADR-0044; approved by the owner on
+2026-11-15), in `orchestra-text` (`src/elide.rs`, new) and `orchestra-ui` (`src/widget/elide.rs`,
+new; `label.rs`, `button.rs`, `toggle.rs`, `tree.rs`).
+
+**The problem.** A control *asks* for the width of its whole text, but its parent may give it
+less: a pane narrowed by a splitter, a fixed column. Until this step it then drew the whole text
+anyway. Inside a scroll area the text was cut at the pane's edge, in the middle of a letter (the
+clipping fix above); anywhere else it went over its neighbours. Now a one-line `Label`, a
+`Toggle` (check box and switch) and a `Button` draw the start of the text followed by an
+ellipsis, "Reverb send le…", and never anything outside the room they have.
+
+**The rule (`Shaper::elide` in `orchestra-text`).** The text is cut at its end, on a grapheme
+boundary (never inside a letter with its accent, an emoji sequence or a flag), the white space
+left before the cut is dropped, and the kept part is the longest that fits. When not even one
+grapheme fits before the ellipsis, the ellipsis stands alone; when the ellipsis does not fit
+either, nothing is drawn. The sign is the single character U+2026, a typographic constant that is
+the same in the six languages (so it is not a catalogue key); a face without it gets three full
+stops. The shortened text is **shaped again** as one run: cutting the glyphs already laid out
+would be cheaper but wrong, because a ligature cannot be cut in half and the kerning next to the
+ellipsis would be missing.
+
+**How the cut is found.** The control already has the layout of its whole text (it measured with
+it). Its caret stops say where the pen is at every grapheme boundary, so the first guess is the
+last boundary whose pen position, plus the ellipsis' advance, still fits: no shaping needed. The
+guess is then shaped with its ellipsis and measured; if it fits, one more grapheme is tried
+while that fits too, otherwise one less until it does. In practice that is two shapings of a
+text shorter than the original: the guess, and the one-grapheme-longer candidate that proves it
+is the longest. The shortened string and a spare layout are working memory of the `Shaper`, so
+nothing is allocated once they have grown.
+
+**In the widgets (`ElidedText`).** One small type holds both layouts, the whole text and the
+shortened one, for the three controls. `measure` lays the whole text out and answers its natural
+size, exactly as before: a control still asks for the room its whole text needs. `arrange`, which
+knows the rectangle really received, calls `fit` with the room left for the text (a label's
+width; a button's without its padding; a toggle's without its indicator and gap, the indicator
+itself never shrinking); `record` draws `shown()`.
+
+```rust
+// In `arrange`, a control tells its text how much room it really got:
+let room = rect.width() - 2.0 * cx.spacing().control_padding; // a button
+self.layout.fit(cx, &self.text, STYLE, room);
+// In `record`, it draws whatever was decided: the whole text, or its start and "…".
+recorder.text(self.layout.shown(), origin, color);
+```
+
+A text that fits costs one comparison. A fit for the same width as last time is answered from
+what is kept (a layout pass in which something else changed). A wrapping label wraps and is
+never elided. Assistive technologies always get the whole text, since the accessible name comes
+from the control's own string; each control also answers `is_elided()`, which a future tooltip
+showing the whole text will ask (noted in SCALETTA).
+
+**Limits.** Left to right only, like all text here. A one-line text holding a mandatory line
+break is left as it was. A text field's placeholder is not shortened (the field clips it).
+Cutting in the middle, for file paths, comes when something needs it.
+
+**Tests.** `orchestra-text`, `tests/elide.rs`: eleven hand-written cases (a text that fits, a
+cut, the dropped space, graphemes never split, the ellipsis alone and then nothing, leading
+spaces, a mandatory line break, a face without the ellipsis, refused widths and sizes, a reused
+shaper), sweeps of every width for several labels, and a property test of 600 random texts,
+faces and widths. All against an oracle that shares no code with the library: it builds every
+possible shortened string, shapes each on its own and keeps the longest that fits; the library's
+output must equal that string's layout glyph for glyph. `tests/no_alloc.rs`: eliding the same
+texts again allocates nothing. `orchestra-ui`, `tests/eliding.rs` (ten cases): the frame is
+rendered and its pixels are read, so "nothing is drawn past the rectangle" is checked for real,
+for a label, both toggles and a button (which keeps its padding and centres the shortened text);
+the whole text comes back when there is room again; a new text and new text tokens are fitted
+again; the accessible names stay whole; a wrapping label wraps.
+`tests/widgets_no_alloc.rs`: dragging a divider that narrows a label, a switch and a button
+never allocates. Nineteen bugs were injected on purpose: seventeen were caught; the other two
+are equivalent (letting the text's end be a candidate of the first guess, which the text being
+too wide already rules out, and not remembering the last fit, which only costs time).
+
+**Benchmarks.** `elide_line` (`orchestra-text`): the 40-character line shortened to 60 % of its
+width ≈ 149 000 instructions, about 0.15 ms by the rule of F1.16c. `splitter_drag_eliding`
+(`orchestra-ui`): one move of a divider that narrows 40 labels and 40 switches, all already
+shortened, each shortened again and the pane drawn: **9.5 M instructions**, within a frame's
+33 M. That is the worst case, a whole pane of texts too long. The existing benchmarks did not
+move (at most +0.13 %): a control whose text fits pays nothing.
 
 #### The window and the event loop
 

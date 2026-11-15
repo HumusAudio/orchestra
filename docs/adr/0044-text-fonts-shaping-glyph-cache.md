@@ -359,3 +359,14 @@ instructions against 33 M) but that the face's box (TX9 point 3) is far too larg
   existing key, so no new string) as its title, bar numbers and Bravura noteheads; the scenes
   receive a `SceneContext` (faces and en-US texts) prepared by `render`.
 - **TD5, tests** as listed in the documentation; **TD6:** the pixel blend is left as it is.
+
+**F2.09f, eliding (approved by the owner on 2026-11-15, with ADR-0045 WJ1–WJ7).**
+`Shaper::elide(faces, text, style, max_width, full, out) -> Elision` shortens a one-line text
+to a width: the longest start on a grapheme boundary (UAX #29), without the white space at its
+end, followed by U+2026 (three full stops in a face without it), shaped again as one run;
+`Elision::Whole` when the text fits or has several lines (`out` untouched), `Cut { kept }`,
+or `Hidden` when not even the ellipsis fits (`out` is then the layout of an empty text). The
+caller passes the full layout it already has; its caret stops give the first guess, which is
+checked by shaping, then lengthened or shortened one grapheme at a time: two shapings in the
+usual case. The shortened string and a scratch layout are working memory of the `Shaper`, so
+eliding does not allocate once warm (TX9).

@@ -15,6 +15,10 @@
 //!   the caret's x at its middle (a binary search on the caret stops) and the offset of a click
 //!   at its middle (a walk of the stops, with the grapheme boundaries of each cluster): what the
 //!   text field pays to draw its caret and to answer a click.
+//! - `elide_line` (F2.09f): the same line shortened with an ellipsis to 60 % of its width, with
+//!   its full layout ready and a warm shaper: the first guess from the caret stops, the guess
+//!   shaped, the one-grapheme-longer candidate shaped to prove it is the longest. What a label
+//!   pays each time a splitter's divider gives it a new width narrower than its text.
 //!
 //! # Budgets (CLAUDE.md §5, with the rule of F1.16c: 1 instruction per nanosecond)
 //! Text changes must fit in the 50 ms from input to frame together with everything else, and a
@@ -187,6 +191,56 @@ fn hit_test_line(input: Prepared) -> Prepared {
     input
 }
 
+// The line's full layout, a second layout for the shortened text and the width to fit, with the
+// shaper's working memory warmed by one eliding at that width.
+struct Eliding {
+    prepared: Prepared,
+    out: TextLayout,
+    width: f32,
+}
+
+fn eliding() -> Eliding {
+    let mut prepared = warm(LINE, None);
+    let width = prepared.layout.width() * 0.6;
+    let mut out = TextLayout::new();
+    prepared
+        .shaper
+        .elide(
+            &prepared.faces,
+            LINE,
+            body(),
+            width,
+            &prepared.layout,
+            &mut out,
+        )
+        .unwrap();
+    Eliding {
+        prepared,
+        out,
+        width,
+    }
+}
+
+#[library_benchmark]
+#[bench::line(eliding())]
+fn elide_line(mut input: Eliding) -> Eliding {
+    black_box(
+        input
+            .prepared
+            .shaper
+            .elide(
+                &input.prepared.faces,
+                black_box(LINE),
+                body(),
+                black_box(input.width),
+                &input.prepared.layout,
+                &mut input.out,
+            )
+            .unwrap(),
+    );
+    input
+}
+
 library_benchmark_group!(
     name = text,
     benchmarks = [
@@ -194,7 +248,8 @@ library_benchmark_group!(
         wrap_paragraph,
         outline_glyphs,
         caret_x_line,
-        hit_test_line
+        hit_test_line,
+        elide_line
     ]
 );
 

@@ -12,11 +12,13 @@
 //! - `edit`: the text field's editing core (ADR-0047, F2.10b1): text, caret, selection, keys,
 //!   undo;
 //! - `field`: the text field itself (F2.10b2): drawing, pointer, caret blink, commit;
+//! - `elide`: a control's text, shortened with an ellipsis when it does not fit (F2.09f);
 //! - `look`: what every control draws the same way (the focus ring).
 
 pub(crate) mod access;
 pub(crate) mod button;
 pub(crate) mod edit;
+pub(crate) mod elide;
 pub(crate) mod field;
 pub(crate) mod label;
 pub(crate) mod layout;

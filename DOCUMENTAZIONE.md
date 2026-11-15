@@ -2845,6 +2845,9 @@ e girato con la y verso il basso, al nostro trait `OutlineSink`, così né `skri
   avrebbero potuto prendere il pezzo successivo). Superato con 5 000 casi.
 - `tests/no_alloc.rs`: un secondo giro di layout (cinque testi, tre stili, con e senza larghezza) e
   ogni misura non allocano nulla.
+- `tests/elide.rs` e il giro di accorciamento di `tests/no_alloc.rs` (passo F2.09f): vedi "Testi
+  accorciati con i puntini" sotto `orchestra-ui`, dove la regola (`Shaper::elide`) è spiegata
+  insieme ai widget che la usano.
 
 Dodici difetti iniettati apposta: undici presi (due solo dopo aver rinforzato un test: il testo
 ebraico ora viene per primo, e l'accento sta su una `q`, che non ha una forma precomposta e quindi
@@ -4030,7 +4033,9 @@ if !inside {
 
 Nella dimostrazione, inoltre, il pannello delle opzioni resta largo almeno 160 pixel logici
 (`OPTIONS_MIN_WIDTH`, `Splitter::minimum_sizes`): con i 48 predefiniti ogni etichetta si riduceva a
-poche lettere. Accorciare le etichette con i puntini è lasciato a un passo futuro sui widget.
+poche lettere. Dal passo F2.09f le etichette vengono accorciate con i puntini (vedi "Testi
+accorciati con i puntini" più sotto); il minimo resta, per tenere leggibile abbastanza di ogni
+etichetta.
 
 **Cosa hanno insegnato le misure (WF2).** La prima versione ritagliava ogni widget dell'area: uno
 scatto di rotella su 200 widget veri costava **397 M istruzioni**, contro un budget di 33 M (un
@@ -4571,6 +4576,93 @@ sempre: copia, copia e taglia senza selezione, taglia e il suo undo, incolla (un
 di undo, la conferma), appunti vuoti, appunti che falliscono. Tre bug iniettati, tutti presi. Il
 file di `arboard` non viene esercitato in CI (servono un display e un altro programma): lo prova
 a mano il proprietario su Wayland e su X11 attraverso XWayland.
+
+#### Testi accorciati con i puntini
+
+Passo F2.09f (precisazioni WJ1–WJ7 di ADR-0045 e una di ADR-0044; approvate dal proprietario il
+2026-11-15), in `orchestra-text` (`src/elide.rs`, nuovo) e in `orchestra-ui`
+(`src/widget/elide.rs`, nuovo; `label.rs`, `button.rs`, `toggle.rs`, `tree.rs`).
+
+**Il problema.** Un controllo *chiede* la larghezza del suo testo intero, ma il genitore può
+dargliene meno: un pannello stretto da un divisore, una colonna fissa. Fino a questo passo
+disegnava comunque tutto il testo. Dentro un'area scorrevole il testo veniva tagliato al bordo
+del pannello, a metà di una lettera (la correzione del ritaglio, qui sopra); altrove finiva sopra
+i vicini. Ora una `Label` a una riga, un `Toggle` (casella e interruttore) e un `Button`
+disegnano l'inizio del testo seguito dai puntini, "Reverb send le…", e mai nulla fuori dallo
+spazio che hanno.
+
+**La regola (`Shaper::elide` in `orchestra-text`).** Il testo si taglia in fondo, su un confine
+di grafema (mai dentro una lettera con il suo accento, una sequenza di emoji o una bandiera), gli
+spazi rimasti prima del taglio si tolgono, e la parte tenuta è la più lunga che entra. Se prima
+dei puntini non entra nemmeno un grafema, restano i soli puntini; se non entrano neppure quelli,
+non si disegna nulla. Il segno è il carattere unico U+2026, una costante tipografica uguale nelle
+sei lingue (quindi non è una chiave dei cataloghi); un font che non lo ha riceve tre punti. Il
+testo accorciato viene **impaginato di nuovo** come un solo run: tagliare i glifi già pronti
+costerebbe meno ma sarebbe sbagliato, perché una legatura non si può tagliare a metà e
+mancherebbe la crenatura accanto ai puntini.
+
+**Come si trova il taglio.** Il controllo ha già il layout del testo intero (ci ha misurato). Le
+sue posizioni del cursore dicono dov'è la penna a ogni confine di grafema, quindi la prima stima
+è l'ultimo confine la cui posizione, più l'avanzamento dei puntini, entra ancora: senza
+impaginare nulla. La stima viene poi impaginata con i suoi puntini e misurata; se entra, si prova
+un grafema in più finché entra anche quello, altrimenti uno in meno finché entra. In pratica
+sono due impaginazioni di un testo più corto dell'originale: la stima, e il candidato più lungo
+di un grafema che dimostra che è la più lunga. La stringa accorciata e un layout di riserva sono
+memoria di lavoro dello `Shaper`, quindi una volta cresciuti non si alloca nulla.
+
+**Nei widget (`ElidedText`).** Un piccolo tipo tiene i due layout, il testo intero e quello
+accorciato, per tutti e tre i controlli. `measure` impagina il testo intero e risponde con la sua
+dimensione naturale, esattamente come prima: un controllo continua a chiedere lo spazio del suo
+testo intero. `arrange`, che conosce il rettangolo davvero ricevuto, chiama `fit` con lo spazio
+rimasto per il testo (la larghezza di un'etichetta; quella di un pulsante senza i margini
+interni; quella di un interruttore senza l'indicatore e lo spazio, con l'indicatore che non si
+restringe mai); `record` disegna `shown()`.
+
+```rust
+// In `arrange`, a control tells its text how much room it really got:
+let room = rect.width() - 2.0 * cx.spacing().control_padding; // a button
+self.layout.fit(cx, &self.text, STYLE, room);
+// In `record`, it draws whatever was decided: the whole text, or its start and "…".
+recorder.text(self.layout.shown(), origin, color);
+```
+
+Un testo che entra costa un confronto. Un adattamento alla stessa larghezza dell'ultima volta
+risponde da ciò che è già tenuto (un passaggio di layout in cui è cambiato altro). Un'etichetta
+che va a capo va a capo e non viene mai accorciata. Le tecnologie assistive ricevono sempre il
+testo intero, perché il nome accessibile viene dalla stringa del controllo; ogni controllo
+risponde anche a `is_elided()`, che un futuro suggerimento con il testo intero chiederà
+(annotato in SCALETTA).
+
+**Limiti.** Solo da sinistra a destra, come tutto il testo qui. Un testo a una riga che contiene
+un a capo obbligato resta com'era. Il segnaposto di un campo di testo non viene accorciato (lo
+ritaglia il campo). Il taglio al centro, per i percorsi dei file, arriverà quando servirà.
+
+**Test.** `orchestra-text`, `tests/elide.rs`: undici casi scritti a mano (un testo che entra, un
+taglio, lo spazio tolto, grafemi mai divisi, i soli puntini e poi nulla, spazi iniziali, un a
+capo obbligato, un font senza i puntini, larghezze e dimensioni rifiutate, uno shaper
+riutilizzato), tutte le larghezze di alcune etichette, e un test di proprietà con 600 testi, font
+e larghezze casuali. Tutti contro un oracolo che non ha codice in comune con la libreria:
+costruisce ogni stringa accorciata possibile, le impagina una per una e tiene la più lunga che
+entra; il risultato della libreria deve essere uguale, glifo per glifo, al layout di quella
+stringa. `tests/no_alloc.rs`: accorciare di nuovo gli stessi testi non alloca nulla.
+`orchestra-ui`, `tests/eliding.rs` (dieci casi): il fotogramma viene disegnato e se ne leggono i
+pixel, così "nulla è disegnato oltre il rettangolo" è verificato davvero, per un'etichetta, i due
+interruttori e un pulsante (che tiene i margini interni e centra il testo accorciato); il testo
+intero torna quando c'è di nuovo spazio; un testo nuovo e nuovi token del testo vengono
+riadattati; i nomi accessibili restano interi; un'etichetta che va a capo va a capo.
+`tests/widgets_no_alloc.rs`: trascinare un divisore che stringe un'etichetta, un interruttore e
+un pulsante non alloca mai. Diciannove difetti iniettati apposta: diciassette presi; gli altri
+due sono equivalenti (ammettere la fine del testo fra i candidati della prima stima, già esclusa
+dal fatto che il testo è troppo largo, e non ricordare l'ultimo adattamento, che costa solo
+tempo).
+
+**Benchmark.** `elide_line` (`orchestra-text`): la riga di 40 caratteri accorciata al 60 % della
+sua larghezza ≈ 149 000 istruzioni, circa 0,15 ms con la regola di F1.16c.
+`splitter_drag_eliding` (`orchestra-ui`): un movimento di un divisore che stringe 40 etichette e
+40 interruttori, tutti già accorciati, ciascuno accorciato di nuovo e il pannello disegnato:
+**9,5 M istruzioni**, dentro i 33 M di un fotogramma. È il caso peggiore, un intero pannello di
+testi troppo lunghi. I benchmark esistenti non si sono mossi (al massimo +0,13 %): un controllo
+il cui testo entra non paga nulla.
 
 #### La finestra e il ciclo degli eventi
 

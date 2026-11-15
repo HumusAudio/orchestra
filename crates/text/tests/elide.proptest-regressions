@@ -1,0 +1,11 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e932be9d1e2a901c2492208e981379903f8f6430259c229aa70cb7126915ae73 # shrinks to (text, style, width) = ("office q\u{301}uq\u{323} Takt ", TextStyle { face: InterBold, size: 18.0, features: Features { tabular_figures: false } }, 113.96279)
+cc 6d9d162d29734325f8d6f5791707744eb15cddcd9c51dfc412d7937f2a86ac1c # shrinks to (text, style, width) = ("cafe\u{301}\u{ad}cafe\u{301}\u{ad}WAVE  wechsel\u{ad}AV Takt ", TextStyle { face: InterBold, size: 18.0, features: Features { tabular_figures: false } }, 254.29778)
+cc c566eebe2dd3c2235a736ec200614a76024fadb864bd92a331a5dfa1fb035ed9 # shrinks to (text, style, width) = ("a ", TextStyle { face: InterRegular, size: 13.0, features: Features { tabular_figures: false } }, 0.0)
+cc a0fc554e9b1ad7be743564d72bd7f251d9e48e952f64feccdd407f5e6a251926 # shrinks to (text, style, width) = ("AV  Takt-office ", TextStyle { face: InterRegular, size: 13.0, features: Features { tabular_figures: false } }, 75.13908)
+cc b3c31e33888ee5db407df86b4a333af9b467f23a318fe4fed1cb6e23cbfbee24 # shrinks to (text, style, width) = ("a\u{a0}q\u{301}uq\u{323}  WAVE\u{ad}WAVE To\u{ad}To ", TextStyle { face: InterBold, size: 18.0, features: Features { tabular_figures: false } }, 207.99292)

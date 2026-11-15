@@ -53,6 +53,13 @@ pub struct Shaper {
     shaped: Vec<ShapedGlyph>,
     /// Working memory: the break opportunities of the current text.
     breaks: Vec<Break>,
+    /// Working memory of [`Shaper::elide`]: the shortened text, "start + ellipsis", built again
+    /// for every candidate cut. Kept here so that, once it has grown to the longest label seen,
+    /// eliding allocates nothing (ADR-0044 TX9, step F2.09f).
+    pub(crate) elided: String,
+    /// Working memory of [`Shaper::elide`]: the layout of the candidate one grapheme longer than
+    /// the best one found so far, swapped with the caller's layout when it fits too.
+    pub(crate) scratch: TextLayout,
 }
 
 impl std::fmt::Debug for Shaper {
@@ -87,6 +94,8 @@ impl Shaper {
             segmenter: LineSegmenter::new_for_non_complex_scripts(LineBreakOptions::default()),
             shaped: Vec::new(),
             breaks: Vec::new(),
+            elided: String::new(),
+            scratch: TextLayout::new(),
         }
     }
 

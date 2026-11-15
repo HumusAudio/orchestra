@@ -7,15 +7,20 @@
 //! with the width it was made for, and a measure with the same width (the common case: a frame
 //! where something else changed) answers from it. Re-laying out reuses the layout's vectors
 //! (ADR-0044 TX9).
+//!
+//! # When the text does not fit (F2.09f, ADR-0045 WJ1–WJ7)
+//! A one-line label that gets a rectangle narrower than its text draws the start of the text and
+//! an ellipsis ("Reverb send le…"), never past its rectangle; see
+//! [`ElidedText`](super::elide::ElidedText). A wrapping label wraps instead and is never elided.
+//! Assistive technologies always get the whole text.
 
-use orchestra_text::TextLayout;
-
-use crate::draw::geometry::Point;
+use crate::draw::geometry::{Point, Rect};
 use crate::draw::list::Recorder;
 use crate::theme::text::{FamilyToken, SizeToken, Weight};
 use crate::theme::token::ColorToken;
 
 use super::access::{AccessInfo, AccessRole};
+use super::elide::ElidedText;
 use super::layout::{Constraints, Size};
 use super::tree::{LayoutCx, RecordCx, Widget};
 
@@ -30,12 +35,9 @@ pub struct Label {
     color: ColorToken,
     /// Whether it wraps at the width its parent allows.
     wrap: bool,
-    /// The laid-out text, and the wrapping width it was laid out for (`None`: one line), or
-    /// nothing yet.
-    layout: TextLayout,
-    /// The wrapping width and the text generation (see [`LayoutCx::text_generation`]) `layout`
-    /// was made for, if it is current.
-    laid_out_for: Option<(Option<f32>, u64)>,
+    /// The laid-out text: whole (wrapped at the width its parent allows, if it wraps) and, for
+    /// a one-line label narrower than its text, shortened with an ellipsis (F2.09f).
+    layout: ElidedText,
 }
 
 impl Label {
@@ -47,8 +49,7 @@ impl Label {
             style: (FamilyToken::Ui, SizeToken::Body, Weight::Regular),
             color: ColorToken::Text,
             wrap: false,
-            layout: TextLayout::new(),
-            laid_out_for: None,
+            layout: ElidedText::new(),
         }
     }
 
@@ -73,10 +74,17 @@ impl Label {
         self
     }
 
-    /// The text.
+    /// The text, whole (also when it is drawn shortened).
     #[must_use]
     pub fn text(&self) -> &str {
         &self.text
+    }
+
+    /// `true` when the last layout gave the label less width than its text needs, so it is drawn
+    /// shortened with an ellipsis (F2.09f). What a tooltip showing the whole text would ask.
+    #[must_use]
+    pub const fn is_elided(&self) -> bool {
+        self.layout.is_elided()
     }
 
     /// Replaces the text. The caller asks the interface to lay the label out again
@@ -84,7 +92,7 @@ impl Label {
     pub fn set_text(&mut self, text: &str) {
         if text != self.text {
             text.clone_into(&mut self.text);
-            self.laid_out_for = None;
+            self.layout.invalidate();
         }
     }
 }
@@ -93,22 +101,24 @@ impl<M: 'static> Widget<M> for Label {
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
         let width =
             (self.wrap && constraints.max.width.is_finite()).then_some(constraints.max.width);
-        let key = (width, cx.text_generation());
-        if self.laid_out_for != Some(key) {
-            if cx
-                .lay_out_text(&self.text, self.style, width, &mut self.layout)
-                .is_err()
-            {
-                // Impossible with the bundled faces; an empty layout keeps the window usable.
-                self.layout = TextLayout::new();
-            }
-            self.laid_out_for = Some(key);
+        // The natural size, also for a one-line label that will not get it: the parent decides
+        // how much room there is, and `arrange` then shortens the text if needed (WJ6).
+        self.layout.measure(cx, &self.text, self.style, width)
+    }
+
+    fn arrange(&mut self, cx: &mut LayoutCx<'_, M>, rect: Rect) {
+        // A wrapping label already fits its width by wrapping (WJ7).
+        if !self.wrap {
+            self.layout.fit(cx, &self.text, self.style, rect.width());
         }
-        Size::new(self.layout.width(), self.layout.height())
     }
 
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
-        recorder.text(&self.layout, Point::new(cx.rect.x0, cx.rect.y0), self.color);
+        recorder.text(
+            self.layout.shown(),
+            Point::new(cx.rect.x0, cx.rect.y0),
+            self.color,
+        );
     }
 
     fn access_role(&self) -> AccessRole {

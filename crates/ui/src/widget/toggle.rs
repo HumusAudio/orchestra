@@ -20,8 +20,6 @@
 //! when off, `accent` with an `on-accent` knob on the right when on. Disabled: `control` and
 //! `text-disabled`. The focus ring surrounds the box or the track, not the label.
 
-use orchestra_text::TextLayout;
-
 use crate::draw::geometry::{Point, Rect, RoundedRect};
 use crate::draw::list::Recorder;
 use crate::draw::paint::{LineCap, LineJoin, StrokeStyle};
@@ -30,8 +28,12 @@ use crate::theme::token::ColorToken;
 use crate::window::input::{ButtonState, Key, NamedKey, PointerButton};
 
 use super::access::{AccessInfo, AccessRole};
+use super::elide::ElidedText;
 use super::layout::{Constraints, Size};
 use super::tree::{EventCx, Handled, LayoutCx, RecordCx, Widget, WidgetEvent};
+
+/// The style of the label: the interface family, body size, regular weight.
+const STYLE: (FamilyToken, SizeToken, Weight) = (FamilyToken::Ui, SizeToken::Body, Weight::Regular);
 
 /// The two looks of a two-state control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,10 +66,9 @@ pub struct Toggle<M> {
     hovered: bool,
     /// A press inside is held.
     pressed: bool,
-    /// The laid-out label.
-    layout: TextLayout,
-    /// The text generation the label was laid out with.
-    laid_out: Option<u64>,
+    /// The laid-out label: whole and, when the control is narrower than its indicator and
+    /// label, shortened with an ellipsis (F2.09f, ADR-0045 WJ1).
+    layout: ElidedText,
 }
 
 impl<M> Toggle<M> {
@@ -93,8 +94,7 @@ impl<M> Toggle<M> {
             enabled: true,
             hovered: false,
             pressed: false,
-            layout: TextLayout::new(),
-            laid_out: None,
+            layout: ElidedText::new(),
         }
     }
 
@@ -102,6 +102,13 @@ impl<M> Toggle<M> {
     #[must_use]
     pub const fn is_on(&self) -> bool {
         self.on
+    }
+
+    /// `true` when the last layout gave the control less width than its indicator and label
+    /// need, so the label is drawn shortened with an ellipsis (F2.09f).
+    #[must_use]
+    pub const fn is_elided(&self) -> bool {
+        self.layout.is_elided()
     }
 
     /// Shows `on` (the application's setting); the caller asks the interface to record it again.
@@ -225,23 +232,23 @@ impl<M> Toggle<M> {
 
 impl<M: std::fmt::Debug + 'static> Widget<M> for Toggle<M> {
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
-        let generation = cx.text_generation();
-        if self.laid_out != Some(generation) {
-            let style = (FamilyToken::Ui, SizeToken::Body, Weight::Regular);
-            if cx
-                .lay_out_text(&self.text, style, None, &mut self.layout)
-                .is_err()
-            {
-                self.layout = TextLayout::new();
-            }
-            self.laid_out = Some(generation);
-        }
+        let text = self.layout.measure(cx, &self.text, STYLE, None);
         let spacing = cx.spacing();
         let indicator = self.indicator_width(Self::indicator_height(spacing.control_height));
         constraints.constrain(Size::new(
-            indicator + spacing.gap_s + self.layout.width(),
-            spacing.control_height.max(self.layout.height()),
+            indicator + spacing.gap_s + text.width,
+            spacing.control_height.max(text.height),
         ))
+    }
+
+    fn arrange(&mut self, cx: &mut LayoutCx<'_, M>, rect: Rect) {
+        // The label has what is left of the control's width after the indicator and the gap;
+        // narrower than the label, it is shortened with an ellipsis (F2.09f). The indicator is
+        // never shrunk: a control too narrow even for it keeps it and draws no label.
+        let spacing = cx.spacing();
+        let indicator = self.indicator_width(Self::indicator_height(spacing.control_height));
+        let room = rect.width() - indicator - spacing.gap_s;
+        self.layout.fit(cx, &self.text, STYLE, room);
     }
 
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
@@ -260,8 +267,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Toggle<M> {
             ColorToken::TextDisabled
         };
         let x = indicator.x1 + cx.spacing.gap_s;
-        let y = cx.rect.y0 + (cx.rect.height() - self.layout.height()) / 2.0;
-        recorder.text(&self.layout, Point::new(x, y), text);
+        let layout = self.layout.shown();
+        let y = cx.rect.y0 + (cx.rect.height() - layout.height()) / 2.0;
+        recorder.text(layout, Point::new(x, y), text);
         if cx.focused && self.enabled {
             super::look::focus_ring(recorder, indicator, radius, cx.shape);
         }

@@ -318,8 +318,9 @@ fn track_name_row(ui: &mut Ui<DemoMessage>, options: WidgetId, texts: &DemoTexts
 /// Why 160: the splitter's default minimum (48) let the pane shrink until every label was cut to
 /// a few letters, which is a useless state. 160 keeps the switches with the start of their labels
 /// and a usable volume slider, while still letting the staff take most of a small window. Labels
-/// longer than the pane are clipped at its edge (they never cross the divider); shortening them
-/// with an ellipsis is a later widget step.
+/// longer than the pane are shortened with an ellipsis (step F2.09f, ADR-0045 WJ1–WJ7), so the
+/// minimum no longer protects anything from being drawn across the divider: it only keeps
+/// enough of each label readable.
 const OPTIONS_MIN_WIDTH: f32 = 160.0;
 
 /// The splitter under the title, filling the rest of the window (F2.09d, WF8): a vertical scroll
