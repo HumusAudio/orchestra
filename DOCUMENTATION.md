@@ -4203,6 +4203,14 @@ between characters and run positions. The property test found that a word can st
 grapheme (after a joiner): two word starts then fall on the same character, which is listed once.
 Eleven injected bugs, all caught.
 
+**Cost.** The description is built only when the field's node is sent, which the window does
+only while an assistive technology listens. `text_info` walks the graphemes once and asks the
+layout for one `caret_x` per grapheme: a character starts where the one before it ended, so the
+second lookup a first version made was dropped (a key went from 481 to 473 thousand
+instructions). The benchmark `field_type_key`, which includes the accessibility update, went from
+435 to 473 thousand instructions (+8.8%), under the 0.5 M of ADR-0047 TF13: accepted by the owner
+with the trailer `Bench-regression: accepted`. The caret's blink is unchanged.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

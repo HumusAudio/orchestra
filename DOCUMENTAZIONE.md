@@ -4481,6 +4481,15 @@ e ritorno fra caratteri e posizioni nei run. Il test di proprietà ha trovato ch
 cominciare *dentro* un grafema (dopo un joiner): due inizi di parola cadono allora sullo stesso
 carattere, che viene elencato una volta sola. Undici bug iniettati, tutti presi.
 
+**Costo.** La descrizione si costruisce solo quando il nodo del campo viene mandato, cosa che la
+finestra fa solo mentre una tecnologia assistiva è in ascolto. `text_info` percorre i grafemi una
+volta e chiede al layout un solo `caret_x` per grafema: un carattere comincia dove finisce il
+precedente, quindi la seconda ricerca di una prima versione è stata tolta (un tasto è sceso da 481
+a 473 mila istruzioni). Il benchmark `field_type_key`, che comprende l'aggiornamento di
+accessibilità, è passato da 435 a 473 mila istruzioni (+8,8%), sotto gli 0,5 M di ADR-0047 TF13:
+accettato dal proprietario con il trailer `Bench-regression: accepted`. Il lampeggio del cursore
+non cambia.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
