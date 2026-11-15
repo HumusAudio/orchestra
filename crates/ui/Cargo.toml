@@ -24,6 +24,8 @@ orchestra-text.workspace = true
 # The accessibility tree (ADR-0045 WA5): one node per widget, the window's adapter.
 accesskit.workspace = true
 accesskit_winit.workspace = true
+# The system clipboard, behind `platform::clipboard::ClipboardSource` (ADR-0047 TF12).
+arboard.workspace = true
 # The CPU backend of the drawing abstraction (ADR-0039 D9), on every platform.
 tiny-skia.workspace = true
 # The window, the event loop, input, and presenting pixels (ADR-0040), on every platform.

@@ -186,6 +186,13 @@ impl<A: WindowApp> Shell<A> {
         if let (Some(feed), Some(theme)) = (self.appearance_feed.as_ref(), window.theme()) {
             feed.answer(Some(appearance_from_winit(theme)));
         }
+        // The system's clipboard, one for the whole session (ADR-0047 TF12): connected here, once
+        // the display server is known to be there, and handed to the application before its
+        // first layout. Without one (the error says why, for developers only) the application
+        // keeps its in-memory clipboard and everything else works.
+        if let Ok(clipboard) = crate::platform::clipboard::system::SystemClipboard::new() {
+            self.app.attach_clipboard(Box::new(clipboard));
+        }
         let scale = window.scale_factor();
         let size = window.inner_size();
         self.open = Some(Open {

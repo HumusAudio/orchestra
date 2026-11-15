@@ -30,10 +30,10 @@ use std::time::Instant;
 use orchestra_i18n::{I18nError, Localizer};
 use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, TextLayout};
 use orchestra_ui::{
-    AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ColorToken, Constraints,
-    DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length, Point,
-    PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space, Splitter,
-    StrokeStyle, TextField, Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
+    AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ClipboardSource, ColorToken,
+    Constraints, DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length,
+    Point, PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space,
+    Splitter, StrokeStyle, TextField, Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
 };
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
@@ -364,6 +364,12 @@ fn panes(ui: &mut Ui<DemoMessage>) -> (WidgetId, WidgetId) {
 }
 
 impl WindowApp for Demo {
+    fn attach_clipboard(&mut self, clipboard: Box<dyn ClipboardSource>) {
+        // The system's clipboard, created once by the window (ADR-0047 TF12): the fields of the
+        // interface copy to it and paste from it.
+        self.ui.set_clipboard(clipboard);
+    }
+
     fn layout(&mut self, bounds: Rect, list: &mut DisplayList) {
         self.ui.layout(bounds, list);
     }

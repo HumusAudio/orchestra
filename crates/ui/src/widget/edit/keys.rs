@@ -118,7 +118,7 @@ pub enum EditAction {
     Undo,
     /// Redo what was undone.
     Redo,
-    /// Cut the selection to the clipboard (the clipboard comes in F2.10c, TF12).
+    /// Cut the selection to the clipboard (the widget carries it out, F2.10c1, TF12).
     Cut,
     /// Copy the selection to the clipboard.
     Copy,

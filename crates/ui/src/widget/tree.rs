@@ -37,6 +37,7 @@ use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole};
 use super::layout::{Constraints, LayoutProps, Size};
+use crate::platform::clipboard::ClipboardSource;
 
 /// The stable name of a widget: from one counter, never reused (WB2). It is also the widget's
 /// display-list segment (ADR-0045 WA6) and, from F2.09b, its AccessKit node (WA5).
@@ -434,9 +435,18 @@ pub struct EventCx<'a, M> {
     pub(crate) now: Instant,
     /// What the widget asked about its wake-up.
     pub(crate) wakeup: WakeRequest,
+    /// The interface's clipboard (ADR-0047 TF12).
+    pub(crate) clipboard: &'a mut dyn ClipboardSource,
 }
 
 impl<M> EventCx<'_, M> {
+    /// The clipboard (ADR-0047 TF12, F2.10c1): the system's when the window handed one to the
+    /// application, otherwise one in the program's memory. A text field copies to it and pastes
+    /// from it; reading can block for a moment, so it is asked only on a user's paste.
+    pub fn clipboard(&mut self) -> &mut dyn ClipboardSource {
+        self.clipboard
+    }
+
     /// The widget receiving the event.
     #[must_use]
     pub const fn id(&self) -> WidgetId {

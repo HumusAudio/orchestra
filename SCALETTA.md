@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.71, approvata dal proprietario il 2026-11-15.**
+> **Stato di questo documento: v0.72, approvata dal proprietario il 2026-11-15.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -706,7 +706,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.10b1 | **Nucleo di modifica, senza display**: confini di grafemi e parole, `caret_x` e `hit_test`, `InputEvent::Text`, tabelle dei tasti delle tre piattaforme, `TextEditor`, undo locale, test di proprietà e "non alloca" | ✅ | 0,5 |
 | F2.10b2 | **Il widget**: disegno, selezione in `on-selection`, segnaposto, cursore lampeggiante con la sveglia a tempo, mouse (doppio e triplo clic), forma `Text`, scorrimento interno, conferma ed Esc, benchmark, il campo "Nome traccia" nell'anteprima | ✅ | 1 |
 | F2.10b3 | **Accessibilità del campo**: nodo `TextInput` con il figlio `TextRun` (identificativo con il bit alto riservato, precisazione di ADR-0045), azioni `SetValue` di testo, `ReplaceSelectedText`, `SetTextSelection` | ✅ PR #77 | 0,5 |
-| F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ⬜ | 1 |
+| F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | 🔄 (F2.10c1–c2) | 2 |
+| F2.10c1 | **Appunti**: trait `ClipboardSource`, appunti in memoria per i test, `arboard` in `platform/`, Taglia, Copia e Incolla nel campo, `deny.toml`, `native-deps.md`, prova a mano su Wayland e su X11 (XWayland) | 🔄 scritto, prova a mano da fare | 0,5–1 |
+| F2.10c2 | **IME**: `InputEvent::Ime`, `Widget::accepts_text`, accensione solo con un campo a fuoco, posizione della finestra dei candidati, preedit sottolineato, regola contro i caratteri doppi, `TextRun` durante il preedit, prove a mano con Fcitx5 su Wayland e X11 | ⬜ | 1–1,5 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
@@ -931,6 +933,13 @@ controllo completo. Va fatta bene una volta sola.
   istruzioni (+8,8%, accettato dal proprietario). Precisazioni WI1–WI4 di ADR-0045 e di ADR-0047.
   Provato a orecchio con Orca sull'app vera dal proprietario il 2026-11-15 (KDE, Wayland): tutto
   a posto.
+- **F2.10c1** Scritto il 2026-11-15: la finestra crea gli appunti di sistema una volta e li
+  consegna all'applicazione (`WindowApp::attach_clipboard`), la `Ui` ne ha di suoi in memoria
+  fino ad allora; un Taglia che non riesce a copiare non cancella; errori ignorati, nessun
+  messaggio all'utente per ora. Precisazioni di ADR-0040 e ADR-0047. Manca la prova a mano del
+  proprietario (KDE Wayland e XWayland), senza la quale il passo non si chiude.
+- **F2.10c2** Prima di partire va installato Fcitx5 sulla macchina di sviluppo (oggi non c'è
+  nessun IME).
 - **F2.10c** Da F2.10b3: la composizione IME cambia testo e selezione, quindi i `TextRun` del
   campo vanno rimandati anche durante il preedit.
 - **F2.10c** Da ADR-0047: `arboard` dietro il trait `ClipboardSource` (le versioni doppie in
@@ -1294,3 +1303,4 @@ raccomandato.
 | 2026-11-14 | 0.69 | F2.10b1 fatto (PR #73: il nucleo di modifica senza display); F2.10b diviso in F2.10b1–b3: l'accessibilità del campo passa nel nuovo F2.10b3; in F2.10b2 il segnaposto e il campo "Nome della traccia" nell'anteprima (scelte del proprietario); prossimo passo F2.10b2 | proprietario |
 | 2026-11-14 | 0.70 | F2.10b2 fatto (PR #74: il widget del campo di testo, sveglie a tempo, segmento sovrapposto, forme in cache nei ridisegni parziali; un tasto 0,43 M, un lampeggio 68 mila); precisazioni di ADR-0040, ADR-0043, ADR-0045 e ADR-0047 approvate; note in F2.10b3 (nodo `TextInput` già presente) e F2.12 (lampeggio spento); prossimo passo F2.10b3 | proprietario |
 | 2026-11-15 | 0.71 | F2.10b3 fatto (PR #77: accessibilità del campo di testo, più run per riga, tre azioni di testo, `accesskit_consumer` nei test; un tasto 0,47 M accettato); nota in F2.10c (run durante il preedit); nuovo F2.09f (etichette accorciate con i puntini); F2.10b2 provato a schermo | proprietario |
+| 2026-11-15 | 0.72 | F2.10c diviso in F2.10c1 (appunti, scritto: manca la prova a mano) e F2.10c2 (IME, per cui va installato Fcitx5); precisazioni di ADR-0040 e ADR-0047 per gli appunti | proprietario |

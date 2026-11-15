@@ -23,7 +23,7 @@ with no interface yet:
 creates the full reference score, saves and reopens it identical, prints the unrolled
 performance and exports the MIDI file. After M1, a **codebase review** (2026-11-08, outside the
 SCALETTA steps, see the log) removed duplicated, obsolete and slow code and unified the half-way
-MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 approved by the owner; merged with PR #74; SCALETTA v0.70); F2.10b3 done (the field's accessibility: text runs, the three text actions; precisions of ADR-0045 WI1–WI4 and ADR-0047 approved by the owner; merged with PR #77, checked with Orca by the owner; SCALETTA v0.71); next F2.10c (the clipboard and the IME).
+MIDI key rule (ADR-0033). **Next:** Phase 2A, the interface foundations, from F2.01 (SCALETTA); F2.01 is done (ADR-0036 Accepted); F2.02a is done (ADR-0037 Accepted, the theme system); F2.02b is done (ADR-0038 Accepted, the system's light/dark preference); F2.03 is done (ADR-0039 Accepted, the drawing abstraction); F2.04a is done (ADR-0040 Accepted, the window and the event loop); F2.04b is done (the system theme on Windows and macOS, and its changes followed while the window is open); F2.05 is done (ADR-0041 Accepted, `cargo xtask screenshots`); F2.06 is done (ADR-0042 Accepted: no GPU for now); F2.06b is done (ADR-0043 Accepted: `vello_cpu` dropped after a confounded comparison was found, `tiny-skia` kept with cached shadows); F2.07 (text) in progress: ADR-0044 Accepted, F2.07 done (ADR-0044: `orchestra-text`, glyph runs and the glyph cache, text contrast γ = 1.45, text tokens, the reference scene at 18.3 M instructions); merged with PR #64; F2.08 done (ADR-0045 Accepted: retained widgets); F2.09 split in four parts, F2.09a (the widgets' core) done, F2.09b, F2.09b2 and F2.09c (check box, switch, slider, the Playback preview) done and merged (PR #68); F2.09c2 (value-control conventions, ADR-0046 Accepted) done; F2.09d (scroll area and splitter, precisions of ADR-0043, ADR-0045 and ADR-0046) done; F2.09 done; SCALETTA v0.66 adds F2.09e (pointer shapes); F2.09e done (precisions of ADR-0045 and ADR-0040, the resize shape over the divider); F2.10 split in F2.10a–c, F2.10a done (ADR-0047 Accepted, the text field; clipboard: `arboard` with data-control); F2.10b split in F2.10b1–b3 (SCALETTA v0.69), F2.10b1 done (the editing core, headless, PR #73); F2.10b2 done (the text field widget, timed wake-ups, overlays, the renderer's cached shapes no longer growing a partial redraw; precisions of ADR-0040, ADR-0043, ADR-0045, ADR-0047 approved by the owner; merged with PR #74; SCALETTA v0.70); F2.10b3 done (the field's accessibility: text runs, the three text actions; precisions of ADR-0045 WI1–WI4 and ADR-0047 approved by the owner; merged with PR #77, checked with Orca by the owner; SCALETTA v0.71); F2.10c split in F2.10c1 (the clipboard) and F2.10c2 (the input methods), SCALETTA v0.72; F2.10c1 written (`arboard` behind `ClipboardSource`, Cut, Copy and Paste in the field; precisions of ADR-0040 and ADR-0047 approved by the owner), **its hand check by the owner on Wayland and on X11 through XWayland still to do**; next F2.10c2 (an input method, Fcitx5, must be installed first).
 The log below records every step, in order.
 
 ### Log, step by step
@@ -1251,6 +1251,28 @@ thousand), the whole tree +1.7%.
 The owner checked it by ear with Orca on the real application (KDE, Wayland) on 2026-11-15:
 everything as expected. Commits `User-visible: no`. PR #77; SCALETTA v0.71 (new
 step F2.09f, labels shortened with an ellipsis). Next: F2.10c.
+
+Step **F2.10c1**, the clipboard (`feature/f2-10c1-clipboard`, 2026-11-15). The analysis found
+that nothing of the input methods existed yet (`InputEvent::Ime`, `Widget::accepts_text`,
+`Ui::wants_text_input`, the window's IME calls) and that no input method is installed on the
+development machine, so the owner approved splitting F2.10c into **F2.10c1** (the clipboard) and
+**F2.10c2** (the input methods), and for F2.10c1: the window creates the system's clipboard once
+and hands it to the application (`WindowApp::attach_clipboard`, `Ui::set_clipboard`), a `Ui`
+having one in memory until then (precision of ADR-0040 and of ADR-0047 TF12); a typed
+`ClipboardError` that the field ignores (nothing shown to the user for now); Copy and Cut with
+nothing selected do nothing; Paste through `TextEditor::paste` with no length limit; only the
+in-memory clipboard in CI; commits `User-visible: no`. While writing it I added that a Cut whose
+copy failed does not delete (no text lost), recorded in ADR-0047. Implemented in `orchestra-ui`:
+`platform/clipboard` (`ClipboardSource`, `MemoryClipboard`, `ClipboardError`, and `system.rs`,
+the only file that knows `arboard` 3.7.0, no default features, `wayland-data-control`),
+`EventCx::clipboard`, `Ui::set_clipboard`/`clipboard`, `TextField`'s Cut, Copy and Paste; the
+demonstration passes the clipboard to its `Ui`. Three older copies in `deny.toml` with their exit
+(`hashbrown` 0.15, `foldhash` 0.1, `objc2-app-kit` 0.2); `docs/native-deps.md` records that no
+native library is added. Tests: six cases in `tests/field.rs`; three injected bugs, all caught.
+**Open, and the step is not closed without it:** the owner's check by hand of the real
+clipboard, with another program, on Wayland (KDE, data-control) and on X11 through XWayland
+(`env -u WAYLAND_DISPLAY cargo run -p orchestra-app --bin orchestra`). Next: F2.10c2, for which
+Fcitx5 must be installed on the development machine.
 
 | Step | What | Status |
 |---|---|---|

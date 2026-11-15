@@ -84,6 +84,26 @@ workspace. Each crate arrives in its own SCALETTA step (ADR-0036 B1).
 - **Replacement plan:** none (platform APIs).
 - **Added:** 2026-11-09, ADR-0036.
 
+### The system clipboard (via `arboard`)
+
+- **Used by:** `orchestra-ui` (`platform/clipboard`, behind the `ClipboardSource` trait).
+- **What for:** copying and pasting text with other programs (ADR-0047 TF12).
+- **Why no Rust alternative:** `arboard` adds **no native library** of its own. On Linux it
+  speaks the X11 protocol in Rust (`x11rb`) and, with `wayland-data-control`, the Wayland
+  protocol through `wl-clipboard-rs` and the `wayland-client` crate, which in our build uses the
+  `libwayland-client` already recorded above. On Windows and macOS it calls the system's
+  clipboard (Win32 clipboard functions; `NSPasteboard` of AppKit), the operating systems' own
+  interfaces.
+- **License:** `arboard` MIT OR Apache-2.0; the system components are not distributed by us.
+- **Platforms:** Linux (X11, XWayland, Wayland compositors with *data-control*) · Windows ·
+  macOS.
+- **Build requirements:** none.
+- **Binary size / compile time impact:** +561 KB, about +2 s, 13 crates (measured in F2.10a,
+  ADR-0047 TF12, variant B).
+- **Replacement plan:** `smithay-clipboard` behind the same trait if GNOME users meet problems
+  with the XWayland fallback (ADR-0047 TF12, variant C).
+- **Added:** 2026-11-15, ADR-0047 (F2.10c1).
+
 ## Development tools (never linked into the program)
 
 Native programs that the **development workflow and CI** need, but that are never linked into,
