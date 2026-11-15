@@ -63,6 +63,7 @@ use std::time::Instant;
 
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::list::{DisplayList, Recorder, SegmentId};
+use crate::platform::clipboard::{ClipboardSource, MemoryClipboard};
 use orchestra_text::Faces;
 
 use crate::theme::token::{Shape, Theme};
@@ -140,6 +141,9 @@ pub struct Ui<M> {
     /// The interface's time: the last one given to [`Ui::advance`] (never going back), or the
     /// moment the interface was created (see the module documentation).
     now: Instant,
+    /// The clipboard widgets copy to and paste from (ADR-0047 TF12): one in memory until the
+    /// application hands in the system's ([`Ui::set_clipboard`]).
+    clipboard: Box<dyn ClipboardSource>,
     /// The pending wake-ups, one at most per widget, in no order. By ID, not by slot: a slot
     /// freed and reused must not inherit a wake-up. A handful at most (a blinking caret), so a
     /// linear scan beats any ordered structure.
@@ -162,6 +166,7 @@ impl<M: 'static> Ui<M> {
             title: String::new(),
             access_sent: false,
             now: Instant::now(),
+            clipboard: Box::new(MemoryClipboard::default()),
             wakeups: Vec::new(),
             due: Vec::new(),
             bounds: Rect::EMPTY,
@@ -177,6 +182,20 @@ impl<M: 'static> Ui<M> {
             rearrange: Vec::new(),
             removed: Vec::new(),
         }
+    }
+
+    /// Gives the interface the clipboard its widgets copy to and paste from (ADR-0047 TF12): the
+    /// system's, which the window hands to the application once
+    /// ([`WindowApp::attach_clipboard`](crate::WindowApp::attach_clipboard)). Until then the
+    /// interface has one in memory ([`MemoryClipboard`]), which works inside the program only.
+    pub fn set_clipboard(&mut self, clipboard: Box<dyn ClipboardSource>) {
+        self.clipboard = clipboard;
+    }
+
+    /// The interface's clipboard: for an application's own Copy and Paste commands, and for
+    /// tests, which read what a widget copied and set what it will paste.
+    pub fn clipboard(&mut self) -> &mut dyn ClipboardSource {
+        self.clipboard.as_mut()
     }
 
     /// The root widget.
@@ -741,6 +760,7 @@ impl<M: 'static> Ui<M> {
             overlay: false,
             now: self.now,
             wakeup: WakeRequest::Keep,
+            clipboard: self.clipboard.as_mut(),
         };
         let handled = widget.event(&mut cx, event);
         let (relayout, rerecord, focus, rearrange, overlay, wakeup) = (

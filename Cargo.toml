@@ -137,6 +137,14 @@ accesskit_winit = { version = "0.34.2", default-features = false, features = ["a
 # version accesskit 0.25.2's adapters use (0.39.2), so no second copy is ever built; it moves
 # together with accesskit.
 accesskit_consumer = "=0.39.2"
+# arboard: the system clipboard, text only (ADR-0047 TF12, variant B chosen by the owner on the
+# measures of F2.10a; entered in F2.10c1). 3.7.0 (MIT OR Apache-2.0), still the latest on
+# crates.io on 2026-11-15. No default features (no images, so no `image` crate); the feature
+# `wayland-data-control` adds wl-clipboard-rs 0.9.5 for the compositors that offer data-control
+# (KDE Plasma, Sway, Hyprland, COSMIC, niri); elsewhere on Linux it uses X11 (XWayland on GNOME).
+# Pure Rust on Linux, system APIs on Windows and macOS: no native library to install. Only
+# `orchestra-ui`'s `platform/clipboard` uses it, behind the `ClipboardSource` trait.
+arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
 # skrifa + harfrust: reading fonts and drawing their outlines, and shaping text (ADR-0012,
 # ADR-0036 B1-B3, ADR-0044 TX1). Versions checked on crates.io on 2026-11-12 (skrifa 0.50.0 of
 # 2026-11-10, MIT OR Apache-2.0; harfrust 0.16.0 of 2026-11-12, MIT): both are built on

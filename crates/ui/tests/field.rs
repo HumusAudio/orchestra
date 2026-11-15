@@ -4,8 +4,9 @@
 //! keys that bubble and those swallowed, commit on Enter and on leaving, Escape, the local undo,
 //! the pointer (click, Shift+click, drag, double and triple click, the text beam), scrolling inside
 //! the field, the caret's blink in made-up time (its halves, its stop after 10 s, the wake-ups the
-//! window would sleep until, and the small area a blink redraws), a disabled field, and the
-//! drawing of the text, the placeholder and the selection.
+//! window would sleep until, and the small area a blink redraws), a disabled field, the
+//! drawing of the text, the placeholder and the selection, and Cut, Copy and Paste with the
+//! interface's in-memory clipboard and with one that fails (F2.10c1).
 
 #![allow(
     clippy::unwrap_used,
@@ -22,10 +23,10 @@ use std::time::{Duration, Instant};
 
 use orchestra_text::Faces;
 use orchestra_ui::{
-    Appearance, BuiltInTheme, Button, ButtonState, ColorToken, Constraints, CpuRenderer,
-    DisplayList, EditConvention, EventCx, Handled, Image, InputEvent, Key, LayoutCx, LayoutProps,
-    Length, Modifiers, NamedKey, Point, PointerButton, PointerShape, RecordCx, Recorder, Rect,
-    Size, TextField, Theme, Ui, Widget, WidgetEvent, WidgetId,
+    Appearance, BuiltInTheme, Button, ButtonState, ClipboardError, ClipboardSource, ColorToken,
+    Constraints, CpuRenderer, DisplayList, EditConvention, EventCx, Handled, Image, InputEvent,
+    Key, LayoutCx, LayoutProps, Length, Modifiers, NamedKey, Point, PointerButton, PointerShape,
+    RecordCx, Recorder, Rect, Size, TextField, Theme, Ui, Widget, WidgetEvent, WidgetId,
 };
 
 /// The messages of these tests.
@@ -641,4 +642,169 @@ fn removing_a_blinking_field_drops_its_wake_up_and_its_caret() {
     // A wake-up time passing afterwards wakes nobody (the slot may be reused by now).
     bench.at(Duration::from_secs(1));
     assert!(bench.list.take_damage().rects().len() <= 2);
+}
+
+/// The clipboard's text, as another program would read it.
+fn clipboard(bench: &mut Bench) -> Option<String> {
+    bench.ui.clipboard().read_text().unwrap()
+}
+
+/// A clipboard that cannot be reached: every request fails.
+#[derive(Debug)]
+struct Broken;
+
+impl ClipboardSource for Broken {
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError> {
+        Err(ClipboardError::Failed {
+            detail: "broken".to_owned(),
+        })
+    }
+
+    fn write_text(&mut self, _text: &str) -> Result<(), ClipboardError> {
+        Err(ClipboardError::Failed {
+            detail: "broken".to_owned(),
+        })
+    }
+}
+
+#[test]
+fn copy_puts_the_selection_on_the_clipboard_and_leaves_the_field_alone() {
+    let mut bench = Bench::new("Violin solo");
+    // The last word, selected with Ctrl+Shift+← from the end.
+    bench.tab();
+    bench.press(Key::Named(NamedKey::End), Modifiers::default());
+    bench.press(
+        Key::Named(NamedKey::ArrowLeft),
+        Modifiers {
+            shift: true,
+            ..ctrl()
+        },
+    );
+    assert_eq!(bench.field().selection(), 7..11);
+    let _ = bench.messages();
+    bench.press(Key::Character("c".to_owned()), ctrl());
+    assert_eq!(clipboard(&mut bench).as_deref(), Some("solo"));
+    assert_eq!(bench.field().text(), "Violin solo");
+    assert_eq!(bench.field().selection(), 7..11);
+    // Nothing changed and the key did not bubble.
+    assert_eq!(bench.messages(), vec![]);
+    // Ctrl+Insert copies too.
+    bench.ui.clipboard().write_text("old").unwrap();
+    bench.press(Key::Named(NamedKey::Insert), ctrl());
+    assert_eq!(clipboard(&mut bench).as_deref(), Some("solo"));
+}
+
+#[test]
+fn copy_and_cut_with_nothing_selected_keep_the_clipboard() {
+    let mut bench = Bench::new("Violin");
+    bench.ui.clipboard().write_text("kept").unwrap();
+    bench.tab();
+    bench.press(Key::Named(NamedKey::End), Modifiers::default());
+    assert!(bench.field().selection().is_empty());
+    bench.press(Key::Character("c".to_owned()), ctrl());
+    bench.press(Key::Character("x".to_owned()), ctrl());
+    assert_eq!(clipboard(&mut bench).as_deref(), Some("kept"));
+    assert_eq!(bench.field().text(), "Violin");
+}
+
+#[test]
+fn cut_copies_then_deletes_in_one_undo_step() {
+    let mut bench = Bench::new("Violin solo");
+    bench.tab();
+    bench.press(Key::Named(NamedKey::End), Modifiers::default());
+    bench.press(
+        Key::Named(NamedKey::ArrowLeft),
+        Modifiers {
+            shift: true,
+            ..ctrl()
+        },
+    );
+    let _ = bench.messages();
+    bench.press(Key::Character("x".to_owned()), ctrl());
+    assert_eq!(clipboard(&mut bench).as_deref(), Some("solo"));
+    assert_eq!(bench.field().text(), "Violin ");
+    assert_eq!(bench.field().caret(), 7);
+    // The live listener hears of the change.
+    assert_eq!(bench.messages(), vec![Msg::Changed("Violin ".to_owned())]);
+    bench.press(Key::Character("z".to_owned()), ctrl());
+    assert_eq!(bench.field().text(), "Violin solo");
+    // Shift+Delete cuts too.
+    bench.press(Key::Named(NamedKey::Home), Modifiers::default());
+    bench.press(
+        Key::Named(NamedKey::ArrowRight),
+        Modifiers {
+            shift: true,
+            ..ctrl()
+        },
+    );
+    bench.press(Key::Named(NamedKey::Delete), shift());
+    assert_eq!(clipboard(&mut bench).as_deref(), Some("Violin"));
+    assert_eq!(bench.field().text(), " solo");
+}
+
+#[test]
+fn paste_replaces_the_selection_with_one_line_in_one_undo_step() {
+    let mut bench = Bench::new("Violin");
+    // What another program copied: two lines, a tab and a control character.
+    bench
+        .ui
+        .clipboard()
+        .write_text("Cello\r\nsolo\tII\u{7}")
+        .unwrap();
+    bench.tab();
+    let _ = bench.messages();
+    // Everything is selected by the focus: the paste replaces it.
+    bench.press(Key::Character("v".to_owned()), ctrl());
+    assert_eq!(bench.field().text(), "Cello solo II");
+    assert_eq!(bench.field().caret(), 13);
+    assert_eq!(
+        bench.messages(),
+        vec![Msg::Changed("Cello solo II".to_owned())]
+    );
+    // The clipboard is not consumed: Shift+Insert pastes again, at the caret.
+    bench.press(Key::Named(NamedKey::Insert), shift());
+    assert_eq!(bench.field().text(), "Cello solo IICello solo II");
+    // Each paste is one undo step.
+    bench.press(Key::Character("z".to_owned()), ctrl());
+    assert_eq!(bench.field().text(), "Cello solo II");
+    bench.press(Key::Character("z".to_owned()), ctrl());
+    assert_eq!(bench.field().text(), "Violin");
+    // Committed like any other edit, when the focus leaves.
+    bench.press(Key::Character("v".to_owned()), ctrl());
+    let _ = bench.messages();
+    bench.tab();
+    assert_eq!(
+        bench.messages(),
+        vec![Msg::Committed("Cello solo II".to_owned())]
+    );
+}
+
+#[test]
+fn an_empty_clipboard_pastes_nothing() {
+    let mut bench = Bench::new("Violin");
+    assert_eq!(clipboard(&mut bench), None);
+    bench.tab();
+    let _ = bench.messages();
+    bench.press(Key::Character("v".to_owned()), ctrl());
+    // The selection the focus made is still there: nothing was replaced.
+    assert_eq!(bench.field().text(), "Violin");
+    assert_eq!(bench.field().selection(), 0..6);
+    assert_eq!(bench.messages(), vec![]);
+}
+
+#[test]
+fn a_clipboard_that_fails_loses_no_text() {
+    let mut bench = Bench::new("Violin");
+    bench.ui.set_clipboard(Box::new(Broken));
+    bench.tab();
+    let _ = bench.messages();
+    // Cut could not copy, so it does not delete.
+    bench.press(Key::Character("x".to_owned()), ctrl());
+    assert_eq!(bench.field().text(), "Violin");
+    // Copy and Paste do nothing.
+    bench.press(Key::Character("c".to_owned()), ctrl());
+    bench.press(Key::Character("v".to_owned()), ctrl());
+    assert_eq!(bench.field().text(), "Violin");
+    assert_eq!(bench.field().selection(), 0..6);
+    assert_eq!(bench.messages(), vec![]);
 }

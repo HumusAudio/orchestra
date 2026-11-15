@@ -14,7 +14,8 @@
 //! - **Keyboard** (TF3): the editing keys of the platform ([`edit_action`]), fixed inside the
 //!   field. Typed text arrives as [`WidgetEvent::Text`] (TF5) after its key, whose plain
 //!   character keys the field swallows, so they never reach single-key shortcuts. Cut, Copy and
-//!   Paste are recognised and swallowed, but do nothing until the clipboard arrives (F2.10c).
+//!   Paste use the interface's clipboard ([`EventCx::clipboard`], TF12, F2.10c1): the system's
+//!   in a window, one in memory in tests.
 //!   Undo on an empty local history does nothing and never reaches the document's undo (TF7).
 //! - **Enter** commits (below) and bubbles, so a dialog around the field can take Enter as its
 //!   default action after the commit (precision of TF7, F2.10b2). **Escape** brings back the text
@@ -67,8 +68,8 @@
 //! focus would commit it later.
 //!
 //! # Not here yet
-//! The clipboard and the input methods (F2.10c), the multi-line field and the primary selection
-//! (postponed, ADR-0047).
+//! The input methods (F2.10c2), the multi-line field and the primary selection (postponed,
+//! ADR-0047).
 
 use std::ops::Range;
 use std::time::{Duration, Instant};
@@ -84,7 +85,7 @@ use crate::window::input::{ButtonState, Key, Modifiers, NamedKey, PointerButton}
 use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole, TextInfo};
-use super::edit::keys::{EditConvention, edit_action};
+use super::edit::keys::{EditAction, EditConvention, edit_action};
 use super::edit::{EditResponse, TextEditor};
 use super::layout::{Constraints, Size};
 use super::tree::{EventCx, Handled, LayoutCx, RecordCx, Widget, WidgetEvent};
@@ -591,15 +592,60 @@ impl<M> TextField<M> {
                 }
             }
             EditResponse::SelectionChanged => cx.request_arrange(),
-            // Nothing moved, or a clipboard action, which does nothing until F2.10c.
+            // Nothing moved. (A clipboard action never arrives here: `clipboard` carried it out
+            // and answered what it changed.)
             EditResponse::Unchanged | EditResponse::Clipboard(_) => {}
+        }
+    }
+
+    /// Carries out Cut, Copy or Paste with the interface's clipboard (TF12, F2.10c1), and
+    /// answers what changed in the field.
+    ///
+    /// - **Copy** writes the selected text; with nothing selected it does nothing, and the
+    ///   clipboard keeps what it had.
+    /// - **Cut** copies and then deletes the selection (one undo step). If the clipboard could
+    ///   not be written the selection is **not** deleted: the text would be lost.
+    /// - **Paste** replaces the selection with the clipboard's text, cleaned to one line (one
+    ///   undo step, [`TextEditor::paste`]). An empty clipboard, or one holding no text, pastes
+    ///   nothing.
+    ///
+    /// A clipboard that fails is ignored: nothing is shown to the user for now (precision of
+    /// ADR-0047, F2.10c1).
+    ///
+    /// # Cost
+    /// A paste allocates the clipboard's text and may wait for the program that owns it (an X11
+    /// round trip); a copy allocates inside the clipboard. Neither is a hot path: they happen at
+    /// a user's command.
+    fn clipboard(&mut self, cx: &mut EventCx<'_, M>, action: EditAction) -> EditResponse {
+        match action {
+            EditAction::Copy | EditAction::Cut => {
+                let selected = self.editor.selected_text();
+                if selected.is_empty() || cx.clipboard().write_text(selected).is_err() {
+                    return EditResponse::Unchanged;
+                }
+                if action == EditAction::Cut {
+                    self.editor.delete_selection()
+                } else {
+                    EditResponse::Unchanged
+                }
+            }
+            EditAction::Paste => match cx.clipboard().read_text() {
+                Ok(Some(text)) => self.editor.paste(&text),
+                Ok(None) | Err(_) => EditResponse::Unchanged,
+            },
+            // Every other action was carried out by the editor itself.
+            _ => EditResponse::Unchanged,
         }
     }
 
     /// A key pressed while focused.
     fn key(&mut self, cx: &mut EventCx<'_, M>, key: &Key, modifiers: Modifiers) -> Handled {
         if let Some(action) = edit_action(key, modifiers, self.editor.convention()) {
-            let response = self.editor.apply(action);
+            let response = match self.editor.apply(action) {
+                // The editor has no clipboard: it hands these three back (F2.10b1).
+                EditResponse::Clipboard(action) => self.clipboard(cx, action),
+                response => response,
+            };
             self.after(cx, response);
             return Handled::Yes;
         }

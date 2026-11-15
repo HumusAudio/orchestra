@@ -77,6 +77,9 @@ pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
 pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
 
+// The clipboard (ADR-0047 TF12).
+pub use platform::clipboard::{ClipboardError, ClipboardSource, MemoryClipboard};
+
 // The window and the event loop (ADR-0040), re-exported like the rest.
 pub use widget::access::{
     AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate, RUN_CHARACTERS,

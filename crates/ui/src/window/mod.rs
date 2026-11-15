@@ -93,6 +93,15 @@ pub trait WindowApp {
         let _ = (now, list);
     }
 
+    /// Receives the system's clipboard (ADR-0047 TF12, F2.10c1): called once, before the first
+    /// layout, when the window could connect to it. The window creates one clipboard for the
+    /// whole session and the application keeps it; an app built on [`Ui`](crate::Ui) passes it
+    /// on with [`Ui::set_clipboard`](crate::Ui::set_clipboard). Not called when there is no
+    /// system clipboard: the interface then keeps its own, in memory. The default drops it.
+    fn attach_clipboard(&mut self, clipboard: Box<dyn crate::ClipboardSource>) {
+        let _ = clipboard;
+    }
+
     /// When the app wants to be woken without an event (an [`advance`](Self::advance) at that
     /// time), or `None` to wait for the next event (the default). Asked after every batch of
     /// events; an app built on [`Ui`](crate::Ui) answers [`Ui::next_wakeup`](crate::Ui).

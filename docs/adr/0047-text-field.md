@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-11-13; outline TF1–TF13 presented first, with the owner's
   choices on TF2, TF8, TF12 and the primary selection's postponement, then the text). Precisions
-  of F2.10b1, F2.10b2 and F2.10b3 below.
+  of F2.10b1, F2.10b2, F2.10b3 and F2.10c1 below.
 - **Date:** 2026-11-13
 - **Implements:** ADR-0045 (retained widgets, routed events, focus, AccessKit per widget; WA8
   leaves the clipboard to this step), ADR-0044 (text: shaping, clusters, left to right only,
@@ -343,6 +343,30 @@ Found while writing the field's accessibility (TF11), after reading AccessKit 0.
   instructions (the field's run is built again at every key), under the 0.5 M of TF13; accepted
   by the owner (`Bench-regression: accepted`). Without a listening assistive technology nothing
   is built. The blink is unchanged.
+
+## Precisions of the implementation (F2.10c1, approved by the owner on 2026-11-15)
+
+F2.10c is split in F2.10c1 (the clipboard, here) and F2.10c2 (the input methods): the events, the
+hooks and the window calls of TF5–TF6 for the IME did not exist yet, and its rule is decided by
+hand tests that need an input method installed.
+- **TF12, who holds the clipboard.** The trait `ClipboardSource` (`read_text`, `write_text`, a
+  typed `ClipboardError`) is in `orchestra-ui`'s `platform/clipboard`, with `MemoryClipboard`
+  and, in one file, the `arboard` one. The window creates the system's one once and hands it to
+  the application (ADR-0040, precision of F2.10c1); a `Ui` has a `MemoryClipboard` until it is
+  given another (`Ui::set_clipboard`), so tests need no display and copying still works inside
+  the program without a system clipboard. Widgets reach it through `EventCx::clipboard`.
+- **TF12, the three commands.** Copy writes the selected text; Cut copies, then deletes (one undo
+  step); Paste replaces the selection with the clipboard's text through `TextEditor::paste` (one
+  line, one undo step), with no limit of length. With nothing selected, Copy and Cut do nothing
+  and leave the clipboard as it was. An empty clipboard, or one without text, pastes nothing.
+- **TF12, failures.** A clipboard that fails is ignored and nothing is shown to the user for now;
+  a Cut that could not copy **does not delete**, so no text is lost.
+- **TF12, duplicates.** `arboard` 3.7.0 brings three older copies, listed in `deny.toml` with
+  their exit: `hashbrown` 0.15 and `foldhash` 0.1 (the `petgraph` of `tree_magic_mini`, under
+  `wl-clipboard-rs`, Linux) and, on macOS, its `objc2-app-kit` 0.3 beside the 0.2 of `winit` 0.30
+  and `accesskit_macos`.
+- **Tests.** Only the in-memory clipboard in CI (and one that always fails); the `arboard` file is
+  checked by hand by the owner on Wayland (KDE, data-control) and on X11 through XWayland.
 
 ## Alternatives rejected
 

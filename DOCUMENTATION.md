@@ -3983,7 +3983,7 @@ every edit the caret goes to the grapheme boundary at or after it (a typed regio
 turn the character after it into a flag). Without Shift, ← and → collapse a selection to its edge;
 a word or line movement goes on from there. Clipboard actions come back as
 `EditResponse::Clipboard`: the widget will carry them out with `selected_text`,
-`delete_selection` and `paste` (the clipboard is F2.10c).
+`delete_selection` and `paste` (the widget carries the clipboard actions out, F2.10c1).
 
 **The local undo (TF7).** Every change is an edit (at a byte, a removed text replaced by an inserted
 text, with the selection before and after) in groups: consecutive typing is one group until a new
@@ -4210,6 +4210,85 @@ second lookup a first version made was dropped (a key went from 481 to 473 thous
 instructions). The benchmark `field_type_key`, which includes the accessibility update, went from
 435 to 473 thousand instructions (+8.8%), under the 0.5 M of ADR-0047 TF13: accepted by the owner
 with the trailer `Bench-regression: accepted`. The caret's blink is unchanged.
+
+#### The clipboard
+
+Step F2.10c1 (ADR-0047 TF12, with a precision of ADR-0040; approved by the owner on 2026-11-15),
+in `orchestra-ui` (`src/platform/clipboard/mod.rs` and `system.rs` new; `src/widget/field.rs`,
+`src/widget/tree.rs`, `src/widget/ui.rs`, `src/window/mod.rs`, `src/window/shell.rs`) and
+`orchestra-app` (`src/demo.rs`). Cut, Copy and Paste in a text field were recognised since F2.10b1
+and did nothing; now they work, with other programs too.
+
+**One trait, two clipboards.** Everything goes through a small trait, text only:
+
+```rust
+pub trait ClipboardSource: fmt::Debug {
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError>;
+    fn write_text(&mut self, text: &str) -> Result<(), ClipboardError>;
+}
+```
+
+`read_text` answers `None` for an empty clipboard or one that holds no text (an image), which is
+not an error. There are two implementations. `MemoryClipboard` keeps the text in the program: it
+is what every `Ui` starts with, so the tests need no display, and copying and pasting still work
+inside Orchestra where the system has no clipboard. `SystemClipboard` (`system.rs`, the only file
+that knows the crate `arboard`) is the real one: the pasteboard on macOS, the Win32 clipboard on
+Windows, and on Linux the *data-control* protocol where the Wayland compositor offers it (KDE
+Plasma, Sway, Hyprland, COSMIC, niri) or X11 otherwise, which on GNOME means through XWayland.
+
+**Who owns it.** On Linux the program that copied serves every later paste for as long as it
+lives, so there must be **one** clipboard object for the whole session. The window creates it
+once, when it is created, and hands it to the application before the first layout, through a new
+method of `WindowApp` that an application built on `Ui` passes on:
+
+```rust
+fn attach_clipboard(&mut self, clipboard: Box<dyn ClipboardSource>) {
+    self.ui.set_clipboard(clipboard);
+}
+```
+
+If the system has no clipboard, the method is never called and the `Ui` keeps its own in memory.
+Widgets reach whichever is there with `cx.clipboard()`, and never know which.
+
+**The three commands in the field.** The editor of F2.10b1 has no clipboard: for Cut, Copy and
+Paste it answers `EditResponse::Clipboard(action)`, and the field carries the action out:
+
+```rust
+EditAction::Copy | EditAction::Cut => {
+    let selected = self.editor.selected_text();
+    if selected.is_empty() || cx.clipboard().write_text(selected).is_err() {
+        return EditResponse::Unchanged;
+    }
+    if action == EditAction::Cut {
+        self.editor.delete_selection()
+    } else {
+        EditResponse::Unchanged
+    }
+}
+EditAction::Paste => match cx.clipboard().read_text() {
+    Ok(Some(text)) => self.editor.paste(&text),
+    Ok(None) | Err(_) => EditResponse::Unchanged,
+},
+```
+
+Copy writes the selection and changes nothing in the field. Cut copies and then deletes, one undo
+step; if the clipboard could not be written it does **not** delete, so a failing clipboard never
+loses text. Paste goes through `TextEditor::paste`, which makes one line of whatever arrives (line
+breaks and tabs become spaces, control characters go) and is one undo step. With nothing selected,
+Copy and Cut do nothing and the clipboard keeps what it had. A clipboard that fails is ignored:
+nothing is shown to the user for now. The keys are the platform's own (Ctrl+X, C, V and
+Shift+Delete, Ctrl+Insert, Shift+Insert on Linux and Windows; ⌘X, C, V on macOS).
+
+**Dependencies.** `arboard` 3.7.0 without its default features (no images) and with
+`wayland-data-control`. It brings three older copies of crates already in the tree, listed in
+`deny.toml` with their exit: `hashbrown` 0.15 and `foldhash` 0.1 on Linux, `objc2-app-kit` 0.2
+beside its 0.3 on macOS. It adds no native library (`docs/native-deps.md`).
+
+**Tests.** Six cases in `tests/field.rs`, with the in-memory clipboard and with one that always
+fails: copy, copy and cut with nothing selected, cut and its undo, paste (one line, two undo
+steps, the commit), an empty clipboard, a failing clipboard. Three injected bugs, all caught. The
+`arboard` file is not exercised in CI (it needs a display and another program): the owner checks
+it by hand on Wayland and on X11 through XWayland.
 
 #### The window and the event loop
 

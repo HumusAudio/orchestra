@@ -4249,7 +4249,7 @@ controllo spariscono. Dopo ogni modifica il cursore va al confine di grafema ugu
 (un indicatore regionale digitato può fare del carattere dopo una bandiera). Senza Maiusc, ← e →
 chiudono una selezione sul suo bordo; uno spostamento per parola o per riga prosegue da lì. Le
 azioni degli appunti tornano come `EditResponse::Clipboard`: il widget le eseguirà con
-`selected_text`, `delete_selection` e `paste` (gli appunti sono F2.10c).
+`selected_text`, `delete_selection` e `paste` (le azioni degli appunti le esegue il widget, F2.10c1).
 
 **L'undo locale (TF7).** Ogni cambiamento è una modifica (a un byte, un testo tolto sostituito da
 un testo inserito, con la selezione prima e dopo) dentro gruppi: la digitazione consecutiva è un
@@ -4489,6 +4489,88 @@ a 473 mila istruzioni). Il benchmark `field_type_key`, che comprende l'aggiornam
 accessibilità, è passato da 435 a 473 mila istruzioni (+8,8%), sotto gli 0,5 M di ADR-0047 TF13:
 accettato dal proprietario con il trailer `Bench-regression: accepted`. Il lampeggio del cursore
 non cambia.
+
+#### Gli appunti
+
+Passo F2.10c1 (ADR-0047 TF12, con una precisazione di ADR-0040; approvato dal proprietario il
+2026-11-15), in `orchestra-ui` (`src/platform/clipboard/mod.rs` e `system.rs` nuovi;
+`src/widget/field.rs`, `src/widget/tree.rs`, `src/widget/ui.rs`, `src/window/mod.rs`,
+`src/window/shell.rs`) e `orchestra-app` (`src/demo.rs`). Taglia, Copia e Incolla in un campo di
+testo erano riconosciuti da F2.10b1 e non facevano nulla; ora funzionano, anche con gli altri
+programmi.
+
+**Un trait, due appunti.** Tutto passa per un piccolo trait, solo testo:
+
+```rust
+pub trait ClipboardSource: fmt::Debug {
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError>;
+    fn write_text(&mut self, text: &str) -> Result<(), ClipboardError>;
+}
+```
+
+`read_text` risponde `None` per appunti vuoti o che non contengono testo (un'immagine), che non è
+un errore. Le implementazioni sono due. `MemoryClipboard` tiene il testo dentro il programma: è
+ciò con cui parte ogni `Ui`, così i test non hanno bisogno di display, e copiare e incollare
+funzionano dentro Orchestra anche dove il sistema non ha appunti. `SystemClipboard` (`system.rs`,
+l'unico file che conosce il crate `arboard`) sono gli appunti veri: il pasteboard su macOS, gli
+appunti Win32 su Windows, e su Linux il protocollo *data-control* dove il compositor Wayland lo
+offre (KDE Plasma, Sway, Hyprland, COSMIC, niri) oppure X11, che su GNOME vuol dire attraverso
+XWayland.
+
+**Chi li possiede.** Su Linux il programma che ha copiato serve ogni incolla successivo finché
+vive, quindi deve esistere **un solo** oggetto appunti per tutta la sessione. La finestra lo crea
+una volta, quando viene creata, e lo consegna all'applicazione prima del primo layout, con un
+metodo nuovo di `WindowApp` che un'applicazione costruita su `Ui` passa oltre:
+
+```rust
+fn attach_clipboard(&mut self, clipboard: Box<dyn ClipboardSource>) {
+    self.ui.set_clipboard(clipboard);
+}
+```
+
+Se il sistema non ha appunti, il metodo non viene mai chiamato e la `Ui` tiene i suoi in memoria.
+I widget raggiungono quelli che ci sono con `cx.clipboard()`, senza sapere quali siano.
+
+**I tre comandi nel campo.** L'editor di F2.10b1 non ha appunti: per Taglia, Copia e Incolla
+risponde `EditResponse::Clipboard(action)`, e il campo esegue l'azione:
+
+```rust
+EditAction::Copy | EditAction::Cut => {
+    let selected = self.editor.selected_text();
+    if selected.is_empty() || cx.clipboard().write_text(selected).is_err() {
+        return EditResponse::Unchanged;
+    }
+    if action == EditAction::Cut {
+        self.editor.delete_selection()
+    } else {
+        EditResponse::Unchanged
+    }
+}
+EditAction::Paste => match cx.clipboard().read_text() {
+    Ok(Some(text)) => self.editor.paste(&text),
+    Ok(None) | Err(_) => EditResponse::Unchanged,
+},
+```
+
+Copia scrive la selezione e non cambia nulla nel campo. Taglia copia e poi cancella, un passo di
+undo; se gli appunti non si sono potuti scrivere **non** cancella, così appunti che falliscono non
+fanno mai perdere testo. Incolla passa per `TextEditor::paste`, che fa una riga sola di qualunque
+cosa arrivi (a capo e tabulazioni diventano spazi, i caratteri di controllo spariscono) ed è un
+passo di undo. Senza selezione, Copia e Taglia non fanno nulla e gli appunti tengono ciò che
+avevano. Appunti che falliscono vengono ignorati: per ora all'utente non si mostra nulla. I tasti
+sono quelli della piattaforma (Ctrl+X, C, V e Maiusc+Canc, Ctrl+Ins, Maiusc+Ins su Linux e
+Windows; ⌘X, C, V su macOS).
+
+**Dipendenze.** `arboard` 3.7.0 senza le funzioni predefinite (niente immagini) e con
+`wayland-data-control`. Porta tre copie più vecchie di crate già presenti, elencate in `deny.toml`
+con la loro uscita: `hashbrown` 0.15 e `foldhash` 0.1 su Linux, `objc2-app-kit` 0.2 accanto al suo
+0.3 su macOS. Non aggiunge nessuna libreria nativa (`docs/native-deps.md`).
+
+**Test.** Sei casi in `tests/field.rs`, con gli appunti in memoria e con appunti che falliscono
+sempre: copia, copia e taglia senza selezione, taglia e il suo undo, incolla (una riga, due passi
+di undo, la conferma), appunti vuoti, appunti che falliscono. Tre bug iniettati, tutti presi. Il
+file di `arboard` non viene esercitato in CI (servono un display e un altro programma): lo prova
+a mano il proprietario su Wayland e su X11 attraverso XWayland.
 
 #### La finestra e il ciclo degli eventi
 

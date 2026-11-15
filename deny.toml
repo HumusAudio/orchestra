@@ -103,6 +103,14 @@ skip = [
     # png 0.18 (tiny-skia's `png-format`, for the headless screenshots of F2.05, ADR-0041) uses
     # miniz_oxide 0.8 directly and 0.9 through flate2, as ADR-0036 B7 foresaw. Exit: a new png.
     { crate = "miniz_oxide@0.8.9", reason = "png 0.18 directly, next to 0.9 through flate2 (ADR-0036 B7); exit: a new png" },
+    # arboard 3.7.0 (the clipboard, ADR-0047 TF12, F2.10c1). Its Wayland part, wl-clipboard-rs 0.9.5,
+    # detects MIME types with tree_magic_mini, whose petgraph 0.8 is still on hashbrown 0.15 (with
+    # foldhash 0.1), next to the 0.17 of indexmap and AccessKit. Exit: a petgraph on hashbrown 0.17.
+    { crate = "hashbrown@0.15.5", reason = "petgraph 0.8 of tree_magic_mini, wl-clipboard-rs, arboard (Linux); exit: a newer petgraph" },
+    { crate = "foldhash@0.1.5", reason = "hashbrown 0.15 of petgraph 0.8, same as above; exit: a newer petgraph" },
+    # arboard uses objc2-app-kit 0.3 on macOS; winit 0.30 and accesskit_macos are still on 0.2
+    # (with objc2 0.5, already listed above). Exit: winit 0.31 and the AccessKit that follows it.
+    { crate = "objc2-app-kit@0.2.2", reason = "winit 0.30 and accesskit_macos, next to arboard's 0.3 (macOS); exit: winit 0.31 (ADR-0036 B7)" },
 ]
 skip-tree = []
 deny = []

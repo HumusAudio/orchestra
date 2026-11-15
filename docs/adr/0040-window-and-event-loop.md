@@ -159,3 +159,13 @@ sets `ControlFlow::WaitUntil(t)` when the app has a wake-up and `ControlFlow::Wa
 Widgets never read the clock: `Ui::advance` gives them the time (`EventCx::now`), so blinking and
 its 10 s stop are tested with made-up times. Without a wake-up (no focused field, or a caret that
 stopped blinking) the loop waits for input exactly as before.
+
+## Precision of the implementation (F2.10c1, approved by the owner on 2026-11-15)
+
+**The clipboard at the setup point (W7).** ADR-0047 TF12 says the window owns one clipboard for
+the whole session, but widgets live in the application's `Ui`, below the window. The window
+creates the system's clipboard once, when the window is created (the display server is then known
+to be there), and hands it to the application before the first layout:
+`WindowApp::attach_clipboard(Box<dyn ClipboardSource>)`, which drops it by default; an application
+built on `Ui` passes it on with `Ui::set_clipboard`. It is still one object for the session. When
+the system has no clipboard the method is not called and the interface keeps its own in memory.
