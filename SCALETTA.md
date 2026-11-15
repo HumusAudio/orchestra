@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.73, approvata dal proprietario il 2026-11-15.**
+> **Stato di questo documento: v0.74, approvata dal proprietario il 2026-11-15.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -699,7 +699,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ✅ ADR-0045 | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ✅ (F2.09a–d) | 3–4 |
 | F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
-| F2.09f | **Etichette accorciate con i puntini** quando il testo non entra nella larghezza ricevuta (aperto dalla correzione del ritaglio, PR #76): regola di accorciamento, testo completo per le tecnologie assistive | ⬜ | 0,5 |
+| F2.09f | **Etichette accorciate con i puntini** quando il testo non entra nella larghezza ricevuta (aperto dalla correzione del ritaglio, PR #76): regola di accorciamento, testo completo per le tecnologie assistive | ✅ PR #80 | 0,5 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | 🔄 (F2.10a–c) | 3 |
 | F2.10a | **ADR del campo di testo** (posizioni e grafemi, tasti di ogni piattaforma, mouse, eventi di testo, IME, undo locale e undo del documento, cursore, selezione, accessibilità) e **misura del crate degli appunti** | ✅ ADR-0047 | 0,5 |
 | F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | 🔄 (F2.10b1–b3) | 2 |
@@ -900,6 +900,16 @@ controllo completo. Va fatta bene una volta sola.
   dimostrativa viene sostituita dai widget veri.
 - **F2.09** Da ADR-0037: qui si definisce la **densità** (spaziature compatte o comode) come token
   del tema.
+- **F2.09f** **Fatto il 2026-11-15 (PR #80):** `Label` a una riga, `Toggle` e `Button` che
+  ricevono meno spazio del loro testo ne disegnano l'inizio seguito da `…` (U+2026), mai fuori dal
+  loro spazio; taglio in fondo su un confine di grafema, spazi prima dei puntini tolti, i soli
+  puntini e poi nulla alle larghezze minime; la regola in `orchestra-text` (`Shaper::elide`, il
+  testo accorciato impaginato di nuovo), `ElidedText` condiviso dai tre controlli, testo intero
+  alle tecnologie assistive. Precisazioni WJ1–WJ7 di ADR-0045 e una di ADR-0044. Una riga
+  accorciata ≈ 149 000 istruzioni; un movimento del divisore che stringe 80 testi 9,5 M (budget
+  33 M); benchmark esistenti invariati. Limiti annotati: solo da sinistra a destra, nessun taglio
+  al centro (percorsi dei file), segnaposto del campo non accorciato. Provato a schermo dal
+  proprietario il 2026-11-15: tutto a posto.
 - **F2.10** Da F2.09d: un campo di testo dentro un'area scorrevole porta in vista il cursore di
   testo con `Widget::scroll_into_view`, che esiste già; i controlli a filo del bordo di un'area
   hanno bisogno di un margine interno per l'anello del fuoco.
@@ -973,6 +983,9 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.11b** Da F2.09e (ADR-0045 WG4): i bordi e gli angoli della nostra barra del titolo e della
   finestra aggiungono le loro forme di ridimensionamento a `PointerShape` (orizzontale, verticale,
   le due diagonali), con le corrispondenti di `winit`.
+- **F2.11** Da F2.09f (approvato dal proprietario il 2026-11-15): un **suggerimento al passaggio
+  del puntatore** che mostra il testo intero di un controllo accorciato con i puntini; i controlli
+  rispondono già a `is_elided()`. È il primo passo con elementi che compaiono sopra gli altri.
 - **F2.11** Da ADR-0047 TF3: Taglia, Copia, Incolla e Annulla del menu Modifica agiscono sul campo
   che ha il fuoco; i tasti di modifica restano fissi dentro i campi anche quando una scorciatoia di
   comando viene riassegnata.
@@ -1306,3 +1319,4 @@ raccomandato.
 | 2026-11-15 | 0.71 | F2.10b3 fatto (PR #77: accessibilità del campo di testo, più run per riga, tre azioni di testo, `accesskit_consumer` nei test; un tasto 0,47 M accettato); nota in F2.10c (run durante il preedit); nuovo F2.09f (etichette accorciate con i puntini); F2.10b2 provato a schermo | proprietario |
 | 2026-11-15 | 0.72 | F2.10c diviso in F2.10c1 (appunti, scritto: manca la prova a mano) e F2.10c2 (IME, per cui va installato Fcitx5); precisazioni di ADR-0040 e ADR-0047 per gli appunti | proprietario |
 | 2026-11-15 | 0.73 | F2.10c1 fatto (PR #79): appunti provati a mano dal proprietario su Wayland e su X11 (XWayland); prossimo passo F2.10c2 (dopo l'installazione di Fcitx5) oppure F2.09f | proprietario |
+| 2026-11-15 | 0.74 | F2.09f fatto (PR #80): testi accorciati con i puntini in etichette, interruttori e pulsanti (precisazioni WJ1–WJ7 di ADR-0045 e una di ADR-0044), provato a schermo dal proprietario; nota in F2.11 (suggerimento con il testo intero); prossimo passo F2.10c2, dopo l'installazione di Fcitx5 | proprietario |
