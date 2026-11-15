@@ -1239,7 +1239,7 @@ and `AccessActionKind` no longer `Copy`; a disabled field readable, without the 
 `accesskit_consumer` 0.39.2 as a dev-dependency of `orchestra-ui`, pinned (`=`) to the version
 already in the lock file. Written as precisions WI1–WI4 of ADR-0045 and "F2.10b3" of ADR-0047. I
 applied the immediate commit to replace-selected-text too (the same reasoning as for set value;
-the owner's ok named set value). Tests: `tests/field_access.rs` (12 cases read through
+confirmed by the owner the same day). Tests: `tests/field_access.rs` (12 cases read through
 `accesskit_consumer` and a property test on random texts and selections), unit tests in
 `access.rs`; the property test found that a word can start inside a grapheme (after a joiner),
 which the library already listed once; eleven injected bugs, all caught. Benchmarks:
@@ -1249,7 +1249,8 @@ under ADR-0047 TF13's 0.5 M and unchanged without a listening reader: accepted b
 `Bench-regression: accepted`, which must stay on the PR's head commit; the blink unchanged (68
 thousand), the whole tree +1.7%.
 **Open:** the owner's check by ear with Orca (or Accerciser) on the real application, outside the
-sandbox; it does not block the step. Commits `User-visible: no`. Next: F2.10c.
+sandbox; it does not block the step. Commits `User-visible: no`. PR #77; SCALETTA v0.71 (new
+step F2.09f, labels shortened with an ellipsis). Next: F2.10c.
 
 | Step | What | Status |
 |---|---|---|

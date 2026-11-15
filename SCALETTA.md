@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.70, approvata dal proprietario il 2026-11-14.**
+> **Stato di questo documento: v0.71, approvata dal proprietario il 2026-11-15.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -699,12 +699,13 @@ controllo completo. Va fatta bene una volta sola.
 | F2.08 | **ADR: architettura dei widget** — modello ritenuto (retained) o immediato, algoritmo di layout, instradamento degli eventi, focus; nodo AccessKit per ogni widget fin dall'inizio | ✅ ADR-0045 | 2 |
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ✅ (F2.09a–d) | 3–4 |
 | F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
+| F2.09f | **Etichette accorciate con i puntini** quando il testo non entra nella larghezza ricevuta (aperto dalla correzione del ritaglio, PR #76): regola di accorciamento, testo completo per le tecnologie assistive | ⬜ | 0,5 |
 | F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | 🔄 (F2.10a–c) | 3 |
 | F2.10a | **ADR del campo di testo** (posizioni e grafemi, tasti di ogni piattaforma, mouse, eventi di testo, IME, undo locale e undo del documento, cursore, selezione, accessibilità) e **misura del crate degli appunti** | ✅ ADR-0047 | 0,5 |
 | F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | 🔄 (F2.10b1–b3) | 2 |
 | F2.10b1 | **Nucleo di modifica, senza display**: confini di grafemi e parole, `caret_x` e `hit_test`, `InputEvent::Text`, tabelle dei tasti delle tre piattaforme, `TextEditor`, undo locale, test di proprietà e "non alloca" | ✅ | 0,5 |
 | F2.10b2 | **Il widget**: disegno, selezione in `on-selection`, segnaposto, cursore lampeggiante con la sveglia a tempo, mouse (doppio e triplo clic), forma `Text`, scorrimento interno, conferma ed Esc, benchmark, il campo "Nome traccia" nell'anteprima | ✅ | 1 |
-| F2.10b3 | **Accessibilità del campo**: nodo `TextInput` con il figlio `TextRun` (identificativo con il bit alto riservato, precisazione di ADR-0045), azioni `SetValue` di testo, `ReplaceSelectedText`, `SetTextSelection` | ⬜ | 0,5 |
+| F2.10b3 | **Accessibilità del campo**: nodo `TextInput` con il figlio `TextRun` (identificativo con il bit alto riservato, precisazione di ADR-0045), azioni `SetValue` di testo, `ReplaceSelectedText`, `SetTextSelection` | ✅ PR #77 | 0,5 |
 | F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ⬜ | 1 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
@@ -916,10 +917,21 @@ controllo completo. Va fatta bene una volta sola.
   (`WindowApp::advance`/`next_wakeup`, `Ui::advance`), segmento sovrapposto per il cursore, forma
   `Text`; nel renderer le forme e i glifi delle cache e i ritagli rettangolari non allargano più il
   ridisegno parziale. Un tasto 0,43 M istruzioni, un lampeggio 68 mila. Precisazioni di ADR-0040,
-  ADR-0043, ADR-0045 (WH1–WH4) e ADR-0047 approvate dal proprietario. Non ancora provato a mano.
+  ADR-0043, ADR-0045 (WH1–WH4) e ADR-0047 approvate dal proprietario. Provato a schermo dal proprietario
+  il 2026-11-14 (ne è nata la correzione del ritaglio, PR #76).
 - **F2.10b3** Da F2.10b2: il nodo `TextInput` esiste già (`AccessRole::TextInput`, con nome e
   stato); restano valore, cursore e selezione come `TextRun` e le azioni. L'identificativo del
   figlio usa il bit alto, come il segmento sovrapposto (`WidgetId::overlay_segment`).
+- **F2.10b3** **Fatto il 2026-11-15 (PR #77):** AccessKit tiene in un byte gli inizi di parola e
+  le lunghezze dei caratteri, quindi una riga è fatta di più `TextRun` da al massimo 255
+  caratteri (bit 63, run nei bit 62–48, widget nei bit 47–0) e un grafema oltre i 255 byte è dato
+  a pezzi; `AccessInfo::text` e `placeholder`; le tre azioni passano per `TextEditor`, e senza il
+  fuoco un testo cambiato è confermato subito (anche per "sostituisci la selezione"); test letti
+  con `accesskit_consumer` (solo test). Un tasto con l'aggiornamento di accessibilità 0,47 M
+  istruzioni (+8,8%, accettato dal proprietario). Precisazioni WI1–WI4 di ADR-0045 e di ADR-0047.
+  Resta la prova a orecchio con Orca sull'app vera, che non blocca.
+- **F2.10c** Da F2.10b3: la composizione IME cambia testo e selezione, quindi i `TextRun` del
+  campo vanno rimandati anche durante il preedit.
 - **F2.10c** Da ADR-0047: `arboard` dietro il trait `ClipboardSource` (le versioni doppie in
   `deny.toml` con la loro uscita); la regola contro i caratteri inseriti due volte con l'IME, decisa
   con le prove a mano su X11 e Wayland (Fcitx5 o IBus) e scritta come precisazione; se su GNOME ci
@@ -1280,3 +1292,4 @@ raccomandato.
 | 2026-11-13 | 0.68 | F2.10 diviso in F2.10a–c; F2.10a fatto (PR #72, ADR-0047 Accepted: il campo di testo; appunti `arboard` con *data-control*, scelti dal proprietario sulle misure); note in F2.10b, F2.10c, F2.11 (menu Modifica e campo con il fuoco), F2.12 (lampeggio del cursore); rimandati la selezione primaria e il campo multiriga; prossimo passo F2.10b | proprietario |
 | 2026-11-14 | 0.69 | F2.10b1 fatto (PR #73: il nucleo di modifica senza display); F2.10b diviso in F2.10b1–b3: l'accessibilità del campo passa nel nuovo F2.10b3; in F2.10b2 il segnaposto e il campo "Nome della traccia" nell'anteprima (scelte del proprietario); prossimo passo F2.10b2 | proprietario |
 | 2026-11-14 | 0.70 | F2.10b2 fatto (PR #74: il widget del campo di testo, sveglie a tempo, segmento sovrapposto, forme in cache nei ridisegni parziali; un tasto 0,43 M, un lampeggio 68 mila); precisazioni di ADR-0040, ADR-0043, ADR-0045 e ADR-0047 approvate; note in F2.10b3 (nodo `TextInput` già presente) e F2.12 (lampeggio spento); prossimo passo F2.10b3 | proprietario |
+| 2026-11-15 | 0.71 | F2.10b3 fatto (PR #77: accessibilità del campo di testo, più run per riga, tre azioni di testo, `accesskit_consumer` nei test; un tasto 0,47 M accettato); nota in F2.10c (run durante il preedit); nuovo F2.09f (etichette accorciate con i puntini); F2.10b2 provato a schermo | proprietario |
