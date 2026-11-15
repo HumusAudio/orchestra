@@ -63,7 +63,7 @@ mod wrap;
 
 pub use boundary::{
     ceil_grapheme, floor_grapheme, grapheme_boundaries, is_grapheme_boundary, next_grapheme,
-    next_word_end, next_word_start, prev_grapheme, prev_word_start, word_at,
+    next_word_end, next_word_start, prev_grapheme, prev_word_start, word_at, word_starts,
 };
 pub use error::TextError;
 pub use face::{FaceId, Faces};

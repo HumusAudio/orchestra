@@ -71,7 +71,7 @@ use crate::window::pointer::PointerShape;
 
 use super::access::{
     AccessAction, AccessActionKind, AccessInfo, AccessUpdate, WINDOW_NODE, empty_update,
-    widget_node, window_node,
+    push_widget_nodes, window_node,
 };
 use super::layout::{Constraints, LayoutProps, Size};
 use super::tree::{
@@ -1069,14 +1069,15 @@ impl<M: 'static> Ui<M> {
                 .children
                 .iter()
                 .filter_map(|&child| self.tree.slot(child).map(|child| child.id));
-            let node = widget_node(
+            push_widget_nodes(
+                &mut update.nodes,
+                slot.id,
                 widget.access_role(),
                 slot.rect,
                 children,
                 &info,
                 widget.focusable(),
             );
-            update.nodes.push((accesskit::NodeId(slot.id.get()), node));
         }
         for slot in self.tree.slots.iter_mut().flatten() {
             slot.needs_access = false;
@@ -1125,6 +1126,19 @@ impl<M: 'static> Ui<M> {
             }
             AccessActionKind::SetValue(value) => {
                 self.deliver(slot, &WidgetEvent::SetValue(value), false);
+            }
+            AccessActionKind::SetText(text) => {
+                self.deliver(slot, &WidgetEvent::SetText(&text), false);
+            }
+            AccessActionKind::ReplaceSelectedText(text) => {
+                self.deliver(slot, &WidgetEvent::ReplaceSelectedText(&text), false);
+            }
+            AccessActionKind::SetTextSelection { anchor, focus } => {
+                self.deliver(
+                    slot,
+                    &WidgetEvent::SetTextSelection { anchor, focus },
+                    false,
+                );
             }
         }
         self.frame(list);

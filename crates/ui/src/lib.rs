@@ -79,7 +79,8 @@ pub use draw::skia::CpuRenderer;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
 pub use widget::access::{
-    AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate, ScrollInfo,
+    AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate, RUN_CHARACTERS,
+    ScrollInfo, TextInfo,
 };
 pub use widget::button::{Button, ButtonKind};
 pub use widget::edit::keys::{Direction, EditAction, EditConvention, Unit, edit_action};

@@ -88,6 +88,9 @@ impl Widget<Msg> for Probe {
             WidgetEvent::Increment | WidgetEvent::Decrement | WidgetEvent::SetValue(_) => "value",
             WidgetEvent::Scroll { .. } => "scroll",
             WidgetEvent::WakeUp => "wake",
+            WidgetEvent::SetText(_)
+            | WidgetEvent::ReplaceSelectedText(_)
+            | WidgetEvent::SetTextSelection { .. } => "edit",
         };
         self.log.push(name);
         match event {

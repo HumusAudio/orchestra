@@ -1804,6 +1804,7 @@ name = "orchestra-ui"
 version = "0.0.0"
 dependencies = [
  "accesskit",
+ "accesskit_consumer",
  "accesskit_winit",
  "futures-lite",
  "gungraun",

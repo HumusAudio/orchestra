@@ -130,6 +130,13 @@ softbuffer = { version = "0.4.8", default-features = false, features = ["x11", "
 # by target. zbus 5 stays (ADR-0038 S7's exceptions in deny.toml). Only `orchestra-ui` uses them.
 accesskit = "0.25.2"
 accesskit_winit = { version = "0.34.2", default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
+# accesskit_consumer: the reader of AccessKit's tree that its own platform adapters are built
+# on (MIT OR Apache-2.0; already in the lock file under accesskit_winit's adapters). TEST-ONLY
+# (`[dev-dependencies]` of `orchestra-ui`, F2.10b3, ADR-0047's precisions): the tests read a text
+# field's text, caret, words and rectangles as a screen reader would. Pinned exactly to the
+# version accesskit 0.25.2's adapters use (0.39.2), so no second copy is ever built; it moves
+# together with accesskit.
+accesskit_consumer = "=0.39.2"
 # skrifa + harfrust: reading fonts and drawing their outlines, and shaping text (ADR-0012,
 # ADR-0036 B1-B3, ADR-0044 TX1). Versions checked on crates.io on 2026-11-12 (skrifa 0.50.0 of
 # 2026-11-10, MIT OR Apache-2.0; harfrust 0.16.0 of 2026-11-12, MIT): both are built on

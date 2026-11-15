@@ -4381,6 +4381,115 @@ arrotondati che non allargano più l'area) dava gli stessi pixel nelle posizioni
 regola è rimasta com'era. Benchmark `field_type_key` e `field_caret_blink` in
 `benches/widgets.rs`.
 
+#### L'accessibilità del campo di testo
+
+Passo F2.10b3 (ADR-0047 TF11 e ADR-0045 WI1–WI4, precisazioni approvate dal proprietario il
+2026-11-15), in `orchestra-ui` (`src/widget/access.rs`, `src/widget/field.rs`,
+`src/widget/tree.rs`, `src/widget/ui.rs`; `tests/field_access.rs` nuovo) e `orchestra-text`
+(`src/boundary.rs`). Finora uno screen reader vedeva il campo come "Nome traccia, campo di testo"
+e nient'altro. Ora può leggere il testo carattere per carattere e parola per parola, seguire il
+cursore e la selezione, e cambiarli.
+
+**Che cosa dice il campo.** Un widget continua a non vedere AccessKit: riempie un `AccessInfo`,
+che ha due campi nuovi, `text` (un `TextInfo`) e `placeholder`:
+
+```rust
+fn access_info(&self, info: &mut AccessInfo) {
+    info.label.clone_from(&self.name);
+    info.disabled = !self.enabled;
+    info.text = Some(self.text_info());
+    if !self.placeholder.is_empty() {
+        info.placeholder = Some(self.placeholder.clone());
+    }
+}
+```
+
+`TextInfo` è la riga come serve a uno screen reader: il valore e, per ogni **carattere**, la
+lunghezza in byte, dove comincia (dal bordo sinistro della riga) e quanto è largo; i caratteri in
+cui comincia una parola; l'àncora e il fuoco della selezione, contati in caratteri; il rettangolo
+della riga nella finestra. Un carattere è un grafema (la "é" scritta come "e" più un accento è uno
+solo, una bandiera è uno solo), perché è ciò fra cui può stare un cursore. Gli inizi di parola
+vengono da `orchestra_text::word_starts`, una funzione nuova che dà in una sola passata tutte le
+fermate di `next_word_start`: così "parola successiva" dello screen reader e i tasti di modifica
+vanno d'accordo; spazi e punteggiatura appartengono alla parola che li precede, come chiede
+AccessKit.
+
+**Due limiti di AccessKit, e come li trattiamo.** AccessKit tiene la lunghezza di un carattere in
+un byte. Un grafema più lungo di 255 byte (una lettera sotto una pila di accenti combinanti) viene
+quindi dato a pezzi di al massimo 255 byte, tagliati sui punti di codice (`for_each_character` in
+`field.rs`): il primo pezzo ha la larghezza del grafema, gli altri nessuna. Tiene in byte anche gli
+inizi di parola di un run e legge così l'indice di un carattere, quindi un **run contiene al
+massimo 255 caratteri** (`RUN_CHARACTERS`). ADR-0047 diceva "un text run per la riga"; una riga più
+lunga ora è fatta di più run, collegati con `next_on_line` e `previous_on_line` così che "fine
+riga" resti la fine del testo. `push_text_runs` in `access.rs` taglia il `TextInfo` in run:
+ciascuno riceve la sua parte del valore, i suoi caratteri con le posizioni contate dal proprio
+bordo sinistro, gli inizi di parola che vi cadono e il proprio rettangolo.
+
+**I nomi dei run.** Un run è un nodo dell'albero di accessibilità che non è un widget, e gli serve
+un numero che nessun widget abbia. F2.10b2 aveva riservato il bit alto; con più run per campo il
+numero è diventato (`WidgetId::text_run_node`):
+
+```rust
+Some(HIGH_BIT | ((run as u64) << RUN_SHIFT) | widget)
+```
+
+Il bit 63 dice "non è un widget", i bit 62–48 sono il numero del run e i bit 47–0 quello del
+widget: 32 768 run (circa 8,3 milioni di caratteri; un testo più lungo viene troncato solo per gli
+screen reader) e numeri di widget sotto 2⁴⁸. `WidgetId::text_run_of` rilegge un numero.
+
+**Geometria.** Un testo scorso è più largo del suo campo: i rettangoli dei run seguono il testo ed
+escono dal campo, il cui nodo dichiara che ritaglia i figli. Così un ingranditore di schermo che
+segue il cursore riceve il suo posto vero, e nulla fuori dal campo viene offerto come visibile.
+
+**Che cosa può chiedere uno screen reader.** Tre richieste arrivano al campo come eventi, dopo che
+`access.rs` ha trasformato le posizioni di AccessKit (run e indice) in caratteri del testo intero
+e ha controllato che appartengano ai run del destinatario:
+- `WidgetEvent::SetText(text)`: sostituire tutto, come un incolla su una selezione completa (una
+  riga, un passo di undo);
+- `WidgetEvent::ReplaceSelectedText(text)`: un incolla sulla selezione;
+- `WidgetEvent::SetTextSelection { anchor, focus }`: selezionare, in caratteri.
+
+Passano per lo stesso `TextEditor` dei tasti. Con il fuoco sono modifiche come le altre:
+l'ascoltatore `on_change` le sente, Ctrl+Z le annulla, Invio o l'uscita dal campo le confermano.
+Senza il fuoco non ci sarebbe nulla a confermarle più tardi, quindi un testo cambiato è
+**confermato subito** e la cronologia locale svuotata (scelta del proprietario). Un campo
+disabilitato tiene leggibile il suo testo e non offre nessuna delle tre. `AccessAction` e
+`AccessActionKind` ora possiedono un testo, quindi non sono più `Copy`.
+
+**Test.** I test leggono l'albero come lo legge uno screen reader, con `accesskit_consumer`, la
+libreria su cui sono costruiti gli adattatori di AccessKit (solo dipendenza di test, fissata alla
+versione già presente nel lock file):
+
+```rust
+let node = bench.node();
+assert_eq!(node.value().as_deref(), Some("Violin I, solo"));
+let mut position = node.document_start();
+let mut stops = Vec::new();
+while !position.is_document_end() {
+    position = position.forward_to_word_start();
+    stops.push(position.to_global_usv_index());
+}
+assert_eq!(stops, vec![7, 10, 14]);
+```
+
+`tests/field_access.rs` ha 12 casi (nome, testo, cursore e parole; i rettangoli; un campo vuoto e
+il suo segnaposto; accenti e bandiere; un testo di 600 caratteri in tre run, con il cursore sui
+confini; un testo che si accorcia; un grafema gigante; un testo scorso; le tre richieste con e
+senza il fuoco; un campo disabilitato; che cosa manda una modifica) e un test di proprietà su testi
+e selezioni casuali. I test unitari in `access.rs` coprono la traduzione delle richieste e l'andata
+e ritorno fra caratteri e posizioni nei run. Il test di proprietà ha trovato che una parola può
+cominciare *dentro* un grafema (dopo un joiner): due inizi di parola cadono allora sullo stesso
+carattere, che viene elencato una volta sola. Undici bug iniettati, tutti presi.
+
+**Costo.** La descrizione si costruisce solo quando il nodo del campo viene mandato, cosa che la
+finestra fa solo mentre una tecnologia assistiva è in ascolto. `text_info` percorre i grafemi una
+volta e chiede al layout un solo `caret_x` per grafema: un carattere comincia dove finisce il
+precedente, quindi la seconda ricerca di una prima versione è stata tolta (un tasto è sceso da 481
+a 473 mila istruzioni). Il benchmark `field_type_key`, che comprende l'aggiornamento di
+accessibilità, è passato da 435 a 473 mila istruzioni (+8,8%), sotto gli 0,5 M di ADR-0047 TF13:
+accettato dal proprietario con il trailer `Bench-regression: accepted`. Il lampeggio del cursore
+non cambia.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

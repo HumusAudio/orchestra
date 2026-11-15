@@ -54,14 +54,26 @@
 //! the text out and recomputes the scroll offset. A caret movement asks the same, for the scroll
 //! offset alone. The layout reuses its vectors (ADR-0044 TX9).
 //!
+//! # Assistive technologies (TF11, F2.10b3)
+//! The field describes its text to them ([`AccessInfo::text`]): the value, every **character**
+//! with its length, position and width, the word starts, the caret and the selection, and the
+//! placeholder. A character is a grapheme, except that one longer than 255 bytes is given in
+//! pieces ([`for_each_character`]), because AccessKit keeps a character's length in a byte. They
+//! may set the whole text, replace the selection and select
+//! ([`WidgetEvent::SetText`], [`WidgetEvent::ReplaceSelectedText`],
+//! [`WidgetEvent::SetTextSelection`]): each goes through the same editor as the keys, as a paste
+//! or a selection. With the focus these are edits like any other; **without the focus a changed
+//! text is committed at once** and the local history cleared, because no Enter and no leaving
+//! focus would commit it later.
+//!
 //! # Not here yet
-//! The clipboard and the input methods (F2.10c), the accessibility text runs (F2.10b3), the
-//! multi-line field and the primary selection (postponed, ADR-0047).
+//! The clipboard and the input methods (F2.10c), the multi-line field and the primary selection
+//! (postponed, ADR-0047).
 
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use orchestra_text::{TextLayout, prev_grapheme, word_at};
+use orchestra_text::{TextLayout, grapheme_boundaries, prev_grapheme, word_at, word_starts};
 
 use crate::draw::geometry::{Point, Rect, RoundedRect};
 use crate::draw::list::Recorder;
@@ -71,7 +83,7 @@ use crate::theme::token::ColorToken;
 use crate::window::input::{ButtonState, Key, Modifiers, NamedKey, PointerButton};
 use crate::window::pointer::PointerShape;
 
-use super::access::{AccessInfo, AccessRole};
+use super::access::{AccessInfo, AccessRole, TextInfo};
 use super::edit::keys::{EditConvention, edit_action};
 use super::edit::{EditResponse, TextEditor};
 use super::layout::{Constraints, Size};
@@ -460,9 +472,116 @@ impl<M> TextField<M> {
         }
     }
 
-    /// What follows an editing action: a changed text is laid out again (and announced to a
-    /// live filter), a moved caret scrolled into view; in every case the caret shows solid.
+    /// What follows an editing action of the user's: what [`TextField::changed`] does, and the
+    /// caret shows solid.
     fn after(&mut self, cx: &mut EventCx<'_, M>, response: EditResponse) {
+        self.changed(cx, response);
+        self.restart_blink(cx);
+    }
+
+    /// What follows an editing action of an assistive technology's (TF11): with the focus, the
+    /// same as the user's own; without it there is no caret to show, and a changed text is
+    /// committed at once, with the local history cleared as when the focus leaves (nothing else
+    /// would ever commit it).
+    fn assisted(&mut self, cx: &mut EventCx<'_, M>, response: EditResponse) {
+        if self.focused {
+            self.after(cx, response);
+            return;
+        }
+        self.changed(cx, response);
+        if response == EditResponse::TextChanged {
+            self.commit(cx);
+            self.editor.clear_history();
+        }
+    }
+
+    /// The byte offset where the character number `character` of the accessibility description
+    /// starts ([`for_each_character`]); the text's length at or past their number.
+    ///
+    /// # Complexity
+    /// O(n): one walk over the graphemes, no allocation.
+    fn character_offset(&self, character: usize) -> usize {
+        let text = self.editor.text();
+        let mut offset = text.len();
+        let mut index = 0_usize;
+        for_each_character(text, |piece, _| {
+            if index == character {
+                offset = piece.start;
+            }
+            index = index.saturating_add(1);
+        });
+        offset
+    }
+
+    /// The text as assistive technologies read it (TF11): see [`TextInfo`].
+    ///
+    /// # Complexity
+    /// O(n log n) for n characters: one walk over the graphemes and the word segments, and a
+    /// [`TextLayout::caret_x`] (a binary search) per character. It allocates the description: it
+    /// runs only when the field's node is sent to a listening assistive technology.
+    fn text_info(&self) -> TextInfo {
+        let text = self.editor.text();
+        let (anchor, focus) = (self.editor.anchor(), self.editor.focus());
+        let left = self.text_left();
+        let top = self.text_top();
+        let mut info = TextInfo {
+            value: text.to_owned(),
+            rect: Rect::new(
+                left,
+                top,
+                left + self.layout.caret_x(text, text.len()),
+                top + self.layout.height(),
+            ),
+            ..TextInfo::default()
+        };
+        // The word starts (bytes, increasing) are turned into characters while walking: each is
+        // the first character that starts at or after it.
+        let mut words = word_starts(text).peekable();
+        // The selection's ends likewise; `None` until their character is met (the text's end,
+        // which no character starts at, is filled in after the walk).
+        let mut anchor_at = None;
+        let mut focus_at = None;
+        // Where the grapheme being described starts: the end of the one before it.
+        let mut pen = self.layout.caret_x(text, 0);
+        for_each_character(text, |piece, grapheme| {
+            let index = info.character_lengths.len();
+            while words.next_if(|&start| start <= piece.start).is_some() {
+                if info.word_starts.last() != Some(&index) {
+                    info.word_starts.push(index);
+                }
+            }
+            if anchor_at.is_none() && piece.start >= anchor {
+                anchor_at = Some(index);
+            }
+            if focus_at.is_none() && piece.start >= focus {
+                focus_at = Some(index);
+            }
+            // A piece is at most 255 bytes by construction; the fallback is never taken.
+            info.character_lengths
+                .push(u8::try_from(piece.len()).unwrap_or(u8::MAX));
+            if piece.start == grapheme.start {
+                // The grapheme's first (usually only) piece has its whole advance. It starts
+                // where the grapheme before it ended, so one `caret_x` per grapheme is enough
+                // (asking for both ends cost a third more per key with a reader listening).
+                let start = pen;
+                pen = self.layout.caret_x(text, grapheme.end);
+                info.character_positions.push(start);
+                info.character_widths.push(pen - start);
+            } else {
+                // The later pieces of a giant grapheme: nothing to show, at its end.
+                info.character_positions.push(pen);
+                info.character_widths.push(0.0);
+            }
+        });
+        let characters = info.character_lengths.len();
+        info.anchor = anchor_at.unwrap_or(characters);
+        info.focus = focus_at.unwrap_or(characters);
+        info
+    }
+
+    /// The part of an editing action common to the user and to assistive technologies: a changed
+    /// text is laid out again (and announced to a live filter), a moved caret scrolled into view.
+    fn changed(&mut self, cx: &mut EventCx<'_, M>, response: EditResponse) {
         match response {
             EditResponse::TextChanged => {
                 self.text_stale = true;
@@ -475,7 +594,6 @@ impl<M> TextField<M> {
             // Nothing moved, or a clipboard action, which does nothing until F2.10c.
             EditResponse::Unchanged | EditResponse::Clipboard(_) => {}
         }
-        self.restart_blink(cx);
     }
 
     /// A key pressed while focused.
@@ -561,6 +679,40 @@ impl<M> TextField<M> {
         self.after(cx, response);
     }
 
+    /// A request of an assistive technology to change the text or the selection (TF11): each
+    /// goes through the editor as a paste or a selection would, then [`TextField::assisted`].
+    fn assistive(&mut self, cx: &mut EventCx<'_, M>, event: &WidgetEvent<'_>) -> Handled {
+        match *event {
+            WidgetEvent::SetText(text) => {
+                // A paste over everything: one line, one undo step (TF11).
+                let selected = self.editor.select(0, self.editor.text().len());
+                let pasted = self.editor.paste(text);
+                // If the paste changed nothing (an empty text set on an empty field), the
+                // selection may still have moved.
+                let response = if pasted == EditResponse::TextChanged {
+                    pasted
+                } else {
+                    selected
+                };
+                self.assisted(cx, response);
+                Handled::Yes
+            }
+            WidgetEvent::ReplaceSelectedText(text) => {
+                let response = self.editor.paste(text);
+                self.assisted(cx, response);
+                Handled::Yes
+            }
+            WidgetEvent::SetTextSelection { anchor, focus } => {
+                let response = self
+                    .editor
+                    .select(self.character_offset(anchor), self.character_offset(focus));
+                self.assisted(cx, response);
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+
     /// The colours of the text and of the placeholder.
     const fn text_colors(&self) -> (ColorToken, ColorToken) {
         if self.enabled {
@@ -568,6 +720,40 @@ impl<M> TextField<M> {
         } else {
             (ColorToken::TextDisabled, ColorToken::TextDisabled)
         }
+    }
+}
+
+/// The longest character AccessKit can describe, bytes: it keeps a character's length in a `u8`.
+const MAX_CHARACTER_BYTES: usize = u8::MAX as usize;
+
+/// Calls `f` for every **character** of `text` as assistive technologies count them (TF11,
+/// precision of F2.10b3), in order, with the character's bytes and the bytes of the grapheme it
+/// belongs to.
+///
+/// A character is a grapheme, and then both ranges are equal. A grapheme longer than
+/// [`MAX_CHARACTER_BYTES`] (a letter under a pile of combining marks) is given as several
+/// characters of at most that length, cut at code points: the first starts where the grapheme
+/// does. Consecutive characters cover the whole text; an empty text has none.
+///
+/// # Complexity
+/// O(n), one pass of the grapheme segmenter, no allocation.
+fn for_each_character(text: &str, mut f: impl FnMut(Range<usize>, Range<usize>)) {
+    let mut start = 0_usize;
+    // The boundaries start with 0, which ends no grapheme.
+    for end in grapheme_boundaries(text).skip(1) {
+        let grapheme = start..end;
+        let mut piece_start = start;
+        while piece_start < end {
+            // The furthest code-point boundary within the limit. A code point is at most four
+            // bytes, so it is always past `piece_start`; the `max` only guards the loop's end.
+            let limit = piece_start.saturating_add(MAX_CHARACTER_BYTES).min(end);
+            let piece_end = text
+                .floor_char_boundary(limit)
+                .max(piece_start.saturating_add(1));
+            f(piece_start..piece_end, grapheme.clone());
+            piece_start = piece_end;
+        }
+        start = end;
     }
 }
 
@@ -759,6 +945,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
                 self.after(cx, response);
                 Handled::Yes
             }
+            WidgetEvent::SetText(_)
+            | WidgetEvent::ReplaceSelectedText(_)
+            | WidgetEvent::SetTextSelection { .. } => self.assistive(cx, event),
             _ => Handled::No,
         }
     }
@@ -780,5 +969,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
     fn access_info(&self, info: &mut AccessInfo) {
         info.label.clone_from(&self.name);
         info.disabled = !self.enabled;
+        info.text = Some(self.text_info());
+        if !self.placeholder.is_empty() {
+            info.placeholder = Some(self.placeholder.clone());
+        }
     }
 }

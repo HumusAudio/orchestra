@@ -333,3 +333,25 @@ the bounds of the commands it recorded leave the clip, recorded again inside it
 the rectangle stay as they were: crossing the edge, clipped; entirely outside, an empty segment.
 Found by the owner on screen: the demonstration's labels crossed the divider into the staff's
 pane.
+
+**F2.10b3, the text field's accessibility (approved by the owner on 2026-11-15).** Precisions of
+WA5 and WH1.
+- **WI1, nodes that are not widgets (WA5)**: a widget may describe the text it holds
+  (`AccessInfo::text`, a `TextInfo`: the value, the characters' byte lengths, positions and
+  widths, the word starts, the selection, the line's rectangle), and the one file that knows
+  AccessKit turns it into `TextRun` nodes, children of the widget's node. They are sent with
+  their widget's node, every time it is sent. Widgets still never see AccessKit.
+- **WI2, the runs' names (WH1)**: AccessKit keeps a run's word starts in bytes and reads a
+  character's index as one, so a run holds **at most 255 characters** and a longer line is
+  several runs, linked as one line. WH1 reserved the high bit for "the node of a field's text
+  run"; it becomes: bit 63 set, bits 62–48 the run's number, bits 47–0 the widget's number
+  (`WidgetId::text_run_node`). That is 32 768 runs (about 8.3 million characters; a longer text
+  is cut short for assistive technologies only) and widget numbers below 2⁴⁸ (a new widget every
+  microsecond for almost nine years; a widget beyond that would get no runs). The overlay's
+  segment is unchanged (the display list and the accessibility tree are separate name spaces).
+- **WI3, text actions (WA5)**: AccessKit's set value with a text, replace selected text and set
+  text selection reach the widget as `WidgetEvent::SetText`, `ReplaceSelectedText` and
+  `SetTextSelection` (positions in characters of the `TextInfo`, already checked to belong to the
+  target's runs). An action aimed at a run node itself is ignored. `AccessAction` and
+  `AccessActionKind` own their text and are no longer `Copy`.
+- **WI4, the placeholder**: `AccessInfo::placeholder`, announced on an empty field.

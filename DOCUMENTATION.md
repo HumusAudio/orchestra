@@ -4103,6 +4103,114 @@ without a change, the blink inverted); the fifth (rounded clips no longer growin
 the same pixels at the positions tried, and that rule was left as it was. Benchmarks
 `field_type_key` and `field_caret_blink` in `benches/widgets.rs`.
 
+#### The text field's accessibility
+
+Step F2.10b3 (ADR-0047 TF11 and ADR-0045 WI1–WI4, precisions approved by the owner on 2026-11-15),
+in `orchestra-ui` (`src/widget/access.rs`, `src/widget/field.rs`, `src/widget/tree.rs`,
+`src/widget/ui.rs`; `tests/field_access.rs` new) and `orchestra-text` (`src/boundary.rs`). Until
+now a screen reader saw the field as "Track name, text input" and nothing else. Now it can read
+the text character by character and word by word, follow the caret and the selection, and change
+them.
+
+**What the field says.** A widget still never sees AccessKit: it fills an `AccessInfo`, which
+gained two fields, `text` (a `TextInfo`) and `placeholder`:
+
+```rust
+fn access_info(&self, info: &mut AccessInfo) {
+    info.label.clone_from(&self.name);
+    info.disabled = !self.enabled;
+    info.text = Some(self.text_info());
+    if !self.placeholder.is_empty() {
+        info.placeholder = Some(self.placeholder.clone());
+    }
+}
+```
+
+`TextInfo` is the line as a screen reader needs it: the value, and for every **character** its
+length in bytes, where it starts (from the line's left edge) and how wide it is; the characters at
+which a word starts; the selection's anchor and focus, counted in characters; and the line's
+rectangle in the window. A character is a grapheme (the "é" written as "e" plus an accent is one,
+a flag is one), because that is what a caret can stand between. The word starts come from
+`orchestra_text::word_starts`, a new function that gives every stop of `next_word_start` in one
+pass, so a screen reader's "next word" and the editing keys agree; spaces and punctuation belong to
+the word before them, as AccessKit asks.
+
+**Two limits of AccessKit, and what we do about them.** AccessKit keeps a character's length in a
+byte. A grapheme longer than 255 bytes (a letter under a pile of combining accents) is therefore
+given in pieces of at most 255 bytes, cut at code points (`for_each_character` in `field.rs`): the
+first piece has the grapheme's width, the others none. It also keeps a run's word starts in bytes
+and reads a character's index as one, so a **run holds at most 255 characters**
+(`RUN_CHARACTERS`). ADR-0047 said "one text run for the line"; a longer line is now several runs,
+linked with `next_on_line` and `previous_on_line` so that "end of line" still means the text's end.
+`push_text_runs` in `access.rs` cuts the `TextInfo` into runs: each gets its part of the value, its
+characters with positions counted from its own left edge, the word starts that fall in it and its
+own rectangle.
+
+**The runs' names.** A run is a node of the accessibility tree that is not a widget, and needs a
+number no widget has. F2.10b2 had reserved the high bit for it; with several runs per field the
+number became (`WidgetId::text_run_node`):
+
+```rust
+Some(HIGH_BIT | ((run as u64) << RUN_SHIFT) | widget)
+```
+
+Bit 63 says "not a widget", bits 62–48 are the run's number and bits 47–0 the widget's: 32 768 runs
+(about 8.3 million characters; a longer text is cut short for screen readers only) and widget
+numbers below 2⁴⁸. `WidgetId::text_run_of` reads a number back.
+
+**Geometry.** A scrolled text is wider than its field: the runs' rectangles follow the text and
+reach outside the field, whose node says that it clips its children. So a screen magnifier that
+follows the caret gets the caret's real place, and nothing outside the field is offered as
+visible.
+
+**What a screen reader can ask.** Three requests reach the field as events, after `access.rs`
+turned AccessKit's positions (run and index) into characters of the whole text and checked that
+they belong to the target's own runs:
+- `WidgetEvent::SetText(text)`: replace everything, as a paste over a full selection (one line,
+  one undo step);
+- `WidgetEvent::ReplaceSelectedText(text)`: a paste at the selection;
+- `WidgetEvent::SetTextSelection { anchor, focus }`: select, in characters.
+
+They go through the same `TextEditor` as the keys. With the focus they are edits like any other:
+the `on_change` listener hears of them, Ctrl+Z takes them back, Enter or leaving commits. Without
+the focus there would be nothing to commit them later, so a changed text is **committed at once**
+and the local history cleared (owner's choice). A disabled field keeps its text readable and offers
+none of the three. `AccessAction` and `AccessActionKind` now own a text, so they are no longer
+`Copy`.
+
+**Tests.** The tests read the tree the way a screen reader does, with `accesskit_consumer`, the
+library AccessKit's own adapters are built on (a dev-dependency only, pinned to the version already
+in the lock file):
+
+```rust
+let node = bench.node();
+assert_eq!(node.value().as_deref(), Some("Violin I, solo"));
+let mut position = node.document_start();
+let mut stops = Vec::new();
+while !position.is_document_end() {
+    position = position.forward_to_word_start();
+    stops.push(position.to_global_usv_index());
+}
+assert_eq!(stops, vec![7, 10, 14]);
+```
+
+`tests/field_access.rs` has 12 cases (name, text, caret and words; the rectangles; an empty field
+and its placeholder; accents and flags; a 600-character text in three runs, with the caret on the
+borders; a text that shrinks; a giant grapheme; a scrolled text; the three requests with and
+without the focus; a disabled field; what an edit sends) and a property test on random texts and
+selections. Unit tests in `access.rs` cover the translation of the requests and the round trip
+between characters and run positions. The property test found that a word can start *inside* a
+grapheme (after a joiner): two word starts then fall on the same character, which is listed once.
+Eleven injected bugs, all caught.
+
+**Cost.** The description is built only when the field's node is sent, which the window does
+only while an assistive technology listens. `text_info` walks the graphemes once and asks the
+layout for one `caret_x` per grapheme: a character starts where the one before it ended, so the
+second lookup a first version made was dropped (a key went from 481 to 473 thousand
+instructions). The benchmark `field_type_key`, which includes the accessibility update, went from
+435 to 473 thousand instructions (+8.8%), under the 0.5 M of ADR-0047 TF13: accepted by the owner
+with the trailer `Bench-regression: accepted`. The caret's blink is unchanged.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
