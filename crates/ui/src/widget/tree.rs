@@ -32,7 +32,7 @@ use orchestra_text::{Elision, Faces, Shaper, TextError, TextLayout};
 use crate::theme::density::Spacing;
 use crate::theme::text::{FamilyToken, SizeToken, Typography, Weight};
 use crate::theme::token::Shape;
-use crate::window::input::{ButtonState, Key, Modifiers, PointerButton, WheelDelta};
+use crate::window::input::{ButtonState, ImeEvent, Key, Modifiers, PointerButton, WheelDelta};
 use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole};
@@ -207,6 +207,10 @@ pub enum WidgetEvent<'a> {
     /// It follows the [`WidgetEvent::Key`] of the same press, which a field handles for its
     /// editing keys and swallows for plain characters.
     Text(&'a str),
+    /// An input method's event (ADR-0047 TF6, F2.10c2), to the focused widget (bubbling up): a
+    /// text field shows the composition at its caret and inserts the committed text. Sent only
+    /// while the focused widget [accepts text](Widget::accepts_text).
+    Ime(&'a ImeEvent),
     /// This widget got the keyboard focus.
     FocusGained,
     /// This widget lost the keyboard focus.
@@ -389,6 +393,30 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     fn record_overlay(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
         let _ = (cx, recorder);
     }
+
+    /// `true` if the widget takes typed text while it has the focus (ADR-0047 TF5): a text field
+    /// that is enabled. The interface reports it ([`Ui::text_input`](crate::Ui::text_input)) and
+    /// the window turns the system's input method on exactly while the focused widget answers
+    /// `true`, so Japanese, Chinese or Korean input (and, on macOS, dead keys) works in text
+    /// fields and nowhere else: single-key shortcuts elsewhere keep their keys. `false` by
+    /// default.
+    ///
+    /// Asked after every event, so answer from stored state, without allocating.
+    fn accepts_text(&self) -> bool {
+        false
+    }
+
+    /// Where the text being typed is, logical pixels of the window, for the input method's
+    /// candidate window (ADR-0047 TF6): a text field answers its caret's rectangle, or the
+    /// composition's while one is shown. Asked only when [`Widget::accepts_text`] answers
+    /// `true`; `None` (the default) means the widget's whole rectangle. The window passes it on
+    /// whenever it changes, so the candidates open beside the caret and follow it.
+    ///
+    /// Asked after every event, so answer from what the last `arrange` stored, without
+    /// allocating.
+    fn ime_area(&self) -> Option<Rect> {
+        None
+    }
 }
 
 /// What a widget asked about its wake-up while handling an event ([`EventCx::request_wakeup`],
@@ -437,6 +465,8 @@ pub struct EventCx<'a, M> {
     pub(crate) wakeup: WakeRequest,
     /// The interface's clipboard (ADR-0047 TF12).
     pub(crate) clipboard: &'a mut dyn ClipboardSource,
+    /// End the input method's composition ([`EventCx::reset_ime`]).
+    pub(crate) ime_reset: bool,
 }
 
 impl<M> EventCx<'_, M> {
@@ -528,6 +558,17 @@ impl<M> EventCx<'_, M> {
     /// Drops this widget's pending wake-up, if any (a field that lost the focus stops blinking).
     pub const fn cancel_wakeup(&mut self) {
         self.wakeup = WakeRequest::Cancel;
+    }
+
+    /// Asks the window to end the input method's composition in progress (ADR-0047 TF6, choice
+    /// D3 of F2.10c2): a click inside a text field while a composition is shown moves the caret,
+    /// and the composition, which belongs to the old place, must end. The window turns the input
+    /// method off and on again; what happens to the composition is the platform's choice (most
+    /// input methods commit it, some drop it), which is what other programs do too. The widget
+    /// drops its own copy of the composition at once: a `Commit` that follows is inserted at the
+    /// new caret.
+    pub const fn reset_ime(&mut self) {
+        self.ime_reset = true;
     }
 }
 

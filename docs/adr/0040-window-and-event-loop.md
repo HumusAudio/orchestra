@@ -169,3 +169,16 @@ to be there), and hands it to the application before the first layout:
 `WindowApp::attach_clipboard(Box<dyn ClipboardSource>)`, which drops it by default; an application
 built on `Ui` passes it on with `Ui::set_clipboard`. It is still one object for the session. When
 the system has no clipboard the method is not called and the interface keeps its own in memory.
+
+## Precision of the implementation (F2.10c2, choices approved by the owner on 2026-11-17; text to be confirmed after the hand tests)
+
+**The input method (W5, ADR-0047 TF5–TF6).** `winit`'s `WindowEvent::Ime` becomes our
+`InputEvent::Ime(ImeEvent)` (`Enabled`, `Preedit { text, cursor }`, `Commit`, `Disabled`; the
+preedit's cursor is an ordered byte range checked against the text, `None` when invalid). The
+window asks the application `WindowApp::text_input() -> Option<TextInput>` after every input
+event, layout and assistive-technology action, as it asks the pointer's shape, and calls the
+system only when the answer changes: `set_ime_allowed(true)` when it becomes `Some`,
+`set_ime_allowed(false)` when it becomes `None`, `set_ime_cursor_area` (logical pixels) when the
+caret's area moves, and `set_ime_allowed(false)` then `true` when `TextInput::reset` changed
+(`winit` 0.30 has no call that ends a composition). The default answer is `None`: the input
+method stays off.

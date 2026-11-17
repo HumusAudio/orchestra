@@ -55,6 +55,13 @@ pub enum InputEvent {
     /// produced while the primary modifier alone is held (a shortcut, not typing). Text fields
     /// insert it; everything else ignores it.
     Text(String),
+    /// An input method's event (ADR-0047 TF5, TF6, F2.10c2): a composition shown at the caret,
+    /// or the text it produced. Sent only while the window lets the input method work, that is
+    /// while a widget that takes text has the focus ([`Widget::accepts_text`]); like
+    /// [`InputEvent::Text`] it goes to the focused widget.
+    ///
+    /// [`Widget::accepts_text`]: crate::Widget::accepts_text
+    Ime(ImeEvent),
     /// The modifiers held changed (also sent when they change without another key).
     ModifiersChanged {
         /// The modifiers held now.
@@ -62,6 +69,45 @@ pub enum InputEvent {
     },
     /// The window gained (`true`) or lost (`false`) the keyboard focus.
     Focus(bool),
+}
+
+/// What an input method reports (ADR-0047 TF5, TF6), as `winit` gives it on every platform.
+///
+/// # The order of events
+/// `Enabled` comes when the window turns the input method on (a field took the focus). Then,
+/// while the user composes, `Preedit` with the text being composed, any number of times; a
+/// `Preedit` with an empty text ends the composition (the user cancelled it, or it is about to
+/// be committed). `Commit` brings the finished text, which is inserted like typing; on every
+/// platform `winit` sends an empty `Preedit` before it. `Disabled` comes when the window turns
+/// the input method off (the field lost the focus) or when the user switched it off; any
+/// composition still shown is then dropped.
+///
+/// # Why two ways of typing, and no doubles
+/// While the input method is on, a plain key still arrives as [`InputEvent::Key`] and
+/// [`InputEvent::Text`] when the input method lets it through, and only a composed text arrives
+/// as `Commit`: `winit` keeps the two apart on X11, Wayland, Windows and macOS (it reports no key
+/// event for a key the input method used). So a text field inserts both, and nothing is typed
+/// twice: rule (b) of ADR-0047 TF6, without a filter (precision written in F2.10c2, after the
+/// owner's tests by hand with Fcitx5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImeEvent {
+    /// The input method was turned on for the window.
+    Enabled,
+    /// The text being composed, shown at the caret and not yet part of the field's text.
+    Preedit {
+        /// The composition; empty when it ends.
+        text: String,
+        /// The input method's cursor inside `text`, in bytes: an empty range is a caret, a
+        /// non-empty one the segment being converted (Mozc's current word), `None` hides the
+        /// caret. Always inside `text` and on character boundaries (checked by
+        /// [`ime_event`]).
+        cursor: Option<std::ops::Range<usize>>,
+    },
+    /// The finished text, to insert at the caret as typing does (one undo step, grouped like
+    /// typing: ADR-0047 TF6, TF7).
+    Commit(String),
+    /// The input method was turned off; a composition still shown is dropped.
+    Disabled,
 }
 
 /// A pointer button.
@@ -301,6 +347,30 @@ pub(crate) fn typed_text(text: Option<&str>, modifiers: Modifiers) -> Option<Str
     (!kept.is_empty()).then_some(kept)
 }
 
+/// `winit`'s input-method event as ours (ADR-0047 TF5).
+///
+/// The preedit's cursor arrives as a pair of byte offsets, begin and end, which `winit` passes
+/// on from the platform unchecked; it becomes an ordered range, and a cursor that is not inside
+/// the text or not on character boundaries (an input method's bug) becomes `None`: the
+/// composition is still shown, without a caret, rather than slicing the text at an invalid
+/// place. Pure, so it is tested without a display.
+#[must_use]
+pub(crate) fn ime_event(event: winit::event::Ime) -> ImeEvent {
+    match event {
+        winit::event::Ime::Enabled => ImeEvent::Enabled,
+        winit::event::Ime::Preedit(text, cursor) => {
+            let cursor = cursor
+                .map(|(begin, end)| begin.min(end)..begin.max(end))
+                .filter(|range| {
+                    text.is_char_boundary(range.start) && text.is_char_boundary(range.end)
+                });
+            ImeEvent::Preedit { text, cursor }
+        }
+        winit::event::Ime::Commit(text) => ImeEvent::Commit(text),
+        winit::event::Ime::Disabled => ImeEvent::Disabled,
+    }
+}
+
 /// `winit`'s named key as ours, if we use it.
 fn named_key(key: WinitNamedKey) -> Option<NamedKey> {
     Some(match key {
@@ -437,6 +507,65 @@ mod click_tests {
         assert_eq!(
             counter.press(late, Point::new(24.0, 11.0), PointerButton::Right),
             2
+        );
+    }
+}
+
+#[cfg(test)]
+mod ime_tests {
+    use winit::event::Ime;
+
+    use super::{ImeEvent, ime_event};
+
+    #[test]
+    fn enabling_committing_and_disabling_pass_through() {
+        assert_eq!(ime_event(Ime::Enabled), ImeEvent::Enabled);
+        assert_eq!(
+            ime_event(Ime::Commit("日本".to_owned())),
+            ImeEvent::Commit("日本".to_owned())
+        );
+        assert_eq!(ime_event(Ime::Disabled), ImeEvent::Disabled);
+    }
+
+    #[test]
+    fn a_preedit_cursor_becomes_an_ordered_range_inside_the_text() {
+        // "にほん" is three characters of three bytes each.
+        let event = ime_event(Ime::Preedit("にほん".to_owned(), Some((9, 3))));
+        assert_eq!(
+            event,
+            ImeEvent::Preedit {
+                text: "にほん".to_owned(),
+                cursor: Some(3..9),
+            }
+        );
+        let caret = ime_event(Ime::Preedit("nihao".to_owned(), Some((5, 5))));
+        assert_eq!(
+            caret,
+            ImeEvent::Preedit {
+                text: "nihao".to_owned(),
+                cursor: Some(5..5),
+            }
+        );
+    }
+
+    #[test]
+    fn a_cursor_outside_the_text_or_inside_a_character_is_hidden() {
+        for cursor in [(0, 7), (1, 1), (4, 6)] {
+            assert_eq!(
+                ime_event(Ime::Preedit("にほ".to_owned(), Some(cursor))),
+                ImeEvent::Preedit {
+                    text: "にほ".to_owned(),
+                    cursor: None,
+                },
+                "{cursor:?}"
+            );
+        }
+        assert_eq!(
+            ime_event(Ime::Preedit(String::new(), None)),
+            ImeEvent::Preedit {
+                text: String::new(),
+                cursor: None,
+            }
         );
     }
 }

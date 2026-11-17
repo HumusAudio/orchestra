@@ -67,9 +67,34 @@
 //! text is committed at once** and the local history cleared, because no Enter and no leaving
 //! focus would commit it later.
 //!
+//! # Input methods (TF6, F2.10c2)
+//! While the field has the focus the window keeps the system's input method on
+//! ([`Widget::accepts_text`]), and tells it where the caret is ([`Widget::ime_area`]), so its
+//! candidate window opens there. A **composition** (the input method's *preedit*: the romaji
+//! being turned into kana, the pinyin before its characters are chosen) is shown at the caret,
+//! **in place of the selection** if there is one, underlined with a one-pixel line in the text's
+//! colour; the segment the input method is converting (when it says which) has a two-pixel line,
+//! and the caret is then hidden, as GTK and Qt show it. Otherwise the caret is where the input
+//! method puts it inside the composition. The composition is not part of the field's text: it
+//! is not selectable, not committed, not in the undo history; assistive technologies get the
+//! text as shown, composition included, with the caret inside it.
+//!
+//! The composed text arrives as a commit and is inserted like typing (it replaces the selection,
+//! and is grouped in the undo history as typing is, TF7). Plain keys keep arriving as keys and
+//! text even with the input method on: `winit` never reports the same key both ways, so both
+//! are inserted (rule (b) of TF6, without a filter).
+//!
+//! While a composition is shown, the keys belong to the input method (choice D1 of F2.10c2):
+//! the field swallows every key, so Enter, Escape, Backspace, the arrows and Tab neither edit
+//! the field, nor commit it, nor move the focus, on the platforms that report them anyway. A
+//! click inside the field moves the caret and ends the composition (the window resets the input
+//! method, [`EventCx::reset_ime`]: most input methods then commit it); losing the focus, being
+//! disabled, the input method being turned off and a text set by the application drop it.
+//!
 //! # Not here yet
-//! The input methods (F2.10c2), the multi-line field and the primary selection (postponed,
-//! ADR-0047).
+//! The multi-line field and the primary selection (postponed, ADR-0047). A fallback font for the
+//! scripts the bundled faces do not cover (ADR-0044 TX4): Japanese or Chinese, composed or
+//! committed, shows boxes for now.
 
 use std::ops::Range;
 use std::time::{Duration, Instant};
@@ -81,7 +106,7 @@ use crate::draw::list::Recorder;
 use crate::draw::paint::StrokeStyle;
 use crate::theme::text::{FamilyToken, SizeToken, Weight};
 use crate::theme::token::ColorToken;
-use crate::window::input::{ButtonState, Key, Modifiers, NamedKey, PointerButton};
+use crate::window::input::{ButtonState, ImeEvent, Key, Modifiers, NamedKey, PointerButton};
 use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole, TextInfo};
@@ -100,6 +125,19 @@ pub(crate) const BLINK_STOP: Duration = Duration::from_secs(10);
 /// The caret's width, logical pixels (TF8). The renderer snaps its edges to device pixels
 /// (ADR-0039 D7), so it is one pixel at scale 1, two at scale 1.5 and 2, three at scale 2.
 const CARET_WIDTH: f32 = 1.5;
+
+/// The thickness of the line under a composition (TF6), logical pixels: the renderer snaps it to
+/// device pixels, so it is one pixel at scale 1 (as TF6 asks) and two at scale 2.
+const PREEDIT_LINE: f32 = 1.0;
+
+/// The thickness of the line under the segment the input method is converting, logical pixels:
+/// twice the composition's, so the segment stands out as in GTK and Qt (choice D6 of F2.10c2).
+const PREEDIT_SEGMENT_LINE: f32 = 2.0;
+
+/// How far below the baseline the composition's line is drawn, logical pixels: clear of the
+/// letters' bottoms and inside the line's descent (about 3 px at the body size), so it never
+/// touches the field's edge.
+const PREEDIT_LINE_GAP: f32 = 1.0;
 
 /// The width a field asks for when its parent does not size it, logical pixels: about 25
 /// characters of the body size, enough for a track's name.
@@ -189,6 +227,16 @@ pub struct TextField<M> {
     /// The last input (key, text, click, focus): the blink counts its halves from here, and
     /// stops [`BLINK_STOP`] after it.
     blink_from: Instant,
+    /// The input method's composition (TF6), empty when there is none. Not part of the text.
+    preedit: String,
+    /// The input method's cursor inside [`TextField::preedit`], bytes (see
+    /// [`ImeEvent::Preedit`]).
+    preedit_cursor: Option<Range<usize>>,
+    /// The text as shown while composing: the editor's text with the composition in place of
+    /// the selection. Rebuilt when either changes, keeping its capacity (so a composition
+    /// allocates nothing once warm); unused, and possibly stale, while not composing:
+    /// [`TextField::shown`] is the only way to read it.
+    composed: String,
 }
 
 impl<M> TextField<M> {
@@ -221,6 +269,9 @@ impl<M> TextField<M> {
             // Replaced at the first focus by the interface's time; the clock is only read here
             // because a field must start with some instant.
             blink_from: Instant::now(),
+            preedit: String::new(),
+            preedit_cursor: None,
+            composed: String::new(),
         }
     }
 
@@ -305,7 +356,11 @@ impl<M> TextField<M> {
     /// command was undone): not an edit, so nothing to undo and nothing committed; it becomes the
     /// committed text. The caller asks the interface to lay the field out again
     /// ([`Ui::request_layout`](crate::Ui::request_layout)).
+    ///
+    /// A composition in progress is dropped: it belonged to the old text. The input method may
+    /// still commit it later; it is then inserted into the new text, as typing would be.
     pub fn set_text(&mut self, text: &str) {
+        self.drop_preedit();
         self.editor.set_text(text);
         self.editor.text().clone_into(&mut self.committed);
         self.text_stale = true;
@@ -313,10 +368,149 @@ impl<M> TextField<M> {
 
     /// Enables or disables the field; the caller asks the interface to record it again. A
     /// disabled field takes no focus and shows the arrow (TF4).
-    pub const fn set_enabled(&mut self, enabled: bool) {
+    pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
         if !enabled {
             self.drag = None;
+            // No longer accepting text: the window turns the input method off.
+            self.drop_preedit();
+        }
+    }
+
+    /// `true` while the input method's composition is shown (TF6).
+    #[must_use]
+    pub fn composing(&self) -> bool {
+        !self.preedit.is_empty()
+    }
+
+    /// The composition being shown (empty: none), and the input method's cursor inside it.
+    #[must_use]
+    pub fn preedit(&self) -> (&str, Option<Range<usize>>) {
+        (&self.preedit, self.preedit_cursor.clone())
+    }
+
+    /// The text as shown: the editor's, with the composition in place of the selection while
+    /// composing. Everything drawn and measured reads this; editing reads the editor's.
+    fn shown(&self) -> &str {
+        if self.composing() {
+            &self.composed
+        } else {
+            self.editor.text()
+        }
+    }
+
+    /// The composition's bytes inside [`TextField::shown`]: from the selection's start, as long
+    /// as the composition; empty while not composing.
+    fn preedit_span(&self) -> Range<usize> {
+        let start = self.editor.selection().start;
+        start..start.saturating_add(self.preedit.len())
+    }
+
+    /// Where the caret is drawn and kept in view, bytes into [`TextField::shown`], or `None`
+    /// when the input method hides it: the editor's caret, or the input method's caret inside the
+    /// composition (its end when the input method gives no caret, which is only used to scroll).
+    fn shown_caret(&self) -> usize {
+        if self.composing() {
+            let span = self.preedit_span();
+            span.start.saturating_add(
+                self.preedit_cursor
+                    .as_ref()
+                    .map_or(self.preedit.len(), |c| c.end),
+            )
+        } else {
+            self.editor.focus()
+        }
+    }
+
+    /// `true` when the caret is drawn: always outside a composition, and inside one only when
+    /// the input method gives an empty cursor (a non-empty one is a segment, underlined instead).
+    fn caret_shown(&self) -> bool {
+        !self.composing() || self.preedit_cursor.as_ref().is_some_and(Range::is_empty)
+    }
+
+    /// An offset of [`TextField::shown`] as an offset of the editor's text: identical outside a
+    /// composition; inside it, the composition's start (where it would be inserted); after it,
+    /// moved back by the composition and forward by the selection it hides.
+    fn to_text_offset(&self, offset: usize) -> usize {
+        if !self.composing() {
+            return offset;
+        }
+        let span = self.preedit_span();
+        if offset <= span.start {
+            offset
+        } else if offset < span.end {
+            span.start
+        } else {
+            offset - span.end + self.editor.selection().end
+        }
+    }
+
+    /// Rebuilds [`TextField::composed`] from the editor's text and the composition: the text
+    /// before the selection, the composition, the text after it. O(n), no allocation once its
+    /// capacity is reached.
+    fn compose(&mut self) {
+        let text = self.editor.text();
+        let selection = self.editor.selection();
+        self.composed.clear();
+        // The selection's ends are always grapheme boundaries of the text (the editor's
+        // invariant), so both `get`s succeed; an empty piece would only show less text.
+        self.composed
+            .push_str(text.get(..selection.start).unwrap_or_default());
+        self.composed.push_str(&self.preedit);
+        self.composed
+            .push_str(text.get(selection.end..).unwrap_or_default());
+    }
+
+    /// Shows the input method's composition `text` with its cursor (TF6): the shown text is
+    /// rebuilt and laid out again. An empty `text` ends the composition. Answers `false` when
+    /// nothing changed (input methods repeat themselves).
+    fn set_preedit(&mut self, text: &str, cursor: Option<Range<usize>>) -> bool {
+        if self.preedit == text && self.preedit_cursor == cursor {
+            return false;
+        }
+        self.preedit.clear();
+        self.preedit.push_str(text);
+        self.preedit_cursor = if text.is_empty() { None } else { cursor };
+        self.text_stale = true;
+        true
+    }
+
+    /// Drops the composition, if any, answering whether there was one; the text is laid out
+    /// again (the caller asks for the arrange when it has a context).
+    fn drop_preedit(&mut self) -> bool {
+        let had = self.composing();
+        if had {
+            self.preedit.clear();
+            self.preedit_cursor = None;
+            self.text_stale = true;
+        }
+        had
+    }
+
+    /// An input method's event (TF6).
+    fn ime(&mut self, cx: &mut EventCx<'_, M>, event: &ImeEvent) {
+        match event {
+            ImeEvent::Enabled => {}
+            ImeEvent::Preedit { text, cursor } => {
+                if self.set_preedit(text, cursor.clone()) {
+                    cx.request_arrange();
+                    self.restart_blink(cx);
+                }
+            }
+            ImeEvent::Commit(text) => {
+                // The composition ends with its commit (`winit` sends an empty preedit first,
+                // but a missing one must not leave it shown over the inserted text).
+                if self.drop_preedit() {
+                    cx.request_arrange();
+                }
+                let response = self.editor.type_text(text);
+                self.after(cx, response);
+            }
+            ImeEvent::Disabled => {
+                if self.drop_preedit() {
+                    cx.request_arrange();
+                }
+            }
         }
     }
 
@@ -328,8 +522,18 @@ impl<M> TextField<M> {
         let generation = cx.text_generation();
         let theme_changed = self.laid_out != Some(generation);
         if theme_changed || self.text_stale {
+            if self.composing() {
+                self.compose();
+            }
+            // `shown` borrows the whole field; the two texts are read field by field here so the
+            // layout can be borrowed mutably beside them.
+            let shown = if self.composing() {
+                &self.composed
+            } else {
+                self.editor.text()
+            };
             if cx
-                .lay_out_text(self.editor.text(), STYLE, None, &mut self.layout)
+                .lay_out_text(shown, STYLE, None, &mut self.layout)
                 .is_err()
             {
                 // Impossible with the bundled faces; an empty layout keeps the window usable.
@@ -362,7 +566,7 @@ impl<M> TextField<M> {
     /// or the caret after a trailing space if that is further (spaces hang past the content's
     /// width, ADR-0044 TX10), plus the caret itself.
     fn content_width(&self) -> f32 {
-        let text = self.editor.text();
+        let text = self.shown();
         self.layout
             .width()
             .max(self.layout.caret_x(text, text.len()))
@@ -387,7 +591,7 @@ impl<M> TextField<M> {
             return;
         }
         let margin = (self.layout.size() * SCROLL_MARGIN_EMS).min(width / 4.0);
-        let caret = self.layout.caret_x(self.editor.text(), self.editor.focus());
+        let caret = self.layout.caret_x(self.shown(), self.shown_caret());
         if caret - self.scroll < margin {
             self.scroll = caret - margin;
         }
@@ -398,24 +602,27 @@ impl<M> TextField<M> {
     }
 
     /// The caret offset nearest to `point` (window coordinates): where a press puts the caret.
+    /// An offset of the editor's text: a point over a composition gives the composition's start.
     fn offset_at(&self, point: Point) -> usize {
         let x = point.x - self.text_left();
         // One line: the y only has to land in it.
         let y = (point.y - self.text_top()).clamp(0.0, self.layout.height().max(0.0) / 2.0);
-        self.layout.hit_test(self.editor.text(), x, y)
+        self.to_text_offset(self.layout.hit_test(self.shown(), x, y))
     }
 
     /// The grapheme **under** `point` (its start), rather than the nearest boundary: a double
     /// click on the right half of a word's last letter selects that word, not the space after it.
     fn grapheme_under(&self, point: Point) -> usize {
-        let offset = self.offset_at(point);
-        let text = self.editor.text();
         let x = point.x - self.text_left();
-        if offset > 0 && self.layout.caret_x(text, offset) > x {
-            prev_grapheme(text, offset)
+        let y = (point.y - self.text_top()).clamp(0.0, self.layout.height().max(0.0) / 2.0);
+        let shown = self.shown();
+        let offset = self.layout.hit_test(shown, x, y);
+        let under = if offset > 0 && self.layout.caret_x(shown, offset) > x {
+            prev_grapheme(shown, offset)
         } else {
             offset
-        }
+        };
+        self.to_text_offset(under)
     }
 
     /// Shows the caret solid and starts its blink again from now (TF8): every key, text, click
@@ -521,8 +728,15 @@ impl<M> TextField<M> {
     /// [`TextLayout::caret_x`] (a binary search) per character. It allocates the description: it
     /// runs only when the field's node is sent to a listening assistive technology.
     fn text_info(&self) -> TextInfo {
-        let text = self.editor.text();
-        let (anchor, focus) = (self.editor.anchor(), self.editor.focus());
+        // The text as shown, composition included (choice D5 of F2.10c2): what is on screen, with
+        // the caret where it is drawn; a composition hides the selection, so there is none.
+        let text = self.shown();
+        let (anchor, focus) = if self.composing() {
+            let caret = self.shown_caret();
+            (caret, caret)
+        } else {
+            (self.editor.anchor(), self.editor.focus())
+        };
         let left = self.text_left();
         let top = self.text_top();
         let mut info = TextInfo {
@@ -591,7 +805,13 @@ impl<M> TextField<M> {
                     cx.emit(on_change(self.editor.text()));
                 }
             }
-            EditResponse::SelectionChanged => cx.request_arrange(),
+            EditResponse::SelectionChanged => {
+                // A composition is shown in place of the selection: it moved with it.
+                if self.composing() {
+                    self.text_stale = true;
+                }
+                cx.request_arrange();
+            }
             // Nothing moved. (A clipboard action never arrives here: `clipboard` carried it out
             // and answered what it changed.)
             EditResponse::Unchanged | EditResponse::Clipboard(_) => {}
@@ -682,15 +902,23 @@ impl<M> TextField<M> {
     fn press(&mut self, cx: &mut EventCx<'_, M>, point: Point, clicks: u8) {
         let extend = cx.modifiers().shift && !self.fresh_focus;
         self.fresh_focus = false;
+        // Where the press lands, read while the layout still shows a composition, if any.
+        let offset = self.offset_at(point);
+        let under = self.grapheme_under(point);
+        // A press during a composition ends it (choice D3 of F2.10c2): the caret moves, and the
+        // composition belonged to the old place. The window resets the input method, which
+        // usually commits it at the new caret.
+        if self.drop_preedit() {
+            cx.reset_ime();
+        }
         let response = match clicks {
             0 | 1 => {
-                let offset = self.offset_at(point);
                 self.drag = Some(Drag::Graphemes);
                 let anchor = if extend { self.editor.anchor() } else { offset };
                 self.editor.select(anchor, offset)
             }
             2 => {
-                let word = word_at(self.editor.text(), self.grapheme_under(point));
+                let word = word_at(self.editor.text(), under);
                 let response = self.editor.select(word.start, word.end);
                 self.drag = Some(Drag::Words(word));
                 response
@@ -757,6 +985,56 @@ impl<M> TextField<M> {
             }
             _ => Handled::No,
         }
+    }
+
+    /// Records the lines under a composition (TF6, choice D6 of F2.10c2): one pixel under all of
+    /// it, two under the segment the input method converts, in the text's colour, below the
+    /// baseline and clipped to the text's `area`.
+    fn record_preedit_lines(
+        &self,
+        origin: Point,
+        area: Rect,
+        color: ColorToken,
+        recorder: &mut Recorder<'_>,
+    ) {
+        let text = self.shown();
+        let span = self.preedit_span();
+        let baseline = self
+            .layout
+            .lines()
+            .first()
+            .map_or(0.0, |line| line.baseline);
+        let y = origin.y + baseline + PREEDIT_LINE_GAP;
+        let x_at = |offset: usize| origin.x + self.layout.caret_x(text, offset);
+        let line =
+            Rect::new(x_at(span.start), y, x_at(span.end), y + PREEDIT_LINE).intersect(&area);
+        if !line.is_empty() {
+            recorder.fill_rect(line, color);
+        }
+        if let Some(cursor) = self.preedit_cursor.as_ref().filter(|c| !c.is_empty()) {
+            let segment = Rect::new(
+                x_at(span.start + cursor.start),
+                y,
+                x_at(span.start + cursor.end),
+                y + PREEDIT_SEGMENT_LINE,
+            )
+            .intersect(&area);
+            if !segment.is_empty() {
+                recorder.fill_rect(segment, color);
+            }
+        }
+    }
+
+    /// The caret's rectangle, logical pixels of the window, kept inside the text's area: at the
+    /// very end of a scrolled text the caret's bar would otherwise touch the padding.
+    fn caret_rect(&self) -> Rect {
+        let x = self.text_left() + self.layout.caret_x(self.shown(), self.shown_caret());
+        let x = x.clamp(
+            self.inner.x0,
+            (self.inner.x1 - CARET_WIDTH).max(self.inner.x0),
+        );
+        let top = self.text_top();
+        Rect::new(x, top, x + CARET_WIDTH, top + self.layout.height())
     }
 
     /// The colours of the text and of the placeholder.
@@ -855,9 +1133,13 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
         if clipped {
             recorder.push_clip_rect(area);
         }
-        let text = self.editor.text();
+        let text = self.shown();
         if text.is_empty() {
             recorder.text(&self.placeholder_layout, origin, placeholder_color);
+        } else if self.composing() {
+            // A composition, shown in place of the selection: the text, then its lines (TF6).
+            recorder.text(&self.layout, origin, text_color);
+            self.record_preedit_lines(origin, area, text_color, recorder);
         } else {
             let selection = self.editor.selection();
             if cx.focused && !selection.is_empty() {
@@ -891,22 +1173,13 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
     }
 
     fn record_overlay(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
-        // The caret: only with the focus, in its visible half, and with nothing selected.
-        if !(cx.focused && self.enabled && self.caret_on && self.editor.selection().is_empty()) {
+        // The caret: only with the focus, in its visible half, and with nothing selected; during
+        // a composition the selection is hidden, and the caret is the input method's, if any.
+        let unselected = self.composing() || self.editor.selection().is_empty();
+        if !(cx.focused && self.enabled && self.caret_on && unselected && self.caret_shown()) {
             return;
         }
-        let x = self.text_left() + self.layout.caret_x(self.editor.text(), self.editor.focus());
-        // Kept inside the text area: at the very end of a scrolled text the caret's bar would
-        // otherwise touch the padding.
-        let x = x.clamp(
-            self.inner.x0,
-            (self.inner.x1 - CARET_WIDTH).max(self.inner.x0),
-        );
-        let top = self.text_top();
-        recorder.fill_rect(
-            Rect::new(x, top, x + CARET_WIDTH, top + self.layout.height()),
-            ColorToken::Text,
-        );
+        recorder.fill_rect(self.caret_rect(), ColorToken::Text);
     }
 
     fn event(&mut self, cx: &mut EventCx<'_, M>, event: &WidgetEvent<'_>) -> Handled {
@@ -927,6 +1200,11 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
         ) {
             self.fresh_focus = false;
         }
+        // While a composition is shown, the keys belong to the input method (choice D1 of
+        // F2.10c2): none edits, commits or moves the focus, pressed or released.
+        if self.composing() && matches!(event, WidgetEvent::Key { .. }) {
+            return Handled::Yes;
+        }
         match *event {
             WidgetEvent::FocusGained => {
                 self.focused = true;
@@ -942,6 +1220,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
                 self.focused = false;
                 self.fresh_focus = false;
                 self.drag = None;
+                // A composition ends with the focus (choice D4 of F2.10c2); the window turns the
+                // input method off, and a commit that still comes goes to the new focus.
+                self.drop_preedit();
                 self.commit(cx);
                 // The local history ends with the focus (TF7).
                 self.editor.clear_history();
@@ -991,6 +1272,10 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
                 self.after(cx, response);
                 Handled::Yes
             }
+            WidgetEvent::Ime(ime) => {
+                self.ime(cx, ime);
+                Handled::Yes
+            }
             WidgetEvent::SetText(_)
             | WidgetEvent::ReplaceSelectedText(_)
             | WidgetEvent::SetTextSelection { .. } => self.assistive(cx, event),
@@ -1000,6 +1285,16 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
 
     fn focusable(&self) -> bool {
         self.enabled
+    }
+
+    fn accepts_text(&self) -> bool {
+        self.enabled
+    }
+
+    fn ime_area(&self) -> Option<Rect> {
+        // The caret, even where it is not drawn (selected text, a segment, the blink's off
+        // half): the candidates open beside where the text is being typed.
+        Some(self.caret_rect())
     }
 
     fn pointer_shape(&self, point: Point) -> Option<PointerShape> {

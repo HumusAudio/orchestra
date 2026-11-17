@@ -108,6 +108,23 @@ pub trait WindowApp {
     fn next_wakeup(&self) -> Option<std::time::Instant> {
         None
     }
+
+    /// What the window must do with the system's input method now (ADR-0047 TF5, TF6; F2.10c2):
+    /// `Some` while a widget that takes text has the focus, with its caret's area, and `None`
+    /// otherwise (the default). An app built on [`Ui`](crate::Ui) answers
+    /// [`Ui::text_input`](crate::Ui::text_input).
+    ///
+    /// The window asks after every input event, layout and assistive-technology action, and
+    /// calls the system only when the answer changes: it turns the input method on or off, moves
+    /// the candidate window to the new area, or ends the composition when
+    /// [`TextInput::reset`](crate::TextInput::reset) changed (precision of ADR-0040 W5 and of
+    /// ADR-0047 TF5, written in F2.10c2).
+    ///
+    /// # Cost
+    /// Called once per event, so it must be cheap and must not allocate.
+    fn text_input(&self) -> Option<crate::TextInput> {
+        None
+    }
 }
 
 /// How to open the window.

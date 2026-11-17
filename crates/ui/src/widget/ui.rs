@@ -151,6 +151,23 @@ pub struct Ui<M> {
     /// The widgets whose wake-up came, collected by [`Ui::advance`] before they are called
     /// (reused).
     due: Vec<WidgetId>,
+    /// How many times a widget asked to end the input method's composition
+    /// ([`EventCx::reset_ime`]), wrapping: the window compares it with the count it last saw
+    /// ([`TextInput::reset`]).
+    ime_resets: u64,
+}
+
+/// What the window must do with the system's input method (ADR-0047 TF5, TF6; F2.10c2): the
+/// answer of [`Ui::text_input`] while a widget that takes text has the focus.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextInput {
+    /// Where the text being typed is, logical pixels of the window: the caret, or the
+    /// composition ([`Widget::ime_area`]). The input method opens its candidates beside it.
+    pub area: Rect,
+    /// A count that changes each time a widget asks to end the composition in progress
+    /// ([`EventCx::reset_ime`]). Only a change has a meaning: the window resets the input
+    /// method when the count differs from the one it last saw.
+    pub reset: u64,
 }
 
 /// The root slot (always 0).
@@ -169,6 +186,7 @@ impl<M: 'static> Ui<M> {
             clipboard: Box::new(MemoryClipboard::default()),
             wakeups: Vec::new(),
             due: Vec::new(),
+            ime_resets: 0,
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -377,6 +395,32 @@ impl<M: 'static> Ui<M> {
             current = self.tree.slot(index).and_then(|slot| slot.parent);
         }
         PointerShape::Default
+    }
+
+    /// What the window must do with the system's input method now (ADR-0047 TF5, TF6; F2.10c2):
+    /// `Some` while the focused widget [accepts text](Widget::accepts_text), with where its
+    /// caret is; `None` otherwise, and the input method is then off.
+    ///
+    /// # Why the window asks, rather than being told
+    /// The same pattern as the pointer's shape ([`Ui::pointer_shape`]): the window asks after
+    /// every event and calls the system only when the answer changed, so the interface never
+    /// has to track who must be told what. It replaces the `Ui::wants_text_input` named in
+    /// ADR-0047 TF5, adding the caret's area and the reset requests to the same answer
+    /// (precision written in F2.10c2).
+    ///
+    /// The focused widget is asked even inside an open modal layer: focus never leaves the layer
+    /// (WB9), so the focused widget is always one the user can type into.
+    ///
+    /// # Cost
+    /// Two calls to the focused widget, each answering from stored state; no allocation.
+    #[must_use]
+    pub fn text_input(&self) -> Option<TextInput> {
+        let slot = self.tree.slot(self.focused?)?;
+        let widget = slot.widget.as_deref()?;
+        widget.accepts_text().then(|| TextInput {
+            area: widget.ime_area().unwrap_or(slot.rect),
+            reset: self.ime_resets,
+        })
     }
 
     /// Takes the messages the widgets emitted since the last call (WA7), keeping the queue's
@@ -672,6 +716,16 @@ impl<M: 'static> Ui<M> {
                     self.deliver(start, &WidgetEvent::Text(text), true);
                 }
             }
+            InputEvent::Ime(event) => {
+                // Like typed text (ADR-0047 TF6): to the focused widget, or the open modal layer,
+                // bubbling. The window sends these only while the focused widget accepts text.
+                let start = self
+                    .focused
+                    .or_else(|| self.modals.last().map(|&(layer, _)| layer));
+                if let Some(start) = start {
+                    self.deliver(start, &WidgetEvent::Ime(event), true);
+                }
+            }
             InputEvent::ModifiersChanged { modifiers } => self.modifiers = *modifiers,
             // A window losing the focus misses the releases of the keys held: forget them, or the
             // fine adjustment would stay on after an Alt+Tab with Ctrl held.
@@ -761,8 +815,14 @@ impl<M: 'static> Ui<M> {
             now: self.now,
             wakeup: WakeRequest::Keep,
             clipboard: self.clipboard.as_mut(),
+            ime_reset: false,
         };
         let handled = widget.event(&mut cx, event);
+        if cx.ime_reset {
+            // A new request: the window sees the count change and resets the input method
+            // ([`Ui::text_input`]). Wrapping, because only a change matters, never the value.
+            self.ime_resets = self.ime_resets.wrapping_add(1);
+        }
         let (relayout, rerecord, focus, rearrange, overlay, wakeup) = (
             cx.relayout,
             cx.rerecord,

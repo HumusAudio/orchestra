@@ -54,6 +54,11 @@
 //!   re-recorded, the damage drawn, the accessibility update. `field_caret_blink` is the wake-up
 //!   of the caret's next half: the overlay re-recorded and its small damage drawn. Targets: 0.5 M
 //!   instructions for the key, 0.1 M for the blink.
+//! - `field_preedit_update` (F2.10c2, ADR-0047 TF6): the same field with an input method's
+//!   composition at the caret, "ni", growing to "nih" as the next letter of the pinyin is
+//!   typed: the shown text rebuilt with the composition, the line shaped again, the field, its
+//!   lines and its caret re-recorded, the window's question about the input method (the
+//!   caret's area), the damage drawn, the accessibility update. Target: a key's 0.5 M.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -87,7 +92,7 @@ use orchestra_ui::{
 };
 use orchestra_ui::{Axis, ScrollArea, Splitter, Toggle};
 use orchestra_ui::{Direction, EditAction, EditConvention, TextEditor, Unit};
-use orchestra_ui::{Key, Modifiers, NamedKey, TextField};
+use orchestra_ui::{ImeEvent, Key, Modifiers, NamedKey, TextField};
 use std::time::Instant;
 
 // A button-like leaf whose width can change.
@@ -973,13 +978,47 @@ fn field_caret_blink(mut fielded: Fielded) -> Fielded {
     fielded
 }
 
+// A composition of the input method, as `winit` gives it: the text with the caret at its end.
+fn preedit(text: &str) -> InputEvent {
+    InputEvent::Ime(ImeEvent::Preedit {
+        text: text.to_owned(),
+        cursor: Some(text.len()..text.len()),
+    })
+}
+
+// The field with the composition "ni" at its caret, drawn, and the next composition "nih" built
+// outside the measured region. "nih" was shown and drawn once before, so its glyphs are in the
+// cache at the positions the measured update gives them (the steady state, as for a typed key).
+fn fielded_composing() -> (Fielded, InputEvent) {
+    let mut fielded = fielded_shown();
+    for event in [preedit("n"), preedit("ni"), preedit("nih"), preedit("ni")] {
+        fielded.ui.input(&event, &mut fielded.list);
+        let _ = fielded.ui.text_input();
+        fielded_draw(&mut fielded);
+    }
+    let _ = fielded.ui.take_access_update();
+    (fielded, preedit("nih"))
+}
+
+#[library_benchmark]
+#[bench::panel(setup = fielded_composing)]
+fn field_preedit_update(input: (Fielded, InputEvent)) -> Fielded {
+    let (mut fielded, event) = input;
+    fielded.ui.input(black_box(&event), &mut fielded.list);
+    black_box(fielded.ui.text_input());
+    fielded_draw(&mut fielded);
+    black_box(fielded.ui.take_access_update());
+    fielded
+}
+
 library_benchmark_group!(
     name = editing,
     benchmarks = [
         edit_type_key,
         edit_word_move,
         field_type_key,
-        field_caret_blink
+        field_caret_blink,
+        field_preedit_update
     ]
 );
 

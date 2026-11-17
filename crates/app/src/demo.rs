@@ -33,7 +33,8 @@ use orchestra_ui::{
     AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ClipboardSource, ColorToken,
     Constraints, DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length,
     Point, PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space,
-    Splitter, StrokeStyle, TextField, Theme, Toggle, Ui, Weight, Widget, WidgetId, WindowApp,
+    Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui, Weight, Widget, WidgetId,
+    WindowApp,
 };
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
@@ -407,6 +408,12 @@ impl WindowApp for Demo {
 
     fn next_wakeup(&self) -> Option<Instant> {
         self.ui.next_wakeup()
+    }
+
+    fn text_input(&self) -> Option<TextInput> {
+        // The input method is on while the "Track name" field has the focus, with its caret's
+        // area for the candidate window (ADR-0047 TF5, TF6; F2.10c2).
+        self.ui.text_input()
     }
 }
 

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-11-13; outline TF1–TF13 presented first, with the owner's
   choices on TF2, TF8, TF12 and the primary selection's postponement, then the text). Precisions
-  of F2.10b1, F2.10b2, F2.10b3 and F2.10c1 below.
+  of F2.10b1, F2.10b2, F2.10b3, F2.10c1 and F2.10c2 below.
 - **Date:** 2026-11-13
 - **Implements:** ADR-0045 (retained widgets, routed events, focus, AccessKit per widget; WA8
   leaves the clipboard to this step), ADR-0044 (text: shaping, clusters, left to right only,
@@ -399,3 +399,45 @@ hand tests that need an input method installed.
 - Recorded limits: one line; left to right; words of complex scripts without dictionaries; no
   primary selection; the clipboard's content lost at exit without a clipboard manager; on GNOME
   the clipboard goes through XWayland.
+
+## Precisions of the implementation (F2.10c2, choices approved by the owner on 2026-11-17; to be confirmed after the hand tests)
+
+- **TF6, the rule against doubles: (b), without a filter.** Read in `winit` 0.30.13's sources:
+  on X11 a key the input method lets through arrives as a key event with its text, and a composed
+  text only as `Ime::Commit` (no key event is reported while composing); on macOS `Commit` comes
+  only after marked text, and that key's event is then suppressed; on Windows a composition's
+  result is only `Commit`; on Wayland every key goes through the input method, which either
+  forwards it as a key or commits it. Rule (a) would therefore lose every plain key on X11 and
+  macOS. The field inserts both `InputEvent::Text` and `Ime::Commit`, with no filter; one is added
+  only if the hand tests (Fcitx5 on KDE Wayland and on X11 through XWayland) or the CI show a
+  double.
+- **TF5, the window's question.** `Ui::wants_text_input` becomes `Ui::text_input()`, which
+  also carries the caret's area and the reset requests (ADR-0040 and ADR-0045, precisions of
+  F2.10c2).
+- **TF6, keys during a composition (D1).** While a composition is shown the field swallows every
+  key, pressed or released: they belong to the input method, and on the platforms that report
+  them anyway Enter must not commit the field, Tab must not move the focus, Backspace must not
+  edit.
+- **TF6, the selection (D2).** A composition is shown in place of the selection; nothing changes
+  until `Commit`, which replaces the selection, so the whole is one undo step.
+- **TF6, a click (D3).** A press inside the field during a composition drops the field's copy of
+  it and asks the window for a reset (`EventCx::reset_ime`); the caret moves where the press
+  landed (a press over the composition lands at its start). What the input method does with it
+  (commit at the new caret, or drop) is the platform's choice.
+- **TF6, focus and the rest (D4).** Losing the focus, being disabled, `Ime::Disabled` and a text
+  set by the application drop the composition; a `Commit` arriving after the focus moved goes to
+  the new focused widget.
+- **TF11, accessibility (D5).** The value, the text runs and the caret describe the text as shown,
+  composition included, with the caret where the input method puts it and no selection.
+- **TF6, the looks (D6).** One logical pixel under the whole composition, one logical pixel below
+  the baseline, in the text's colour; two under the segment the input method converts (a
+  non-empty cursor), and the caret is then hidden; a `None` cursor hides it too. The candidate
+  area is the caret's rectangle, even where the caret is not drawn.
+- **TF7, undo (D7).** `Commit` goes through `TextEditor::type_text`: it is grouped like typing.
+- **Recorded limit.** No fallback font yet (ADR-0044 TX4): Japanese, Chinese or Korean, composed
+  or committed, shows boxes in the field; the candidate window, drawn by the input method, shows
+  them correctly.
+- **Measured.** A composition's update (one letter more of pinyin in the reference panel, with
+  the window's question, the drawing and the accessibility update): 0.457 M instructions, within
+  a key's 0.5 M; a composition growing, moving its segment and ending allocates nothing once
+  warm.
