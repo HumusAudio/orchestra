@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.75, approvata dal proprietario il 2026-11-17.**
+> **Stato di questo documento: v0.76, approvata dal proprietario il 2026-11-17.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -709,7 +709,11 @@ controllo completo. Va fatta bene una volta sola.
 | F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ✅ (F2.10c1–c2) | 2 |
 | F2.10c1 | **Appunti**: trait `ClipboardSource`, appunti in memoria per i test, `arboard` in `platform/`, Taglia, Copia e Incolla nel campo, `deny.toml`, `native-deps.md`, prova a mano su Wayland e su X11 (XWayland) | ✅ PR #79 | 0,5–1 |
 | F2.10c2 | **IME**: `InputEvent::Ime`, `Widget::accepts_text`, accensione solo con un campo a fuoco, posizione della finestra dei candidati, preedit sottolineato, regola contro i caratteri doppi, `TextRun` durante il preedit, prove a mano con Fcitx5 su Wayland e X11 | ✅ PR #81 | 1–1,5 |
-| F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
+| F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | 🔄 (F2.11a–e) | 2–3 |
+| F2.11a | **ADR di azioni, scorciatoie, menu e popup**: registro unico delle azioni, contesti, scorciatoie per piattaforma e personalizzate, tasti fissi, modello unico dei menu, mnemonici, strato dei popup, suggerimenti, menu Modifica sul campo a fuoco | ✅ ADR-0048 | 0,5 |
+| F2.11c | **Strato dei popup e suggerimento** al passaggio del puntatore (ADR-0048 AM11, AM14) | ⬜ | 0,5–1 |
+| F2.11d | **Registro delle azioni, barra dei menu e menu contestuali disegnati**: ricerca nei contesti, tasto fisico negli eventi, tastiera, puntatore, mnemonici nei sei cataloghi, accessibilità, menu Modifica sul campo a fuoco, benchmark (ADR-0048) | ⬜ | 1–1,5 |
+| F2.11e | **`muda` su macOS**: lo stesso modello dei menu, ruoli nel menu dell'app, misura di dimensione e compilazione in CI (ADR-0048 AM9, ADR-0036 B5) | ⬜ | 0,5 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
@@ -992,6 +996,14 @@ controllo completo. Va fatta bene una volta sola.
   torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
   Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
   barra del titolo, lì il problema sparisce su Linux.
+- **F2.11a** **Fatto il 2026-11-17 (ADR-0048 Accepted):** si chiamano *azioni* le voci del
+  registro, per non confonderle con i comandi di ADR-0026; contesti decisi subito (servono allo
+  step input di F2.22); scelte del proprietario: solo combinazioni singole, tasto logico con due
+  ripieghi sul tasto fisico (layout non latini, riga dei numeri), regolazione fine come opzione
+  delle Preferenze, Modifica → Preferenze su Linux e Windows, suggerimento solo al passaggio del
+  puntatore. Il salvataggio delle scorciatoie dell'utente arriva con il file delle impostazioni
+  (F2.12). I popup restano dentro la finestra (`winit` 0.30 non ha `xdg_popup`). F2.11 è diviso
+  in F2.11a, F2.11c, F2.11d, F2.11e (F2.11b resta la barra del titolo).
 - **F2.11b** Da F2.09e (ADR-0045 WG4): i bordi e gli angoli della nostra barra del titolo e della
   finestra aggiungono le loro forme di ridimensionamento a `PointerShape` (orizzontale, verticale,
   le due diagonali), con le corrispondenti di `winit`.
@@ -1333,3 +1345,4 @@ raccomandato.
 | 2026-11-15 | 0.73 | F2.10c1 fatto (PR #79): appunti provati a mano dal proprietario su Wayland e su X11 (XWayland); prossimo passo F2.10c2 (dopo l'installazione di Fcitx5) oppure F2.09f | proprietario |
 | 2026-11-15 | 0.74 | F2.09f fatto (PR #80): testi accorciati con i puntini in etichette, interruttori e pulsanti (precisazioni WJ1–WJ7 di ADR-0045 e una di ADR-0044), provato a schermo dal proprietario; nota in F2.11 (suggerimento con il testo intero); prossimo passo F2.10c2, dopo l'installazione di Fcitx5 | proprietario |
 | 2026-11-17 | 0.75 | F2.10c2 fatto (PR #81): metodi di input nel campo di testo, regola (b) senza filtro, scelte D1–D7, precisazioni di ADR-0040, ADR-0045 e ADR-0047, provato a mano dal proprietario con Fcitx5 su Wayland e X11; F2.10b, F2.10c e F2.10 chiusi; nota per un passo futuro sul font di riserva CJK; prossimo passo F2.11 | proprietario |
+| 2026-11-17 | 0.76 | F2.11 diviso in F2.11a, F2.11c, F2.11d, F2.11e; F2.11a fatto (ADR-0048 Accepted: azioni, contesti, scorciatoie per piattaforma e personalizzate, modello unico dei menu, strato dei popup, suggerimenti); prossimo passo F2.11c | proprietario |
