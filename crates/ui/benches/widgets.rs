@@ -59,6 +59,20 @@
 //!   typed: the shown text rebuilt with the composition, the line shaped again, the field, its
 //!   lines and its caret re-recorded, the window's question about the input method (the
 //!   caret's area), the damage drawn, the accessibility update. Target: a key's 0.5 M.
+//! - `tooltip_show`, `tooltip_hide` (F2.11c, ADR-0048 AM14–AM15): the real panel (200 widgets)
+//!   with, on top, a button 60 pixels wide whose text is shortened with an ellipsis, the pointer
+//!   resting on it. `tooltip_show` is the moment its 500 ms come: the tooltip's text copied, laid
+//!   out (wrapped at 320 pixels), placed below the pointer, recorded in the top layer and drawn;
+//!   `panel` where no tooltip was drawn before (the usual case: a tooltip opens at the pointer,
+//!   so its glyphs and box are drawn there for the first time), `again` where the same tooltip
+//!   was drawn before. `tooltip_hide` is the pointer moving off the button: the tooltip's segment
+//!   recorded empty and its area drawn again. The tooltip's widget already exists (it is created
+//!   at the first tooltip and kept). Measured: 2.0 M, 0.23 M and 0.14 M; with the overlay shadow
+//!   the first was 15.4 M, which is why the tooltip has none (owner's choice B).
+//! - `first_record_under_a_menu` (F2.11c, a precision of ADR-0039 D1): the same panel with a menu
+//!   open; one label added to the main interface and recorded for the first time, so its segment
+//!   is inserted below the menu's layer (the segments above it move up one place). Target: an
+//!   event's 0.5 M.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -92,7 +106,7 @@ use orchestra_ui::{
 };
 use orchestra_ui::{Axis, ScrollArea, Splitter, Toggle};
 use orchestra_ui::{Direction, EditAction, EditConvention, TextEditor, Unit};
-use orchestra_ui::{ImeEvent, Key, Modifiers, NamedKey, TextField};
+use orchestra_ui::{ImeEvent, Key, Modifiers, NamedKey, Popup, PopupSide, TextField};
 use std::time::Instant;
 
 // A button-like leaf whose width can change.
@@ -1022,9 +1036,166 @@ library_benchmark_group!(
     ]
 );
 
+// The real panel with an elided button on top and the pointer resting on it (F2.11c): one
+// tooltip already shown and hidden, so the tooltip's widget exists; `due` is when the pointer's
+// second rest shows it again.
+struct Tipped {
+    real: Real,
+    due: Instant,
+    over: Point,
+}
+
+fn tipped_resting_drawn(drawn: bool) -> Tipped {
+    let mut real = real_built();
+    let root = real.ui.root();
+    let tipped = real
+        .ui
+        .add(
+            root,
+            Button::new("Restore every option to its default value", usize::MAX),
+            LayoutProps::default().width(Length::Fixed(60.0)),
+        )
+        .unwrap();
+    real.ui
+        .layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut real.list);
+    let rect = real.ui.rect(tipped).unwrap();
+    let over = Point::new(
+        f32::midpoint(rect.x0, rect.x1),
+        f32::midpoint(rect.y0, rect.y1),
+    );
+    let start = real.ui.now();
+    let away = Point::new(900.0, 1500.0);
+    // First rest: the tooltip's widget is created; then off and back after the warm time.
+    let rest = |real: &mut Real, at: u64| {
+        real.ui
+            .input(&InputEvent::PointerMoved { position: over }, &mut real.list);
+        real.ui.advance(
+            start + std::time::Duration::from_millis(at + 500),
+            &mut real.list,
+        );
+        // Drawn: the renderer has met this tooltip's shadow at this place before.
+        if drawn {
+            real_draw(real);
+        }
+        real.ui
+            .input(&InputEvent::PointerMoved { position: away }, &mut real.list);
+        real.ui.advance(
+            start + std::time::Duration::from_millis(at + 2000),
+            &mut real.list,
+        );
+    };
+    rest(&mut real, 0);
+    rest(&mut real, 3000);
+    real.ui
+        .input(&InputEvent::PointerMoved { position: over }, &mut real.list);
+    real_draw(&mut real);
+    let _ = real.ui.take_access_update();
+    let due = real.ui.next_wakeup().unwrap();
+    Tipped { real, due, over }
+}
+
+// The pointer resting where no tooltip was drawn before: the usual case, as the tooltip opens
+// at the pointer.
+fn tipped_resting() -> Tipped {
+    tipped_resting_drawn(false)
+}
+
+// The pointer resting where the same tooltip was drawn before.
+fn tipped_resting_again() -> Tipped {
+    tipped_resting_drawn(true)
+}
+
+fn tipped_shown() -> Tipped {
+    let mut tipped = tipped_resting();
+    tipped.real.ui.advance(tipped.due, &mut tipped.real.list);
+    assert!(tipped.real.ui.tooltip_text().is_some());
+    real_draw(&mut tipped.real);
+    let _ = tipped.real.ui.take_access_update();
+    tipped
+}
+
+#[library_benchmark]
+#[bench::panel(tipped_resting())]
+#[bench::again(tipped_resting_again())]
+fn tooltip_show(mut tipped: Tipped) -> Tipped {
+    tipped
+        .real
+        .ui
+        .advance(black_box(tipped.due), &mut tipped.real.list);
+    real_draw(&mut tipped.real);
+    black_box(tipped.real.ui.take_access_update());
+    tipped
+}
+
+#[library_benchmark]
+#[bench::panel(tipped_shown())]
+fn tooltip_hide(mut tipped: Tipped) -> Tipped {
+    let position = Point::new(tipped.over.x + 200.0, tipped.over.y);
+    tipped.real.ui.input(
+        black_box(&InputEvent::PointerMoved { position }),
+        &mut tipped.real.list,
+    );
+    real_draw(&mut tipped.real);
+    black_box(tipped.real.ui.take_access_update());
+    tipped
+}
+
+// The real panel with a menu of ten labels open near the top left (F2.11c).
+fn menu_open() -> Real {
+    let mut real = real_shown();
+    let menu = real
+        .ui
+        .open_menu(
+            Flex::column(Space::None, Space::None),
+            Popup {
+                anchor: Rect::new(10.0, 30.0, 10.0, 30.0),
+                side: PopupSide::Below,
+                owner: None,
+            },
+            &mut real.list,
+        )
+        .unwrap();
+    for item in 0..10 {
+        real.ui
+            .add(
+                menu,
+                Label::new(format!("Menu item {item}")),
+                LayoutProps::default(),
+            )
+            .unwrap();
+    }
+    real.ui.frame(&mut real.list);
+    real_draw(&mut real);
+    let _ = real.ui.take_access_update();
+    real
+}
+
+#[library_benchmark]
+#[bench::panel(menu_open())]
+fn first_record_under_a_menu(mut real: Real) -> Real {
+    let root = real.ui.root();
+    real.ui
+        .add(
+            root,
+            black_box(Label::new("Track 40: Viola")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    real.ui.frame(&mut real.list);
+    real_draw(&mut real);
+    black_box(real.ui.take_access_update());
+    real
+}
+
+library_benchmark_group!(
+    name = popups,
+    benchmarks = [tooltip_show, tooltip_hide, first_record_under_a_menu]
+);
+
 main!(
     library_benchmark_groups = core,
     controls,
     scrolling,
-    editing
+    editing,
+    popups
 );

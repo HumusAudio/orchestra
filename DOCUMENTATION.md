@@ -4496,6 +4496,80 @@ shortened, each shortened again and the pane drawn: **9.5 M instructions**, with
 33 M. That is the worst case, a whole pane of texts too long. The existing benchmarks did not
 move (at most +0.13 %): a control whose text fits pays nothing.
 
+#### Popups and the tooltip
+
+Step F2.11c (ADR-0048 AM11 and AM14) gives the interface what is drawn **above** it: menus (their
+look and keys come in F2.11d) and the tooltip. The new files are `crates/ui/src/widget/popup.rs`
+(where a popup goes) and `crates/ui/src/widget/tooltip.rs` (the tooltip's box); the routing lives
+in `Ui` (`crates/ui/src/widget/ui.rs`).
+
+**Layers in the display list (a precision of ADR-0039 D1).** Until now segments were drawn in the
+order they were first recorded. A popup cannot live with that: a widget added to the main window
+while a menu is open would be recorded for the first time *after* the menu, and drawn over it.
+Every segment now carries a `layer` (0 for the main interface), fixed when it is first recorded;
+the list keeps segments sorted by layer, and a new one is inserted after the last segment of its
+layer, found by binary search:
+
+```rust
+let index = self
+    .segments
+    .partition_point(|segment| segment.layer <= layer);
+self.segments.insert(index, Segment { id: Some(id), layer, ..Segment::default() });
+```
+
+Appending (the usual case) is O(1); inserting below a popup shifts the segments above it, like a
+removal. `Ui` picks the layer while it records: 0 for the main tree, 1, 2, … for the open menus,
+`u32::MAX` for the tooltip.
+
+**Popups are roots in the same arena.** A menu is opened with `Ui::open_menu(widget, Popup {
+anchor, side, owner }, list)`: its root has no parent, so it is laid out alone, at its natural
+size, and `popup::place` puts it on the preferred side of the anchor (below, or to the right for
+a submenu), on the other side when there is no room, and then pushes it inside the window
+(`winit` 0.30 has no popup windows on Wayland). While a menu is open:
+- the pointer reaches only the menus and their `owner` (a menu bar's title); a press anywhere else
+  closes them all, is consumed together with its release, and each owner gets
+  `WidgetEvent::MenuClosed`;
+- keys go to the topmost menu's root, Tab moves nothing, the focused widget keeps the focus (so
+  Edit will act on the field), and typed text and the input method are off (`text_input()` answers
+  `None`);
+- the window losing the focus closes every menu. `Ui::close_menu` closes a menu and its
+  submenus without telling the owner.
+
+Popups are kept out of the accessibility tree for now: the tooltip is not for assistive
+technologies, and the menus will describe themselves in F2.11d.
+
+**The tooltip.** A control answers `Widget::tooltip()`; the label, the button and the toggles
+answer their whole text while it is shortened with an ellipsis:
+
+```rust
+fn tooltip(&self) -> Option<&str> {
+    self.is_elided().then_some(self.text.as_str())
+}
+```
+
+`Ui` starts a 500 ms timer when the pointer comes over such a control (its own wake-up, counted by
+`next_wakeup`), shows the tooltip 20 px below the pointer, and shows the next one at once if the
+pointer reaches another control within 500 ms of the previous tooltip going away. A key, a press
+or the wheel hide it (the key still does its job: Escape also closes a dialog), and that control's
+tooltip stays away until the pointer leaves it; the pointer can move onto the tooltip. The
+tooltip's widget is created once and kept hidden, so showing and hiding allocate nothing
+(`showing_and_hiding_tooltips_never_allocates`). It draws `text` in `size-small` on
+`surface-overlay`, with a `border`, the theme's corner radius, at most 320 px wide, and **no
+shadow**: with the overlay shadow, showing a tooltip cost 15.4 M instructions, because the shadow
+cache of ADR-0043 is keyed by the exact position and a tooltip opens at the pointer (owner's choice
+B; the menus keep the shadow). Its position is rounded to whole pixels, so its glyphs come from
+the glyph cache. Tests and screenshot scenes read what is shown with `Ui::tooltip_text()` and
+`Ui::tooltip_rect()` (both `None` while no tooltip is shown).
+
+**Tests and benchmarks.** `crates/ui/tests/popups.rs` covers the layers (a widget added under an
+open menu is drawn below it), placement, the outside press, the owner, keys and focus, submenus,
+the window's focus, and the tooltip's timing, dismissal and hovering, with made-up times. The
+benchmarks `tooltip_show`, `tooltip_hide` and `first_record_under_a_menu` measure, on the real
+panel: 2.0 M instructions to show a tooltip at a new place (its glyphs and box drawn there for the
+first time), 0.23 M at the same place, 0.14 M to hide it, 0.35 M to record a widget under an open
+menu. The screenshot scene `demo-tooltip` shows a shortened button's tooltip in the demonstration
+window narrowed to 200 px (`TOOLTIP_SCENE_WIDTH`), checked by a test of `crates/app/tests/demo.rs`.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

@@ -140,12 +140,44 @@ impl Scene {
 /// Today only the demonstration window exists (ADR-0040 W8): it is here to prove the pipeline end
 /// to end, and the guides do **not** include it, because it is a throw-away view that the reader
 /// will never see (ADR-0041 S7). The first pictures the guides show arrive with the real views.
-pub const SCENES: &[Scene] = &[Scene {
-    name: "demo-window",
-    width: 640.0,
-    height: 370.0,
-    record: record_demo_window,
-}];
+pub const SCENES: &[Scene] = &[
+    Scene {
+        name: "demo-window",
+        width: 640.0,
+        height: 370.0,
+        record: record_demo_window,
+    },
+    Scene {
+        name: "demo-tooltip",
+        width: TOOLTIP_SCENE_WIDTH,
+        height: 370.0,
+        record: record_demo_tooltip,
+    },
+];
+
+/// The width of the tooltip's scene, logical pixels: a window so narrow that the options' pane
+/// is below its minimum and *Restore defaults* is shortened with an ellipsis, so it has a tooltip
+/// (at the options' minimum width, 160 pixels, the button still fits). Measured in F2.11c: the
+/// button is whole at 240 pixels and shortened at 200.
+pub const TOOLTIP_SCENE_WIDTH: f32 = 200.0;
+
+/// The demonstration window, narrowed, with the pointer resting on the shortened *Restore
+/// defaults* button for the 500 ms its tooltip waits for (F2.11c, ADR-0048 AM14): the tooltip
+/// shows the button's whole text below the pointer, inside the window.
+fn record_demo_tooltip(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    let Some(rect) = demo.ui().rect(demo.restore_defaults()) else {
+        return;
+    };
+    let position = orchestra_ui::Point::new(
+        f32::midpoint(rect.x0, rect.x1),
+        f32::midpoint(rect.y0, rect.y1),
+    );
+    demo.input(&InputEvent::PointerMoved { position }, list);
+    let rested = demo.ui().now() + std::time::Duration::from_millis(500);
+    demo.advance(rested, list);
+}
 
 /// The demonstration window (the Playback options preview, F2.09c) with the keyboard focus on
 /// its first control, the *Metronome* check box, so the focus ring is in the picture.

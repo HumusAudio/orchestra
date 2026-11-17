@@ -89,6 +89,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::Increment | WidgetEvent::Decrement | WidgetEvent::SetValue(_) => "value",
             WidgetEvent::Scroll { .. } => "scroll",
             WidgetEvent::WakeUp => "wake",
+            WidgetEvent::MenuClosed(_) => "menu-closed",
             WidgetEvent::SetText(_)
             | WidgetEvent::ReplaceSelectedText(_)
             | WidgetEvent::SetTextSelection { .. } => "edit",

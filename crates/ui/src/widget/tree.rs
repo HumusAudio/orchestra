@@ -243,6 +243,13 @@ pub enum WidgetEvent<'a> {
     /// without bubbling, at the first frame at or after the time asked; the time of the frame is
     /// [`EventCx::now`]. A widget that wants another wake-up asks again while handling this one.
     WakeUp,
+    /// A menu this widget owns ([`Popup::owner`](crate::Popup)) was closed by the interface
+    /// itself, not by the application: a press outside the open menus, or the window losing the
+    /// focus (ADR-0048 AM11, F2.11c). The ID is the menu's root, already removed. Sent to the
+    /// owner alone, without bubbling, once per closed menu it owns, so a menu bar can forget
+    /// which of its titles was open. A menu closed by [`Ui::close_menu`](crate::Ui::close_menu)
+    /// sends nothing: the caller already knows.
+    MenuClosed(WidgetId),
     /// An assistive technology asked to scroll (AccessKit's scroll actions, F2.09d): a scroll
     /// area moves its content by a line (`page == false`) or by a viewport (`page == true`).
     Scroll {
@@ -415,6 +422,19 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     /// Asked after every event, so answer from what the last `arrange` stored, without
     /// allocating.
     fn ime_area(&self) -> Option<Rect> {
+        None
+    }
+
+    /// The text of the widget's tooltip, or `None` (the default) for no tooltip (F2.11c, ADR-0048
+    /// AM14). The interface asks the hovered widget and then its ancestors, up to the first that
+    /// answers, while the pointer rests: the tooltip appears after 500 ms with this text, and
+    /// changes nothing else. Today a label, a button or a toggle answers its whole text while it
+    /// is drawn shortened with an ellipsis (F2.09f), and `None` when the whole text shows; the
+    /// controls tied to an action will add its name and shortcut (F2.11d).
+    ///
+    /// Asked at every pointer move over the widget, so answer from stored state, without
+    /// allocating. The text must already be localised (CLAUDE.md §7).
+    fn tooltip(&self) -> Option<&str> {
         None
     }
 }
@@ -608,6 +628,10 @@ pub(crate) struct Slot<M> {
     pub(crate) needs_overlay: bool,
     /// Its accessibility node must be sent again (WC3).
     pub(crate) needs_access: bool,
+    /// The display-list layer its segments go into (F2.11c, a precision of ADR-0039 D1): 0 for
+    /// the main interface, the popup's layer for a popup's widgets. Inherited from the parent at
+    /// insertion; a popup's root is given its layer when the popup opens.
+    pub(crate) layer: u32,
 }
 
 /// The arena (WB2).
@@ -695,6 +719,11 @@ impl<M: 'static> WidgetTree<M> {
             needs_record: true,
             needs_overlay: false,
             needs_access: true,
+            // A child draws in its parent's layer; a root (the main one, or a popup's before the
+            // interface gives it its layer) in the main one.
+            layer: parent
+                .and_then(|parent| self.slot(parent))
+                .map_or(0, |parent| parent.layer),
         };
         let index = if let Some(index) = self.free.pop() {
             if let Some(place) = self.slots.get_mut(index) {

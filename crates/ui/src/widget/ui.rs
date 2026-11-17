@@ -55,6 +55,35 @@
 //! main one and re-recorded alone on request ([`EventCx::request_overlay`]): the text field's
 //! caret, so that a blink damages the caret and not the field.
 //!
+//! # Popups (F2.11c, ADR-0048 AM11 and AM14)
+//! Menus and the tooltip are subtrees with roots of their own in the same arena, laid out at their
+//! natural size next to an anchor ([`super::popup::place`], always inside the window) and recorded
+//! in display-list layers above the main interface (a precision of ADR-0039 D1): each open menu
+//! gets the next layer, the tooltip the highest. They are kept out of the accessibility tree: the
+//! tooltip is not for assistive technologies (AM14), and the menus describe themselves when they
+//! are written (F2.11d).
+//!
+//! While a menu is open ([`Ui::open_menu`]):
+//! - the pointer reaches the open menus (the topmost first) and the widgets that own them
+//!   ([`Popup::owner`]), nothing else; a press anywhere else closes every menu, **is consumed**
+//!   (it reaches nothing below, WB9 as AM11 decides) and the owners are told
+//!   ([`WidgetEvent::MenuClosed`]);
+//! - keys go to the topmost menu (its root, bubbling inside it) and never into the main
+//!   interface; the focused widget keeps the focus (AM11: an Edit item acts on the field that had
+//!   it), but typed text and the input method are off, so typing a menu's letter cannot start a
+//!   composition in the field below;
+//! - the window losing the focus closes every menu, as the three platforms do.
+//!
+//! The **tooltip** ([`Widget::tooltip`]) appears when the pointer has rested 500 ms on a control
+//! that has one (the timer starts when the pointer comes over it), with no delay on the next such
+//! control within 500 ms of the previous tooltip going away by a move; it goes away on any key or
+//! button press and on the wheel (and that control's tooltip does not come back until the
+//! pointer leaves it), when the pointer leaves the control for something else, or the window. The
+//! pointer may move onto the tooltip without hiding it (WCAG 1.4.13, hoverable). A key that hides
+//! it is not consumed (choice 4 of F2.11c): Escape hides the tooltip and still closes a dialog.
+//! The tooltip's widget is created the first time one shows and kept afterwards, hidden, so
+//! showing and hiding allocate nothing once it exists.
+//!
 //! # Allocation
 //! Routing an event allocates nothing (hit testing recurses on the tree, bubbling follows parent
 //! links, Tab order walks with a reused stack). Messages go into a queue that keeps its capacity.
@@ -75,6 +104,8 @@ use super::access::{
     push_widget_nodes, window_node,
 };
 use super::layout::{Constraints, LayoutProps, Size};
+use super::popup::{self, Popup, PopupSide};
+use super::tooltip::Tooltip;
 use super::tree::{
     EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId, WidgetTree,
 };
@@ -155,7 +186,60 @@ pub struct Ui<M> {
     /// ([`EventCx::reset_ime`]), wrapping: the window compares it with the count it last saw
     /// ([`TextInput::reset`]).
     ime_resets: u64,
+    /// The open menus, lowest first (F2.11c, ADR-0048 AM11; see the module documentation).
+    menus: Vec<MenuLayer>,
+    /// The display-list layer the next menu opens in: one above the last, back to the first when
+    /// none is open.
+    next_layer: u32,
+    /// The tooltip's state (ADR-0048 AM14).
+    tooltip: TooltipState,
+    /// A press closed the menus and was consumed: its release is consumed too, so the widget
+    /// under it does not get a release without a press.
+    swallow_release: bool,
 }
+
+/// One open menu (F2.11c).
+#[derive(Debug, Clone, Copy)]
+struct MenuLayer {
+    /// Its root's slot.
+    root: usize,
+    /// The slot of the widget it belongs to ([`Popup::owner`]), if any.
+    owner: Option<usize>,
+    /// Where it opens.
+    popup: Popup,
+}
+
+/// What the interface knows about the tooltip (ADR-0048 AM14; see the module documentation).
+/// Slots, not IDs, like the hover: they are dropped when their widget is removed.
+#[derive(Debug, Default)]
+struct TooltipState {
+    /// The tooltip widget's slot, once one has been shown; kept, hidden, afterwards.
+    root: Option<usize>,
+    /// The control whose tooltip is shown, while one is.
+    shown_for: Option<usize>,
+    /// Where the shown tooltip opened ([`popup::tooltip_anchor`] at the pointer then).
+    anchor: Rect,
+    /// A control the pointer is resting on, and when its tooltip is due.
+    pending: Option<(usize, Instant)>,
+    /// Until when the next tooltip shows at once: 500 ms after one went away by a move.
+    warm_until: Option<Instant>,
+    /// A control whose tooltip a press, a key or the wheel dismissed: it does not come back until
+    /// the pointer is over something else.
+    suppressed: Option<usize>,
+}
+
+/// How long the pointer must rest on a control before its tooltip shows (ADR-0048 AM14): GTK's
+/// default and close to Windows' (`SPI_GETMOUSEHOVERTIME`, 400 ms).
+const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// For how long after a tooltip went away by a move the next one shows at once (AM14).
+const TOOLTIP_WARM: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// The display-list layer of the first menu: one above the main interface's 0.
+const FIRST_MENU_LAYER: u32 = 1;
+
+/// The display-list layer of the tooltip: above every menu.
+const TOOLTIP_LAYER: u32 = u32::MAX;
 
 /// What the window must do with the system's input method (ADR-0047 TF5, TF6; F2.10c2): the
 /// answer of [`Ui::text_input`] while a widget that takes text has the focus.
@@ -187,6 +271,10 @@ impl<M: 'static> Ui<M> {
             wakeups: Vec::new(),
             due: Vec::new(),
             ime_resets: 0,
+            menus: Vec::new(),
+            next_layer: FIRST_MENU_LAYER,
+            tooltip: TooltipState::default(),
+            swallow_release: false,
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -256,6 +344,12 @@ impl<M: 'static> Ui<M> {
         if slot == ROOT {
             return Err(UiError::RemoveRoot);
         }
+        self.remove_slot(slot, list);
+        Ok(())
+    }
+
+    /// [`Ui::remove`] for a slot known to exist and not to be the root.
+    fn remove_slot(&mut self, slot: usize, list: &mut DisplayList) {
         self.removed.clear();
         let mut removed = std::mem::take(&mut self.removed);
         self.tree.remove(slot, &mut removed);
@@ -275,10 +369,28 @@ impl<M: 'static> Ui<M> {
         self.focused = alive(self.focused, &self.tree);
         self.modals
             .retain(|&(layer, _)| self.tree.slot(layer).is_some());
+        // A removed menu is no longer open; a menu whose owner went keeps open without one.
+        let tree = &self.tree;
+        self.menus.retain(|menu| tree.slot(menu.root).is_some());
+        for menu in &mut self.menus {
+            menu.owner = alive(menu.owner, tree);
+        }
+        if self.menus.is_empty() {
+            self.next_layer = FIRST_MENU_LAYER;
+        }
+        // The tooltip forgets the controls that went; one shown for a removed control is hidden.
+        self.tooltip.root = alive(self.tooltip.root, tree);
+        self.tooltip.suppressed = alive(self.tooltip.suppressed, tree);
+        self.tooltip.pending = self
+            .tooltip
+            .pending
+            .filter(|&(slot, _)| tree.slot(slot).is_some());
+        if self.tooltip.shown_for.is_some() && alive(self.tooltip.shown_for, tree).is_none() {
+            self.hide_tooltip();
+        }
         // Slots freed by the removal may be reused by the next insertion: forget their requests.
         let tree = &self.tree;
         self.rearrange.retain(|&slot| tree.slot(slot).is_some());
-        Ok(())
     }
 
     /// The widget `id` as its concrete type, to read its state.
@@ -415,6 +527,11 @@ impl<M: 'static> Ui<M> {
     /// Two calls to the focused widget, each answering from stored state; no allocation.
     #[must_use]
     pub fn text_input(&self) -> Option<TextInput> {
+        // While a menu is open the keys are the menu's (ADR-0048 AM11): the input method is off,
+        // so a menu's letter cannot start a composition in the field that keeps the focus.
+        if !self.menus.is_empty() {
+            return None;
+        }
         let slot = self.tree.slot(self.focused?)?;
         let widget = slot.widget.as_deref()?;
         widget.accepts_text().then(|| TextInput {
@@ -504,19 +621,68 @@ impl<M: 'static> Ui<M> {
         while let Some(index) = self.rearrange.pop() {
             self.tree.rearrange(index);
         }
+        self.lay_out_popups();
         self.record(list);
+    }
+
+    /// Lays the open popups out at their natural size and places them (F2.11c, ADR-0048 AM11):
+    /// each is measured within the window (from its cache when nothing changed) and arranged at
+    /// the rectangle [`popup::place`] gives, which arranging skips when it did not move.
+    ///
+    /// # Complexity
+    /// O(open popups) when nothing changed (one cached measure and one skipped arrange each),
+    /// plus the layout of what did change.
+    fn lay_out_popups(&mut self) {
+        for index in 0..self.menus.len() {
+            if let Some(&menu) = self.menus.get(index) {
+                self.place_popup(menu.root, menu.popup.anchor, menu.popup.side);
+            }
+        }
+        if let (Some(root), Some(_)) = (self.tooltip.root, self.tooltip.shown_for) {
+            self.place_popup(root, self.tooltip.anchor, PopupSide::Below);
+        }
+    }
+
+    /// Measures the popup whose root is `root` within the window and arranges it next to
+    /// `anchor`, inside the window.
+    fn place_popup(&mut self, root: usize, anchor: Rect, side: PopupSide) {
+        let window = Size::new(self.bounds.width(), self.bounds.height());
+        let size = self.tree.measure(root, Constraints::loose(window));
+        let rect = popup::place(anchor, size, side, self.bounds);
+        self.tree.arrange(root, rect);
     }
 
     /// The recording walk (WA6, F2.09d): pre-order, children in order, so a segment recorded for
     /// the first time lands above its parent's. Each slot receives the clip its ancestors give
     /// it; a slot whose clip changed is recorded again even if nothing else changed (the part of
     /// it that can be seen did).
+    ///
+    /// The main interface is walked first, in layer 0, then each open menu in its layer and the
+    /// tooltip in the highest (F2.11c): the display list keeps each layer above the lower ones
+    /// whatever the order segments are first recorded in (a precision of ADR-0039 D1).
     fn record(&mut self, list: &mut DisplayList) {
+        self.record_from(ROOT, 0, list);
+        for index in 0..self.menus.len() {
+            if let Some(menu) = self.menus.get(index) {
+                let root = menu.root;
+                let layer = self.tree.slot(root).map_or(0, |slot| slot.layer);
+                self.record_from(root, layer, list);
+            }
+        }
+        if let Some(root) = self.tooltip.root {
+            self.record_from(root, TOOLTIP_LAYER, list);
+        }
+        list.set_layer(0);
+    }
+
+    /// The recording walk below `root`, whose new segments go into `layer`.
+    fn record_from(&mut self, root: usize, layer: u32, list: &mut DisplayList) {
+        list.set_layer(layer);
         let spacing = self.tree.spacing;
         let shape = self.shape;
         let focused = self.focused;
         self.walk.clear();
-        self.walk.push((ROOT, None));
+        self.walk.push((root, None));
         while let Some((index, clip)) = self.walk.pop() {
             let Some(slot) = self.tree.slot_mut(index) else {
                 continue;
@@ -619,8 +785,19 @@ impl<M: 'static> Ui<M> {
                 self.deliver(slot, &WidgetEvent::WakeUp, false);
             }
         }
-        let woken = !due.is_empty();
+        let mut woken = !due.is_empty();
         self.due = due;
+        // The tooltip's own timer (ADR-0048 AM14): it shows if the pointer is still resting on
+        // the control it was started for.
+        if let Some((control, at)) = self.tooltip.pending
+            && at <= now
+        {
+            self.tooltip.pending = None;
+            if self.tooltip_candidate() == Some(control) {
+                self.show_tooltip(control);
+                woken = true;
+            }
+        }
         if woken {
             self.frame(list);
         }
@@ -633,7 +810,13 @@ impl<M: 'static> Ui<M> {
     /// O(pending wake-ups), no allocation.
     #[must_use]
     pub fn next_wakeup(&self) -> Option<Instant> {
-        self.wakeups.iter().map(|&(_, at)| at).min()
+        let widgets = self.wakeups.iter().map(|&(_, at)| at).min();
+        // The tooltip's timer counts too: the window must wake to show it.
+        let tooltip = self.tooltip.pending.map(|(_, at)| at);
+        match (widgets, tooltip) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     /// Handles one input event of the window (WA3), then runs a frame.
@@ -661,20 +844,27 @@ impl<M: 'static> Ui<M> {
                             true,
                         );
                     }
+                    // Not during a drag: a tooltip would cover what is being dragged.
+                    self.follow_tooltip();
                 }
             }
             InputEvent::PointerLeft => {
                 if self.captured.is_none() {
                     self.set_hover(None);
                 }
+                // Out of the window: no tooltip, and none waiting.
+                self.hide_tooltip();
+                self.tooltip.pending = None;
+                self.tooltip.suppressed = None;
             }
             InputEvent::PointerButton {
                 button,
                 state,
                 position,
                 clicks,
-            } => self.pointer_button(*button, *state, *position, *clicks),
+            } => self.pointer_button(*button, *state, *position, *clicks, list),
             InputEvent::Wheel { delta } => {
+                self.dismiss_tooltip();
                 if let Some(target) = self.hit(self.pointer) {
                     let event = WidgetEvent::Wheel {
                         delta: *delta,
@@ -688,25 +878,10 @@ impl<M: 'static> Ui<M> {
                 state,
                 repeat,
                 modifiers,
-            } => {
-                self.modifiers = *modifiers;
-                let event = WidgetEvent::Key {
-                    key,
-                    state: *state,
-                    repeat: *repeat,
-                    modifiers: *modifiers,
-                };
-                let start = self
-                    .focused
-                    .or_else(|| self.modals.last().map(|&(layer, _)| layer));
-                let handled = start.and_then(|start| self.deliver(start, &event, true));
-                if handled.is_none()
-                    && *state == ButtonState::Pressed
-                    && *key == Key::Named(NamedKey::Tab)
-                {
-                    self.move_focus(!modifiers.shift);
-                }
-            }
+            } => self.key(key, *state, *repeat, *modifiers),
+            // With a menu open, typed text and the input method's events reach nothing: the
+            // menu takes its letters as keys, and the input method is off (`text_input`).
+            InputEvent::Text(_) | InputEvent::Ime(_) if !self.menus.is_empty() => {}
             InputEvent::Text(text) => {
                 // Like a key (WA3): to the focused widget, or the open modal layer, bubbling.
                 let start = self
@@ -729,22 +904,66 @@ impl<M: 'static> Ui<M> {
             InputEvent::ModifiersChanged { modifiers } => self.modifiers = *modifiers,
             // A window losing the focus misses the releases of the keys held: forget them, or the
             // fine adjustment would stay on after an Alt+Tab with Ctrl held.
-            InputEvent::Focus(false) => self.modifiers = Modifiers::default(),
+            // It also closes the menus and hides the tooltip, as the three platforms do.
+            InputEvent::Focus(false) => {
+                self.modifiers = Modifiers::default();
+                self.close_menus_from(0, list, true);
+                self.hide_tooltip();
+                self.tooltip.pending = None;
+            }
             InputEvent::Focus(true) => {}
         }
         self.frame(list);
     }
 
+    /// A key (WA3): to the focused widget (or the open modal layer), bubbling; an unhandled Tab
+    /// moves the focus (WA4). With a menu open, to the topmost menu instead (ADR-0048 AM11).
+    fn key(&mut self, key: &Key, state: ButtonState, repeat: bool, modifiers: Modifiers) {
+        self.modifiers = modifiers;
+        let event = WidgetEvent::Key {
+            key,
+            state,
+            repeat,
+            modifiers,
+        };
+        // Any key hides the tooltip, and still does what it does (choice 4 of F2.11c).
+        if state == ButtonState::Pressed {
+            self.dismiss_tooltip();
+        }
+        // With a menu open the keys are the topmost menu's, bubbling inside it only, and Tab moves
+        // nothing in the main interface (ADR-0048 AM11).
+        if let Some(menu) = self.menus.last() {
+            let root = menu.root;
+            self.deliver(root, &event, true);
+            return;
+        }
+        let start = self
+            .focused
+            .or_else(|| self.modals.last().map(|&(layer, _)| layer));
+        let handled = start.and_then(|start| self.deliver(start, &event, true));
+        if handled.is_none() && state == ButtonState::Pressed && *key == Key::Named(NamedKey::Tab) {
+            self.move_focus(!modifiers.shift);
+        }
+    }
+
     /// A pointer button (WA3): a press goes to the widget under the pointer, which captures the
     /// pointer if it handles it; the release goes to the capturing widget.
+    ///
+    /// While a menu is open (F2.11c, ADR-0048 AM11) a press outside the menus and their owners
+    /// closes every menu and is consumed, and a press inside moves no focus: the focused widget
+    /// keeps it for the Edit items.
     fn pointer_button(
         &mut self,
         button: PointerButton,
         state: ButtonState,
         position: Point,
         clicks: u8,
+        list: &mut DisplayList,
     ) {
         self.pointer = position;
+        if state == ButtonState::Pressed {
+            self.dismiss_tooltip();
+        }
         let widget_event = WidgetEvent::PointerButton {
             button,
             state,
@@ -759,6 +978,17 @@ impl<M: 'static> Ui<M> {
                 let target = self.hit(position);
                 self.set_hover(target);
             }
+            (ButtonState::Pressed, _) if !self.menus.is_empty() => match self.hit(position) {
+                None => {
+                    self.close_menus_from(0, list, true);
+                    self.swallow_release = true;
+                }
+                Some(target) => {
+                    if let Some(handler) = self.deliver(target, &widget_event, true) {
+                        self.captured = Some(handler);
+                    }
+                }
+            },
             (ButtonState::Pressed, _) => {
                 if let Some(target) = self.hit(position) {
                     self.focus_on_press(target);
@@ -767,6 +997,8 @@ impl<M: 'static> Ui<M> {
                     }
                 }
             }
+            // The release of a press that closed the menus: consumed like its press.
+            (ButtonState::Released, None) if self.swallow_release => self.swallow_release = false,
             (ButtonState::Released, None) => {
                 if let Some(target) = self.hit(position) {
                     self.deliver(target, &widget_event, true);
@@ -862,7 +1094,21 @@ impl<M: 'static> Ui<M> {
 
     /// The topmost widget under `point` (WA3): inside the innermost modal layer only, if one is
     /// open (WB9). Later children are tested first, as they are drawn on top.
+    ///
+    /// With menus open (F2.11c) only the menus, topmost first, and then their owners can be hit;
+    /// the tooltip never is (it takes no input).
     fn hit(&self, point: Point) -> Option<usize> {
+        if !self.menus.is_empty() {
+            let menus = self.menus.iter().rev();
+            return menus
+                .clone()
+                .find_map(|menu| self.hit_in(menu.root, point))
+                .or_else(|| {
+                    menus
+                        .filter_map(|menu| menu.owner)
+                        .find_map(|owner| self.hit_in(owner, point))
+                });
+        }
         let top = self.modals.last().map_or(ROOT, |&(layer, _)| layer);
         self.hit_in(top, point)
     }
@@ -1118,6 +1364,286 @@ impl<M: 'static> Ui<M> {
 }
 
 impl<M: 'static> Ui<M> {
+    /// Opens `widget` as a menu next to `popup.anchor` (F2.11c, ADR-0048 AM11) and answers its
+    /// ID, under which the application adds the menu's items ([`Ui::add`]). The menu is laid out
+    /// at its natural size and placed inside the window ([`super::popup::place`]), above the
+    /// main interface and above the menus already open (a submenu is opened as another menu).
+    ///
+    /// While it is open the pointer reaches only the open menus and their owners, a press
+    /// elsewhere closes them all, keys go to the topmost menu and the focus stays where it was
+    /// (see the module documentation). A tooltip showing is hidden.
+    ///
+    /// # Errors
+    /// [`UiError::UnknownWidget`] if `popup.owner` does not exist.
+    pub fn open_menu(
+        &mut self,
+        widget: impl Widget<M>,
+        popup: Popup,
+        list: &mut DisplayList,
+    ) -> Result<WidgetId, UiError> {
+        let owner = match popup.owner {
+            Some(id) => Some(self.tree.slot_of(id).ok_or(UiError::UnknownWidget(id))?),
+            None => None,
+        };
+        let root = self
+            .tree
+            .insert(None, Box::new(widget), LayoutProps::default());
+        // The next layer up; it never reaches the tooltip's (four billion menus open at once
+        // cannot happen, and saturating keeps the order right regardless).
+        let layer = self.next_layer.min(TOOLTIP_LAYER - 1);
+        self.next_layer = self.next_layer.saturating_add(1);
+        if let Some(slot) = self.tree.slot_mut(root) {
+            slot.layer = layer;
+        }
+        self.menus.push(MenuLayer { root, owner, popup });
+        self.hide_tooltip();
+        self.tooltip.pending = None;
+        // The pointer may be over what the menu now blocks.
+        let hovered = self.hit(self.pointer);
+        if self.captured.is_none() {
+            self.set_hover(hovered);
+        }
+        self.frame(list);
+        self.id_of(root)
+            .ok_or(UiError::UnknownWidget(WidgetId::placeholder()))
+    }
+
+    /// Closes the open menu `id` and every menu opened after it (its submenus), removing their
+    /// widgets and segments. Their owners are not told ([`WidgetEvent::MenuClosed`] is for the
+    /// menus the interface closes by itself): the caller already knows.
+    ///
+    /// # Errors
+    /// [`UiError::UnknownWidget`] if `id` is not an open menu.
+    pub fn close_menu(&mut self, id: WidgetId, list: &mut DisplayList) -> Result<(), UiError> {
+        let root = self.tree.slot_of(id).ok_or(UiError::UnknownWidget(id))?;
+        let position = self
+            .menus
+            .iter()
+            .position(|menu| menu.root == root)
+            .ok_or(UiError::UnknownWidget(id))?;
+        self.close_menus_from(position, list, false);
+        self.frame(list);
+        Ok(())
+    }
+
+    /// The open menus' IDs, lowest first.
+    pub fn menus(&self) -> impl Iterator<Item = WidgetId> + '_ {
+        self.menus.iter().filter_map(|menu| self.id_of(menu.root))
+    }
+
+    /// Closes the menus from position `from` of the stack upwards, topmost first, removing their
+    /// subtrees; with `notify`, each owner still alive gets [`WidgetEvent::MenuClosed`].
+    fn close_menus_from(&mut self, from: usize, list: &mut DisplayList, notify: bool) {
+        while self.menus.len() > from {
+            let Some(menu) = self.menus.pop() else {
+                break;
+            };
+            let id = self.id_of(menu.root);
+            if self.tree.slot(menu.root).is_some() {
+                self.remove_slot(menu.root, list);
+            }
+            if notify
+                && let (Some(id), Some(owner)) = (id, menu.owner)
+                && self.tree.slot(owner).is_some()
+            {
+                self.call(owner, &WidgetEvent::MenuClosed(id));
+            }
+        }
+        if self.menus.is_empty() {
+            self.next_layer = FIRST_MENU_LAYER;
+        }
+        // The pointer may be over the main interface again.
+        if self.captured.is_none() {
+            let hovered = self.hit(self.pointer);
+            self.set_hover(hovered);
+        }
+    }
+
+    /// The control whose tooltip the pointer would show now: the hovered widget or its nearest
+    /// ancestor with a [`Widget::tooltip`]. None while a menu is open (menus explain themselves).
+    ///
+    /// # Cost
+    /// O(depth) calls answering from stored state; no allocation.
+    fn tooltip_candidate(&self) -> Option<usize> {
+        if !self.menus.is_empty() {
+            return None;
+        }
+        let mut current = self.hovered;
+        while let Some(index) = current {
+            let slot = self.tree.slot(index)?;
+            if slot.widget.as_deref().and_then(Widget::tooltip).is_some() {
+                return Some(index);
+            }
+            current = slot.parent;
+        }
+        None
+    }
+
+    /// Follows the pointer for the tooltip, after a move with nothing captured (ADR-0048 AM14):
+    /// keeps the tooltip shown while the pointer is over its control or over the tooltip itself,
+    /// hides it (starting the 500 ms in which the next one shows at once) when the pointer is over
+    /// something else, and starts the timer of the control the pointer is now over.
+    fn follow_tooltip(&mut self) {
+        let candidate = self.tooltip_candidate();
+        if let Some(shown) = self.tooltip.shown_for {
+            if candidate == Some(shown) || self.pointer_over_tooltip() {
+                return;
+            }
+            self.hide_tooltip();
+            self.tooltip.warm_until = Some(self.now + TOOLTIP_WARM);
+        }
+        // A dismissed control stays without a tooltip until the pointer is over something else.
+        if candidate != self.tooltip.suppressed {
+            self.tooltip.suppressed = None;
+        }
+        match candidate {
+            Some(control) if Some(control) != self.tooltip.suppressed => {
+                if self
+                    .tooltip
+                    .pending
+                    .is_some_and(|(waiting, _)| waiting == control)
+                {
+                    // Still resting on the same control: its timer runs on.
+                    return;
+                }
+                if self
+                    .tooltip
+                    .warm_until
+                    .is_some_and(|until| self.now < until)
+                {
+                    self.show_tooltip(control);
+                } else {
+                    self.tooltip.pending = Some((control, self.now + TOOLTIP_DELAY));
+                }
+            }
+            _ => self.tooltip.pending = None,
+        }
+    }
+
+    /// `true` while a tooltip is shown and the pointer is over it.
+    fn pointer_over_tooltip(&self) -> bool {
+        self.tooltip.shown_for.is_some()
+            && self
+                .tooltip
+                .root
+                .and_then(|root| self.tree.slot(root))
+                .is_some_and(|slot| contains(slot.rect, self.pointer))
+    }
+
+    /// Shows the tooltip of `control` below the pointer (ADR-0048 AM14). The tooltip's widget is
+    /// created the first time and reused afterwards; it is laid out and recorded at the next
+    /// frame.
+    fn show_tooltip(&mut self, control: usize) {
+        let Some(text) = self
+            .tree
+            .slot(control)
+            .and_then(|slot| slot.widget.as_deref())
+            .and_then(Widget::tooltip)
+        else {
+            return;
+        };
+        let root = if let Some(root) = self.tooltip.root {
+            // The tooltip's widget is taken out of its slot while the control's text (borrowed
+            // from the same arena) is copied into it, so no temporary copy of the text is made:
+            // the tooltip's own string keeps its capacity, and showing allocates nothing once
+            // the text has fitted in it before. The downcast cannot fail (the slot holds the
+            // interface's own `Tooltip`); if it did, the tooltip would simply keep its old text.
+            let mut widget = self.tree.slot_mut(root).and_then(|slot| slot.widget.take());
+            if let (Some(tooltip), Some(text)) = (
+                widget
+                    .as_deref_mut()
+                    .and_then(|widget| widget.as_any_mut().downcast_mut::<Tooltip>()),
+                self.tree
+                    .slot(control)
+                    .and_then(|slot| slot.widget.as_deref())
+                    .and_then(Widget::tooltip),
+            ) {
+                tooltip.set_text(text);
+                tooltip.set_visible(true);
+            }
+            if let Some(slot) = self.tree.slot_mut(root) {
+                slot.widget = widget;
+            }
+            root
+        } else {
+            let tooltip = Tooltip::new(text);
+            let root = self
+                .tree
+                .insert(None, Box::new(tooltip), LayoutProps::default());
+            if let Some(slot) = self.tree.slot_mut(root) {
+                slot.layer = TOOLTIP_LAYER;
+            }
+            self.tooltip.root = Some(root);
+            root
+        };
+        self.tree.invalidate_layout(root);
+        if let Some(slot) = self.tree.slot_mut(root) {
+            slot.needs_record = true;
+        }
+        self.tooltip.anchor = popup::tooltip_anchor(self.pointer);
+        self.tooltip.shown_for = Some(control);
+        self.tooltip.pending = None;
+    }
+
+    /// Hides the tooltip, if one is shown: its segment is recorded empty at the next frame.
+    fn hide_tooltip(&mut self) {
+        if self.tooltip.shown_for.take().is_none() {
+            return;
+        }
+        if let Some(root) = self.tooltip.root {
+            if let Some(tooltip) = self
+                .tree
+                .slot_mut(root)
+                .and_then(|slot| slot.widget.as_deref_mut())
+                .and_then(|widget| widget.as_any_mut().downcast_mut::<Tooltip>())
+            {
+                tooltip.set_visible(false);
+            }
+            if let Some(slot) = self.tree.slot_mut(root) {
+                slot.needs_record = true;
+            }
+        }
+    }
+
+    /// A press, a key or the wheel (ADR-0048 AM14): the tooltip goes away and its control's
+    /// does not come back, nor start again, until the pointer is over something else.
+    fn dismiss_tooltip(&mut self) {
+        let control = self
+            .tooltip
+            .shown_for
+            .or(self.tooltip.pending.map(|(control, _)| control));
+        if control.is_some() {
+            self.tooltip.suppressed = control;
+        }
+        self.hide_tooltip();
+        self.tooltip.pending = None;
+        self.tooltip.warm_until = None;
+    }
+
+    /// The text of the tooltip shown now, if any: for tests and for the screenshots' scenes.
+    #[must_use]
+    pub fn tooltip_text(&self) -> Option<&str> {
+        self.tooltip.shown_for?;
+        let root = self.tooltip.root?;
+        self.tree
+            .slot(root)?
+            .widget
+            .as_deref()?
+            .as_any()
+            .downcast_ref::<Tooltip>()
+            .map(Tooltip::text)
+    }
+
+    /// The rectangle of the tooltip shown now, if any, logical pixels of the window, from the
+    /// last frame.
+    #[must_use]
+    pub fn tooltip_rect(&self) -> Option<Rect> {
+        self.tooltip.shown_for?;
+        self.tree.slot(self.tooltip.root?).map(|slot| slot.rect)
+    }
+}
+
+impl<M: 'static> Ui<M> {
     /// The accessibility update to send (ADR-0045 WA5, WC3): the whole tree the first time (or
     /// after [`Ui::reset_access`]), then only the widgets whose node changed, always with the
     /// focus. Call it after [`Ui::frame`] (directly or through `layout` and `input`).
@@ -1138,6 +1664,11 @@ impl<M: 'static> Ui<M> {
                 continue;
             };
             if !(full || slot.needs_access) {
+                continue;
+            }
+            // Popups are not in the accessibility tree yet (see the module documentation): their
+            // roots have no parent node to hang from. Menus will add their own nodes in F2.11d.
+            if slot.layer != 0 {
                 continue;
             }
             let Some(widget) = slot.widget.as_deref() else {
