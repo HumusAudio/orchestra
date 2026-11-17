@@ -4294,6 +4294,127 @@ steps, the commit), an empty clipboard, a failing clipboard. Three injected bugs
 `arboard` file is not exercised in CI (it needs a display and another program): the owner checks
 it by hand on Wayland and on X11 through XWayland.
 
+#### Input methods
+
+Step F2.10c2 (ADR-0047 TF5–TF6, with precisions of ADR-0040 and ADR-0045; choices approved by the
+owner on 2026-11-17), in `orchestra-ui` (`src/window/input.rs`, `src/window/mod.rs`,
+`src/window/shell.rs`, `src/widget/tree.rs`, `src/widget/ui.rs`, `src/widget/field.rs`) and
+`orchestra-app` (`src/demo.rs`). An *input method* (IME) is the system program that turns keys
+into text a keyboard cannot type directly: Japanese written in romaji and turned into kana and
+kanji, Chinese written in pinyin, Korean jamo joined into syllables. On Linux the usual ones are
+Fcitx5 and IBus. While the user composes, the input method shows the text it is building (the
+*preedit*) in the program, at the caret, and opens a small window of candidates beside it; when
+the user picks one, it *commits* the finished text.
+
+**A new input event.** `winit`'s IME events become ours, in `window/input.rs`:
+
+```rust
+pub enum ImeEvent {
+    Enabled,
+    Preedit { text: String, cursor: Option<std::ops::Range<usize>> },
+    Commit(String),
+    Disabled,
+}
+```
+
+`cursor` is the input method's own cursor inside the preedit, in bytes: an empty range is a
+caret, a non-empty one is the segment being converted (Mozc's current word). `winit` passes on
+whatever the platform gave, so `ime_event` orders the pair and replaces a cursor outside the text
+or inside a character with `None`, rather than letting a buggy input method make us slice a
+string at an invalid place.
+
+**On only while a field has the focus.** A widget says whether it takes text, and where its
+caret is, with two new hooks of `Widget` (both answer from stored state, without allocating):
+
+```rust
+fn accepts_text(&self) -> bool { false }
+fn ime_area(&self) -> Option<Rect> { None }
+```
+
+`Ui::text_input()` asks the focused widget and answers `Some(TextInput { area, reset })` or
+`None`. The window asks after every event, exactly as it asks the pointer's shape, and calls the
+system only when the answer changed:
+
+```rust
+match (open.ime, wanted) {
+    (_, None) => window.set_ime_allowed(false),
+    (old, Some(new)) => {
+        match old {
+            None => window.set_ime_allowed(true),
+            Some(old) if old.reset != new.reset => {
+                window.set_ime_allowed(false);
+                window.set_ime_allowed(true);
+            }
+            Some(_) => {}
+        }
+        // ... set_ime_cursor_area(position, size), logical pixels
+    }
+}
+```
+
+So the input method is on exactly while a text field has the focus: a single-key shortcut
+elsewhere keeps its key, and the candidates open beside the caret and follow it as it moves.
+`reset` is a count: a widget that wants the composition ended calls `cx.reset_ime()`, the count
+changes, and the window turns the input method off and on again (`winit` 0.30 has no call that
+just ends a composition).
+
+**Why nothing is typed twice.** The worry of ADR-0047 TF6 was that some platforms send a key's
+text both as a key and as a commit. Reading `winit` 0.30.13's sources showed that it already
+keeps the two apart everywhere: on X11 a key the input method lets through is a key event with
+its text, and a composed text is only a commit; on macOS a commit comes only after composed
+text, and that key's event is then suppressed; on Windows the result of a composition is only a
+commit; on Wayland every key goes through the input method, which either forwards it or commits
+it. So the field inserts both, with no filter (rule (b)); the other rule, commits only, would
+have lost every plain key on X11 and macOS. The owner's tests by hand with Fcitx5 confirmed it on 2026-11-17.
+
+**The composition in the field.** The field keeps the preedit apart from its text, and a second
+string, `composed`, with what is shown: the text before the selection, the preedit, the text
+after it. It is rebuilt only when one of them changes, and keeps its capacity:
+
+```rust
+fn compose(&mut self) {
+    let text = self.editor.text();
+    let selection = self.editor.selection();
+    self.composed.clear();
+    self.composed
+        .push_str(text.get(..selection.start).unwrap_or_default());
+    self.composed.push_str(&self.preedit);
+    self.composed
+        .push_str(text.get(selection.end..).unwrap_or_default());
+}
+```
+
+Everything drawn and measured (the layout, the scroll offset, the caret, the description for
+assistive technologies) reads `shown()`, which is `composed` while composing and the editor's
+text otherwise; editing always reads the editor. A click over the shown text is turned back into
+an offset of the real text by `to_text_offset` (a click on the composition lands at its start).
+The rules, chosen with the owner:
+- the composition is shown **in place of the selection**, and the commit replaces the selection
+  (one undo step, grouped like typing, because it goes through `type_text`);
+- while it is shown, **every key belongs to the input method**: the field swallows them, so Enter
+  does not commit the field, Tab does not move the focus, Backspace does not edit;
+- a **click** inside the field ends it: the field drops its copy and calls `cx.reset_ime()`; most
+  input methods then commit it at the new caret;
+- losing the focus, being disabled, `Disabled` and a text set by the application drop it;
+- it has a one-pixel line under it in the text's colour, and a two-pixel line under the segment
+  being converted, when the input method gives one (the caret is then hidden, as in GTK and Qt);
+- assistive technologies get the text as shown, composition included, with the caret inside it.
+
+Japanese, Chinese and Korean show as boxes for now: the bundled fonts do not cover them and
+there is no fallback font yet (ADR-0044 TX4). The candidate window, drawn by the input method
+itself, shows them correctly.
+
+**Tests and measures.** `tests/ime.rs` (ten cases: when the input method is wanted, the candidates
+following the caret, the composition not being the text, the commit and its undo, the selection,
+plain keys still typing, the keys swallowed, the click and its reset, what drops a composition,
+the lines drawn on pixels); one case in `tests/field_access.rs` (the composition described as
+shown); one in `tests/field_no_alloc.rs` (a composition growing, moving its segment and ending
+allocates nothing); unit tests of `ime_event`. The benchmark `field_preedit_update` (one letter
+more of pinyin in the reference panel, drawing and accessibility included) counts 0.457 M
+instructions, within a key's 0.5 M. Windows and macOS are only built and tested by the CI; the
+owner checks the real input method by hand with Fcitx5 on KDE Wayland and on X11 through
+XWayland.
+
 #### Texts shortened with an ellipsis
 
 Step F2.09f (precisions WJ1–WJ7 of ADR-0045 and one of ADR-0044; approved by the owner on

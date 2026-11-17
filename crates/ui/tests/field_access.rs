@@ -21,9 +21,9 @@ use accesskit_consumer::{NodeRef, Tree, TreeChangeHandler};
 use orchestra_text::{Faces, grapheme_boundaries, word_starts};
 use orchestra_ui::{
     AccessAction, AccessActionKind, AccessInfo, Appearance, BuiltInTheme, Button, ButtonState,
-    Constraints, DisplayList, EditConvention, InputEvent, Key, LayoutCx, LayoutProps, Modifiers,
-    NamedKey, RUN_CHARACTERS, RecordCx, Recorder, Rect, Size, TextField, TextInfo, Theme, Ui,
-    Widget, WidgetId,
+    Constraints, DisplayList, EditConvention, ImeEvent, InputEvent, Key, LayoutCx, LayoutProps,
+    Modifiers, NamedKey, RUN_CHARACTERS, RecordCx, Recorder, Rect, Size, TextField, TextInfo,
+    Theme, Ui, Widget, WidgetId,
 };
 use proptest::prelude::*;
 
@@ -614,6 +614,41 @@ fn any_text() -> impl Strategy<Value = String> {
         Just("\u{200D}"),
     ];
     proptest::collection::vec(piece, 0..300).prop_map(|pieces| pieces.concat())
+}
+
+/// A composition of the input method (F2.10c2, choice D5) is described as it is shown: in the
+/// value, in the runs and in the reader's document, with the caret where the input method puts
+/// it; when it ends, the text alone again.
+#[test]
+fn a_composition_is_described_as_shown_with_its_caret() {
+    let mut bench = Bench::new("ab");
+    bench.tab();
+    bench.press(&Key::Named(NamedKey::End), Modifiers::default());
+    bench.ui.input(
+        &InputEvent::Ime(ImeEvent::Preedit {
+            text: "nihao".to_owned(),
+            cursor: Some(2..2),
+        }),
+        &mut bench.list,
+    );
+    bench.sync();
+    let info = bench.info();
+    assert_eq!(info.value, "abnihao");
+    // "ab" and "ni" before the input method's caret: character 4, no selection.
+    assert_eq!((info.anchor, info.focus), (4, 4));
+    assert_eq!(bench.node().document_range().text(), "abnihao");
+    assert_eq!(bench.read_caret(), 4);
+    bench.ui.input(
+        &InputEvent::Ime(ImeEvent::Preedit {
+            text: String::new(),
+            cursor: None,
+        }),
+        &mut bench.list,
+    );
+    bench.sync();
+    assert_eq!(bench.info().value, "ab");
+    assert_eq!(bench.node().document_range().text(), "ab");
+    assert_eq!(bench.read_caret(), 2);
 }
 
 proptest! {

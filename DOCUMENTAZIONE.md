@@ -4577,6 +4577,131 @@ di undo, la conferma), appunti vuoti, appunti che falliscono. Tre bug iniettati,
 file di `arboard` non viene esercitato in CI (servono un display e un altro programma): lo prova
 a mano il proprietario su Wayland e su X11 attraverso XWayland.
 
+#### I metodi di input
+
+Passo F2.10c2 (ADR-0047 TF5–TF6, con precisazioni di ADR-0040 e ADR-0045; scelte approvate dal
+proprietario il 2026-11-17), in `orchestra-ui` (`src/window/input.rs`, `src/window/mod.rs`,
+`src/window/shell.rs`, `src/widget/tree.rs`, `src/widget/ui.rs`, `src/widget/field.rs`) e
+`orchestra-app` (`src/demo.rs`). Un *metodo di input* (IME) è il programma di sistema che
+trasforma i tasti in testo che una tastiera non sa scrivere direttamente: il giapponese scritto
+in romaji e trasformato in kana e kanji, il cinese scritto in pinyin, le jamo coreane unite in
+sillabe. Su Linux i più usati sono Fcitx5 e IBus. Mentre l'utente compone, il metodo di input
+mostra nel programma, al cursore, il testo che sta costruendo (il *preedit*) e apre accanto una
+piccola finestra di candidati; quando l'utente ne sceglie uno, *conferma* (commit) il testo finito.
+
+**Un evento di input nuovo.** Gli eventi IME di `winit` diventano nostri, in `window/input.rs`:
+
+```rust
+pub enum ImeEvent {
+    Enabled,
+    Preedit { text: String, cursor: Option<std::ops::Range<usize>> },
+    Commit(String),
+    Disabled,
+}
+```
+
+`cursor` è il cursore del metodo di input dentro il preedit, in byte: un intervallo vuoto è un
+cursore, uno non vuoto è il segmento in conversione (la parola corrente di Mozc). `winit`
+inoltra quello che la piattaforma gli ha dato, quindi `ime_event` mette in ordine la coppia e
+sostituisce con `None` un cursore fuori dal testo o dentro un carattere, invece di lasciare che
+un metodo di input difettoso ci faccia tagliare una stringa in un punto non valido.
+
+**Acceso solo mentre un campo ha il fuoco.** Un widget dice se accetta testo, e dov'è il suo
+cursore, con due hook nuovi di `Widget` (entrambi rispondono dallo stato salvato, senza allocare):
+
+```rust
+fn accepts_text(&self) -> bool { false }
+fn ime_area(&self) -> Option<Rect> { None }
+```
+
+`Ui::text_input()` chiede al widget con il fuoco e risponde `Some(TextInput { area, reset })`
+oppure `None`. La finestra lo chiede dopo ogni evento, esattamente come chiede la forma del
+puntatore, e chiama il sistema solo quando la risposta è cambiata:
+
+```rust
+match (open.ime, wanted) {
+    (_, None) => window.set_ime_allowed(false),
+    (old, Some(new)) => {
+        match old {
+            None => window.set_ime_allowed(true),
+            Some(old) if old.reset != new.reset => {
+                window.set_ime_allowed(false);
+                window.set_ime_allowed(true);
+            }
+            Some(_) => {}
+        }
+        // ... set_ime_cursor_area(position, size), logical pixels
+    }
+}
+```
+
+Così il metodo di input è acceso esattamente mentre un campo di testo ha il fuoco: altrove una
+scorciatoia di un solo tasto tiene il suo tasto, e i candidati si aprono accanto al cursore e lo
+seguono quando si sposta. `reset` è un contatore: un widget che vuole chiudere la composizione
+chiama `cx.reset_ime()`, il contatore cambia e la finestra spegne e riaccende il metodo di input
+(`winit` 0.30 non ha una chiamata che chiuda soltanto una composizione).
+
+**Perché nulla viene scritto due volte.** Il timore di ADR-0047 TF6 era che alcune piattaforme
+mandino il testo di un tasto sia come tasto sia come commit. Leggendo i sorgenti di `winit`
+0.30.13 si vede che li tiene già separati ovunque: su X11 un tasto che il metodo di input lascia
+passare è un evento di tasto con il suo testo, e un testo composto è solo un commit; su macOS un
+commit arriva solo dopo un testo in composizione, e l'evento di quel tasto viene allora soppresso;
+su Windows il risultato di una composizione è solo un commit; su Wayland ogni tasto passa dal
+metodo di input, che lo inoltra oppure lo conferma. Quindi il campo inserisce entrambi, senza
+filtro (regola (b)); l'altra regola, solo i commit, avrebbe perso tutti i tasti normali su X11 e
+su macOS. Le prove a mano del proprietario con Fcitx5 lo hanno confermato il 2026-11-17.
+
+**La composizione nel campo.** Il campo tiene il preedit separato dal suo testo, più una seconda
+stringa, `composed`, con ciò che si vede: il testo prima della selezione, il preedit, il testo
+dopo. Si ricostruisce solo quando uno dei due cambia, e mantiene la sua capacità:
+
+```rust
+fn compose(&mut self) {
+    let text = self.editor.text();
+    let selection = self.editor.selection();
+    self.composed.clear();
+    self.composed
+        .push_str(text.get(..selection.start).unwrap_or_default());
+    self.composed.push_str(&self.preedit);
+    self.composed
+        .push_str(text.get(selection.end..).unwrap_or_default());
+}
+```
+
+Tutto ciò che si disegna e si misura (l'impaginazione, lo scorrimento, il cursore, la
+descrizione per le tecnologie assistive) legge `shown()`, che durante la composizione è
+`composed` e altrimenti il testo dell'editor; la modifica legge sempre l'editor. Un clic sul testo
+mostrato viene riportato a una posizione del testo vero da `to_text_offset` (un clic sulla
+composizione cade al suo inizio). Le regole, scelte con il proprietario:
+- la composizione si mostra **al posto della selezione**, e il commit sostituisce la selezione
+  (un passo di undo, raggruppato come la digitazione, perché passa da `type_text`);
+- mentre è visibile, **ogni tasto appartiene al metodo di input**: il campo li inghiotte, così
+  Invio non conferma il campo, Tab non sposta il fuoco, Backspace non modifica;
+- un **clic** dentro il campo la chiude: il campo butta la sua copia e chiama `cx.reset_ime()`;
+  quasi tutti i metodi di input la confermano allora al nuovo cursore;
+- la perdita del fuoco, la disattivazione del campo, `Disabled` e un testo impostato
+  dall'applicazione la buttano;
+- ha sotto una linea di un pixel nel colore del testo, e una di due pixel sotto il segmento in
+  conversione, quando il metodo di input lo indica (il cursore è allora nascosto, come in GTK e
+  Qt);
+- le tecnologie assistive ricevono il testo come si vede, composizione compresa, con il cursore
+  dentro.
+
+Giapponese, cinese e coreano per ora si vedono come quadratini: i font inclusi non li coprono e
+non c'è ancora un font di riserva (ADR-0044 TX4). La finestra dei candidati, disegnata dal metodo
+di input stesso, li mostra correttamente.
+
+**Test e misure.** `tests/ime.rs` (dieci casi: quando serve il metodo di input, i candidati che
+seguono il cursore, la composizione che non è il testo, il commit e il suo undo, la selezione, i
+tasti normali che scrivono ancora, i tasti inghiottiti, il clic e il suo reset, ciò che butta una
+composizione, le linee disegnate, controllate sui pixel); un caso in `tests/field_access.rs` (la
+composizione descritta come si vede); uno in `tests/field_no_alloc.rs` (una composizione che
+cresce, sposta il segmento e finisce non alloca nulla); test unitari di `ime_event`. Il benchmark
+`field_preedit_update` (una lettera di pinyin in più nel pannello di riferimento, disegno e
+accessibilità compresi) conta 0,457 M istruzioni, dentro gli 0,5 M di un tasto. Windows e macOS
+sono solo compilati e provati dalla CI; il proprietario prova il metodo di input vero a mano con
+Fcitx5 su KDE Wayland e su X11 attraverso XWayland.
+
 #### Testi accorciati con i puntini
 
 Passo F2.09f (precisazioni WJ1–WJ7 di ADR-0045 e una di ADR-0044; approvate dal proprietario il

@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.74, approvata dal proprietario il 2026-11-15.**
+> **Stato di questo documento: v0.75, approvata dal proprietario il 2026-11-17.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -700,15 +700,15 @@ controllo completo. Va fatta bene una volta sola.
 | F2.09 | **Widget di base**: etichetta, pulsante, casella, interruttore, cursore, area scorrevole, divisore di pannelli | ✅ (F2.09a–d) | 3–4 |
 | F2.09e | **Forme del puntatore**: un widget dice quale forma vuole sotto il puntatore (frecce di ridimensionamento, testo, mano…), la finestra la imposta con `winit`; serve al divisore, poi al campo di testo e alla barra del titolo | ✅ | 0,5 |
 | F2.09f | **Etichette accorciate con i puntini** quando il testo non entra nella larghezza ricevuta (aperto dalla correzione del ritaglio, PR #76): regola di accorciamento, testo completo per le tecnologie assistive | ✅ PR #80 | 0,5 |
-| F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | 🔄 (F2.10a–c) | 3 |
+| F2.10 | **Campo di testo**: modifica, selezione, appunti, IME, undo interno al campo | ✅ (F2.10a–c) | 3 |
 | F2.10a | **ADR del campo di testo** (posizioni e grafemi, tasti di ogni piattaforma, mouse, eventi di testo, IME, undo locale e undo del documento, cursore, selezione, accessibilità) e **misura del crate degli appunti** | ✅ ADR-0047 | 0,5 |
-| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | 🔄 (F2.10b1–b3) | 2 |
+| F2.10b | **Campo di testo senza appunti né IME**: modifica, cursore lampeggiante, selezione da tastiera e mouse, forma `Text`, scorrimento interno, undo locale, accessibilità, benchmark | ✅ (F2.10b1–b3) | 2 |
 | F2.10b1 | **Nucleo di modifica, senza display**: confini di grafemi e parole, `caret_x` e `hit_test`, `InputEvent::Text`, tabelle dei tasti delle tre piattaforme, `TextEditor`, undo locale, test di proprietà e "non alloca" | ✅ | 0,5 |
 | F2.10b2 | **Il widget**: disegno, selezione in `on-selection`, segnaposto, cursore lampeggiante con la sveglia a tempo, mouse (doppio e triplo clic), forma `Text`, scorrimento interno, conferma ed Esc, benchmark, il campo "Nome traccia" nell'anteprima | ✅ | 1 |
 | F2.10b3 | **Accessibilità del campo**: nodo `TextInput` con il figlio `TextRun` (identificativo con il bit alto riservato, precisazione di ADR-0045), azioni `SetValue` di testo, `ReplaceSelectedText`, `SetTextSelection` | ✅ PR #77 | 0,5 |
-| F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | 🔄 (F2.10c1–c2) | 2 |
+| F2.10c | **Appunti e IME**: `arboard` dietro un trait, composizione IME, prove a mano su X11 e Wayland | ✅ (F2.10c1–c2) | 2 |
 | F2.10c1 | **Appunti**: trait `ClipboardSource`, appunti in memoria per i test, `arboard` in `platform/`, Taglia, Copia e Incolla nel campo, `deny.toml`, `native-deps.md`, prova a mano su Wayland e su X11 (XWayland) | ✅ PR #79 | 0,5–1 |
-| F2.10c2 | **IME**: `InputEvent::Ime`, `Widget::accepts_text`, accensione solo con un campo a fuoco, posizione della finestra dei candidati, preedit sottolineato, regola contro i caratteri doppi, `TextRun` durante il preedit, prove a mano con Fcitx5 su Wayland e X11 | ⬜ | 1–1,5 |
+| F2.10c2 | **IME**: `InputEvent::Ime`, `Widget::accepts_text`, accensione solo con un campo a fuoco, posizione della finestra dei candidati, preedit sottolineato, regola contro i caratteri doppi, `TextRun` durante il preedit, prove a mano con Fcitx5 su Wayland e X11 | ✅ PR #81 | 1–1,5 |
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | ⬜ | 2–3 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
@@ -951,6 +951,18 @@ controllo completo. Va fatta bene una volta sola.
   a posto.
 - **F2.10c2** Prima di partire va installato Fcitx5 sulla macchina di sviluppo (oggi non c'è
   nessun IME).
+  **Fatto il 2026-11-17 (PR #81):** regola (b) senza filtro, dai sorgenti di `winit` 0.30.13 (la
+  (a) avrebbe perso i tasti normali su X11 e macOS); scelte D1–D7 del proprietario (tasti al
+  metodo di input durante la composizione, composizione al posto della selezione, clic che la
+  chiude con un reset, fuoco perso che la butta, accessibilità come si vede, linea da 1 px e da
+  2 px sotto il segmento, commit raggruppato come la digitazione). Precisazioni di ADR-0040,
+  ADR-0045 e ADR-0047. Aggiornare la composizione costa 0,457 M istruzioni (budget di un tasto
+  0,5 M). Provato a mano dal proprietario con Fcitx5 (Pinyin, Mozc) su KDE Wayland e su X11
+  (XWayland): tutto a posto. Commit `User-visible: no` (la dimostrazione non è nelle guide).
+- **Da F2.10c2, per un passo futuro da collocare con il proprietario:** un **font di riserva**
+  per cinese, giapponese e coreano (limite di ADR-0044 TX4): oggi nel campo compaiono quadratini,
+  mentre la finestra dei candidati del metodo di input li mostra bene. Da decidere: quale font
+  (per esempio un sottoinsieme di Noto Sans CJK), il peso sul binario, se incluso o scaricato.
 - **F2.10c** Da F2.10b3: la composizione IME cambia testo e selezione, quindi i `TextRun` del
   campo vanno rimandati anche durante il preedit.
 - **F2.10c** Da ADR-0047: `arboard` dietro il trait `ClipboardSource` (le versioni doppie in
@@ -1320,3 +1332,4 @@ raccomandato.
 | 2026-11-15 | 0.72 | F2.10c diviso in F2.10c1 (appunti, scritto: manca la prova a mano) e F2.10c2 (IME, per cui va installato Fcitx5); precisazioni di ADR-0040 e ADR-0047 per gli appunti | proprietario |
 | 2026-11-15 | 0.73 | F2.10c1 fatto (PR #79): appunti provati a mano dal proprietario su Wayland e su X11 (XWayland); prossimo passo F2.10c2 (dopo l'installazione di Fcitx5) oppure F2.09f | proprietario |
 | 2026-11-15 | 0.74 | F2.09f fatto (PR #80): testi accorciati con i puntini in etichette, interruttori e pulsanti (precisazioni WJ1–WJ7 di ADR-0045 e una di ADR-0044), provato a schermo dal proprietario; nota in F2.11 (suggerimento con il testo intero); prossimo passo F2.10c2, dopo l'installazione di Fcitx5 | proprietario |
+| 2026-11-17 | 0.75 | F2.10c2 fatto (PR #81): metodi di input nel campo di testo, regola (b) senza filtro, scelte D1–D7, precisazioni di ADR-0040, ADR-0045 e ADR-0047, provato a mano dal proprietario con Fcitx5 su Wayland e X11; F2.10b, F2.10c e F2.10 chiusi; nota per un passo futuro sul font di riserva CJK; prossimo passo F2.11 | proprietario |

@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalSize};
+use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Window, WindowId};
@@ -42,6 +42,10 @@ struct Open {
     /// arrow (`winit`'s default), so this starts as [`PointerShape::Default`] and the system is
     /// called only when the app's answer differs.
     shape: PointerShape,
+    /// What the input method was last told (F2.10c2): `None` while it is off. A new window starts
+    /// with it off (`winit`'s default), so this starts as `None` and the system is called only
+    /// when the app's answer differs.
+    ime: Option<crate::TextInput>,
 }
 
 /// The handler of the event loop.
@@ -203,6 +207,7 @@ impl<A: WindowApp> Shell<A> {
             scale,
             access,
             shape: PointerShape::Default,
+            ime: None,
         });
         self.resize(size)?;
         Ok(())
@@ -234,8 +239,10 @@ impl<A: WindowApp> Shell<A> {
         self.app.layout(bounds, &mut self.list);
         self.list.damage_all();
         open.window.request_redraw();
-        // A new layout may have moved a widget under the pointer (a divider placed elsewhere).
+        // A new layout may have moved a widget under the pointer (a divider placed elsewhere), and
+        // the caret with its field.
         self.sync_pointer();
+        self.sync_text_input();
         Ok(())
     }
 
@@ -261,6 +268,56 @@ impl<A: WindowApp> Shell<A> {
             open.window.set_cursor(pointer::to_winit(shape));
             open.shape = shape;
         }
+    }
+
+    /// Gives the system's input method what the app asks for now (ADR-0047 TF5, TF6; F2.10c2),
+    /// if it changed: on while a widget that takes text has the focus, off otherwise; the caret's
+    /// area for the candidate window; and the end of a composition the app asked to reset.
+    ///
+    /// # Why only on a change
+    /// As for the pointer's shape: the question comes after every event, and each of these calls
+    /// reaches the display server (an XIM request on X11, a `text-input-v3` commit on Wayland,
+    /// an IMM call on Windows, an `AppKit` call on macOS). While typing, the caret moves at each
+    /// key, so the area is sent at each key: a few per second.
+    ///
+    /// # How a reset is done
+    /// `winit` 0.30 has no call to end a composition, so the input method is turned off and on
+    /// again: every platform then ends the composition its own way (most commit it, some drop it)
+    /// and sends `Disabled` and `Enabled`, which the field handles like any other.
+    fn sync_text_input(&mut self) {
+        let Some(open) = self.open.as_mut() else {
+            return;
+        };
+        let wanted = self.app.text_input();
+        if wanted == open.ime {
+            return;
+        }
+        let window = &open.window;
+        match (open.ime, wanted) {
+            (_, None) => window.set_ime_allowed(false),
+            (old, Some(new)) => {
+                match old {
+                    None => window.set_ime_allowed(true),
+                    Some(old) if old.reset != new.reset => {
+                        window.set_ime_allowed(false);
+                        window.set_ime_allowed(true);
+                    }
+                    Some(_) => {}
+                }
+                // Logical pixels, as all of our coordinates: `winit` converts with the window's
+                // scale. X11 uses only the position (the caret's top left); the others use the
+                // whole rectangle, so the candidates avoid covering the caret's line.
+                let area = new.area;
+                window.set_ime_cursor_area(
+                    LogicalPosition::new(f64::from(area.x0), f64::from(area.y0)),
+                    LogicalSize::new(
+                        f64::from(area.width().max(1.0)),
+                        f64::from(area.height().max(1.0)),
+                    ),
+                );
+            }
+        }
+        open.ime = wanted;
     }
 
     /// Draws the damage into the frame and presents it (W4).
@@ -311,8 +368,10 @@ impl<A: WindowApp> Shell<A> {
     /// the pointer's shape.
     fn deliver(&mut self, event: &InputEvent) {
         self.app.input(event, &mut self.list);
-        // Every input event may change what is under the pointer or who captures it.
+        // Every input event may change what is under the pointer or who captures it, and who
+        // has the focus or where the caret is.
         self.sync_pointer();
+        self.sync_text_input();
     }
 
     /// Sends AccessKit what changed in the interface, if an assistive technology is listening
@@ -338,8 +397,10 @@ impl<A: WindowApp> Shell<A> {
             accesskit_winit::WindowEvent::ActionRequested(request) => {
                 if let Some(action) = crate::widget::access::action_from(&request) {
                     self.app.access_action(action, &mut self.list);
-                    // An assistive technology may have moved a widget under the pointer.
+                    // An assistive technology may have moved a widget under the pointer, or the
+                    // focus and the caret.
                     self.sync_pointer();
+                    self.sync_text_input();
                     self.push_access(false);
                     if !self.list.damage().is_empty()
                         && let Some(open) = self.open.as_ref()
@@ -481,6 +542,9 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
                     self.deliver(&InputEvent::Text(text));
                 }
             }
+            // The input method's events (ADR-0047 TF6, F2.10c2), sent only while it is on, that
+            // is while a field has the focus (`sync_text_input`).
+            WindowEvent::Ime(ime) => self.deliver(&InputEvent::Ime(input::ime_event(ime))),
             WindowEvent::Focused(focused) => self.deliver(&InputEvent::Focus(focused)),
             // The system's preference changed (Windows, macOS; never sent on Linux). It goes
             // through the reporter, so it reaches `user_event` like the portal's changes.

@@ -3,7 +3,9 @@
 //! Typing in a text field does not allocate (ADR-0047 TF13, F2.10b2): once the field's text,
 //! its undo history, its layout, the display list and the interface's reused vectors have their
 //! capacity, a typed key (its key event, its text, the shaping of the line, the re-recording of
-//! the field and of its caret), a caret movement and a blink never touch the heap.
+//! the field and of its caret), a caret movement and a blink never touch the heap; nor does an
+//! input method's composition growing, moving its cursor and ending, with the window's question
+//! about the input method after each event (F2.10c2).
 //!
 //! This file is its own test binary with the counting allocator installed (ADR-0016 §5).
 
@@ -17,8 +19,8 @@ use std::time::{Duration, Instant};
 use orchestra_test_support::assert_no_allocations;
 use orchestra_text::Faces;
 use orchestra_ui::{
-    Appearance, BuiltInTheme, ButtonState, DisplayList, EditConvention, Flex, InputEvent, Key,
-    LayoutProps, Modifiers, NamedKey, Rect, Space, TextField, Ui,
+    Appearance, BuiltInTheme, ButtonState, DisplayList, EditConvention, Flex, ImeEvent, InputEvent,
+    Key, LayoutProps, Modifiers, NamedKey, Rect, Space, TextField, Ui,
 };
 
 orchestra_test_support::install_counting_allocator!();
@@ -113,6 +115,55 @@ fn typing_moving_and_blinking_never_allocate_within_capacity() {
         for _ in 0..4 {
             elapsed += Duration::from_millis(530);
             ui.advance(start + elapsed, &mut list);
+        }
+    });
+}
+
+#[test]
+fn a_composition_never_allocates_within_capacity() {
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui = Ui::new(
+        Flex::column(Space::M, Space::M),
+        &theme,
+        Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let mut field = TextField::new("Viola", |_| ()).convention(EditConvention::Linux);
+    field.reserve(256, 4096, 512);
+    let id = ui.add(root, field, LayoutProps::default()).unwrap();
+    let mut list = DisplayList::new();
+    ui.advance(Instant::now(), &mut list);
+    ui.layout(Rect::new(0.0, 0.0, 400.0, 200.0), &mut list);
+    ui.set_focus(Some(id), &mut list).unwrap();
+    // The events are the test's, built before the measured region: the pinyin of "nihao"
+    // growing letter by letter with the caret at its end, then its first syllable as the
+    // segment being converted, then the end of the composition.
+    let mut events: Vec<InputEvent> = (1..="nihao".len())
+        .map(|n| {
+            InputEvent::Ime(ImeEvent::Preedit {
+                text: "nihao".get(..n).unwrap().to_owned(),
+                cursor: Some(n..n),
+            })
+        })
+        .collect();
+    events.push(InputEvent::Ime(ImeEvent::Preedit {
+        text: "nihao".to_owned(),
+        cursor: Some(0..2),
+    }));
+    events.push(InputEvent::Ime(ImeEvent::Preedit {
+        text: String::new(),
+        cursor: None,
+    }));
+    // A first round gives the shown text, the composition and the layout their capacity.
+    for event in &events {
+        ui.input(event, &mut list);
+        let _ = ui.text_input();
+    }
+    let _ = list.take_damage();
+    assert_no_allocations(|| {
+        for event in &events {
+            ui.input(event, &mut list);
+            let _ = ui.text_input();
         }
     });
 }

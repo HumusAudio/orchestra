@@ -384,3 +384,14 @@ neighbours anywhere else.
 - **Recorded limits**: left to right only (ADR-0044 TX5); a one-line text holding a mandatory
   line break is left as it was; a text field's placeholder is not shortened (the field clips
   it).
+
+**F2.10c2, input methods (approved by the owner on 2026-11-17, after the hand tests).** Precisions of WA3 and WB6 for ADR-0047 TF5–TF6:
+- **`WidgetEvent::Ime(&ImeEvent)`**, routed as `Text`: to the focused widget (or the open modal
+  layer), bubbling.
+- **`Widget::accepts_text()`** (default `false`) and **`Widget::ime_area()`** (default `None`,
+  meaning the widget's rectangle): asked from stored state after every event. `Ui::text_input()`
+  answers `Some(TextInput { area, reset })` while the focused widget accepts text. It replaces the
+  `Ui::wants_text_input` named in ADR-0047 TF5.
+- **`EventCx::reset_ime()`**: a widget asks the window to end the composition in progress (a
+  click inside a composing field); the interface counts the requests and `TextInput::reset`
+  carries the count, so the window acts on a change.

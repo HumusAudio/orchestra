@@ -100,9 +100,9 @@ pub use widget::toggle::{Toggle, ToggleKind};
 pub use widget::tree::{
     AsAny, EventCx, Handled, LayoutCx, RecordCx, ScrollDirection, Widget, WidgetEvent, WidgetId,
 };
-pub use widget::ui::{Ui, UiError};
+pub use widget::ui::{TextInput, Ui, UiError};
 pub use window::input::{
-    ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton, WheelDelta,
+    ButtonState, ImeEvent, InputEvent, Key, Modifiers, NamedKey, PointerButton, WheelDelta,
 };
 pub use window::pointer::PointerShape;
 pub use window::{WindowApp, WindowError, WindowOptions, run};
