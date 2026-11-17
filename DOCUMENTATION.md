@@ -4365,7 +4365,7 @@ its text, and a composed text is only a commit; on macOS a commit comes only aft
 text, and that key's event is then suppressed; on Windows the result of a composition is only a
 commit; on Wayland every key goes through the input method, which either forwards it or commits
 it. So the field inserts both, with no filter (rule (b)); the other rule, commits only, would
-have lost every plain key on X11 and macOS. The owner's tests by hand with Fcitx5 are to confirm it.
+have lost every plain key on X11 and macOS. The owner's tests by hand with Fcitx5 confirmed it on 2026-11-17.
 
 **The composition in the field.** The field keeps the preedit apart from its text, and a second
 string, `composed`, with what is shown: the text before the selection, the preedit, the text

@@ -385,8 +385,7 @@ neighbours anywhere else.
   line break is left as it was; a text field's placeholder is not shortened (the field clips
   it).
 
-**F2.10c2, input methods (choices approved by the owner on 2026-11-17; text to be confirmed after
-the hand tests).** Precisions of WA3 and WB6 for ADR-0047 TF5–TF6:
+**F2.10c2, input methods (approved by the owner on 2026-11-17, after the hand tests).** Precisions of WA3 and WB6 for ADR-0047 TF5–TF6:
 - **`WidgetEvent::Ime(&ImeEvent)`**, routed as `Text`: to the focused widget (or the open modal
   layer), bubbling.
 - **`Widget::accepts_text()`** (default `false`) and **`Widget::ime_area()`** (default `None`,

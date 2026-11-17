@@ -170,7 +170,7 @@ to be there), and hands it to the application before the first layout:
 built on `Ui` passes it on with `Ui::set_clipboard`. It is still one object for the session. When
 the system has no clipboard the method is not called and the interface keeps its own in memory.
 
-## Precision of the implementation (F2.10c2, choices approved by the owner on 2026-11-17; text to be confirmed after the hand tests)
+## Precision of the implementation (F2.10c2, approved by the owner on 2026-11-17, after the hand tests)
 
 **The input method (W5, ADR-0047 TF5–TF6).** `winit`'s `WindowEvent::Ime` becomes our
 `InputEvent::Ime(ImeEvent)` (`Enabled`, `Preedit { text, cursor }`, `Commit`, `Disabled`; the

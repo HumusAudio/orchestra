@@ -4649,7 +4649,7 @@ commit arriva solo dopo un testo in composizione, e l'evento di quel tasto viene
 su Windows il risultato di una composizione è solo un commit; su Wayland ogni tasto passa dal
 metodo di input, che lo inoltra oppure lo conferma. Quindi il campo inserisce entrambi, senza
 filtro (regola (b)); l'altra regola, solo i commit, avrebbe perso tutti i tasti normali su X11 e
-su macOS. Le prove a mano del proprietario con Fcitx5 devono confermarlo.
+su macOS. Le prove a mano del proprietario con Fcitx5 lo hanno confermato il 2026-11-17.
 
 **La composizione nel campo.** Il campo tiene il preedit separato dal suo testo, più una seconda
 stringa, `composed`, con ciò che si vede: il testo prima della selezione, il preedit, il testo

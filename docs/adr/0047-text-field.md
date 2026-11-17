@@ -400,7 +400,7 @@ hand tests that need an input method installed.
   primary selection; the clipboard's content lost at exit without a clipboard manager; on GNOME
   the clipboard goes through XWayland.
 
-## Precisions of the implementation (F2.10c2, choices approved by the owner on 2026-11-17; to be confirmed after the hand tests)
+## Precisions of the implementation (F2.10c2, approved by the owner on 2026-11-17, after the hand tests)
 
 - **TF6, the rule against doubles: (b), without a filter.** Read in `winit` 0.30.13's sources:
   on X11 a key the input method lets through arrives as a key event with its text, and a composed
@@ -408,9 +408,9 @@ hand tests that need an input method installed.
   only after marked text, and that key's event is then suppressed; on Windows a composition's
   result is only `Commit`; on Wayland every key goes through the input method, which either
   forwards it as a key or commits it. Rule (a) would therefore lose every plain key on X11 and
-  macOS. The field inserts both `InputEvent::Text` and `Ime::Commit`, with no filter; one is added
-  only if the hand tests (Fcitx5 on KDE Wayland and on X11 through XWayland) or the CI show a
-  double.
+  macOS. The field inserts both `InputEvent::Text` and `Ime::Commit`, with no filter. The owner's
+  hand tests on 2026-11-17 (Fcitx5 with Pinyin and Mozc, on KDE Wayland and on X11 through
+  XWayland) showed no double; a filter is added only if a later test shows one.
 - **TF5, the window's question.** `Ui::wants_text_input` becomes `Ui::text_input()`, which
   also carries the caret's area and the reset requests (ADR-0040 and ADR-0045, precisions of
   F2.10c2).
