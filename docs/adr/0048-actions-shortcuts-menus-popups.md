@@ -1,7 +1,7 @@
 # ADR-0048 — Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer
 
 - **Status:** Accepted (owner, 2026-11-17; outline AM1–AM15 presented first, with the owner's
-  choices on AM5, AM8, AM9 and AM14, then the text).
+  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c below.
 - **Date:** 2026-11-17
 - **Implements:** ADR-0045 (retained widgets; WA3 leaves the table of window-level shortcuts to
   the menus; WB9 leaves the popups' outside click to them; WH1 overlays), ADR-0040 W5 (our own
@@ -312,3 +312,44 @@ goes into the control's `keyboard_shortcut`. Its text never takes the focus.
   AM7.
 - Recorded limits: single combinations only; popups cannot leave the window; tooltips only for
   the pointer.
+
+## Precisions of the implementation (F2.11c, approved by the owner on 2026-11-17)
+
+Before writing: the display list's layers (a precision of ADR-0039 D1), popups as roots of their
+own in the same arena as the main interface (owner's choice 2), the tooltip's looks (choice 3)
+and a key that hides the tooltip without being consumed (choice 4). While writing:
+- **AM11, keys and text with a menu open.** Keys go to the **topmost menu's root** and bubble
+  inside it only; an unhandled Tab moves nothing in the main interface. Typed text and the input
+  method's events reach nothing, and the interface reports no text input (`Ui::text_input` is
+  `None`), so the window turns the input method off while a menu is open: a menu's letter cannot
+  start a composition in the field that keeps the focus.
+- **AM11, the outside press.** Its **release is consumed too**, so the widget under it never gets
+  a release without its press. The owners of the menus closed are told
+  (`WidgetEvent::MenuClosed`, to the owner alone); `Ui::close_menu`, called by the application,
+  closes a menu and the menus opened after it and tells nobody. A press on an owner does not close
+  its menu (the owner decides, F2.11d). The window losing the focus closes every menu.
+- **AM11, accessibility.** Popups stay out of the accessibility tree in F2.11c: the tooltip is
+  not for assistive technologies (AM14) and the menus will describe themselves with their roles
+  in F2.11d.
+- **AM14, the timer.** It starts when the pointer comes over a control with a tooltip and is not
+  restarted by moves over the same control; the next tooltip shows at once only when the previous
+  one went away **by a move** (not by a press or a key). A key, a press or the wheel dismiss the
+  tooltip and its control's tooltip stays away until the pointer is over something else; the
+  pointer leaving the window hides it. The tooltip's widget is created once and kept hidden, so
+  showing and hiding allocate nothing (tested).
+- **AM14, the looks and the place.** `text` in `size-small` on `surface-overlay`, a `border` of
+  `line-width`, `corner-radius`, padding of the density's small gap across and extra-small gap
+  above and below, at most 320 logical pixels wide with the text wrapping. **No shadow** (owner's
+  choice B, after the measures below): the menus keep the overlay shadow. It opens 20 logical
+  pixels below the pointer's hot spot, **rounded to whole logical pixels** (the glyphs then repeat
+  their sub-pixel phases and come from the glyph cache), right above the hot spot when there is
+  no room below, pushed inside the window.
+- **AM15, measured** in the 200-widget panel, with drawing and the accessibility update: showing
+  a tooltip where none was drawn before 2.0 M instructions (its 12-pixel glyphs and its box drawn
+  for the first time), showing it again 0.23 M, hiding it 0.14 M. With the overlay shadow the
+  first figure was 15.4 M (1.66 M again): the shadow cache of ADR-0043 K2 is keyed by the exact
+  position, and a tooltip opens at the pointer, so its shadow was computed nearly every time.
+  A cache keyed by size and sub-pixel phase would help menus opened at the pointer (context
+  menus); it is left to a later step if their measures ask for it.
+- **Screenshots.** A scene `demo-tooltip` shows a shortened button's tooltip in the demonstration
+  window, narrowed to 200 logical pixels (at the options' minimum width the button still fits).

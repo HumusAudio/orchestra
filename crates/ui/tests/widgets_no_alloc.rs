@@ -323,3 +323,68 @@ fn eliding_while_a_divider_moves_never_allocates() {
     assert!(ui.widget::<Toggle<()>>(toggle).unwrap().is_elided());
     assert!(ui.widget::<Button<()>>(button).unwrap().is_elided());
 }
+
+/// Showing and hiding tooltips allocates nothing once warm (F2.11c, ADR-0048 AM15): the tooltip's
+/// widget is created once and kept hidden, its text is copied into the string it already has,
+/// and its segment is re-recorded in place. Opening a menu does allocate (it adds widgets), and is
+/// not tested here: it happens once per click, not at every pointer rest.
+#[test]
+fn showing_and_hiding_tooltips_never_allocates() {
+    use std::time::Duration;
+
+    use orchestra_ui::Button;
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui: Ui<()> = Ui::new(
+        Flex::row(Space::None, Space::None),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let narrow = LayoutProps::default().width(Length::Fixed(60.0));
+    // Two elided buttons side by side; the longer text first, so the tooltip's string has room
+    // for both after the first round.
+    for text in [
+        "Restore every option to its default value",
+        "Reverb send level",
+    ] {
+        ui.add(root, Button::new(text, ()), narrow).unwrap();
+    }
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 600.0, 400.0), &mut list);
+    let start = ui.now();
+    let mut at = Duration::ZERO;
+    let mut round = |ui: &mut Ui<()>, list: &mut DisplayList| {
+        // Rest on the first button until its tooltip shows, slide to the second (shown at once,
+        // the warm time), press (dismissed), leave the window.
+        for (x, wait) in [(30.0, 500), (90.0, 0)] {
+            ui.input(
+                &InputEvent::PointerMoved {
+                    position: Point::new(x, 14.0),
+                },
+                list,
+            );
+            at += Duration::from_millis(wait);
+            ui.advance(start + at, list);
+            assert!(ui.tooltip_text().is_some());
+        }
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            ui.input(
+                &InputEvent::PointerButton {
+                    button: PointerButton::Left,
+                    state,
+                    position: Point::new(90.0, 14.0),
+                    clicks: 1,
+                },
+                list,
+            );
+        }
+        ui.input(&InputEvent::PointerLeft, list);
+        at += Duration::from_secs(2);
+        ui.advance(start + at, list);
+        black_box(ui.take_messages().count());
+        black_box(list.take_damage());
+    };
+    round(&mut ui, &mut list);
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
+}

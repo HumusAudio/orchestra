@@ -118,6 +118,8 @@ pub struct Demo {
     track_name: WidgetId,
     /// The staff, which shows the committed name.
     staff: WidgetId,
+    /// The *Restore defaults* button (its tooltip is the screenshots' example, F2.11c).
+    restore_defaults: WidgetId,
 }
 
 impl Demo {
@@ -194,11 +196,13 @@ impl Demo {
         let buttons = ui
             .add(options, Flex::row(Space::S, Space::None), content)
             .unwrap_or_else(|_| ui.root());
-        let _ = ui.add(
-            buttons,
-            Button::new(texts.restore_defaults.clone(), DemoMessage::RestoreDefaults),
-            content,
-        );
+        let restore_defaults = ui
+            .add(
+                buttons,
+                Button::new(texts.restore_defaults.clone(), DemoMessage::RestoreDefaults),
+                content,
+            )
+            .unwrap_or_else(|_| ui.root());
         let _ = ui.add(
             buttons,
             Button::new(texts.ok.clone(), DemoMessage::Ok).kind(ButtonKind::Primary),
@@ -221,6 +225,7 @@ impl Demo {
             volume,
             track_name,
             staff,
+            restore_defaults,
         }
     }
 
@@ -246,6 +251,12 @@ impl Demo {
     #[must_use]
     pub const fn staff(&self) -> WidgetId {
         self.staff
+    }
+
+    /// The *Restore defaults* button.
+    #[must_use]
+    pub const fn restore_defaults(&self) -> WidgetId {
+        self.restore_defaults
     }
 
     /// Acts on the widgets' messages (ADR-0045 WA7): *Restore defaults* puts the options back,

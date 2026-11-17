@@ -329,6 +329,12 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Toggle<M> {
         self.enabled
     }
 
+    /// The whole text while it is drawn shortened (F2.09f), so the tooltip shows what the
+    /// ellipsis hides (F2.11c, ADR-0048 AM14); nothing while the whole text shows.
+    fn tooltip(&self) -> Option<&str> {
+        self.is_elided().then_some(self.text.as_str())
+    }
+
     fn access_role(&self) -> AccessRole {
         match self.kind {
             ToggleKind::CheckBox => AccessRole::CheckBox,

@@ -199,3 +199,27 @@ fn the_committed_track_name_is_written_above_the_staff() {
     // The caret blinks: the window has a wake-up to sleep until.
     assert!(demo.next_wakeup().is_some());
 }
+
+/// The tooltip's screenshot (F2.11c) shows what it promises: in its narrow window *Restore
+/// defaults* is shortened, and resting on it for 500 ms shows its whole text inside the window.
+#[test]
+fn narrowed_restore_defaults_has_its_whole_text_as_a_tooltip() {
+    let (mut demo, mut list) = demo();
+    let width = orchestra_app::TOOLTIP_SCENE_WIDTH;
+    demo.layout(Rect::from_origin_size(0.0, 0.0, width, 370.0), &mut list);
+    let button = demo.restore_defaults();
+    let rect = demo.ui().rect(button).unwrap();
+    let position = Point::new(
+        f32::midpoint(rect.x0, rect.x1),
+        f32::midpoint(rect.y0, rect.y1),
+    );
+    demo.input(&InputEvent::PointerMoved { position }, &mut list);
+    let rested = demo.ui().now() + std::time::Duration::from_millis(500);
+    demo.advance(rested, &mut list);
+    assert_eq!(demo.ui().tooltip_text(), Some("Restore defaults"));
+    let tooltip = demo.ui().tooltip_rect().unwrap();
+    assert!(
+        tooltip.x0 >= 0.0 && tooltip.x1 <= width,
+        "inside the window"
+    );
+}

@@ -38,6 +38,10 @@ pub(crate) struct Segment {
     pub(crate) glyphs: Vec<GlyphPlacement>,
     /// The union of the entries' bounds: what the segment can touch.
     pub(crate) bounds: Rect,
+    /// The layer the segment belongs to (F2.11c, a precision of ADR-0039 D1): 0 for the main
+    /// interface, larger for what is drawn above it (menus, then the tooltip). Fixed when the
+    /// segment is first recorded; the list keeps the segments sorted by it.
+    pub(crate) layer: u32,
 }
 
 /// The display list: what to draw, as ordered segments of themed commands (ADR-0039).
@@ -59,11 +63,23 @@ pub(crate) struct Segment {
 /// ```
 ///
 /// # Order
-/// Segments are drawn in the order they were first recorded; re-recording keeps a segment's
-/// place. Later segments are drawn on top.
+/// Segments are drawn **by layer**, lowest first, and inside a layer in the order they were
+/// first recorded; re-recording keeps a segment's place. Later segments are drawn on top.
+///
+/// # Layers (F2.11c, a precision of ADR-0039 D1)
+/// Before this precision the order was the first recording alone, which a popup cannot live with:
+/// a widget added to the main interface while a menu is open would be recorded for the first
+/// time after the menu, and drawn over it. Each segment therefore belongs to a **layer** (a
+/// number, 0 for the main interface), the one in effect when it is first recorded
+/// ([`DisplayList::set_layer`], used by the interface while it records a popup); a new segment
+/// is inserted after the last segment of its layer or below, so it can never cover a higher
+/// layer. Everything recorded without choosing a layer is in layer 0, as before.
+///
+/// The rejected alternative, one list per layer, would have changed the renderers and the damage
+/// (each list with its own), for an order that one number per segment already gives.
 #[derive(Debug, Default)]
 pub struct DisplayList {
-    /// The segments in drawing order.
+    /// The segments in drawing order: sorted by layer, then by first recording.
     segments: Vec<Segment>,
     /// From a segment's id to its index in `segments`.
     index: HashMap<SegmentId, usize>,
@@ -73,6 +89,9 @@ pub struct DisplayList {
     damage: Damage,
     /// Scratch stacks for the recorder, kept so re-recording does not allocate.
     scratch: RecorderStacks,
+    /// The layer given to segments recorded for the first time from now on
+    /// ([`DisplayList::set_layer`]); 0 unless the interface is recording a popup.
+    layer: u32,
 }
 
 /// The transform and clip stacks a [`Recorder`] needs, owned by the list and reused.
@@ -95,7 +114,9 @@ impl DisplayList {
     /// Records (or re-records) the segment `id`: `draw` receives a [`Recorder`] and calls its
     /// methods. The segment's old area and its new area are added to the damage.
     ///
-    /// A new id is appended on top of the existing segments; an existing one keeps its place, and
+    /// A new id is placed on top of the existing segments of its layer (the one in effect, see
+    /// [`DisplayList::set_layer`]) and below those of higher layers; an existing one keeps its
+    /// place, and
     /// its previous commands are replaced. The vectors keep their capacity, so after the first
     /// frame re-recording a segment of the same size does not allocate (ADR-0039 D1).
     ///
@@ -154,22 +175,52 @@ impl DisplayList {
         self.damage.add(new_bounds);
     }
 
-    /// The index of the segment `id`, appended on top (empty) when the id is new.
+    /// The index of the segment `id`; when the id is new, an empty segment of the current layer
+    /// is created on top of its layer (and below the higher layers).
     ///
     /// # Complexity
-    /// One hash lookup (plus an insertion for a new id).
+    /// One hash lookup for an existing id. A new id on the top layer (the usual case: the main
+    /// interface with no popup open, or the popup being recorded) is appended, O(1); one that
+    /// lands below a higher layer shifts the segments above it and updates their indices,
+    /// O(segments above), the same cost as a removal. That happens only for a widget recorded for
+    /// the first time while a popup is open.
     #[inline]
     fn slot(&mut self, id: SegmentId) -> usize {
         if let Some(&index) = self.index.get(&id) {
             return index;
         }
-        let index = self.segments.len();
-        self.segments.push(Segment {
-            id: Some(id),
-            ..Segment::default()
-        });
+        let layer = self.layer;
+        // The segments are sorted by layer, so the first one of a higher layer is found by binary
+        // search; with no higher layer it is the end, and the segment is appended.
+        let index = self
+            .segments
+            .partition_point(|segment| segment.layer <= layer);
+        self.segments.insert(
+            index,
+            Segment {
+                id: Some(id),
+                layer,
+                ..Segment::default()
+            },
+        );
+        // The segments that moved up one place have their indices updated (none when appended).
+        for later in self.segments.iter().skip(index + 1) {
+            if let Some(later_id) = later.id
+                && let Some(slot) = self.index.get_mut(&later_id)
+            {
+                *slot += 1;
+            }
+        }
         self.index.insert(id, index);
         index
+    }
+
+    /// Chooses the layer of the segments recorded **for the first time** from now on (F2.11c, a
+    /// precision of ADR-0039 D1; see the type's documentation): the interface sets it to a
+    /// popup's layer while it records that popup, and back to 0 afterwards. A segment that
+    /// already exists keeps its layer and its place whatever is set.
+    pub(crate) const fn set_layer(&mut self, layer: u32) {
+        self.layer = layer;
     }
 
     /// The bounds the segment at `index` has now; empty for an index out of range (impossible:

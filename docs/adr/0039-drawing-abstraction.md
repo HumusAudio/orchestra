@@ -3,7 +3,7 @@
 - **Status:** Accepted (owner, 2026-11-10; D1, D3, D6 and D8 chosen by the owner, option (a) each;
   D6 amended with the owner's approval the same day, after measuring). D9 was amended by ADR-0042
   (`vello_cpu`), **reverted by ADR-0043** (2026-11-11): the backend stays `tiny-skia`; D6's
-  shadow coverage is cached between frames.
+  shadow coverage is cached between frames. Precision of F2.11c (layers in D1) below.
 - **Date:** 2026-11-10
 - **Implements:** ADR-0012 (our own renderer, headless rendering for free), ADR-0007 rule 4
   (incremental rendering) and rule 5 (software fallback), ADR-0014 §2 (no literal colour in
@@ -184,3 +184,17 @@ now. Its replacement of `tiny-skia` by `vello_cpu` was reverted by ADR-0043: `ti
   the interface records commands.
 - F2.04 presents the image drawn here through `softbuffer`, F2.05 encodes it as PNG, F2.06 adds
   (or not) a second backend, F2.07 adds glyph runs, F2.08 decides who owns the segments.
+
+## Precision of the implementation (F2.11c, approved by the owner on 2026-11-17)
+
+- **D1, layers.** Segments were drawn in the order they were first recorded. Popups (ADR-0048
+  AM11) cannot live with that: a widget of the main interface recorded for the first time while
+  a menu is open would be drawn over the menu. Each segment now belongs to a **layer**, a number
+  fixed when it is first recorded (0 for the main interface; the interface uses 1, 2, … for open
+  menus and the highest for the tooltip), and the list is drawn **by layer, then by first
+  recording**. A new segment is inserted after the last segment of its layer (binary search),
+  O(1) when appended, O(segments above) when inserted under a popup, like a removal; re-recording
+  keeps a segment's place and layer. Code that never chooses a layer records in layer 0, as
+  before. Rejected: one list per layer, which would have changed the renderer and the damage for
+  an order one number per segment already gives. Measured: a widget recorded for the first time
+  under an open menu of ten items, in the 200-widget panel, 0.35 M instructions with drawing.

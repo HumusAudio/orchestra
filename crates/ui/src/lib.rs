@@ -93,6 +93,7 @@ pub use widget::label::Label;
 pub use widget::layout::{
     Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,
 };
+pub use widget::popup::{Popup, PopupSide};
 pub use widget::scroll::ScrollArea;
 pub use widget::slider::Slider;
 pub use widget::splitter::Splitter;

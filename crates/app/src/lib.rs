@@ -31,4 +31,6 @@ mod demo;
 mod screenshots;
 
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
-pub use screenshots::{SCALE, SCENES, Scene, SceneContext, ScreenshotError, render, theme};
+pub use screenshots::{
+    SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
+};

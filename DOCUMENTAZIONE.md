@@ -4789,6 +4789,83 @@ sua larghezza ≈ 149 000 istruzioni, circa 0,15 ms con la regola di F1.16c.
 testi troppo lunghi. I benchmark esistenti non si sono mossi (al massimo +0,13 %): un controllo
 il cui testo entra non paga nulla.
 
+#### I popup e il suggerimento
+
+Il passo F2.11c (ADR-0048 AM11 e AM14) dà all'interfaccia ciò che si disegna **sopra** di lei: i
+menu (il loro aspetto e i loro tasti arrivano in F2.11d) e il suggerimento. I file nuovi sono
+`crates/ui/src/widget/popup.rs` (dove va un popup) e `crates/ui/src/widget/tooltip.rs` (il
+riquadro del suggerimento); l'instradamento sta in `Ui` (`crates/ui/src/widget/ui.rs`).
+
+**Strati nella lista di disegno (una precisione di ADR-0039 D1).** Finora i segmenti si
+disegnavano nell'ordine della loro prima registrazione. Un popup non ci può convivere: un widget
+aggiunto alla finestra mentre un menu è aperto verrebbe registrato per la prima volta *dopo* il
+menu, e disegnato sopra di lui. Ogni segmento ora ha uno `layer` (0 per l'interfaccia principale),
+fissato alla prima registrazione; la lista tiene i segmenti ordinati per strato, e uno nuovo si
+inserisce dopo l'ultimo segmento del suo strato, trovato con una ricerca binaria:
+
+```rust
+let index = self
+    .segments
+    .partition_point(|segment| segment.layer <= layer);
+self.segments.insert(index, Segment { id: Some(id), layer, ..Segment::default() });
+```
+
+Aggiungere in fondo (il caso normale) costa O(1); inserire sotto un popup sposta i segmenti sopra,
+come una rimozione. `Ui` sceglie lo strato mentre registra: 0 per l'albero principale, 1, 2, …
+per i menu aperti, `u32::MAX` per il suggerimento.
+
+**I popup sono radici nella stessa arena.** Un menu si apre con `Ui::open_menu(widget, Popup {
+anchor, side, owner }, list)`: la sua radice non ha genitore, quindi si dispone da sola, alla sua
+misura naturale, e `popup::place` la mette dal lato preferito dell'ancora (sotto, o a destra per
+un sottomenu), dall'altro lato quando non c'è spazio, e poi la spinge dentro la finestra (`winit`
+0.30 non ha finestre popup su Wayland). Mentre un menu è aperto:
+- il puntatore raggiunge solo i menu e il loro `owner` (il titolo di una barra dei menu); una
+  pressione altrove li chiude tutti, viene consumata insieme al suo rilascio, e ogni proprietario
+  riceve `WidgetEvent::MenuClosed`;
+- i tasti vanno alla radice del menu più in alto, Tab non sposta nulla, il widget a fuoco tiene
+  il fuoco (così Modifica agirà sul campo), e testo digitato e metodo di input sono spenti
+  (`text_input()` risponde `None`);
+- la finestra che perde il fuoco chiude tutti i menu. `Ui::close_menu` chiude un menu e i suoi
+  sottomenu senza avvisare il proprietario.
+
+Per ora i popup restano fuori dall'albero di accessibilità: il suggerimento non è per le
+tecnologie assistive, e i menu si descriveranno da sé in F2.11d.
+
+**Il suggerimento.** Un controllo risponde a `Widget::tooltip()`; etichetta, pulsante e
+interruttori rispondono con il testo intero mentre è accorciato con i puntini:
+
+```rust
+fn tooltip(&self) -> Option<&str> {
+    self.is_elided().then_some(self.text.as_str())
+}
+```
+
+`Ui` fa partire un timer di 500 ms quando il puntatore arriva su un controllo così (una sveglia
+sua, contata da `next_wakeup`), mostra il suggerimento 20 px sotto il puntatore, e mostra subito il
+successivo se il puntatore raggiunge un altro controllo entro 500 ms da quando il precedente è
+sparito. Un tasto, una pressione o la rotella lo nascondono (il tasto fa comunque il suo lavoro:
+Esc chiude anche un dialogo), e il suggerimento di quel controllo non torna finché il puntatore
+non ne esce; il puntatore può spostarsi sul suggerimento. Il widget del suggerimento si crea una
+volta e resta nascosto, quindi mostrare e nascondere non allocano
+(`showing_and_hiding_tooltips_never_allocates`). Disegna `text` in `size-small` su
+`surface-overlay`, con un `border`, il raggio degli angoli del tema, largo al massimo 320 px, e
+**senza ombra**: con l'ombra dei popup, mostrare un suggerimento costava 15,4 M istruzioni, perché
+la cache delle ombre di ADR-0043 ha come chiave la posizione esatta e un suggerimento si apre sotto
+il puntatore (scelta B del proprietario; i menu tengono l'ombra). La sua posizione è arrotondata ai
+pixel interi, così i glifi arrivano dalla cache dei glifi. Test e scenari degli screenshot leggono ciò che è mostrato con
+`Ui::tooltip_text()` e `Ui::tooltip_rect()` (entrambi `None` finché nessun suggerimento è visibile).
+
+**Test e benchmark.** `crates/ui/tests/popups.rs` copre gli strati (un widget aggiunto sotto un
+menu aperto si disegna sotto di lui), il posizionamento, la pressione fuori, il proprietario,
+tasti e fuoco, i sottomenu, il fuoco della finestra, e tempi, chiusura e passaggio del puntatore
+del suggerimento, con orari inventati. I benchmark `tooltip_show`, `tooltip_hide` e
+`first_record_under_a_menu` misurano, sul pannello reale: 2,0 M istruzioni per mostrare un
+suggerimento in un punto nuovo (glifi e riquadro disegnati lì per la prima volta), 0,23 M nello
+stesso punto, 0,14 M per nasconderlo, 0,35 M per registrare un widget sotto un menu aperto. Lo
+scenario degli screenshot `demo-tooltip` mostra il suggerimento di un pulsante accorciato nella
+finestra dimostrativa stretta a 200 px (`TOOLTIP_SCENE_WIDTH`), verificato da un test di
+`crates/app/tests/demo.rs`.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
