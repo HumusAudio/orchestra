@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.77, approvata dal proprietario il 2026-11-17.**
+> **Stato di questo documento: v0.78, approvata dal proprietario il 2026-11-18.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -712,7 +712,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | 🔄 (F2.11a–e) | 2–3 |
 | F2.11a | **ADR di azioni, scorciatoie, menu e popup**: registro unico delle azioni, contesti, scorciatoie per piattaforma e personalizzate, tasti fissi, modello unico dei menu, mnemonici, strato dei popup, suggerimenti, menu Modifica sul campo a fuoco | ✅ ADR-0048 | 0,5 |
 | F2.11c | **Strato dei popup e suggerimento** al passaggio del puntatore (ADR-0048 AM11, AM14) | ✅ | 0,5–1 |
-| F2.11d | **Registro delle azioni, barra dei menu e menu contestuali disegnati**: ricerca nei contesti, tasto fisico negli eventi, tastiera, puntatore, mnemonici nei sei cataloghi, accessibilità, menu Modifica sul campo a fuoco, benchmark (ADR-0048) | ⬜ | 1–1,5 |
+| F2.11d | **Registro delle azioni, barra dei menu e menu contestuali disegnati** (ADR-0048) | 🔄 (F2.11d1–d2) | 1–1,5 |
+| F2.11d1 | **Registro delle azioni e scorciatoie**: tasto fisico negli eventi, ricerca nei contesti con i due ripieghi, tasti fissi, scorciatoie dell'utente nell'API, stati, azioni di Modifica sul campo a fuoco, elenco delle azioni del programma con i nomi nei sei cataloghi, Esci e Schermo intero, benchmark | ✅ | 0,5–1 |
+| F2.11d2 | **Barra dei menu e menu contestuali disegnati**: modello unico dei menu, tastiera, puntatore, mnemonici nei sei cataloghi, scorciatoie scritte nei menu, accessibilità, benchmark | ⬜ | 0,5–1 |
 | F2.11e | **`muda` su macOS**: lo stesso modello dei menu, ruoli nel menu dell'app, misura di dimensione e compilazione in CI (ADR-0048 AM9, ADR-0036 B5) | ⬜ | 0,5 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
@@ -1011,6 +1013,22 @@ controllo completo. Va fatta bene una volta sola.
   arrotondata ai pixel interi. Scelta B del proprietario dopo le misure: **suggerimento senza
   ombra** (con l'ombra 15,4 M istruzioni, senza 2,0 M la prima volta e 0,23 M dopo). Precisioni di
   ADR-0039 e ADR-0048; scenario `demo-tooltip` negli screenshot.
+- **F2.11d1** **Fatto il 2026-11-18:** il proprietario ha diviso F2.11d in F2.11d1 e F2.11d2 e ha
+  approvato le scelte A–E, ora precisioni di ADR-0048: (A) lettere in minuscolo con Shift come
+  modificatore, cifre per posizione, per gli altri caratteri il carattere prodotto senza Shift;
+  prima la scorciatoia logica, poi il ripiego per posizione; (B) frecce, Tab, Invio, Esc, Spazio
+  e F10 fissi solo senza modificatori o con il solo Shift, il tasto Menu sempre, Alt+lettera su
+  Linux e Windows; (C) l'azione arriva all'app come suo messaggio (`Ui::set_actions`); (D)
+  `Widget::context()`; (E) registrate le quattordici azioni di AM6, Esci e Schermo intero
+  funzionanti, le sei di Modifica sul campo, le altre disabilitate finché non esistono. Più una
+  precisione di ADR-0040 (tasto fisico, richieste alla finestra). Misure: un Ctrl+S intero 26 174
+  istruzioni, una ricerca circa 180, nessuna allocazione.
+- **F2.11d2** Da F2.11d1: il testo delle scorciatoie nei menu e in `keyboard_shortcut` va scritto
+  nello stile della piattaforma e **tradotto** (nomi dei tasti: "Strg" in tedesco, "Maj" in
+  francese, "Maiusc" in italiano), con la ricerca terminologica di CLAUDE.md §7; decidere se i nomi
+  delle voci che aprono una finestra portano i puntini ("Salva come…"); il registro segna le azioni
+  il cui stato cambia (AM2) quando servono ai menu disegnati e a `muda` (F2.11e); i menu usano
+  `Ui::action_state` e richiamano le azioni con lo stesso percorso delle scorciatoie.
 - **F2.11d** Da F2.11c: i menu entrano nell'albero di accessibilità (ruoli `Menu`, `MenuItem`…);
   il menu riceve i tasti nella sua radice e muove da sé l'evidenziazione tra le voci; le voci
   chiudono i menu con `Ui::close_menu`. Se i menu contestuali (che si aprono sotto il puntatore)
@@ -1359,3 +1377,4 @@ raccomandato.
 | 2026-11-17 | 0.75 | F2.10c2 fatto (PR #81): metodi di input nel campo di testo, regola (b) senza filtro, scelte D1–D7, precisazioni di ADR-0040, ADR-0045 e ADR-0047, provato a mano dal proprietario con Fcitx5 su Wayland e X11; F2.10b, F2.10c e F2.10 chiusi; nota per un passo futuro sul font di riserva CJK; prossimo passo F2.11 | proprietario |
 | 2026-11-17 | 0.76 | F2.11 diviso in F2.11a, F2.11c, F2.11d, F2.11e; F2.11a fatto (ADR-0048 Accepted: azioni, contesti, scorciatoie per piattaforma e personalizzate, modello unico dei menu, strato dei popup, suggerimenti); prossimo passo F2.11c | proprietario |
 | 2026-11-17 | 0.77 | F2.11c fatto: strati della lista di disegno, menu e suggerimento; suggerimento senza ombra (scelta B del proprietario sulle misure); precisioni di ADR-0039 e ADR-0048; note in F2.11d; prossimo passo F2.11d | proprietario |
+| 2026-11-18 | 0.78 | F2.11d diviso in F2.11d1 e F2.11d2; F2.11d1 fatto (registro delle azioni e scorciatoie, scelte A–E del proprietario e precisioni di ADR-0048, precisione di ADR-0040: tasto fisico e richieste alla finestra; dodici termini nuovi nel glossario); note in F2.11d2; prossimo passo F2.11d2 | proprietario |

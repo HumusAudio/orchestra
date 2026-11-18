@@ -183,7 +183,7 @@ caret's area moves, and `set_ime_allowed(false)` then `true` when `TextInput::re
 (`winit` 0.30 has no call that ends a composition). The default answer is `None`: the input
 method stays off.
 
-## Precision of the implementation (F2.11d1, written on 2026-11-18, awaiting the owner's approval)
+## Precision of the implementation (F2.11d1, approved by the owner on 2026-11-18)
 
 **The physical key (W5, ADR-0048 AM5).** `InputEvent::Key` gains `physical: PhysicalKey`, from
 `winit`'s `KeyEvent::physical_key`: `Letter(0..=25)` and `Digit(0..=9)` where the US layout has

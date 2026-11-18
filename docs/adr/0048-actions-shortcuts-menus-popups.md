@@ -354,7 +354,7 @@ and a key that hides the tooltip without being consumed (choice 4). While writin
 - **Screenshots.** A scene `demo-tooltip` shows a shortened button's tooltip in the demonstration
   window, narrowed to 200 logical pixels (at the options' minimum width the button still fits).
 
-## Precisions of the implementation (F2.11d1; choices A–E approved by the owner on 2026-11-18, the rest awaiting approval)
+## Precisions of the implementation (F2.11d1, approved by the owner on 2026-11-18)
 
 F2.11d is split in F2.11d1 (the registry, shortcuts, the Edit actions on the focused field) and
 F2.11d2 (the drawn menu bar and context menus, mnemonics, the menus' accessibility). Before
