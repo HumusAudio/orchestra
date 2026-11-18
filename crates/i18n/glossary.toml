@@ -750,6 +750,162 @@ note = "Edit menu command."
 review = false
 
 [[term]]
+id = "new"
+category = "general"
+en-US = "New"
+en-GB = "New"
+it = "Nuovo"
+fr = "Nouveau"
+de = "Neu"
+es = "Nuevo"
+sources = ["musescore-ui", "ardour-ui"]
+note = "File menu command (action file.new, F2.11d1). MuseScore and Ardour agree in it, fr, de; in es both write 'Nueva' (for 'partitura', 'sesión'), but our object is the project ('proyecto', masculine), so 'Nuevo'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = true
+
+[[term]]
+id = "open"
+category = "general"
+en-US = "Open"
+en-GB = "Open"
+it = "Apri"
+fr = "Ouvrir"
+de = "Öffnen"
+es = "Abrir"
+sources = ["musescore-ui", "ardour-ui"]
+note = "File menu command (file.open). MuseScore's Italian 'Vuota' for 'Open' is another context (an open string); the command is 'Apri'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "save"
+category = "general"
+en-US = "Save"
+en-GB = "Save"
+it = "Salva"
+fr = "Enregistrer"
+de = "Speichern"
+es = "Guardar"
+sources = ["musescore-ui", "ardour-ui"]
+note = "File menu command (file.save). fr: MuseScore 'Enregistrer', Ardour 'Sauvegarder'; 'Enregistrer' is the systems' own word (Windows, macOS, GNOME) and MuseScore's. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "save_as"
+category = "general"
+en-US = "Save as"
+en-GB = "Save as"
+it = "Salva come"
+fr = "Enregistrer sous"
+de = "Speichern unter"
+es = "Guardar como"
+sources = ["musescore-ui", "ardour-ui"]
+note = "File menu command (file.save-as). it: both sources say 'Salva come' (Microsoft's 'Salva con nome' is also common). de: MuseScore 'Speichern als', Ardour 'Speichern unter' (the systems' own word): 'Speichern unter'. Native speakers to confirm it and de. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = true
+
+[[term]]
+id = "quit"
+category = "general"
+en-US = "Quit"
+en-GB = "Quit"
+it = "Esci"
+fr = "Quitter"
+de = "Beenden"
+es = "Salir"
+sources = ["musescore-ui", "ardour-ui"]
+note = "File menu command (file.quit). Both sources agree in every language. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "cut"
+category = "general"
+en-US = "Cut"
+en-GB = "Cut"
+it = "Taglia"
+fr = "Couper"
+de = "Ausschneiden"
+es = "Cortar"
+sources = ["musescore-ui", "ardour-ui"]
+note = "Edit menu command (edit.cut). Both sources agree. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "copy"
+category = "general"
+en-US = "Copy"
+en-GB = "Copy"
+it = "Copia"
+fr = "Copier"
+de = "Kopieren"
+es = "Copiar"
+sources = ["musescore-ui", "ardour-ui"]
+note = "Edit menu command (edit.copy). Both sources agree. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "paste"
+category = "general"
+en-US = "Paste"
+en-GB = "Paste"
+it = "Incolla"
+fr = "Coller"
+de = "Einfügen"
+es = "Pegar"
+sources = ["musescore-ui", "ardour-ui"]
+note = "Edit menu command (edit.paste). Both sources agree. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "select_all"
+category = "general"
+en-US = "Select all"
+en-GB = "Select all"
+it = "Seleziona tutto"
+fr = "Tout sélectionner"
+de = "Alles auswählen"
+es = "Seleccionar todo"
+sources = ["musescore-ui", "ardour-ui"]
+note = "Edit menu command (edit.select-all). fr: MuseScore 'Tout sélectionner', Ardour 'Sélectionner tout'; the first is the systems' word. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "preferences"
+category = "general"
+en-US = "Preferences"
+en-GB = "Preferences"
+it = "Preferenze"
+fr = "Préférences"
+de = "Einstellungen"
+es = "Preferencias"
+sources = ["musescore-ui", "ardour-ui"]
+note = "The Preferences window and its command (edit.preferences, Edit → Preferences on Linux and Windows, ADR-0048 AM9). de: MuseScore 'Einstellungen', Ardour 'Globale Einstellungen': 'Einstellungen'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "full_screen"
+category = "general"
+en-US = "Full screen"
+en-GB = "Full screen"
+it = "Schermo intero"
+fr = "Plein écran"
+de = "Vollbild"
+es = "Pantalla completa"
+sources = ["musescore-ui", "ardour-ui"]
+note = "View menu command (view.full-screen). de: MuseScore 'Ganzer Bildschirm', Ardour 'Vollbild' (the systems' own word): 'Vollbild'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = true
+
+[[term]]
+id = "help"
+category = "general"
+en-US = "Help"
+en-GB = "Help"
+it = "Aiuto"
+fr = "Aide"
+de = "Hilfe"
+es = "Ayuda"
+sources = ["musescore-ui", "ardour-ui"]
+note = "The Help command (help.contents, F1) and later the Help menu. Both sources agree; it: 'Aiuto' (Windows says 'Guida', the music programs 'Aiuto'). en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+review = false
+
+[[term]]
 id = "restore_defaults"
 category = "general"
 en-US = "Restore defaults"

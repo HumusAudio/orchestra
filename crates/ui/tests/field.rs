@@ -160,12 +160,14 @@ impl Bench {
     fn press(&mut self, key: Key, modifiers: Modifiers) {
         self.input(&InputEvent::Key {
             key: key.clone(),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers,
         });
         self.input(&InputEvent::Key {
             key,
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Released,
             repeat: false,
             modifiers,
@@ -178,6 +180,7 @@ impl Bench {
             let key = Key::Character(c.to_string());
             self.input(&InputEvent::Key {
                 key: key.clone(),
+                physical: orchestra_ui::PhysicalKey::Other,
                 state: ButtonState::Pressed,
                 repeat: false,
                 modifiers: Modifiers::default(),
@@ -185,6 +188,7 @@ impl Bench {
             self.input(&InputEvent::Text(c.to_string()));
             self.input(&InputEvent::Key {
                 key,
+                physical: orchestra_ui::PhysicalKey::Other,
                 state: ButtonState::Released,
                 repeat: false,
                 modifiers: Modifiers::default(),

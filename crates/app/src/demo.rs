@@ -25,6 +25,7 @@
 //! to their default values, to show the application changing widgets itself (ADR-0045 WA7).
 //! Nothing here is business logic (the crate's rule): it is a throw-away view.
 
+use std::collections::VecDeque;
 use std::time::Instant;
 
 use orchestra_i18n::{I18nError, Localizer};
@@ -34,8 +35,11 @@ use orchestra_ui::{
     Constraints, DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length,
     Point, PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space,
     Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui, Weight, Widget, WidgetId,
-    WindowApp,
+    WindowApp, WindowRequest,
 };
+use orchestra_ui::{ActionId, Platform};
+
+use crate::actions::{self, ActionIds};
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +56,8 @@ pub enum DemoMessage {
     RestoreDefaults,
     /// *OK* was pressed.
     Ok,
+    /// An action ran from its shortcut (ADR-0048 AM4, F2.11d1).
+    Action(ActionId),
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -120,6 +126,10 @@ pub struct Demo {
     staff: WidgetId,
     /// The *Restore defaults* button (its tooltip is the screenshots' example, F2.11c).
     restore_defaults: WidgetId,
+    /// The program's actions (F2.11d1), `None` if their tables were wrong (the tests prevent it).
+    actions: Option<ActionIds>,
+    /// What the actions asked of the window, waiting for it ([`WindowApp::take_window_request`]).
+    requests: VecDeque<WindowRequest>,
 }
 
 impl Demo {
@@ -217,8 +227,11 @@ impl Demo {
                     .height(Length::Fixed(110.0)),
             )
             .unwrap_or_else(|_| ui.root());
+        let actions = attach_actions(&mut ui);
         Self {
             ui,
+            actions,
+            requests: VecDeque::new(),
             title,
             metronome,
             count_in,
@@ -227,6 +240,12 @@ impl Demo {
             staff,
             restore_defaults,
         }
+    }
+
+    /// The program's actions (F2.11d1), if their tables were valid.
+    #[must_use]
+    pub const fn actions(&self) -> Option<ActionIds> {
+        self.actions
     }
 
     /// The interface, to read its widgets (tests, screenshots).
@@ -268,6 +287,17 @@ impl Demo {
             match message {
                 DemoMessage::RestoreDefaults => restore = true,
                 DemoMessage::TrackName(text) => name = Some(text),
+                // Quit and Full screen ask the window (F2.11d1); the other actions are disabled
+                // until they exist, so their messages never come.
+                DemoMessage::Action(id) => {
+                    if let Some(ids) = self.actions {
+                        if id == ids.quit {
+                            self.requests.push_back(WindowRequest::Close);
+                        } else if id == ids.full_screen {
+                            self.requests.push_back(WindowRequest::ToggleFullScreen);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -294,6 +324,15 @@ impl Demo {
             self.ui.frame(list);
         }
     }
+}
+
+/// Hands the program's actions and their shortcuts to `ui` (F2.11d1) and returns their indices.
+/// Their tables are checked by the tests on the three platforms; if they were wrong anyway, the
+/// demonstration runs without shortcuts (`None`) rather than not at all.
+fn attach_actions(ui: &mut Ui<DemoMessage>) -> Option<ActionIds> {
+    let (registry, ids) = actions::registry(Platform::CURRENT).ok()?;
+    ui.set_actions(registry, DemoMessage::Action);
+    Some(ids)
 }
 
 /// The *Track name* row of the options (F2.10b2): a label and a text field filling the rest of
@@ -425,6 +464,11 @@ impl WindowApp for Demo {
         // The input method is on while the "Track name" field has the focus, with its caret's
         // area for the candidate window (ADR-0047 TF5, TF6; F2.10c2).
         self.ui.text_input()
+    }
+
+    fn take_window_request(&mut self) -> Option<WindowRequest> {
+        // Quit and Full screen, in the order their shortcuts were pressed (F2.11d1).
+        self.requests.pop_front()
     }
 }
 

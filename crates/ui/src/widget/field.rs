@@ -101,6 +101,7 @@ use std::time::{Duration, Instant};
 
 use orchestra_text::{TextLayout, grapheme_boundaries, prev_grapheme, word_at, word_starts};
 
+use crate::action::registry::EditRole;
 use crate::draw::geometry::{Point, Rect, RoundedRect};
 use crate::draw::list::Recorder;
 use crate::draw::paint::StrokeStyle;
@@ -861,12 +862,7 @@ impl<M> TextField<M> {
     /// A key pressed while focused.
     fn key(&mut self, cx: &mut EventCx<'_, M>, key: &Key, modifiers: Modifiers) -> Handled {
         if let Some(action) = edit_action(key, modifiers, self.editor.convention()) {
-            let response = match self.editor.apply(action) {
-                // The editor has no clipboard: it hands these three back (F2.10b1).
-                EditResponse::Clipboard(action) => self.clipboard(cx, action),
-                response => response,
-            };
-            self.after(cx, response);
+            self.edit(cx, action);
             return Handled::Yes;
         }
         match key {
@@ -896,6 +892,18 @@ impl<M> TextField<M> {
             }
             _ => Handled::No,
         }
+    }
+
+    /// Carries out an editing action, from a key (TF3) or from an action of the registry
+    /// (ADR-0048 AM13, [`WidgetEvent::Edit`]): the same path for both, so a menu's Undo and
+    /// Ctrl+Z do exactly the same.
+    fn edit(&mut self, cx: &mut EventCx<'_, M>, action: EditAction) {
+        let response = match self.editor.apply(action) {
+            // The editor has no clipboard: it hands these three back (F2.10b1).
+            EditResponse::Clipboard(action) => self.clipboard(cx, action),
+            response => response,
+        };
+        self.after(cx, response);
     }
 
     /// A left press at `point` with `clicks` (TF4).
@@ -1279,6 +1287,12 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
             WidgetEvent::SetText(_)
             | WidgetEvent::ReplaceSelectedText(_)
             | WidgetEvent::SetTextSelection { .. } => self.assistive(cx, event),
+            // A standard editing action of the registry (ADR-0048 AM13), sent only after
+            // `edit_state` said it can be done now.
+            WidgetEvent::Edit(role) => {
+                self.edit(cx, edit_action_of(role));
+                Handled::Yes
+            }
             _ => Handled::No,
         }
     }
@@ -1289,6 +1303,24 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
 
     fn accepts_text(&self) -> bool {
         self.enabled
+    }
+
+    fn edit_state(&self, role: EditRole) -> Option<bool> {
+        // A disabled field never has the focus, but answers nothing then, to be safe: the action
+        // is not its business.
+        if !self.enabled {
+            return None;
+        }
+        // With the focus in the field, the six act on its text and its local undo only (AM13,
+        // ADR-0047 TF7): Undo with an empty local history is disabled, never the document's.
+        Some(match role {
+            EditRole::Cut | EditRole::Copy => !self.editor.selection().is_empty(),
+            // Whether the clipboard has text is not known without asking the system (which
+            // would mean a round trip for every state read); an empty paste does nothing.
+            EditRole::Paste | EditRole::SelectAll => true,
+            EditRole::Undo => self.editor.can_undo(),
+            EditRole::Redo => self.editor.can_redo(),
+        })
     }
 
     fn ime_area(&self) -> Option<Rect> {
@@ -1314,5 +1346,17 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
         if !self.placeholder.is_empty() {
             info.placeholder = Some(self.placeholder.clone());
         }
+    }
+}
+
+/// The field's editing action for a standard editing action of the registry (AM13).
+const fn edit_action_of(role: EditRole) -> EditAction {
+    match role {
+        EditRole::Cut => EditAction::Cut,
+        EditRole::Copy => EditAction::Copy,
+        EditRole::Paste => EditAction::Paste,
+        EditRole::SelectAll => EditAction::SelectAll,
+        EditRole::Undo => EditAction::Undo,
+        EditRole::Redo => EditAction::Redo,
     }
 }

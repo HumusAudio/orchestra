@@ -250,6 +250,11 @@ pub enum WidgetEvent<'a> {
     /// which of its titles was open. A menu closed by [`Ui::close_menu`](crate::Ui::close_menu)
     /// sends nothing: the caller already knows.
     MenuClosed(WidgetId),
+    /// A standard editing action ran while this widget had the focus and said it can carry it
+    /// out ([`Widget::edit_state`], ADR-0048 AM13): a text field cuts, copies, pastes, selects,
+    /// undoes or redoes on its own text and its local undo. Sent to the focused widget alone,
+    /// without bubbling, only when its answer was "enabled".
+    Edit(crate::action::registry::EditRole),
     /// An assistive technology asked to scroll (AccessKit's scroll actions, F2.09d): a scroll
     /// area moves its content by a line (`page == false`) or by a viewport (`page == true`).
     Scroll {
@@ -435,6 +440,31 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     /// Asked at every pointer move over the widget, so answer from stored state, without
     /// allocating. The text must already be localised (CLAUDE.md §7).
     fn tooltip(&self) -> Option<&str> {
+        None
+    }
+
+    /// The context of shortcuts this widget opens (ADR-0048 AM3): a view's root answers its
+    /// context (*Notation*, *DAW*), everything else `None` (the default). A key no widget handled
+    /// is looked up in the contexts met from the focused widget up to the root, innermost first,
+    /// and in [`Context::GLOBAL`](crate::Context::GLOBAL) last.
+    ///
+    /// Asked for every such key, for each ancestor of the focused widget: answer from stored
+    /// state.
+    fn context(&self) -> Option<crate::Context> {
+        None
+    }
+
+    /// Whether this widget, while focused, carries out the standard editing action `role`
+    /// itself (ADR-0048 AM13): `Some(true)` when it can now (it then gets
+    /// [`WidgetEvent::Edit`]), `Some(false)` when it takes the action but cannot do it now (Copy
+    /// with nothing selected, Undo with an empty local history: the action is disabled and does
+    /// **not** fall through to the document), `None` when the action is not its business (the
+    /// default): the application then runs it.
+    ///
+    /// Asked when such an action runs and when its state is read (the menus, F2.11d2): answer
+    /// from stored state, without allocating.
+    fn edit_state(&self, role: crate::EditRole) -> Option<bool> {
+        let _ = role;
         None
     }
 }

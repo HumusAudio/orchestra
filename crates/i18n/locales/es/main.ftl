@@ -9,13 +9,25 @@ app-name = Orchestra
 ## Main menu
 
 menu-file = Archivo
+menu-file-new = Nuevo
+menu-file-open = Abrir
+menu-file-save = Guardar
+menu-file-save-as = Guardar como
+menu-file-quit = Salir
 menu-edit = Editar
 menu-edit-undo = Deshacer
 menu-edit-redo = Rehacer
+menu-edit-cut = Cortar
+menu-edit-copy = Copiar
+menu-edit-paste = Pegar
+menu-edit-select-all = Seleccionar todo
+menu-edit-preferences = Preferencias
 menu-view = Vista
 menu-view-score = Partitura
 menu-view-tracks = Pistas
 menu-view-mixer = Mezclador
+menu-view-full-screen = Pantalla completa
+menu-help-contents = Ayuda
 
 ## Status bar (glossary: measure → "compás", masculine, plural "compases")
 

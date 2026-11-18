@@ -84,19 +84,41 @@
 //! The tooltip's widget is created the first time one shows and kept afterwards, hidden, so
 //! showing and hiding allocate nothing once it exists.
 //!
+//! # Actions and shortcuts (F2.11d1, ADR-0048 AM1–AM4, AM13)
+//! Once the application hands in its registry ([`Ui::set_actions`]), a key press that reaches
+//! the root unhandled (AM4: a widget always wins over a shortcut) is looked up in the **active
+//! contexts**, met from the focused widget (or the open modal layer) up to the root, innermost
+//! first ([`Widget::context`]), and in *Global* last (AM3). Each context is tried with the
+//! press's logical shortcut, then with its fallback by position (AM5). When an action is found:
+//! - the press is consumed, and so are its repeats (they run the action again only for an action
+//!   marked *repeatable*) and its release;
+//! - a standard editing action (Cut, Copy, Paste, Select all, Undo, Redo) asks the focused widget
+//!   first ([`Widget::edit_state`], AM13): a text field carries it out on its own text and local
+//!   undo, or refuses it (Undo with an empty local history), and in both cases it never reaches
+//!   the document;
+//! - otherwise a disabled action does nothing (AM2), and an enabled one becomes the application's
+//!   message ([`Ui::set_actions`]'s function), queued with the widgets' messages in the order of
+//!   the input.
+//!
+//! With a menu open the keys are the menu's (AM11) and no shortcut is looked up.
+//!
 //! # Allocation
 //! Routing an event allocates nothing (hit testing recurses on the tree, bubbling follows parent
 //! links, Tab order walks with a reused stack). Messages go into a queue that keeps its capacity.
 
 use std::time::Instant;
 
+use crate::action::registry::{ActionId, ActionState, Context, EditRole, Registry};
+use crate::action::shortcut::{ShortcutKey, candidates};
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::list::{DisplayList, Recorder, SegmentId};
 use crate::platform::clipboard::{ClipboardSource, MemoryClipboard};
 use orchestra_text::Faces;
 
 use crate::theme::token::{Shape, Theme};
-use crate::window::input::{ButtonState, InputEvent, Key, Modifiers, NamedKey, PointerButton};
+use crate::window::input::{
+    ButtonState, InputEvent, Key, Modifiers, NamedKey, PhysicalKey, PointerButton,
+};
 use crate::window::pointer::PointerShape;
 
 use super::access::{
@@ -196,7 +218,27 @@ pub struct Ui<M> {
     /// A press closed the menus and was consumed: its release is consumed too, so the widget
     /// under it does not get a release without a press.
     swallow_release: bool,
+    /// The registry of actions and how an action becomes a message, once the application handed
+    /// them in ([`Ui::set_actions`]; ADR-0048 AM1, AM4).
+    actions: Option<Actions<M>>,
+    /// The key of the last press that matched an action: its release is consumed too (AM4).
+    /// Only the key, compared without the modifiers, which may be released first.
+    action_key: Option<ShortcutKey>,
 }
+
+/// The registry of actions and the application's message for running one (F2.11d1).
+#[derive(Debug)]
+struct Actions<M> {
+    /// The registry.
+    registry: Registry,
+    /// The message that tells the application to run an action.
+    message: fn(ActionId) -> M,
+}
+
+/// The most contexts collected for one key, *Global* included (AM3): views nest a few levels at
+/// most (a notation view inside the window); deeper ones are ignored, which keeps the collection
+/// in a fixed array, without allocating.
+const MAX_CONTEXTS: usize = 8;
 
 /// One open menu (F2.11c).
 #[derive(Debug, Clone, Copy)]
@@ -275,6 +317,8 @@ impl<M: 'static> Ui<M> {
             next_layer: FIRST_MENU_LAYER,
             tooltip: TooltipState::default(),
             swallow_release: false,
+            actions: None,
+            action_key: None,
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -875,10 +919,11 @@ impl<M: 'static> Ui<M> {
             }
             InputEvent::Key {
                 key,
+                physical,
                 state,
                 repeat,
                 modifiers,
-            } => self.key(key, *state, *repeat, *modifiers),
+            } => self.key(key, *physical, *state, *repeat, *modifiers),
             // With a menu open, typed text and the input method's events reach nothing: the
             // menu takes its letters as keys, and the input method is off (`text_input`).
             InputEvent::Text(_) | InputEvent::Ime(_) if !self.menus.is_empty() => {}
@@ -907,6 +952,8 @@ impl<M: 'static> Ui<M> {
             // It also closes the menus and hides the tooltip, as the three platforms do.
             InputEvent::Focus(false) => {
                 self.modifiers = Modifiers::default();
+                // The release of a shortcut's key will not come either.
+                self.action_key = None;
                 self.close_menus_from(0, list, true);
                 self.hide_tooltip();
                 self.tooltip.pending = None;
@@ -917,8 +964,16 @@ impl<M: 'static> Ui<M> {
     }
 
     /// A key (WA3): to the focused widget (or the open modal layer), bubbling; an unhandled Tab
-    /// moves the focus (WA4). With a menu open, to the topmost menu instead (ADR-0048 AM11).
-    fn key(&mut self, key: &Key, state: ButtonState, repeat: bool, modifiers: Modifiers) {
+    /// moves the focus (WA4), any other unhandled press is looked up among the actions
+    /// (ADR-0048 AM4). With a menu open, to the topmost menu instead (ADR-0048 AM11).
+    fn key(
+        &mut self,
+        key: &Key,
+        physical: PhysicalKey,
+        state: ButtonState,
+        repeat: bool,
+        modifiers: Modifiers,
+    ) {
         self.modifiers = modifiers;
         let event = WidgetEvent::Key {
             key,
@@ -929,6 +984,17 @@ impl<M: 'static> Ui<M> {
         // Any key hides the tooltip, and still does what it does (choice 4 of F2.11c).
         if state == ButtonState::Pressed {
             self.dismiss_tooltip();
+        }
+        // The release of a key that matched an action is consumed like its press (AM4).
+        if state == ButtonState::Released
+            && let Some(held) = self.action_key
+            && candidates(key, physical, modifiers)
+                .iter()
+                .flatten()
+                .any(|candidate| candidate.key() == held)
+        {
+            self.action_key = None;
+            return;
         }
         // With a menu open the keys are the topmost menu's, bubbling inside it only, and Tab moves
         // nothing in the main interface (ADR-0048 AM11).
@@ -941,9 +1007,155 @@ impl<M: 'static> Ui<M> {
             .focused
             .or_else(|| self.modals.last().map(|&(layer, _)| layer));
         let handled = start.and_then(|start| self.deliver(start, &event, true));
-        if handled.is_none() && state == ButtonState::Pressed && *key == Key::Named(NamedKey::Tab) {
-            self.move_focus(!modifiers.shift);
+        if handled.is_some() || state != ButtonState::Pressed {
+            return;
         }
+        if *key == Key::Named(NamedKey::Tab) {
+            self.move_focus(!modifiers.shift);
+        } else {
+            self.shortcut(start, key, physical, repeat, modifiers);
+        }
+    }
+
+    /// Gives the interface the application's actions (ADR-0048 AM1): the registry, and the
+    /// message that tells the application to run one (`message(id)` is queued with the widgets'
+    /// messages, [`Ui::take_messages`]). From then on, keys no widget handles run the actions
+    /// whose shortcuts they are (see the module documentation).
+    pub fn set_actions(&mut self, registry: Registry, message: fn(ActionId) -> M) {
+        self.actions = Some(Actions { registry, message });
+        self.action_key = None;
+    }
+
+    /// The registry, once handed in.
+    #[must_use]
+    pub fn actions(&self) -> Option<&Registry> {
+        self.actions.as_ref().map(|actions| &actions.registry)
+    }
+
+    /// The registry, to change states (AM2) and shortcuts (AM7).
+    pub fn actions_mut(&mut self) -> Option<&mut Registry> {
+        self.actions.as_mut().map(|actions| &mut actions.registry)
+    }
+
+    /// The state of `id` as the user sees it now (AM2): the registry's, except for a standard
+    /// editing action that the focused widget takes (AM13), whose *enabled* is the widget's
+    /// answer (Undo in a field with an empty local history is disabled). `None` for an unknown
+    /// action or without a registry.
+    #[must_use]
+    pub fn action_state(&self, id: ActionId) -> Option<ActionState> {
+        let registry = self.actions()?;
+        let state = registry.state(id)?;
+        let taken = registry
+            .spec(id)
+            .and_then(|spec| spec.edit)
+            .and_then(|role| self.focused_edit_state(role));
+        Some(taken.map_or(state, |enabled| ActionState {
+            enabled,
+            checked: state.checked,
+        }))
+    }
+
+    /// Looks the unhandled press up among the actions (AM3, AM4, AM5) and runs the one found.
+    /// `start` is where the key was delivered (the focused widget or the modal layer).
+    ///
+    /// # Cost
+    /// O(depth) to collect the contexts, then at most two probes per context (O(1) each); no
+    /// allocation.
+    fn shortcut(
+        &mut self,
+        start: Option<usize>,
+        key: &Key,
+        physical: PhysicalKey,
+        repeat: bool,
+        modifiers: Modifiers,
+    ) {
+        let Some(actions) = self.actions.as_ref() else {
+            return;
+        };
+        let candidates = candidates(key, physical, modifiers);
+        let (contexts, count) = self.active_contexts(start);
+        // Innermost context first, and in each the logical shortcut before the fallback.
+        let found = contexts.iter().take(count).find_map(|&context| {
+            candidates.iter().flatten().find_map(|&candidate| {
+                actions
+                    .registry
+                    .lookup(context, candidate)
+                    .map(|id| (id, candidate.key()))
+            })
+        });
+        let Some((id, matched)) = found else {
+            return;
+        };
+        self.action_key = Some(matched);
+        let repeatable = actions
+            .registry
+            .spec(id)
+            .is_some_and(|spec| spec.repeatable);
+        // A repeat runs the action again only when it is repeatable; otherwise it is consumed.
+        if repeat && !repeatable {
+            return;
+        }
+        self.invoke(id);
+    }
+
+    /// Runs `id` as a shortcut or a menu item does: a standard editing action the focused widget
+    /// takes goes to it (AM13); otherwise, when enabled, the application's message is queued.
+    /// `true` when something ran.
+    pub(crate) fn invoke(&mut self, id: ActionId) -> bool {
+        let Some(actions) = self.actions.as_ref() else {
+            return false;
+        };
+        let role = actions.registry.spec(id).and_then(|spec| spec.edit);
+        if let Some(role) = role
+            && let Some(focused) = self.focused
+            && let Some(enabled) = self.focused_edit_state(role)
+        {
+            if enabled {
+                self.call(focused, &WidgetEvent::Edit(role));
+            }
+            return enabled;
+        }
+        if !actions
+            .registry
+            .state(id)
+            .is_some_and(|state| state.enabled)
+        {
+            return false;
+        }
+        let message = (actions.message)(id);
+        self.messages.push(message);
+        true
+    }
+
+    /// The focused widget's answer to a standard editing action (AM13), if it takes it.
+    fn focused_edit_state(&self, role: EditRole) -> Option<bool> {
+        let slot = self.tree.slot(self.focused?)?;
+        slot.widget.as_ref()?.edit_state(role)
+    }
+
+    /// The active contexts for a key delivered at `start` (AM3): those declared on the way from
+    /// `start` to the root, innermost first, then *Global*; and how many there are.
+    fn active_contexts(&self, start: Option<usize>) -> ([Context; MAX_CONTEXTS], usize) {
+        let mut contexts = [Context::GLOBAL; MAX_CONTEXTS];
+        let mut count = 0;
+        let mut current = start;
+        // The last place is kept for *Global* (already in the array).
+        while let Some(index) = current
+            && count < MAX_CONTEXTS - 1
+        {
+            let Some(slot) = self.tree.slot(index) else {
+                break;
+            };
+            if let Some(context) = slot.widget.as_ref().and_then(|widget| widget.context())
+                && let Some(place) = contexts.get_mut(count)
+            {
+                *place = context;
+                count += 1;
+            }
+            current = slot.parent;
+        }
+        // *Global* last: the array is already filled with it after the views' contexts.
+        (contexts, count + 1)
     }
 
     /// A pointer button (WA3): a press goes to the widget under the pointer, which captures the

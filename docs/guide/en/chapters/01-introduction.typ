@@ -58,6 +58,28 @@ Every slider and knob in Orchestra works the same way, wherever it is:
   the pointer.
 ]
 
+== Keyboard shortcuts
+
+Orchestra's commands have keyboard shortcuts that follow the conventions of your system: on
+Linux and Windows they use Ctrl, on macOS ⌘. These already work:
+
+- *F11* (⌃⌘F on macOS) switches full screen on and off.
+- *Ctrl+Q* (⌘Q on macOS) quits Orchestra; on Windows close the window with Alt+F4, as usual.
+- In a text box, *Ctrl+Z* undoes your typing, *Ctrl+Shift+Z* (and Ctrl+Y on Windows) redoes it,
+  and *Ctrl+X*, *Ctrl+C*, *Ctrl+V* and *Ctrl+A* cut, copy, paste and select all. While you are
+  typing in a box, Undo only undoes what you typed there, never a change to your project.
+
+The shortcuts follow the letters printed on your keys, whatever your keyboard layout. With a
+layout that does not write Latin letters, such as Russian or Greek, they use the key in the place
+of the US letter, so Ctrl+Z is still the key where Z is on a US keyboard. The number keys work by
+position on every layout, so on a French keyboard you do not need Shift to use them.
+
+#note("Note")[
+  You will be able to change every shortcut in the Preferences. A few keys stay as they are on
+  every system: Tab, the arrow keys, Enter, Escape and Space move around the window, and F10
+  will open the menus.
+]
+
 == Status of this guide
 
 Orchestra is at a very early stage of development. This preview edition explains the ideas

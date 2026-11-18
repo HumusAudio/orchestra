@@ -31,6 +31,7 @@ fn type_char(ui: &mut Ui<()>, list: &mut DisplayList, c: &str) {
     ui.input(
         &InputEvent::Key {
             key: key.clone(),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers: Modifiers::default(),
@@ -41,6 +42,7 @@ fn type_char(ui: &mut Ui<()>, list: &mut DisplayList, c: &str) {
     ui.input(
         &InputEvent::Key {
             key,
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Released,
             repeat: false,
             modifiers: Modifiers::default(),
@@ -70,6 +72,7 @@ fn typing_moving_and_blinking_never_allocate_within_capacity() {
     // field's.
     let home = InputEvent::Key {
         key: Key::Named(NamedKey::Home),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers::default(),
@@ -85,6 +88,7 @@ fn typing_moving_and_blinking_never_allocate_within_capacity() {
     }
     let select_all = InputEvent::Key {
         key: Key::Character("a".to_owned()),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers {
@@ -94,6 +98,7 @@ fn typing_moving_and_blinking_never_allocate_within_capacity() {
     };
     let backspace = InputEvent::Key {
         key: Key::Named(NamedKey::Backspace),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers::default(),

@@ -33,6 +33,9 @@
 //! - The window and the event loop on `winit` + `softbuffer` (ADR-0040, private module `window`):
 //!   frames on demand, our own input events with an abstract primary modifier, scale and resize;
 //!   the interface implements `WindowApp` and never sees `winit`.
+//! - Actions and shortcuts (ADR-0048, private module `action`): one registry for the whole
+//!   program, with contexts, default shortcuts per platform and the user's own; keys no widget
+//!   handles run the actions, and the standard editing actions ask the focused field first.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
 //!
 //! ## What this crate must NOT do
@@ -46,6 +49,7 @@
 
 #![forbid(unsafe_code)]
 
+mod action;
 mod draw;
 mod platform;
 mod theme;
@@ -80,6 +84,13 @@ pub use draw::skia::CpuRenderer;
 // The clipboard (ADR-0047 TF12).
 pub use platform::clipboard::{ClipboardError, ClipboardSource, MemoryClipboard};
 
+// Actions and shortcuts (ADR-0048, F2.11d1).
+pub use action::registry::{
+    ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, LoadWarning, Registry,
+    RegistryError,
+};
+pub use action::shortcut::{Platform, Shortcut, ShortcutError, ShortcutKey};
+
 // The window and the event loop (ADR-0040), re-exported like the rest.
 pub use widget::access::{
     AccessAction, AccessActionKind, AccessInfo, AccessRole, AccessUpdate, RUN_CHARACTERS,
@@ -103,10 +114,11 @@ pub use widget::tree::{
 };
 pub use widget::ui::{TextInput, Ui, UiError};
 pub use window::input::{
-    ButtonState, ImeEvent, InputEvent, Key, Modifiers, NamedKey, PointerButton, WheelDelta,
+    ButtonState, ImeEvent, InputEvent, Key, Modifiers, NamedKey, PhysicalKey, PointerButton,
+    WheelDelta,
 };
 pub use window::pointer::PointerShape;
-pub use window::{WindowApp, WindowError, WindowOptions, run};
+pub use window::{WindowApp, WindowError, WindowOptions, WindowRequest, run};
 
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
 pub use platform::appearance::{

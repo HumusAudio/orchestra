@@ -326,3 +326,38 @@ fn a_forced_mode_ignores_the_system() {
         }
     }
 }
+
+#[test]
+fn physical_keys_name_letters_digits_and_the_keypad() {
+    use super::input::{PhysicalKey, physical_key};
+    use winit::keyboard::{KeyCode, NativeKeyCode, PhysicalKey as Winit};
+    assert_eq!(
+        physical_key(Winit::Code(KeyCode::KeyA)),
+        PhysicalKey::Letter(0)
+    );
+    assert_eq!(
+        physical_key(Winit::Code(KeyCode::KeyZ)),
+        PhysicalKey::Letter(25)
+    );
+    assert_eq!(
+        physical_key(Winit::Code(KeyCode::Digit0)),
+        PhysicalKey::Digit(0)
+    );
+    assert_eq!(
+        physical_key(Winit::Code(KeyCode::Digit9)),
+        PhysicalKey::Digit(9)
+    );
+    assert_eq!(
+        physical_key(Winit::Code(KeyCode::Numpad5)),
+        PhysicalKey::Numpad(5)
+    );
+    // Every other key, and one the system could not place, is `Other`.
+    assert_eq!(
+        physical_key(Winit::Code(KeyCode::Comma)),
+        PhysicalKey::Other
+    );
+    assert_eq!(
+        physical_key(Winit::Unidentified(NativeKeyCode::Unidentified)),
+        PhysicalKey::Other
+    );
+}

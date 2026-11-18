@@ -4866,6 +4866,156 @@ scenario degli screenshot `demo-tooltip` mostra il suggerimento di un pulsante a
 finestra dimostrativa stretta a 200 px (`TOOLTIP_SCENE_WIDTH`), verificato da un test di
 `crates/app/tests/demo.rs`.
 
+#### Azioni e scorciatoie
+
+Il passo F2.11d1 (ADR-0048 AM1–AM8, AM13) aggiunge le **azioni**: le cose che una voce di menu,
+una scorciatoia o un pulsante richiamano per nome (Annulla, Salva, Schermo intero). Non si
+chiamano *comandi* perché quella parola è dei cambiamenti del documento (ADR-0026); un'azione che
+cambia il documento produrrà un comando, un passo di annullamento. Il meccanismo generico sta nel
+nuovo modulo privato `crates/ui/src/action/` di `orchestra-ui`, che non sa nulla di musica;
+l'elenco concreto delle azioni del programma sta in `crates/app/src/actions.rs`.
+
+**Che cos'è una scorciatoia** (`action/shortcut.rs`). Una `Shortcut` è fatta dei modificatori
+astratti (`Modifiers`: *Primary* è Ctrl o ⌘) più un `ShortcutKey`, sempre normalizzata da
+`Shortcut::new`, così due grafie della stessa pressione sono uguali e hanno lo stesso hash:
+- una lettera, in qualunque scrittura con maiuscole e minuscole, resta in minuscolo e Shift è un
+  modificatore a sé: Ctrl+Maiusc+Z è `Primary+Shift+z` sia che il layout abbia riportato "Z" sia
+  "z";
+- una cifra ASCII diventa `ShortcutKey::Digit`, la riga dei numeri; il tastierino è
+  `ShortcutKey::Numpad`;
+- ogni altro carattere (punteggiatura, simboli) resta com'è prodotto e **Shift si toglie** (scelta
+  A del proprietario): ⌘? è `Primary+?` e scatta sia che il layout chieda Shift per "?" (US) sia
+  di no;
+- un tasto con nome (F1, una freccia) è `ShortcutKey::Named`.
+
+```rust
+} else if has_case(character) {
+    ShortcutKey::Character(lower(character))
+} else {
+    // The character already says whether Shift was needed (precision A).
+    modifiers.shift = false;
+    ShortcutKey::Character(character)
+}
+```
+
+**Il tasto fisico e i due ripieghi.** `InputEvent::Key` porta ora anche `physical`, un
+`PhysicalKey` (precisione di ADR-0040 W5): hanno un nome solo le posizioni che servono alle
+scorciatoie, le 26 lettere e le dieci cifre dove le ha il layout US, e le cifre del tastierino;
+ogni altro tasto è `Other`. `candidates(key, physical, modifiers)` trasforma una pressione in al
+massimo due scorciatoie, provate in quest'ordine: quella **logica**, poi un **ripiego per
+posizione**:
+- la riga dei numeri vale come la sua cifra su ogni layout, così sull'AZERTY francese il tasto che
+  scrive "&" (e "1" con Shift) è anche la cifra 1, come servirà all'inserimento passo passo
+  (F2.22);
+- una lettera fuori dalla scrittura latina (cirillico, greco…) vale anche come la lettera US nella
+  stessa posizione, così Ctrl+Z annulla anche con un layout russo. "Latina" è una piccola tabella
+  di intervalli Unicode, sufficiente per ogni layout latino, invece di un crate per le scritture
+  Unicode.
+
+Viene prima la scorciatoia logica: chi ha assegnato `Primary+/` sul QWERTZ tedesco (dove "/" è
+Shift+7) ottiene la sua azione, e solo una pressione che non corrisponde a nulla ripiega sulla
+posizione.
+
+**Tasti fissi** (`Shortcut::is_fixed`, scelta B del proprietario). Nessuna azione può prendere
+Tab, le frecce, Invio, Esc o Spazio senza modificatori o con il solo Shift (la navigazione dei
+widget), F10 e Shift+F10, il tasto Menu (`NamedKey::ContextMenu`, nuovo), e su Linux e Windows
+Alt+lettera (i mnemonici dei menu, F2.11d2). Con *Primary* le frecce restano libere (Ctrl+↑ nella
+partitura). I tasti di modifica di un campo di testo non vengono rifiutati: dentro un campo vince
+comunque il campo.
+
+**Il registro** (`action/registry.rs`). Un solo `Registry` per tutto il programma, fatto per una
+`Platform` (scelta per valore, così i test su Linux costruiscono le tabelle di tutte e tre).
+Contiene:
+- i **contesti**: `Context::GLOBAL` e quelli aggiunti con `add_context("notation")`;
+- le **azioni**, registrate con un `ActionSpec` (un identificatore stabile `gruppo.nome`, la
+  chiave Fluent del nome, il contesto, i `Defaults` delle tre piattaforme, se un tasto tenuto
+  premuto la ripete, e il suo `EditRole` se è un'azione di modifica standard) e ritrovate con un
+  `ActionId`, un piccolo indice: mentre si gestiscono i tasti non si confronta né si fa l'hash di
+  nessuna stringa;
+- lo **stato** di ogni azione (`ActionState`: abilitata, spuntata);
+- la **ricerca**, una mappa hash da (contesto, scorciatoia) ad `ActionId`, con l'FxHash della
+  cache dei glifi: circa 180 istruzioni per prova (`registry_lookup`, 1 024 prove in 186 382).
+
+`register` rifiuta identificatori malformati o ripetuti, contesti sconosciuti, tasti fissi e due
+azioni dello stesso contesto con la stessa scorciatoia: un programma con le proprie tabelle
+sbagliate fallisce nei suoi test, mai nelle mani di un utente. Una scorciatoia di contesto che
+copre una globale è ammessa. Le scorciatoie dell'utente (AM7) esistono nell'API finché non arriva
+il file delle impostazioni (F2.12): `set_shortcuts` (tutto o niente, rifiuta conflitti e tasti
+fissi), `restore`, `restore_all`, `overrides` (solo le differenze dalle predefinite, ciò che il
+file salverà) e `load_overrides`, che applica le voci di un file facendo **vincere la voce
+successiva** in un conflitto, scarta i tasti fissi, tiene le azioni sconosciute per riscriverle e
+restituisce dei `LoadWarning` invece di fallire.
+
+**Il percorso di un tasto in `Ui`** (`widget/ui.rs`). L'applicazione consegna il registro e il
+messaggio che esegue un'azione:
+
+```rust
+ui.set_actions(registry, DemoMessage::Action);
+```
+
+Una pressione va ancora al widget a fuoco e risale; solo se nessuno la gestisce (e non è Tab)
+viene cercata. I **contesti attivi** si raccolgono dal widget a fuoco fino alla radice
+(`Widget::context()`, nuovo, `None` di default; al massimo otto, in un array fisso), dal più
+interno, con *Global* per ultimo; in ogni contesto si prova la scorciatoia logica prima del
+ripiego. Quando si trova un'azione la pressione è consumata, le sue ripetizioni la rieseguono solo
+se è *ripetibile*, e anche il rilascio è consumato (confrontato solo per tasto, perché i
+modificatori possono essere rilasciati prima). Un'azione disabilitata non fa nulla; una abilitata
+diventa il messaggio dell'applicazione, nella stessa coda dei messaggi dei widget. Con un menu
+aperto non si cerca nessuna scorciatoia (i tasti sono del menu).
+
+**Le azioni di Modifica su un campo a fuoco (AM13).** Taglia, Copia, Incolla, Seleziona tutto,
+Annulla e Ripristina portano un `EditRole`. Prima di eseguirne una, `Ui` chiede al widget a fuoco
+`Widget::edit_state(role)` (nuovo): `None` vuol dire "non è affar mio" e l'azione la esegue
+l'applicazione; `Some(true)` vuol dire che la fa il widget, che riceve `WidgetEvent::Edit(role)`
+(nuovo); `Some(false)` vuol dire che la prende ma ora non può farla, quindi non parte nulla. Il
+campo di testo risponde dal suo editor (Copia e Taglia vogliono una selezione, Annulla e
+Ripristina la sua cronologia locale) ed esegue l'azione sullo stesso percorso dei suoi tasti:
+
+```rust
+fn edit_state(&self, role: EditRole) -> Option<bool> {
+    ...
+    Some(match role {
+        EditRole::Cut | EditRole::Copy => !self.editor.selection().is_empty(),
+        EditRole::Paste | EditRole::SelectAll => true,
+        EditRole::Undo => self.editor.can_undo(),
+        EditRole::Redo => self.editor.can_redo(),
+    })
+}
+```
+
+Così, con il fuoco in un campo, Annulla non arriva mai al documento, anche dopo che l'utente ha
+spostato Annulla su un altro tasto. `Ui::action_state(id)` dà lo stato che un menu mostrerà
+(F2.11d2): quello del registro, o quello del campo per queste sei.
+
+**Cosa si chiede alla finestra** (precisione di ADR-0040). `WindowApp::take_window_request`
+(nuovo, `None` di default) permette all'app di chiedere alla finestra una `WindowRequest`: `Close`
+oppure `ToggleFullScreen` (senza bordi sul monitor corrente). La finestra chiede dopo ogni evento
+della finestra, finché l'app non ha più nulla.
+
+**Le azioni del programma** (`crates/app/src/actions.rs`). `registry(platform)` registra le
+quattordici azioni di AM6 con le loro predefinite (Ctrl+Z, Ctrl+Maiusc+Z e su Windows anche
+Ctrl+Y, Ctrl+X/C/V/A, Ctrl+N/O/S, Ctrl+Maiusc+S, Ctrl+Q tranne che su Windows dove Alt+F4 è del
+sistema, Ctrl+, per le Preferenze, F11 o ⌃⌘F per Schermo intero, F1 o ⌘? per l'Aiuto). Per la
+scelta E del proprietario, Esci e Schermo intero funzionano nella finestra dimostrativa; Nuovo,
+Apri, Salva, Salva come, Preferenze e Aiuto sono registrate ma disabilitate finché non esiste ciò
+che fanno; le azioni di modifica agiscono sul campo Nome traccia e fuori sono disabilitate. Il
+nome di ogni azione è la chiave Fluent della sua voce di menu (`menu-edit-undo`,
+`menu-file-save-as`, …), tradotta nei sei cataloghi dopo la ricerca nei cataloghi distribuiti di
+MuseScore e di Ardour, registrata nel glossario (dodici termini nuovi; *Salva come*, *Nuevo* in
+spagnolo e *Vollbild* in tedesco sono segnati per la revisione dei madrelingua).
+
+**Test e benchmark.** `crates/ui/src/action/tests.rs` copre la normalizzazione, i candidati con
+pressioni inventate di AZERTY, russo, greco e QWERTZ, il tastierino, i tasti fissi sulle tre
+piattaforme, la registrazione, le scorciatoie dell'utente e le regole di caricamento.
+`crates/ui/tests/actions.rs` fa passare le azioni da `Ui`: un tasto che nessun widget gestisce, un
+rilascio consumato, le ripetizioni, il contesto di una vista che copre una scorciatoia globale,
+un'azione disabilitata, i ripieghi, e Annulla e Copia su un campo a fuoco (anche dopo aver
+spostato Annulla su Ctrl+U). `widgets_no_alloc.rs` verifica che eseguire azioni dalla tastiera non
+allochi; `crates/app/tests/actions.rs` costruisce il registro del programma sulle tre
+piattaforme, trova ogni nome nelle sei lingue e verifica che F11 e Ctrl+Q arrivino alla finestra.
+Il benchmark `shortcut_press` misura un Ctrl+S intero (pressione, risalita, contesti, ricerca,
+messaggio, rilascio consumato) sul pannello di 200 widget: 26 174 istruzioni.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

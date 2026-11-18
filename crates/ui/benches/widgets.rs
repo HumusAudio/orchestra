@@ -73,6 +73,15 @@
 //!   open; one label added to the main interface and recorded for the first time, so its segment
 //!   is inserted below the menu's layer (the segments above it move up one place). Target: an
 //!   event's 0.5 M.
+//! - `shortcut_press` (F2.11d1, ADR-0048 AM4, AM15): the panel of 200 leaves with a registry of
+//!   64 actions (62 global, 2 of a view context), the focus on the leaf in the middle of the 20th
+//!   row; one Ctrl+S as a keyboard sends it (the press, delivered to the leaf and bubbling
+//!   unhandled to the root, the contexts asked on the way back up, the probe, the action's message
+//!   queued; then the release, consumed). Nothing is
+//!   re-recorded or drawn: the cost is the routing and the lookup.
+//! - `registry_lookup` (F2.11d1, AM15): the registry alone, 1 024 probes (half found, half
+//!   missing) as a batch (ADR-0017 §4). Budget: under a microsecond per probe, that is well under
+//!   a few thousand instructions.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -108,6 +117,10 @@ use orchestra_ui::{Axis, ScrollArea, Splitter, Toggle};
 use orchestra_ui::{Direction, EditAction, EditConvention, TextEditor, Unit};
 use orchestra_ui::{ImeEvent, Key, Modifiers, NamedKey, Popup, PopupSide, TextField};
 use std::time::Instant;
+
+use orchestra_ui::{
+    ActionId, ActionSpec, Context, Defaults, PhysicalKey, Platform, Registry, Shortcut, ShortcutKey,
+};
 
 // A button-like leaf whose width can change.
 #[derive(Debug)]
@@ -915,6 +928,7 @@ fn fielded_shown() -> Fielded {
     let mut image = Image::new(1000, 1600).unwrap();
     let backspace = InputEvent::Key {
         key: Key::Named(NamedKey::Backspace),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers::default(),
@@ -946,6 +960,7 @@ fn fielded_shown() -> Fielded {
 fn typed_key(letter: &str) -> [InputEvent; 3] {
     let key = |state| InputEvent::Key {
         key: Key::Character(letter.to_owned()),
+        physical: orchestra_ui::PhysicalKey::Other,
         state,
         repeat: false,
         modifiers: Modifiers::default(),
@@ -1192,10 +1207,148 @@ library_benchmark_group!(
     benchmarks = [tooltip_show, tooltip_hide, first_record_under_a_menu]
 );
 
+// A registry of 62 global actions (Ctrl+letter, Ctrl+Shift+letter, Ctrl+digit), plus two of a
+// view context: the size of a real program's global table.
+fn bench_registry() -> (Registry, Context) {
+    let mut registry = Registry::new(Platform::Linux);
+    let view = registry.add_context("view").unwrap();
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    let shifted = Modifiers {
+        shift: true,
+        ..primary
+    };
+    let mut keys = Vec::new();
+    for letter in 'a'..='z' {
+        keys.push(Shortcut::new(primary, ShortcutKey::Character(letter)).unwrap());
+        keys.push(Shortcut::new(shifted, ShortcutKey::Character(letter)).unwrap());
+    }
+    for digit in 0..=9 {
+        keys.push(Shortcut::new(primary, ShortcutKey::Digit(digit)).unwrap());
+    }
+    // Identifiers are `&'static str`: leaked once, in the setup.
+    for (index, shortcut) in keys.into_iter().take(62).enumerate() {
+        let identifier: &'static str = Box::leak(format!("bench.action-{index}").into_boxed_str());
+        registry
+            .register(ActionSpec {
+                identifier,
+                name: "action-test",
+                context: Context::GLOBAL,
+                defaults: Defaults::everywhere(&[shortcut]),
+                repeatable: false,
+                edit: None,
+            })
+            .unwrap();
+    }
+    for (identifier, letter) in [("view.first", 'f'), ("view.second", 'g')] {
+        registry
+            .register(ActionSpec {
+                identifier,
+                name: "action-test",
+                context: view,
+                defaults: Defaults::everywhere(&[Shortcut::new(
+                    Modifiers::default(),
+                    ShortcutKey::Character(letter),
+                )
+                .unwrap()]),
+                repeatable: false,
+                edit: None,
+            })
+            .unwrap();
+    }
+    (registry, view)
+}
+
+// The panel with the registry handed in and the focus on a leaf (F2.11d1).
+fn shortcut_ready() -> Panel {
+    let mut panel = shown();
+    let (registry, _view) = bench_registry();
+    panel.ui.set_actions(registry, |_: ActionId| ());
+    let leaf = panel.leaves[97];
+    panel.ui.set_focus(Some(leaf), &mut panel.list).unwrap();
+    draw(&mut panel);
+    panel
+}
+
+#[library_benchmark]
+#[bench::panel(shortcut_ready())]
+fn shortcut_press(mut panel: Panel) -> Panel {
+    let modifiers = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        panel.ui.input(
+            black_box(&InputEvent::Key {
+                key: Key::Character("s".into()),
+                physical: PhysicalKey::Letter(18),
+                state,
+                repeat: false,
+                modifiers,
+            }),
+            &mut panel.list,
+        );
+    }
+    black_box(panel.ui.take_messages().count());
+    panel
+}
+
+// The registry and 1 024 probes, prepared outside the measured region.
+fn lookup_ready() -> (Registry, Vec<(Context, Shortcut)>) {
+    let (registry, view) = bench_registry();
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    let alt = Modifiers {
+        alt: true,
+        ..primary
+    };
+    let mut probes = Vec::with_capacity(1024);
+    for index in 0..1024_u32 {
+        let letter = char::from(b'a' + u8::try_from(index % 26).unwrap());
+        // Even probes hit (Ctrl+letter, global), odd ones miss (Ctrl+Alt+letter, in the view).
+        let probe = if index % 2 == 0 {
+            (
+                Context::GLOBAL,
+                Shortcut::new(primary, ShortcutKey::Character(letter)),
+            )
+        } else {
+            (view, Shortcut::new(alt, ShortcutKey::Character(letter)))
+        };
+        probes.push((probe.0, probe.1.unwrap()));
+    }
+    (registry, probes)
+}
+
+#[library_benchmark]
+#[bench::batch(lookup_ready())]
+fn registry_lookup(input: (Registry, Vec<(Context, Shortcut)>)) -> usize {
+    let (registry, probes) = input;
+    let mut found = 0;
+    for &(context, shortcut) in &probes {
+        if registry
+            .lookup(black_box(context), black_box(shortcut))
+            .is_some()
+        {
+            found += 1;
+        }
+    }
+    found
+}
+
+library_benchmark_group!(
+    name = actions,
+    benchmarks = [shortcut_press, registry_lookup]
+);
+
 main!(
     library_benchmark_groups = core,
     controls,
     scrolling,
     editing,
-    popups
+    popups,
+    actions
 );
