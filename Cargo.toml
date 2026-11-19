@@ -129,6 +129,12 @@ softbuffer = { version = "0.4.8", default-features = false, features = ["x11", "
 # raw-window-handle 0.6, as ADR-0036 B2 fixed them; Windows and macOS adapters are chosen inside
 # by target. zbus 5 stays (ADR-0038 S7's exceptions in deny.toml). Only `orchestra-ui` uses them.
 accesskit = "0.25.2"
+# muda: the macOS system menu bar (ADR-0036 B5, ADR-0048 AM9; F2.11e1). Apache-2.0 OR MIT; 0.21.2
+# is still the newest release, checked on crates.io on 2026-11-19. Without default features: the
+# `gtk`/`libxdo` ones are for Linux, where we draw the bar ourselves. On macOS it brings objc2 0.6
+# and objc2-app-kit 0.3, already in the lock file through winit, plus crossbeam-channel and
+# keyboard-types. Only `orchestra-ui` uses it, only on macOS.
+muda = { version = "0.21.2", default-features = false }
 accesskit_winit = { version = "0.34.2", default-features = false, features = ["accesskit_unix", "async-io", "rwh_06"] }
 # accesskit_consumer: the reader of AccessKit's tree that its own platform adapters are built
 # on (MIT OR Apache-2.0; already in the lock file under accesskit_winit's adapters). TEST-ONLY

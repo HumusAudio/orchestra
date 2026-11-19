@@ -9,9 +9,11 @@
 //! - `appearance`: the system's light/dark preference and its changes (ADR-0014 §5, ADR-0038).
 //! - `clipboard`: the clipboard's text, the system's through `arboard` or one in memory
 //!   (ADR-0047 TF12, F2.10c1).
+//! - `menu`: the system's menu bar, `muda` on macOS (ADR-0036 B5, ADR-0048 AM9, F2.11e1).
 //!
 //! Like every module of the library crates, it is private (ADR-0034 D1): what callers need is
 //! re-exported at the crate root.
 
 pub(crate) mod appearance;
 pub(crate) mod clipboard;
+pub(crate) mod menu;

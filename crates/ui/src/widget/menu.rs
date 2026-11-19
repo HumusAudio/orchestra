@@ -135,6 +135,20 @@ impl MenuModel {
         self
     }
 
+    /// The same menu with `role` given to its **last** item (an action or a submenu; nothing for
+    /// a separator or an empty menu): where macOS puts it (ADR-0048 AM9, F2.11e1). Elsewhere a role
+    /// changes nothing.
+    #[must_use]
+    pub fn role(mut self, role: MenuRole) -> Self {
+        match self.items.last_mut() {
+            Some(MenuItem::Action { role: own, .. } | MenuItem::Submenu { role: own, .. }) => {
+                *own = Some(role);
+            }
+            Some(MenuItem::Separator) | None => {}
+        }
+        self
+    }
+
     /// The same menu with a separator added at the end.
     #[must_use]
     pub fn separator(mut self) -> Self {

@@ -40,7 +40,7 @@ use orchestra_ui::{
     Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui, Weight, Widget, WidgetId,
     WindowApp, WindowRequest,
 };
-use orchestra_ui::{ActionId, Platform};
+use orchestra_ui::{ActionId, ActionState, MenuModel, Platform, SystemMenu};
 
 use crate::actions::{self, ActionIds, ActionTexts};
 
@@ -134,6 +134,10 @@ pub struct Demo {
     restore_defaults: WidgetId,
     /// The menu bar (F2.11d2b), on Linux and Windows.
     menu_bar: Option<WidgetId>,
+    /// The menus for the system's bar (macOS, F2.11e1), handed to the window when it asks.
+    system_menu: Option<MenuModel>,
+    /// The program's name, the title of macOS's application menu.
+    app_name: String,
     /// The program's actions (F2.11d1), `None` if their tables were wrong (the tests prevent it).
     actions: Option<ActionIds>,
     /// What the actions asked of the window, waiting for it ([`WindowApp::take_window_request`]).
@@ -248,6 +252,10 @@ impl Demo {
             staff,
             restore_defaults,
             menu_bar,
+            system_menu: (Platform::CURRENT == Platform::MacOs)
+                .then(|| actions.map(|ids| actions::menu_bar(&ids, &texts.actions)))
+                .flatten(),
+            app_name: window_title.to_owned(),
         }
     }
 
@@ -534,6 +542,23 @@ impl WindowApp for Demo {
         // The input method is on while the "Track name" field has the focus, with its caret's
         // area for the candidate window (ADR-0047 TF5, TF6; F2.10c2).
         self.ui.text_input()
+    }
+
+    fn system_menu(&mut self) -> Option<SystemMenu> {
+        // macOS only (the model exists there only): the bar at the top of the screen, with the
+        // same actions as the drawn bar of Linux and Windows (F2.11e1).
+        let model = self.system_menu.as_ref()?;
+        Some(self.ui.system_menu(model, &self.app_name))
+    }
+
+    fn run_action(&mut self, action: ActionId, list: &mut DisplayList) {
+        // Chosen in the system's menu: the same path as a shortcut, then the app's reaction.
+        self.ui.run_action(action, list);
+        self.handle_messages(list);
+    }
+
+    fn take_menu_updates(&mut self, out: &mut Vec<(ActionId, ActionState)>) {
+        self.ui.take_menu_updates(out);
     }
 
     fn take_window_request(&mut self) -> Option<WindowRequest> {

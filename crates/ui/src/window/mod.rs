@@ -136,6 +136,29 @@ pub trait WindowApp {
     fn take_window_request(&mut self) -> Option<WindowRequest> {
         None
     }
+
+    /// The program's menus for the system's menu bar (macOS, F2.11e1, ADR-0048 AM9), usually
+    /// [`Ui::system_menu`](crate::Ui::system_menu). Asked once, when the window opens; `None` (the
+    /// default) installs nothing, and on Linux and Windows nothing is installed anyway (the app
+    /// draws its bar, ADR-0036 B5).
+    fn system_menu(&mut self) -> Option<crate::SystemMenu> {
+        None
+    }
+
+    /// Runs `action`, which the user chose in the system's menu bar (F2.11e1), as a shortcut or a
+    /// drawn menu would ([`Ui::run_action`](crate::Ui::run_action)), re-recording what changed.
+    /// Nothing by default.
+    fn run_action(&mut self, action: crate::ActionId, list: &mut DisplayList) {
+        let _ = (action, list);
+    }
+
+    /// Hands to `out` the actions of the system's menu whose state changed since the last call
+    /// ([`Ui::take_menu_updates`](crate::Ui::take_menu_updates)), so the window shows them there
+    /// (AM2). Asked after every batch of events while a system menu is installed; nothing by
+    /// default.
+    fn take_menu_updates(&mut self, out: &mut Vec<(crate::ActionId, crate::ActionState)>) {
+        let _ = out;
+    }
 }
 
 /// Something the app asks of its window ([`WindowApp::take_window_request`]).
@@ -215,11 +238,21 @@ impl std::error::Error for WindowError {}
 pub fn run<A: WindowApp>(app: A, options: WindowOptions) -> Result<(), WindowError> {
     // An event loop that also carries our own event (W3), so other threads (the portal's) can wake
     // it through a proxy.
-    let event_loop = EventLoop::<appearance::ShellEvent>::with_user_event()
-        .build()
-        .map_err(|error| WindowError::EventLoop {
-            detail: error.to_string(),
-        })?;
+    #[cfg_attr(
+        not(target_os = "macos"),
+        allow(unused_mut, reason = "changed only on macOS, below")
+    )]
+    let mut builder = EventLoop::<appearance::ShellEvent>::with_user_event();
+    // On macOS `winit` installs a menu bar of its own unless told not to; the program's comes
+    // from the app through `muda` (F2.11e1, ADR-0048 AM9), and two would fight over the bar.
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::EventLoopBuilderExtMacOS;
+        builder.with_default_menu(false);
+    }
+    let event_loop = builder.build().map_err(|error| WindowError::EventLoop {
+        detail: error.to_string(),
+    })?;
     // Frames on demand (W2): sleep until the next event.
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut shell = shell::Shell::new(app, options, event_loop.create_proxy());
