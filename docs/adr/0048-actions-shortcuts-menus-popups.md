@@ -1,7 +1,8 @@
 # ADR-0048 — Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer
 
 - **Status:** Accepted (owner, 2026-11-17; outline AM1–AM15 presented first, with the owner's
-  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c and F2.11d1 below.
+  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c, F2.11d1 and F2.11d2a
+  below.
 - **Date:** 2026-11-17
 - **Implements:** ADR-0045 (retained widgets; WA3 leaves the table of window-level shortcuts to
   the menus; WB9 leaves the popups' outside click to them; WH1 overlays), ADR-0040 W5 (our own
@@ -340,7 +341,8 @@ and a key that hides the tooltip without being consumed (choice 4). While writin
 - **AM14, the looks and the place.** `text` in `size-small` on `surface-overlay`, a `border` of
   `line-width`, `corner-radius`, padding of the density's small gap across and extra-small gap
   above and below, at most 320 logical pixels wide with the text wrapping. **No shadow** (owner's
-  choice B, after the measures below): the menus keep the overlay shadow. It opens 20 logical
+  choice B, after the measures below): the menus kept the overlay shadow, until F2.11d2a dropped
+  it too (below). It opens 20 logical
   pixels below the pointer's hot spot, **rounded to whole logical pixels** (the glyphs then repeat
   their sub-pixel phases and come from the glyph cache), right above the hot spot when there is
   no room below, pushed inside the window.
@@ -407,3 +409,66 @@ While writing:
   reaches the program as the window's close request.
 - **Requests to the window**: Quit and Full screen reach the window through
   `WindowApp::take_window_request` (a precision of ADR-0040 written in this step).
+
+## Precisions of the implementation (F2.11d2a, approved by the owner on 2026-11-19)
+
+F2.11d2 is split in F2.11d2a (the menu model, drawn menus, context menus, the shortcuts written for
+people, the menus' accessibility) and F2.11d2b (the drawn menu bar, the mnemonics). Before writing,
+the owner approved choices S1–S3; while writing, the rest:
+- **S1, AM12: a shortcut written for people.** On Linux and Windows the keys' names come from the
+  catalogues (`key-ctrl` … `key-numpad`, researched in GTK's and Qt's translations and Microsoft's
+  localised Windows shortcuts) and are joined by "+", the modifiers in the order Ctrl, Alt, Shift,
+  then the logo key (Super on Linux, Win on Windows), the letter in upper case: "Strg+Umschalt+S".
+  Windows itself puts the logo key first ("Win+Shift+S"); no default shortcut uses it, so the
+  approved order stays. On macOS Apple's symbols ⌃⌥⇧⌘ in that order, with no separator, and
+  Apple's symbols for the named keys that have one; the symbols and "+" are notation, not
+  language. The registry writes each action's name and the text of its **first** shortcut once,
+  when the language or that action's shortcuts change (`Registry::set_texts`, `name_text`,
+  `shortcut_text`); a menu copies them.
+- **S2, AM10: the ellipsis.** The names of the items that open a window end with "…" (U+2026) in
+  the catalogues themselves: Open…, Save as…, Preferences…. Help's item, which opens the guide, is
+  named "User guide", like the guides' subtitles.
+- **S3, AM2: what changed.** The registry keeps one bit per action, sized at registration, set by
+  every change of state, shortcuts or texts; the interface drains it at the start of every frame
+  (`Registry::drain_changed`) and brings the open menus' items up to date. With the interface
+  draining it, F2.11e decides how `muda` reads the same changes.
+- **AM9: the model.** `MenuModel` is a list of `MenuItem` (an action, a submenu with a name already
+  translated, a separator), each with an optional `MenuRole` for macOS. Items filled when a menu
+  opens (the recent files) and radio items wait for their first user; until then toggles are the
+  only checked items (`MenuItemCheckBox`).
+- **AM11, AM15: the widgets.** A drawn menu is a panel with one widget per item, so moving the
+  highlight re-records two items. The items handle no events: the interface owns the menus'
+  behaviour (`Ui::open_menu_model`), as it owns the tooltip's. **No shadow** on menus (owner's
+  choice B, after the measures and screenshots of both appearances): with the overlay shadow,
+  opening a context menu took 27.1 M instructions where none was drawn before and moving the
+  highlight 0.82 M; without it 4.6 M and 0.17 M (0.71 M opening again at the same place). No widget
+  draws the overlay shadow now; the `shadow` tokens stay in the themes.
+- **AM12: the keyboard.** Up and Down wrap and skip separators and disabled items; Home, End;
+  Enter or Space choose; Right opens a submenu with its first item highlighted; Left and Escape
+  close a submenu back to its parent; Escape closes the first menu, telling its owner. Every other
+  key is consumed (letters wait for the mnemonics, F2.11d2b). A menu opened from the keyboard
+  starts with its first enabled item highlighted, one opened by the pointer with none.
+- **AM12: the pointer.** The pointer highlights only items that can be chosen. Resting 250 ms on a
+  submenu's item opens it, and resting 250 ms on another item of the same menu closes it, so a
+  diagonal move across a neighbour keeps it; a press on a submenu's item opens it at once, a
+  release on it chooses nothing. A release chooses an item only once the chain of menus is
+  **armed**: a press inside it, or a pointer move since it opened. Otherwise a menu that opens
+  under the pointer would choose at the release of the press that opened it.
+- **AM12: context menus.** `Widget::context_menu()` (`None` by default) is asked from the widget
+  under the pointer up its ancestors, or of the focused widget for the keyboard. The secondary
+  button opens it only if no widget handled the press (Linux, macOS) or the release (Windows); the
+  Menu key and Shift+F10 when the focused widget left them unhandled; AccessKit's
+  `ShowContextMenu`. A click opens it under the pointer rounded to whole logical pixels; the
+  keyboard below the caret of a widget that takes text, below the widget otherwise. A text field
+  with a menu (`TextField::with_context_menu`) answers a secondary press by keeping a selection it
+  lands in and otherwise moving the caret there (also right after the press focused it), and
+  leaves the press unhandled.
+- **AM12: accessibility.** The open menus are children of the window node, after the root (the
+  window node is sent again when a menu opens or closes). While a menu is open the update's focus
+  is its highlighted item, or the menu; the interface's keyboard focus stays on the widget that had
+  it (AM11). A separator is a hidden node (AccessKit 0.25 has no separator role); items carry
+  `position_in_set` and `size_of_set` counted without separators. AccessKit's click on an item
+  chooses it.
+- **AM15, measured** on the panel of 200 widgets: the figures above; no allocation while moving in
+  an open menu (tested).
+

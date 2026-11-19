@@ -467,6 +467,18 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
         let _ = role;
         None
     }
+
+    /// The widget's context menu, or `None` (the default) for none (F2.11d2a, ADR-0048 AM12).
+    /// The interface asks the widget under a secondary click (and then its ancestors, up to the
+    /// first that answers), or the focused widget for the Menu key, Shift+F10 and an assistive
+    /// technology's request, and opens the menu: under the pointer for a click, at the widget for
+    /// the keyboard. The text field answers the standard editing items the application gave it.
+    ///
+    /// Asked only when a context menu is about to open (and, for the accessibility tree, when
+    /// the widget's node is built): it may answer stored state; the interface copies the model.
+    fn context_menu(&self) -> Option<&crate::MenuModel> {
+        None
+    }
 }
 
 /// What a widget asked about its wake-up while handling an event ([`EventCx::request_wakeup`],

@@ -153,7 +153,74 @@ pub const SCENES: &[Scene] = &[
         height: 370.0,
         record: record_demo_tooltip,
     },
+    Scene {
+        name: "demo-context-menu",
+        width: 640.0,
+        height: 370.0,
+        record: record_demo_context_menu,
+    },
 ];
+
+/// The demonstration window with the context menu of the *Track name* field open (F2.11d2a,
+/// ADR-0048 AM12): a name typed and selected, the menu opened by a secondary click inside the
+/// selection, the pointer resting on *Copy* (highlighted). Undo is enabled by the typing, Redo is
+/// disabled (nothing undone yet), so the picture shows both looks, the separators and the
+/// shortcuts written at the right.
+fn record_demo_context_menu(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    let field = demo.track_name();
+    if demo.ui_mut().set_focus(Some(field), list).is_err() {
+        return;
+    }
+    // The name, typed as a keyboard would give its text (the keys themselves are not needed: a
+    // field inserts the text events).
+    demo.input(&InputEvent::Text("Violin I".to_owned()), list);
+    // Select everything with the field's own editing key (Ctrl+A, ⌘A on macOS).
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        demo.input(
+            &InputEvent::Key {
+                key: Key::Character("a".to_owned()),
+                physical: orchestra_ui::PhysicalKey::Letter(0),
+                state,
+                repeat: false,
+                modifiers: Modifiers {
+                    primary: true,
+                    ..Modifiers::default()
+                },
+            },
+            list,
+        );
+    }
+    let Some(rect) = demo.ui().rect(field) else {
+        return;
+    };
+    let at = orchestra_ui::Point::new(rect.x0 + 24.0, f32::midpoint(rect.y0, rect.y1));
+    demo.input(&InputEvent::PointerMoved { position: at }, list);
+    // The secondary click (on the press on Linux, on the release on Windows: both are sent).
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        demo.input(
+            &InputEvent::PointerButton {
+                button: orchestra_ui::PointerButton::Right,
+                state,
+                position: at,
+                clicks: 1,
+            },
+            list,
+        );
+    }
+    // The pointer onto Copy, the fifth item (Undo, Redo, a separator, Cut, Copy…).
+    let copy = demo
+        .ui()
+        .menus()
+        .next()
+        .and_then(|menu| demo.ui().menu_items(menu).nth(4))
+        .and_then(|item| demo.ui().rect(item));
+    if let Some(copy) = copy {
+        let position = orchestra_ui::Point::new(copy.x0 + 30.0, f32::midpoint(copy.y0, copy.y1));
+        demo.input(&InputEvent::PointerMoved { position }, list);
+    }
+}
 
 /// The width of the tooltip's scene, logical pixels: a window so narrow that the options' pane
 /// is below its minimum and *Restore defaults* is shortened with an ellipsis, so it has a tooltip

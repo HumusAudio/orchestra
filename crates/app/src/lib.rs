@@ -32,7 +32,7 @@ mod actions;
 mod demo;
 mod screenshots;
 
-pub use actions::{ActionIds, ActionsError, registry};
+pub use actions::{ActionIds, ActionTexts, ActionsError, action_texts, field_menu, registry};
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,

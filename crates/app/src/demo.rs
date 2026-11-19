@@ -18,6 +18,9 @@
 //! - activation by pointer, keyboard and assistive technology;
 //! - the text field: typing, the platform's editing keys, the selection by keyboard and pointer,
 //!   the blinking caret, scrolling a long name inside the field, commit and Escape;
+//! - the text field's context menu (F2.11d2a): the program's editing items, opened by the
+//!   secondary button, the Menu key or Shift+F10, with their shortcuts written in the platform's
+//!   style, acting on the field;
 //! - text, symbols and crisp lines at every scale factor;
 //! - following the system's theme while the window is open (ADR-0038).
 //!
@@ -39,7 +42,7 @@ use orchestra_ui::{
 };
 use orchestra_ui::{ActionId, Platform};
 
-use crate::actions::{self, ActionIds};
+use crate::actions::{self, ActionIds, ActionTexts};
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
 #[derive(Debug, Clone, PartialEq)]
@@ -79,6 +82,8 @@ pub struct DemoTexts {
     pub restore_defaults: String,
     /// `dialog-ok`.
     pub ok: String,
+    /// The actions' and the keys' names, for the registry (F2.11d2a).
+    pub actions: ActionTexts,
 }
 
 impl DemoTexts {
@@ -96,6 +101,7 @@ impl DemoTexts {
             track_name_placeholder: localizer.format("playback-track-name-placeholder", None)?,
             restore_defaults: localizer.format("dialog-restore-defaults", None)?,
             ok: localizer.format("dialog-ok", None)?,
+            actions: actions::action_texts(localizer)?,
         })
     }
 }
@@ -146,6 +152,8 @@ impl Demo {
         ui.set_title(window_title);
         let root = ui.root();
         let content = LayoutProps::default();
+        // The actions first (F2.11d1): the text field's context menu names them (F2.11d2a).
+        let actions = attach_actions(&mut ui, &texts.actions);
         // `add` fails only for an unknown parent; every parent here was just created, so a
         // failure would leave the demonstration incomplete, never crash it.
         let title = ui
@@ -202,7 +210,7 @@ impl Demo {
                 content.width(Length::Fill(1.0)),
             )
             .unwrap_or_else(|_| ui.root());
-        let track_name = track_name_row(&mut ui, options, texts);
+        let track_name = track_name_row(&mut ui, options, texts, actions.as_ref());
         let buttons = ui
             .add(options, Flex::row(Space::S, Space::None), content)
             .unwrap_or_else(|_| ui.root());
@@ -227,7 +235,6 @@ impl Demo {
                     .height(Length::Fixed(110.0)),
             )
             .unwrap_or_else(|_| ui.root());
-        let actions = attach_actions(&mut ui);
         Self {
             ui,
             actions,
@@ -252,6 +259,12 @@ impl Demo {
     #[must_use]
     pub const fn ui(&self) -> &Ui<DemoMessage> {
         &self.ui
+    }
+
+    /// The interface, to drive it from the screenshots' scenes and the tests (focus a widget,
+    /// open a menu).
+    pub const fn ui_mut(&mut self) -> &mut Ui<DemoMessage> {
+        &mut self.ui
     }
 
     /// The title label.
@@ -326,21 +339,29 @@ impl Demo {
     }
 }
 
-/// Hands the program's actions and their shortcuts to `ui` (F2.11d1) and returns their indices.
-/// Their tables are checked by the tests on the three platforms; if they were wrong anyway, the
-/// demonstration runs without shortcuts (`None`) rather than not at all.
-fn attach_actions(ui: &mut Ui<DemoMessage>) -> Option<ActionIds> {
-    let (registry, ids) = actions::registry(Platform::CURRENT).ok()?;
+/// Hands the program's actions and their shortcuts to `ui` (F2.11d1), with their names and the
+/// keys' names in the interface's language (F2.11d2a), and returns their indices. Their tables
+/// are checked by the tests on the three platforms; if they were wrong anyway, the demonstration
+/// runs without shortcuts and menus (`None`) rather than not at all.
+fn attach_actions(ui: &mut Ui<DemoMessage>, texts: &ActionTexts) -> Option<ActionIds> {
+    let (mut registry, ids) = actions::registry(Platform::CURRENT).ok()?;
+    texts.apply(&mut registry);
     ui.set_actions(registry, DemoMessage::Action);
     Some(ids)
 }
 
 /// The *Track name* row of the options (F2.10b2): a label and a text field filling the rest of
-/// the row, with its placeholder and its name for assistive technologies. Returns the field.
+/// the row, with its placeholder, its name for assistive technologies and, when the actions
+/// exist, the standard editing context menu (F2.11d2a). Returns the field.
 ///
 /// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
 /// created: a failure would leave the demonstration incomplete, never crash it.
-fn track_name_row(ui: &mut Ui<DemoMessage>, options: WidgetId, texts: &DemoTexts) -> WidgetId {
+fn track_name_row(
+    ui: &mut Ui<DemoMessage>,
+    options: WidgetId,
+    texts: &DemoTexts,
+    actions: Option<&ActionIds>,
+) -> WidgetId {
     let content = LayoutProps::default();
     let name_row = ui
         .add(
@@ -354,14 +375,14 @@ fn track_name_row(ui: &mut Ui<DemoMessage>, options: WidgetId, texts: &DemoTexts
         Label::new(texts.track_name.clone()),
         content.align(Align::Start, Align::Center),
     );
-    ui.add(
-        name_row,
-        TextField::new("", |text| DemoMessage::TrackName(text.to_owned()))
-            .placeholder(texts.track_name_placeholder.clone())
-            .labelled(texts.track_name.clone()),
-        content.width(Length::Fill(1.0)),
-    )
-    .unwrap_or_else(|_| ui.root())
+    let mut field = TextField::new("", |text| DemoMessage::TrackName(text.to_owned()))
+        .placeholder(texts.track_name_placeholder.clone())
+        .labelled(texts.track_name.clone());
+    if let Some(ids) = actions {
+        field = field.with_context_menu(actions::field_menu(ids));
+    }
+    ui.add(name_row, field, content.width(Length::Fill(1.0)))
+        .unwrap_or_else(|_| ui.root())
 }
 
 /// The narrowest the options' pane gets, logical pixels (owner's choice after F2.10b2).

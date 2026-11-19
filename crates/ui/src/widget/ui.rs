@@ -59,9 +59,9 @@
 //! Menus and the tooltip are subtrees with roots of their own in the same arena, laid out at their
 //! natural size next to an anchor ([`super::popup::place`], always inside the window) and recorded
 //! in display-list layers above the main interface (a precision of ADR-0039 D1): each open menu
-//! gets the next layer, the tooltip the highest. They are kept out of the accessibility tree: the
-//! tooltip is not for assistive technologies (AM14), and the menus describe themselves when they
-//! are written (F2.11d).
+//! gets the next layer, the tooltip the highest. The tooltip is kept out of the accessibility
+//! tree (it is not for assistive technologies, AM14); the open menus are children of the window
+//! node since F2.11d2a.
 //!
 //! While a menu is open ([`Ui::open_menu`]):
 //! - the pointer reaches the open menus (the topmost first) and the widgets that own them
@@ -102,6 +102,11 @@
 //!
 //! With a menu open the keys are the menu's (AM11) and no shortcut is looked up.
 //!
+//! # Menus built from a model, context menus (F2.11d2a, ADR-0048 AM9, AM12)
+//! What a drawn menu does (the highlight, its keys, the pointer, submenus, choosing, context
+//! menus, items kept up to date with their actions) is in the child module `menus`, whose
+//! documentation describes it: [`Ui::open_menu_model`] and [`Widget::context_menu`].
+//!
 //! # Allocation
 //! Routing an event allocates nothing (hit testing recurses on the tree, bubbling follows parent
 //! links, Tab order walks with a reused stack). Messages go into a queue that keeps its capacity.
@@ -127,10 +132,14 @@ use super::access::{
 };
 use super::layout::{Constraints, LayoutProps, Size};
 use super::popup::{self, Popup, PopupSide};
+
+mod menus;
+
 use super::tooltip::Tooltip;
 use super::tree::{
     EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId, WidgetTree,
 };
+use menus::{MenuChain, ModelMenu, SubmenuTimer};
 
 /// Why an operation on the interface was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,6 +233,16 @@ pub struct Ui<M> {
     /// The key of the last press that matched an action: its release is consumed too (AM4).
     /// Only the key, compared without the modifiers, which may be released first.
     action_key: Option<ShortcutKey>,
+    /// Whether the open chain of menus is armed, and where it opened (F2.11d2a, see the module
+    /// `menus`).
+    chain: MenuChain,
+    /// A submenu to open or close after the pointer rests (F2.11d2a, `menus::SUBMENU_DELAY`).
+    submenu_timer: Option<SubmenuTimer>,
+    /// The actions marked as changed by the registry at this frame (reused, F2.11d2a).
+    changed_actions: Vec<ActionId>,
+    /// The window's accessibility node must be sent again: the open menus, its children after
+    /// the root, changed (F2.11d2a).
+    access_window: bool,
 }
 
 /// The registry of actions and the application's message for running one (F2.11d1).
@@ -241,7 +260,7 @@ struct Actions<M> {
 const MAX_CONTEXTS: usize = 8;
 
 /// One open menu (F2.11c).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct MenuLayer {
     /// Its root's slot.
     root: usize,
@@ -249,6 +268,10 @@ struct MenuLayer {
     owner: Option<usize>,
     /// Where it opens.
     popup: Popup,
+    /// What the interface knows of a menu built from a model ([`Ui::open_menu_model`],
+    /// F2.11d2a); `None` for a menu whose widgets the application added itself
+    /// ([`Ui::open_menu`]).
+    model: Option<ModelMenu>,
 }
 
 /// What the interface knows about the tooltip (ADR-0048 AM14; see the module documentation).
@@ -319,6 +342,10 @@ impl<M: 'static> Ui<M> {
             swallow_release: false,
             actions: None,
             action_key: None,
+            chain: MenuChain::default(),
+            submenu_timer: None,
+            changed_actions: Vec::new(),
+            access_window: false,
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -655,6 +682,9 @@ impl<M: 'static> Ui<M> {
     /// re-arranging is O(descendants that moved); recording walks the tree once, O(widgets),
     /// recording only the marked ones (and those whose clip changed).
     pub fn frame(&mut self, list: &mut DisplayList) {
+        // The open menus' items follow their actions' states first (F2.11d2a): a changed text
+        // lays an entry out again in this same frame.
+        self.refresh_menus();
         if self.tree.slot(ROOT).is_some_and(|root| root.needs_layout) {
             let size = Size::new(self.bounds.width(), self.bounds.height());
             self.tree.measure(ROOT, Constraints::tight(size));
@@ -678,8 +708,9 @@ impl<M: 'static> Ui<M> {
     /// plus the layout of what did change.
     fn lay_out_popups(&mut self) {
         for index in 0..self.menus.len() {
-            if let Some(&menu) = self.menus.get(index) {
-                self.place_popup(menu.root, menu.popup.anchor, menu.popup.side);
+            if let Some(menu) = self.menus.get(index) {
+                let (root, popup) = (menu.root, menu.popup);
+                self.place_popup(root, popup.anchor, popup.side);
             }
         }
         if let (Some(root), Some(_)) = (self.tooltip.root, self.tooltip.shown_for) {
@@ -842,6 +873,14 @@ impl<M: 'static> Ui<M> {
                 woken = true;
             }
         }
+        // A submenu to open or close after the pointer rested (F2.11d2a).
+        if let Some(timer) = self.submenu_timer
+            && timer.at <= now
+        {
+            self.submenu_timer = None;
+            self.submenu_due(timer, list);
+            woken = true;
+        }
         if woken {
             self.frame(list);
         }
@@ -855,12 +894,10 @@ impl<M: 'static> Ui<M> {
     #[must_use]
     pub fn next_wakeup(&self) -> Option<Instant> {
         let widgets = self.wakeups.iter().map(|&(_, at)| at).min();
-        // The tooltip's timer counts too: the window must wake to show it.
+        // The tooltip's and the submenus' timers count too: the window must wake for them.
         let tooltip = self.tooltip.pending.map(|(_, at)| at);
-        match (widgets, tooltip) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        let submenu = self.submenu_timer.map(|timer| timer.at);
+        [widgets, tooltip, submenu].into_iter().flatten().min()
     }
 
     /// Handles one input event of the window (WA3), then runs a frame.
@@ -887,6 +924,10 @@ impl<M: 'static> Ui<M> {
                             },
                             true,
                         );
+                    }
+                    // A drawn menu follows the pointer with its highlight (F2.11d2a).
+                    if !self.menus.is_empty() {
+                        self.menu_pointer_moved(*position);
                     }
                     // Not during a drag: a tooltip would cover what is being dragged.
                     self.follow_tooltip();
@@ -923,7 +964,7 @@ impl<M: 'static> Ui<M> {
                 state,
                 repeat,
                 modifiers,
-            } => self.key(key, *physical, *state, *repeat, *modifiers),
+            } => self.key(key, *physical, *state, *repeat, *modifiers, list),
             // With a menu open, typed text and the input method's events reach nothing: the
             // menu takes its letters as keys, and the input method is off (`text_input`).
             InputEvent::Text(_) | InputEvent::Ime(_) if !self.menus.is_empty() => {}
@@ -973,6 +1014,7 @@ impl<M: 'static> Ui<M> {
         state: ButtonState,
         repeat: bool,
         modifiers: Modifiers,
+        list: &mut DisplayList,
     ) {
         self.modifiers = modifiers;
         let event = WidgetEvent::Key {
@@ -999,8 +1041,14 @@ impl<M: 'static> Ui<M> {
         // With a menu open the keys are the topmost menu's, bubbling inside it only, and Tab moves
         // nothing in the main interface (ADR-0048 AM11).
         if let Some(menu) = self.menus.last() {
-            let root = menu.root;
-            self.deliver(root, &event, true);
+            // A menu built from a model has its own keys (F2.11d2a); another menu gets them in
+            // its root, as F2.11c routed them.
+            if menu.model.is_some() {
+                self.menu_key(key, state, repeat, list);
+            } else {
+                let root = menu.root;
+                self.deliver(root, &event, true);
+            }
             return;
         }
         let start = self
@@ -1012,7 +1060,7 @@ impl<M: 'static> Ui<M> {
         }
         if *key == Key::Named(NamedKey::Tab) {
             self.move_focus(!modifiers.shift);
-        } else {
+        } else if !self.context_menu_key(start, key, modifiers) {
             self.shortcut(start, key, physical, repeat, modifiers);
         }
     }
@@ -1195,6 +1243,8 @@ impl<M: 'static> Ui<M> {
                     self.close_menus_from(0, list, true);
                     self.swallow_release = true;
                 }
+                // A press inside a drawn menu is the menu's (F2.11d2a).
+                Some(target) if self.menu_press(target, list) => {}
                 Some(target) => {
                     if let Some(handler) = self.deliver(target, &widget_event, true) {
                         self.captured = Some(handler);
@@ -1206,14 +1256,24 @@ impl<M: 'static> Ui<M> {
                     self.focus_on_press(target);
                     if let Some(handler) = self.deliver(target, &widget_event, true) {
                         self.captured = Some(handler);
+                    } else {
+                        // Unhandled: a secondary press may open a context menu (AM12).
+                        self.secondary_click(button, false, target, position);
                     }
                 }
             }
             // The release of a press that closed the menus: consumed like its press.
             (ButtonState::Released, None) if self.swallow_release => self.swallow_release = false,
+            // A release inside a drawn menu may choose an item (F2.11d2a).
+            (ButtonState::Released, None)
+                if !self.menus.is_empty() && self.menu_release(position, list) => {}
             (ButtonState::Released, None) => {
-                if let Some(target) = self.hit(position) {
-                    self.deliver(target, &widget_event, true);
+                if let Some(target) = self.hit(position)
+                    && self.deliver(target, &widget_event, true).is_none()
+                    && self.menus.is_empty()
+                {
+                    // Unhandled: on Windows a secondary release opens a context menu (AM12).
+                    self.secondary_click(button, true, target, position);
                 }
             }
         }
@@ -1597,24 +1657,7 @@ impl<M: 'static> Ui<M> {
             Some(id) => Some(self.tree.slot_of(id).ok_or(UiError::UnknownWidget(id))?),
             None => None,
         };
-        let root = self
-            .tree
-            .insert(None, Box::new(widget), LayoutProps::default());
-        // The next layer up; it never reaches the tooltip's (four billion menus open at once
-        // cannot happen, and saturating keeps the order right regardless).
-        let layer = self.next_layer.min(TOOLTIP_LAYER - 1);
-        self.next_layer = self.next_layer.saturating_add(1);
-        if let Some(slot) = self.tree.slot_mut(root) {
-            slot.layer = layer;
-        }
-        self.menus.push(MenuLayer { root, owner, popup });
-        self.hide_tooltip();
-        self.tooltip.pending = None;
-        // The pointer may be over what the menu now blocks.
-        let hovered = self.hit(self.pointer);
-        if self.captured.is_none() {
-            self.set_hover(hovered);
-        }
+        let root = self.push_menu(Box::new(widget), popup, owner);
         self.frame(list);
         self.id_of(root)
             .ok_or(UiError::UnknownWidget(WidgetId::placeholder()))
@@ -1646,6 +1689,14 @@ impl<M: 'static> Ui<M> {
     /// Closes the menus from position `from` of the stack upwards, topmost first, removing their
     /// subtrees; with `notify`, each owner still alive gets [`WidgetEvent::MenuClosed`].
     fn close_menus_from(&mut self, from: usize, list: &mut DisplayList, notify: bool) {
+        if self.menus.len() > from {
+            // The window node lists the open menus.
+            self.access_window = true;
+        }
+        // A pending submenu change for a menu that goes is dropped.
+        if self.submenu_timer.is_some_and(|timer| timer.menu >= from) {
+            self.submenu_timer = None;
+        }
         while self.menus.len() > from {
             let Some(menu) = self.menus.pop() else {
                 break;
@@ -1654,6 +1705,8 @@ impl<M: 'static> Ui<M> {
             if self.tree.slot(menu.root).is_some() {
                 self.remove_slot(menu.root, list);
             }
+            // A submenu closing: the entry it hung from is no longer open (F2.11d2a).
+            self.submenu_closed(menu.model.as_ref());
             if notify
                 && let (Some(id), Some(owner)) = (id, menu.owner)
                 && self.tree.slot(owner).is_some()
@@ -1865,11 +1918,12 @@ impl<M: 'static> Ui<M> {
     /// nodes built, which allocate (AccessKit's nodes, WC10).
     pub fn take_access_update(&mut self) -> AccessUpdate {
         let full = !self.access_sent;
-        let mut update = empty_update(self.focused(), full);
-        if full {
+        let mut update = empty_update(self.access_focus(), full);
+        if full || self.access_window {
+            let menus = self.menus.iter().filter_map(|menu| self.id_of(menu.root));
             update
                 .nodes
-                .push((WINDOW_NODE, window_node(&self.title, self.root())));
+                .push((WINDOW_NODE, window_node(&self.title, self.root(), menus)));
         }
         for index in 0..self.tree.slots.len() {
             let Some(slot) = self.tree.slot(index) else {
@@ -1878,9 +1932,9 @@ impl<M: 'static> Ui<M> {
             if !(full || slot.needs_access) {
                 continue;
             }
-            // Popups are not in the accessibility tree yet (see the module documentation): their
-            // roots have no parent node to hang from. Menus will add their own nodes in F2.11d.
-            if slot.layer != 0 {
+            // The tooltip is not for assistive technologies (ADR-0048 AM14); the open menus are
+            // children of the window node (F2.11d2a).
+            if slot.layer == TOOLTIP_LAYER {
                 continue;
             }
             let Some(widget) = slot.widget.as_deref() else {
@@ -1888,6 +1942,8 @@ impl<M: 'static> Ui<M> {
             };
             let mut info = AccessInfo::default();
             widget.access_info(&mut info);
+            // The interface opens context menus, so it says which widgets have one.
+            info.context_menu = widget.context_menu().is_some();
             let children = slot
                 .children
                 .iter()
@@ -1906,6 +1962,7 @@ impl<M: 'static> Ui<M> {
             slot.needs_access = false;
         }
         self.access_sent = true;
+        self.access_window = false;
         AccessUpdate(update)
     }
 
@@ -1930,8 +1987,15 @@ impl<M: 'static> Ui<M> {
             .slot_of(action.target)
             .ok_or(UiError::UnknownWidget(action.target))?;
         match action.kind {
+            // An item of an open menu is chosen as Enter chooses it (F2.11d2a).
+            AccessActionKind::Click if self.menu_access_click(slot, list) => {}
             AccessActionKind::Click => {
                 self.deliver(slot, &WidgetEvent::Activate, false);
+            }
+            AccessActionKind::ShowContextMenu => {
+                if self.menus.is_empty() {
+                    self.open_context_menu(slot, None);
+                }
             }
             AccessActionKind::Focus => {
                 self.set_focus_slot(Some(slot));

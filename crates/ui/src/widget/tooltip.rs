@@ -19,9 +19,8 @@
 //! The overlay shadow was planned, and measured: the renderer caches a shadow's coverage keyed by
 //! its exact position (ADR-0043 K2), and a tooltip opens at the pointer, so nearly every tooltip
 //! computed its shadow anew, 15.4 M instructions in the reference panel against 2.0 M without it
-//! (0.23 M against 1.66 M when the same tooltip shows again at the same place). The menus keep
-//! the shadow: they open at the same places (a menu bar's titles), where the cache works, and
-//! the shadow there tells which surface is above.
+//! (0.23 M against 1.66 M when the same tooltip shows again at the same place). The menus dropped
+//! it too, for the same reason (owner's choice B in F2.11d2a, see `widget::menu`).
 //!
 //! # When it shows and hides
 //! The interface's job, not the widget's: see the tooltip section of [`Ui`](crate::Ui)'s module.

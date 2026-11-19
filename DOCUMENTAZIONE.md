@@ -4851,7 +4851,7 @@ volta e resta nascosto, quindi mostrare e nascondere non allocano
 `surface-overlay`, con un `border`, il raggio degli angoli del tema, largo al massimo 320 px, e
 **senza ombra**: con l'ombra dei popup, mostrare un suggerimento costava 15,4 M istruzioni, perché
 la cache delle ombre di ADR-0043 ha come chiave la posizione esatta e un suggerimento si apre sotto
-il puntatore (scelta B del proprietario; i menu tengono l'ombra). La sua posizione è arrotondata ai
+il puntatore (scelta B del proprietario; in F2.11d2a l'hanno persa anche i menu). La sua posizione è arrotondata ai
 pixel interi, così i glifi arrivano dalla cache dei glifi. Test e scenari degli screenshot leggono ciò che è mostrato con
 `Ui::tooltip_text()` e `Ui::tooltip_rect()` (entrambi `None` finché nessun suggerimento è visibile).
 
@@ -5016,6 +5016,136 @@ piattaforme, trova ogni nome nelle sei lingue e verifica che F11 e Ctrl+Q arrivi
 Il benchmark `shortcut_press` misura un Ctrl+S intero (pressione, risalita, contesti, ricerca,
 messaggio, rilascio consumato) sul pannello di 200 widget: 26 174 istruzioni.
 
+#### Menu e menu contestuali
+
+Il passo F2.11d2a (ADR-0048 AM9, AM11–AM13) disegna i primi menu veri: i **menu contestuali**, con
+la tastiera, il puntatore, i sottomenu e l'accessibilità, costruiti da **un modello unico dei
+menu** che la barra dei menu (F2.11d2b) e `muda` su macOS (F2.11e) condivideranno. I file nuovi sono
+`crates/ui/src/action/label.rs` (una scorciatoia scritta per le persone),
+`crates/ui/src/widget/menu.rs` (il modello e i due widget di un menu disegnato) e
+`crates/ui/src/widget/ui/menus.rs` (che cosa fa un menu, un modulo figlio di `Ui`).
+
+**Una scorciatoia scritta per le persone** (scelta S1). `Shortcut::write_label(platform, names,
+out)` scrive una scorciatoia nello stile della piattaforma. Su Linux e Windows i nomi dei tasti
+sono **tradotti** e uniti da "+", con i modificatori in un ordine fisso (Ctrl, Alt, Maiusc, poi il
+tasto col logo: Super su Linux, Win su Windows) e la lettera in maiuscolo: "Ctrl+Shift+S",
+"Strg+Umschalt+S", "Ctrl+Maiusc+S". Su macOS i simboli di Apple nell'ordine di Apple, senza
+separatore: "⇧⌘S", "⌃⌘F". I nomi vengono dai cataloghi attraverso `KeyNames`, chiesti una volta
+sola per ogni tasto:
+
+```rust
+let keys = KeyNames::new(|key| {
+    key_name(localizer, key).unwrap_or_else(|failure| {
+        error.get_or_insert(failure);
+        String::new()
+    })
+});
+```
+
+Ogni nome è stato cercato nelle traduzioni di GTK e di Qt e nell'elenco localizzato delle
+scorciatoie di Windows di Microsoft, e registrato nel glossario (da `key_ctrl` a `key_numpad`, 23
+voci). I messaggi `key-function` (F1–F24) e `key-numpad` ricevono il numero come argomento di
+Fluent; l'app toglie i segni invisibili di isolamento che Fluent mette attorno all'argomento,
+perché il nome di un tasto finisce nell'albero dell'accessibilità.
+
+**I testi nel registro e ciò che è cambiato** (scelte S1, S3). `Registry::set_texts(keys, name)`
+conserva il nome di ogni azione e il testo della sua **prima** scorciatoia (`name_text`,
+`shortcut_text`), riscritti solo quando cambiano la lingua o le scorciatoie di quell'azione: un
+menu che si apre li copia e non formatta nulla. Ogni cambio di stato, di scorciatoie o di testi
+accende il bit dell'azione in un insieme di bit dimensionato alla registrazione;
+`Registry::drain_changed` consegna le azioni segnate e cancella i segni. L'interfaccia lo svuota
+all'inizio di ogni frame e aggiorna le voci dei menu aperti; `muda` leggerà gli stessi segni.
+
+**Il modello dei menu** (AM9). Un `MenuModel` è un elenco di `MenuItem`: un'azione (nome,
+scorciatoia, stato e spunta sono del registro), un sottomenu (un nome, già tradotto, e le sue voci)
+o un separatore, ciascuno con un `MenuRole` facoltativo che userà solo macOS. Si costruisce con
+poche chiamate:
+
+```rust
+pub fn field_menu(ids: &ActionIds) -> MenuModel {
+    MenuModel::new()
+        .action(ids.undo)
+        .action(ids.redo)
+        .separator()
+        .action(ids.cut)
+        .action(ids.copy)
+        .action(ids.paste)
+        .separator()
+        .action(ids.select_all)
+}
+```
+
+**I widget** (`widget/menu.rs`). `Ui::open_menu_model(model, popup, from_keyboard, list)` apre uno
+strato di menu (lo strato dei popup di F2.11c) la cui radice è un `MenuPanel` (il riquadro:
+`surface-overlay`, un `border` e gli angoli del tema, **senza ombra**: la scelta B del
+proprietario, vedi sotto) con un `MenuEntry` per voce. **Ogni voce è un widget a sé**, così spostare l'evidenziazione registra di nuovo due voci. Le
+voci non gestiscono eventi: che cosa fa un menu lo decide l'interfaccia, come per il suggerimento,
+e dice a ogni voce come apparire. Una voce è alta `control-height`, con il nome a sinistra e la
+scorciatoia a destra in `text-muted` (in `text` quando è evidenziata: `text-muted` su
+`control-hover` non è una coppia di contrasto controllata), una freccia per un sottomenu, un segno
+di spunta in una colonna quando il menu ha un interruttore; una voce disabilitata si disegna in
+`text-disabled`.
+
+**La tastiera** (AM12). Con in cima un menu costruito da un modello, i tasti sono suoi: Su e Giù
+spostano l'evidenziazione, ricominciando dall'altra parte e saltando separatori e voci
+disabilitate; Home e Fine; Invio o Spazio scelgono; Destra apre un sottomenu con la prima voce
+evidenziata, Sinistra ed Esc lo chiudono; Esc chiude il primo menu. Ogni altro tasto è consumato.
+Un menu aperto dalla tastiera parte con la prima voce abilitata evidenziata, uno aperto dal
+puntatore senza nessuna.
+
+**Il puntatore** (AM12). Passare su una voce la evidenzia. Fermarsi su una voce di sottomenu per
+`SUBMENU_DELAY` (250 ms, una sveglia dell'interfaccia) apre il suo sottomenu; spostarsi su un'altra
+voce chiude un sottomenu aperto dopo lo stesso ritardo, così attraversare una voce vicina andando
+verso il sottomenu non lo fa perdere. Una pressione su una voce di sottomenu lo apre subito. La
+scelta avviene al **rilascio**, così funziona premi-trascina-rilascia, ma solo quando la catena di
+menu è **armata** (una pressione al suo interno, o un movimento del puntatore da quando si è
+aperta): altrimenti un menu contestuale che si apre alla pressione, sotto il puntatore,
+sceglierebbe una voce al rilascio della stessa pressione che l'ha aperto.
+
+**La scelta** (AM13). Si chiudono tutti i menu della catena e l'azione parte sulla strada della
+scorciatoia (`Ui::invoke`): un'azione di modifica va al widget con il fuoco, che l'ha tenuto, così
+Copia nel menu di un campo di testo copia la selezione del campo.
+
+**I menu contestuali.** Un widget risponde `Widget::context_menu()` (nuovo, `None` di
+predefinito). L'interfaccia lo apre con il tasto secondario quando nessun widget l'ha gestito,
+**alla pressione su Linux e macOS, al rilascio su Windows**; con il tasto Menu o Maiusc+F10, al
+widget (al cursore per un campo di testo); e per lo `ShowContextMenu` di AccessKit. Un clic lo apre
+sotto il puntatore, arrotondato ai pixel logici interi. Il campo di testo riceve un menu con
+`with_context_menu(model)`; una pressione secondaria gli dà il fuoco, lascia la selezione se cade
+al suo interno e altrimenti sposta lì il cursore, e resta non gestita perché il menu si apra.
+Nella finestra di prova il campo Nome traccia ha il menu di modifica del programma
+(`actions::field_menu`).
+
+**Accessibilità** (AM12). I menu aperti sono figli del nodo della finestra, dopo la radice; il
+nodo della finestra si manda di nuovo ogni volta che un menu si apre o si chiude. Un pannello è un
+`Menu`, una voce un `MenuItem` o un `MenuItemCheckBox`, con la scorciatoia in `keyboard_shortcut`,
+il posto fra le voci (`position_in_set`, `size_of_set`) e, per un sottomenu, `has_popup` ed
+`expanded`; un separatore è un nodo nascosto. Mentre un menu è aperto il fuoco dell'accessibilità
+è la sua voce evidenziata, anche se il fuoco della tastiera dell'interfaccia resta sul campo. Il
+clic di AccessKit su una voce la sceglie.
+
+**Puntini e voce della guida** (scelta S2). Le voci che aprono una finestra finiscono con i puntini
+nei cataloghi ("Apri…", "Salva come…", "Preferenze…", U+2026, senza spazio prima in nessuna
+lingua). La voce di Aiuto che apre la guida ora si chiama "Guida per l'utente" ("User guide"),
+come i sottotitoli delle guide stesse.
+
+**Test e benchmark.** `crates/ui/tests/menus.rs` (16 test) scrive scorciatoie sulle tre
+piattaforme in due lingue, controlla i testi e i segni del registro e guida il menu contestuale di
+un campo: aperto alla pressione su Linux e al rilascio su Windows, dal tasto Menu, da Maiusc+F10 e
+da una tecnologia assistiva; il cammino della tastiera; i sottomenu con i tasti e con il puntatore,
+con tempi inventati (anche il movimento in diagonale); un rilascio sotto un menu appena aperto che
+non sceglie nulla finché il puntatore non si muove; le voci disabilitate; uno stato cambiato a menu
+aperto; l'albero dell'accessibilità. `widgets_no_alloc.rs` controlla che muoversi dentro un menu
+aperto non allochi; `crates/app/tests/actions.rs` controlla le scorciatoie nelle sei lingue, i
+puntini e il menu del campo. La scena degli screenshot `demo-context-menu` mostra il menu del campo
+Nome traccia con Copia evidenziato. I benchmark `context_menu_open` e `menu_highlight_move`
+misurano, sul pannello vero: 4,6 M istruzioni per aprire il menu dove non ne era mai stato
+disegnato uno, 0,71 M dove sì, 0,17 M per spostare l'evidenziazione. Con l'ombra dei popup erano
+27,1 M, 4,0 M e 0,82 M: l'ombra si ricalcolava a ogni posto nuovo (la sua cache usa la posizione
+esatta) e si ridisegnava sotto il pannello opaco a ogni ridisegno. Dopo le misure e gli screenshot
+dei due aspetti (un effetto leggero nel chiaro, quasi nulla nello scuro) il proprietario ha scelto
+**B: niente ombra sui menu**, come sul suggerimento.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
@@ -5176,6 +5306,10 @@ opaca, si codifica in PNG e si disegna identica due volte; ogni scena usa Studio
 dimensione sbagliata è un errore tipizzato (`ScreenshotError::Size`), non un panic. Non si
 chiedono immagini identiche al pixel fra piattaforme (`tiny-skia` esegue codice diverso su x86 e su
 ARM) e per ora non ci sono immagini di riferimento: i file delle guide li genera la CI su Linux.
+
+Da F2.11c il catalogo ha anche `demo-tooltip` (il suggerimento di un pulsante accorciato), e da
+F2.11d2a `demo-context-menu`: il campo Nome traccia con "Violin I", selezionato, con il menu
+contestuale aperto da un clic secondario e il puntatore fermo su Copia.
 
 ### orchestra-test-support: contare le allocazioni nei test
 

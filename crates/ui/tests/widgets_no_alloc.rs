@@ -460,3 +460,92 @@ fn running_actions_from_the_keyboard_never_allocates() {
     round(&mut ui, &mut list);
     assert_no_allocations(|| round(&mut ui, &mut list));
 }
+
+/// Inside an open menu (F2.11d2a, ADR-0048 AM15): moving the highlight with the keys and the
+/// pointer, a submenu's delay starting, the items brought up to date at every frame (the
+/// registry's marks drained) allocate nothing once the menu is open. Opening it allocates its
+/// widgets and texts, outside the measured rounds.
+#[test]
+fn moving_inside_an_open_menu_never_allocates() {
+    use orchestra_ui::{
+        ActionSpec, Context, Defaults, KeyNames, MenuModel, PhysicalKey, Platform, Popup,
+        PopupSide, Registry, Shortcut, ShortcutKey,
+    };
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui = Ui::new(
+        Flex::column(Space::S, Space::M),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    let mut registry = Registry::new(Platform::Linux);
+    let mut model = MenuModel::new();
+    for (identifier, key) in [("file.save", 's'), ("edit.undo", 'z'), ("edit.copy", 'c')] {
+        let id = registry
+            .register(ActionSpec {
+                identifier,
+                name: identifier,
+                context: Context::GLOBAL,
+                defaults: Defaults::everywhere(&[Shortcut::new(
+                    primary,
+                    ShortcutKey::Character(key),
+                )
+                .unwrap()]),
+                repeatable: false,
+                edit: None,
+            })
+            .unwrap();
+        model = model.action(id).separator();
+    }
+    let model = model.submenu("More", MenuModel::new());
+    registry.set_texts(KeyNames::new(|key| format!("{key:?}")), str::to_owned);
+    ui.set_actions(registry, |_| ());
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 600.0, 400.0), &mut list);
+    let menu = ui
+        .open_menu_model(
+            &model,
+            Popup {
+                anchor: Rect::new(50.0, 50.0, 50.0, 50.0),
+                side: PopupSide::Below,
+                owner: None,
+            },
+            true,
+            &mut list,
+        )
+        .unwrap();
+    let items: Vec<_> = ui.menu_items(menu).collect();
+    let middle = |ui: &Ui<()>, index: usize| {
+        let rect = ui.rect(items[index]).unwrap();
+        Point::new(rect.x0 + 10.0, f32::midpoint(rect.y0, rect.y1))
+    };
+    // The first item, the third (Copy) and the submenu's.
+    let points = [middle(&ui, 0), middle(&ui, 4), middle(&ui, 6)];
+    let keys: Vec<InputEvent> = [NamedKey::ArrowDown, NamedKey::ArrowUp, NamedKey::End]
+        .into_iter()
+        .flat_map(|key| {
+            [ButtonState::Pressed, ButtonState::Released].map(|state| InputEvent::Key {
+                key: Key::Named(key),
+                physical: PhysicalKey::Other,
+                state,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            })
+        })
+        .collect();
+    let round = |ui: &mut Ui<()>, list: &mut DisplayList| {
+        for event in &keys {
+            ui.input(event, list);
+        }
+        for position in points {
+            ui.input(&InputEvent::PointerMoved { position }, list);
+        }
+        black_box(list.take_damage());
+    };
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
+    assert_eq!(ui.menus().count(), 1, "the menu stayed open the whole time");
+}

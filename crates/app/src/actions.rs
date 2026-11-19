@@ -33,10 +33,22 @@
 //! They are written with the abstract modifiers (*Primary* is Ctrl or ⌘, *Secondary* is the
 //! Windows/Super key or ⌃), so one table serves the three platforms, chosen by value: the tests
 //! on Linux build the registries of all three.
+//!
+//! # The texts people read (F2.11d2a, choice S1)
+//! [`action_texts`] reads from the catalogues every action's name and every key's name (`key-ctrl`,
+//! `key-shift`… researched for the six languages, see `crates/i18n/glossary.toml`), and
+//! [`ActionTexts::apply`] hands them to the registry, which writes each shortcut in the platform's
+//! style ("Strg+Umschalt+S", "⇧⌘S"). The names of the items that open a window end with an
+//! ellipsis in the catalogues themselves (choice S2: "Open…", "Save as…", "Preferences…").
+//!
+//! # The field's context menu (F2.11d2a)
+//! [`field_menu`] is the standard editing menu of a text field (ADR-0048 AM13): Undo, Redo, then
+//! Cut, Copy, Paste, then Select all. Its items act on the focused field.
 
+use orchestra_i18n::{FluentArgs, I18nError, Localizer};
 use orchestra_ui::{
-    ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, Modifiers, NamedKey, Platform,
-    Registry, RegistryError, Shortcut, ShortcutError, ShortcutKey,
+    ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, KeyName, KeyNames, MenuModel,
+    Modifiers, NamedKey, Platform, Registry, RegistryError, Shortcut, ShortcutError, ShortcutKey,
 };
 
 /// The program's actions, by their index in the registry.
@@ -381,4 +393,127 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
         }
     }
     Ok((registry, ids))
+}
+
+/// The texts of the actions in one language (F2.11d2a): the actions' names by their Fluent key,
+/// and the keys' names for the shortcuts.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ActionTexts {
+    /// Each action's Fluent key ([`ActionSpec::name`]) and its text.
+    names: Vec<(&'static str, String)>,
+    /// The keys' names.
+    keys: KeyNames,
+}
+
+impl ActionTexts {
+    /// Hands the texts to `registry` ([`Registry::set_texts`]): every action's name and its
+    /// shortcut written in the registry's platform's style.
+    pub fn apply(&self, registry: &mut Registry) {
+        registry.set_texts(self.keys.clone(), |key| {
+            self.names
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map_or_else(String::new, |(_, text)| text.clone())
+        });
+    }
+}
+
+/// The Fluent message of a key's name (choice S1 of F2.11d2a); the function keys and the keypad
+/// take their number as an argument.
+const fn key_message(key: KeyName) -> &'static str {
+    match key {
+        KeyName::Ctrl => "key-ctrl",
+        KeyName::Shift => "key-shift",
+        KeyName::Alt => "key-alt",
+        KeyName::Super => "key-super",
+        KeyName::Windows => "key-windows",
+        KeyName::Enter => "key-enter",
+        KeyName::Escape => "key-escape",
+        KeyName::Tab => "key-tab",
+        KeyName::Space => "key-space",
+        KeyName::Backspace => "key-backspace",
+        KeyName::Delete => "key-delete",
+        KeyName::Insert => "key-insert",
+        KeyName::Home => "key-home",
+        KeyName::End => "key-end",
+        KeyName::PageUp => "key-page-up",
+        KeyName::PageDown => "key-page-down",
+        KeyName::Left => "key-left",
+        KeyName::Right => "key-right",
+        KeyName::Up => "key-up",
+        KeyName::Down => "key-down",
+        KeyName::Menu => "key-menu",
+        KeyName::Function(_) => "key-function",
+        KeyName::Numpad(_) => "key-numpad",
+    }
+}
+
+/// The name of `key` from `localizer`.
+///
+/// # Why the isolation marks are removed
+/// Fluent surrounds an argument with the invisible marks U+2068 and U+2069 (our `Localizer` keeps
+/// them on purpose, for right-to-left text mixed into a message). A key's name holds only a
+/// number from us, never the user's text, and it ends up in the accessibility tree's
+/// `keyboard_shortcut`, where a screen reader would meet the marks: they are dropped here.
+///
+/// # Errors
+/// The localizer's, if the message is missing (the catalogues' parity tests prevent it).
+fn key_name(localizer: &Localizer, key: KeyName) -> Result<String, I18nError> {
+    let number = match key {
+        KeyName::Function(number) => Some(("number", number)),
+        KeyName::Numpad(digit) => Some(("digit", digit)),
+        _ => None,
+    };
+    let text = match number {
+        Some((name, value)) => {
+            let mut args = FluentArgs::new();
+            args.set(name, u32::from(value));
+            localizer.format(key_message(key), Some(&args))?
+        }
+        None => localizer.format(key_message(key), None)?,
+    };
+    Ok(text.replace(['\u{2068}', '\u{2069}'], ""))
+}
+
+/// The actions' and the keys' names in `localizer`'s language (F2.11d2a).
+///
+/// # Errors
+/// The localizer's, if a message is missing (the catalogues' parity tests prevent it).
+pub fn action_texts(localizer: &Localizer) -> Result<ActionTexts, I18nError> {
+    // The names come from the same table the registry is built from; if that table were wrong,
+    // there would be no registry to name either (`registry` fails the same way).
+    let keys = specs()
+        .map(|specs| specs.map(|spec| spec.name).to_vec())
+        .unwrap_or_default();
+    let mut names = Vec::with_capacity(keys.len());
+    for key in keys {
+        names.push((key, localizer.format(key, None)?));
+    }
+    // Every key's name, asked once; the first missing message is reported.
+    let mut error = None;
+    let keys = KeyNames::new(|key| {
+        key_name(localizer, key).unwrap_or_else(|failure| {
+            error.get_or_insert(failure);
+            String::new()
+        })
+    });
+    match error {
+        Some(error) => Err(error),
+        None => Ok(ActionTexts { names, keys }),
+    }
+}
+
+/// The context menu of a text field (F2.11d2a, ADR-0048 AM13): Undo and Redo, then Cut, Copy and
+/// Paste, then Select all, the order and grouping of GTK's, Qt's and Windows' own field menus.
+#[must_use]
+pub fn field_menu(ids: &ActionIds) -> MenuModel {
+    MenuModel::new()
+        .action(ids.undo)
+        .action(ids.redo)
+        .separator()
+        .action(ids.cut)
+        .action(ids.copy)
+        .action(ids.paste)
+        .separator()
+        .action(ids.select_all)
 }

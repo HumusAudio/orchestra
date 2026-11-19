@@ -10,9 +10,9 @@ app-name = Orchestra
 
 menu-file = File
 menu-file-new = Nuovo
-menu-file-open = Apri
+menu-file-open = Apri…
 menu-file-save = Salva
-menu-file-save-as = Salva come
+menu-file-save-as = Salva come…
 menu-file-quit = Esci
 menu-edit = Modifica
 menu-edit-undo = Annulla
@@ -21,13 +21,41 @@ menu-edit-cut = Taglia
 menu-edit-copy = Copia
 menu-edit-paste = Incolla
 menu-edit-select-all = Seleziona tutto
-menu-edit-preferences = Preferenze
+menu-edit-preferences = Preferenze…
 menu-view = Vista
 menu-view-score = Partitura
 menu-view-tracks = Tracce
 menu-view-mixer = Mixer
 menu-view-full-screen = Schermo intero
-menu-help-contents = Aiuto
+menu-help-contents = Guida per l'utente
+
+## Keys' names in shortcuts, as menus write them next to an item, joined by "+" (glossary:
+## key_ctrl … key_numpad; ADR-0048 AM12, F2.11d2a). $number is a function key's number (1–24),
+## $digit a digit of the numeric keypad (0–9).
+
+key-ctrl = Ctrl
+key-shift = Maiusc
+key-alt = Alt
+key-super = Super
+key-windows = Win
+key-enter = Invio
+key-escape = Esc
+key-tab = Tab
+key-space = Spazio
+key-backspace = Backspace
+key-delete = Canc
+key-insert = Ins
+key-home = Home
+key-end = Fine
+key-page-up = PgSu
+key-page-down = PgGiù
+key-left = Sinistra
+key-right = Destra
+key-up = Su
+key-down = Giù
+key-menu = Menu
+key-function = F{ $number }
+key-numpad = Num { $digit }
 
 ## Status bar (glossary: measure → "battuta", feminine: the participle agrees)
 

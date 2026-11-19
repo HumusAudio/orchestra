@@ -36,6 +36,8 @@
 //! - Actions and shortcuts (ADR-0048, private module `action`): one registry for the whole
 //!   program, with contexts, default shortcuts per platform and the user's own; keys no widget
 //!   handles run the actions, and the standard editing actions ask the focused field first.
+//! - Menus (ADR-0048 AM9–AM12, F2.11d2a): one menu model, drawn menus with their keyboard,
+//!   pointer and submenus, context menus, the shortcuts written in each platform's style.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
 //!
 //! ## What this crate must NOT do
@@ -85,6 +87,7 @@ pub use draw::skia::CpuRenderer;
 pub use platform::clipboard::{ClipboardError, ClipboardSource, MemoryClipboard};
 
 // Actions and shortcuts (ADR-0048, F2.11d1).
+pub use action::label::{KeyName, KeyNames};
 pub use action::registry::{
     ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, LoadWarning, Registry,
     RegistryError,
@@ -104,6 +107,7 @@ pub use widget::label::Label;
 pub use widget::layout::{
     Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,
 };
+pub use widget::menu::{MenuItem, MenuModel, MenuRole};
 pub use widget::popup::{Popup, PopupSide};
 pub use widget::scroll::ScrollArea;
 pub use widget::slider::Slider;

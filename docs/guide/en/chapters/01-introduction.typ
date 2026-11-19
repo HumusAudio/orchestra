@@ -80,6 +80,33 @@ position on every layout, so on a French keyboard you do not need Shift to use t
   will open the menus.
 ]
 
+== Context menus
+
+Click with the right mouse button on a text box to open its *context menu*: Undo and Redo, Cut,
+Copy and Paste, Select all. You can also open it from the keyboard, with the Menu key or with
+Shift+F10: it then opens at the text cursor, with its first available command already highlighted.
+
+- Each command shows its keyboard shortcut on the right, written as your system writes it
+  (Ctrl+C on Linux and Windows, ⌘C on macOS), so the menu also teaches you the shortcuts.
+- Commands that cannot do anything right now are shown greyed out: Copy, for example, while no text
+  is selected.
+- Move with the arrow keys, Home and End; press Enter or Space to run the highlighted command;
+  press Escape to close the menu.
+- With the mouse you can press the right button, move onto a command and release the button there:
+  the command runs at once.
+- A command with an arrow on its right opens a submenu: rest the pointer on it for a moment, click
+  it, or press the right arrow key; the left arrow key closes the submenu again.
+
+#note("Note")[
+  The menu's commands act on the text box you were working in: the text box keeps the keyboard
+  while the menu is open, so Copy copies exactly the text you had selected.
+]
+
+#screenshot-placeholder(
+  [Screenshot: the context menu of a text box],
+  [The context menu of a text box, with the shortcut of each command on the right.],
+)
+
 == Status of this guide
 
 Orchestra is at a very early stage of development. This preview edition explains the ideas
