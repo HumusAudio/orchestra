@@ -4557,7 +4557,7 @@ tooltip's widget is created once and kept hidden, so showing and hiding allocate
 `surface-overlay`, with a `border`, the theme's corner radius, at most 320 px wide, and **no
 shadow**: with the overlay shadow, showing a tooltip cost 15.4 M instructions, because the shadow
 cache of ADR-0043 is keyed by the exact position and a tooltip opens at the pointer (owner's choice
-B; the menus keep the shadow). Its position is rounded to whole pixels, so its glyphs come from
+B; the menus dropped it too in F2.11d2a). Its position is rounded to whole pixels, so its glyphs come from
 the glyph cache. Tests and screenshot scenes read what is shown with `Ui::tooltip_text()` and
 `Ui::tooltip_rect()` (both `None` while no tooltip is shown).
 
@@ -4768,8 +4768,8 @@ pub fn field_menu(ids: &ActionIds) -> MenuModel {
 
 **The widgets** (`widget/menu.rs`). `Ui::open_menu_model(model, popup, from_keyboard, list)` opens a
 menu layer (the popup layer of F2.11c) whose root is a `MenuPanel` (the box: `surface-overlay`, a
-`border`, the theme's corners and the overlay shadow) with one `MenuEntry` per item. **Each entry
-is a widget of its own**, so moving the highlight re-records two entries. The entries handle no
+`border` and the theme's corners, **no shadow**: the owner's choice B, see below) with one
+`MenuEntry` per item. **Each entry is a widget of its own**, so moving the highlight re-records two entries. The entries handle no
 events: the interface owns what a menu does, as it owns the tooltip, and tells an entry how to
 look. An entry is `control-height` high, with its name at the left and its shortcut at the right
 in `text-muted` (in `text` when highlighted: `text-muted` on `control-hover` is not a checked
@@ -4826,9 +4826,12 @@ tree. `widgets_no_alloc.rs` checks that moving inside an open menu allocates not
 `crates/app/tests/actions.rs` checks the shortcuts in the six languages, the ellipses and the
 field's menu. The screenshot scene `demo-context-menu` shows the Track name field's menu with Copy
 highlighted. The benchmarks `context_menu_open` and `menu_highlight_move` measure, on the real
-panel: 27.1 M instructions to open the menu where none was drawn before, 4.0 M where it was, 0.82 M
-to move the highlight; without the overlay shadow 4.6 M, 0.71 M and 0.17 M (the shadow is drawn
-again under the opaque panel at every redraw of the menu).
+panel: 4.6 M instructions to open the menu where none was drawn before, 0.71 M where it was, 0.17 M
+to move the highlight. With the overlay shadow they were 27.1 M, 4.0 M and 0.82 M: the shadow was
+recomputed at every new place (its cache is keyed by the exact position) and drawn again under the
+opaque panel at every redraw. After the measures and screenshots of both appearances (a soft
+effect in the light half, almost nothing in the dark one) the owner chose **B: no shadow on
+menus**, as on the tooltip.
 
 #### The window and the event loop
 

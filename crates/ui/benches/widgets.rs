@@ -84,17 +84,18 @@
 //!   a few thousand instructions.
 //! - `context_menu_open` (F2.11d2a, ADR-0048 AM12, AM15): the real panel (200 widgets) with a
 //!   focused text field below it whose context menu has the eight editing items of the program
-//!   (three of them separators), the registry holding their names and shortcuts; one secondary
-//!   press on the field (Linux opens on the press): the menu's nine widgets built with their
-//!   texts, laid out, placed under the pointer, recorded in a new layer, drawn with the overlay
-//!   shadow, and the accessibility update (the window node, the menu's nodes, the focus). `fresh`
-//!   opens where no menu was drawn before (a context menu opens at the pointer, so the shadow's
-//!   cache, keyed by the exact place, ADR-0043 K2, usually misses); `again` where the same menu
-//!   was drawn before. The budget is the 50 ms from input to frame of ADR-0007; the measure
-//!   decides whether the shadow needs a cache keyed by size (the note of F2.11c).
+//!   (two of them separators), the registry holding their names and shortcuts; one secondary
+//!   press on the field (Linux opens on the press): the menu's widgets built with their texts,
+//!   laid out, placed under the pointer, recorded in a new layer, drawn, and the accessibility
+//!   update (the window node, the menu's nodes, the focus). `fresh` opens where no menu was drawn
+//!   before (its glyphs and box drawn there for the first time, the usual case for a menu that
+//!   opens at the pointer); `again` where the same menu was drawn before. Measured 4.6 M and
+//!   0.71 M; with the overlay shadow they were 27.1 M and 4.0 M, which is why the menus have
+//!   none (owner's choice B).
 //! - `menu_highlight_move` (F2.11d2a, AM15): the same menu open, one Down as a keyboard sends it
 //!   (press and release): the highlight moves, two entries re-recorded and drawn, the
-//!   accessibility focus moves. Target: an event's 0.5 M.
+//!   accessibility focus moves. Target: an event's 0.5 M; measured 0.17 M (0.82 M with the
+//!   shadow).
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's

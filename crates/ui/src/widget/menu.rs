@@ -23,10 +23,15 @@
 //!
 //! # Looks
 //! - The panel: `surface-overlay` with a `border` line of `line-width` and the theme's
-//!   `corner-radius`, above the overlay **shadow** (`shadow` blurred by `shadow-blur`, moved down
-//!   by `shadow-offset`): the menus keep the shadow the tooltip dropped (owner's choice B of
-//!   F2.11c), because it tells which surface is above. A small padding (the density's extra-small
-//!   gap) above and below the entries; at least [`MIN_WIDTH`] wide.
+//!   `corner-radius`, **without a shadow** (owner's choice B in F2.11d2a, as for the tooltip in
+//!   F2.11c). Measured on the 200-widget panel, the overlay shadow was the whole cost of a menu:
+//!   opening the context menu where none was drawn before took 27.1 M instructions with it and
+//!   4.6 M without (the renderer caches a shadow by its exact place, ADR-0043 K2, and a context
+//!   menu opens at the pointer), and every move of the highlight 0.82 M against 0.17 M (the
+//!   shadow under the opaque panel was drawn again with each redrawn item). Screenshots of both
+//!   appearances showed a soft effect in the light half and almost none in the dark one: the
+//!   border and the overlay's own colour set the menu apart. A small padding (the density's
+//!   extra-small gap) above and below the entries; at least [`MIN_WIDTH`] wide.
 //! - An entry: `control-height` high, its name at the left and its shortcut at the right
 //!   (`text-muted`), or an arrow for a submenu. The highlighted entry has a rounded
 //!   `control-hover` background (the token's own definition: "the highlighted item of a menu")
@@ -188,20 +193,8 @@ impl<M: 'static> Widget<M> for MenuPanel {
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
         let rect = cx.rect;
         let radius = f32::from(cx.shape.corner_radius);
-        // The overlay shadow below everything, moved down by its offset (ADR-0037 T3).
-        let offset = f32::from(cx.shape.shadow_offset);
-        let blur = f32::from(cx.shape.shadow_blur);
-        if blur > 0.0 || offset > 0.0 {
-            let shadow = Rect::new(rect.x0, rect.y0 + offset, rect.x1, rect.y1 + offset);
-            // The token's blur is a radius; the recorder takes a standard deviation. Half the
-            // radius is the rule CSS gives its `box-shadow` blur radius (σ = radius / 2), which
-            // the themes' values were chosen against (ADR-0037 T3).
-            recorder.shadow(
-                RoundedRect::new(shadow, radius),
-                blur / 2.0,
-                ColorToken::Shadow,
-            );
-        }
+        // No shadow (owner's choice B in F2.11d2a, after the measures and the screenshots of
+        // both appearances): see the module documentation.
         recorder.fill_rounded_rect(RoundedRect::new(rect, radius), ColorToken::SurfaceOverlay);
         let width = f32::from(cx.shape.line_width.max(1));
         recorder.stroke_rounded_rect(

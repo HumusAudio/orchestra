@@ -4851,7 +4851,7 @@ volta e resta nascosto, quindi mostrare e nascondere non allocano
 `surface-overlay`, con un `border`, il raggio degli angoli del tema, largo al massimo 320 px, e
 **senza ombra**: con l'ombra dei popup, mostrare un suggerimento costava 15,4 M istruzioni, perché
 la cache delle ombre di ADR-0043 ha come chiave la posizione esatta e un suggerimento si apre sotto
-il puntatore (scelta B del proprietario; i menu tengono l'ombra). La sua posizione è arrotondata ai
+il puntatore (scelta B del proprietario; in F2.11d2a l'hanno persa anche i menu). La sua posizione è arrotondata ai
 pixel interi, così i glifi arrivano dalla cache dei glifi. Test e scenari degli screenshot leggono ciò che è mostrato con
 `Ui::tooltip_text()` e `Ui::tooltip_rect()` (entrambi `None` finché nessun suggerimento è visibile).
 
@@ -5077,8 +5077,8 @@ pub fn field_menu(ids: &ActionIds) -> MenuModel {
 
 **I widget** (`widget/menu.rs`). `Ui::open_menu_model(model, popup, from_keyboard, list)` apre uno
 strato di menu (lo strato dei popup di F2.11c) la cui radice è un `MenuPanel` (il riquadro:
-`surface-overlay`, un `border`, gli angoli del tema e l'ombra dei popup) con un `MenuEntry` per
-voce. **Ogni voce è un widget a sé**, così spostare l'evidenziazione registra di nuovo due voci. Le
+`surface-overlay`, un `border` e gli angoli del tema, **senza ombra**: la scelta B del
+proprietario, vedi sotto) con un `MenuEntry` per voce. **Ogni voce è un widget a sé**, così spostare l'evidenziazione registra di nuovo due voci. Le
 voci non gestiscono eventi: che cosa fa un menu lo decide l'interfaccia, come per il suggerimento,
 e dice a ogni voce come apparire. Una voce è alta `control-height`, con il nome a sinistra e la
 scorciatoia a destra in `text-muted` (in `text` quando è evidenziata: `text-muted` su
@@ -5139,9 +5139,12 @@ aperto; l'albero dell'accessibilità. `widgets_no_alloc.rs` controlla che muover
 aperto non allochi; `crates/app/tests/actions.rs` controlla le scorciatoie nelle sei lingue, i
 puntini e il menu del campo. La scena degli screenshot `demo-context-menu` mostra il menu del campo
 Nome traccia con Copia evidenziato. I benchmark `context_menu_open` e `menu_highlight_move`
-misurano, sul pannello vero: 27,1 M istruzioni per aprire il menu dove non ne era mai stato
-disegnato uno, 4,0 M dove sì, 0,82 M per spostare l'evidenziazione; senza l'ombra dei popup 4,6 M,
-0,71 M e 0,17 M (l'ombra si ridisegna sotto il pannello opaco a ogni ridisegno del menu).
+misurano, sul pannello vero: 4,6 M istruzioni per aprire il menu dove non ne era mai stato
+disegnato uno, 0,71 M dove sì, 0,17 M per spostare l'evidenziazione. Con l'ombra dei popup erano
+27,1 M, 4,0 M e 0,82 M: l'ombra si ricalcolava a ogni posto nuovo (la sua cache usa la posizione
+esatta) e si ridisegnava sotto il pannello opaco a ogni ridisegno. Dopo le misure e gli screenshot
+dei due aspetti (un effetto leggero nel chiaro, quasi nulla nello scuro) il proprietario ha scelto
+**B: niente ombra sui menu**, come sul suggerimento.
 
 #### La finestra e il ciclo degli eventi
 
