@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.79, approvata dal proprietario il 2026-11-19.**
+> **Stato di questo documento: v0.80, approvata dal proprietario il 2026-11-19.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -712,11 +712,11 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11 | **Menu**: barra dei menu disegnata (Linux/Windows), menu contestuali, scorciatoie; `muda` su macOS | 🔄 (F2.11a–e) | 2–3 |
 | F2.11a | **ADR di azioni, scorciatoie, menu e popup**: registro unico delle azioni, contesti, scorciatoie per piattaforma e personalizzate, tasti fissi, modello unico dei menu, mnemonici, strato dei popup, suggerimenti, menu Modifica sul campo a fuoco | ✅ ADR-0048 | 0,5 |
 | F2.11c | **Strato dei popup e suggerimento** al passaggio del puntatore (ADR-0048 AM11, AM14) | ✅ | 0,5–1 |
-| F2.11d | **Registro delle azioni, barra dei menu e menu contestuali disegnati** (ADR-0048) | 🔄 (F2.11d1–d2) | 1–1,5 |
+| F2.11d | **Registro delle azioni, barra dei menu e menu contestuali disegnati** (ADR-0048) | ✅ (F2.11d1–d2) | 1–1,5 |
 | F2.11d1 | **Registro delle azioni e scorciatoie**: tasto fisico negli eventi, ricerca nei contesti con i due ripieghi, tasti fissi, scorciatoie dell'utente nell'API, stati, azioni di Modifica sul campo a fuoco, elenco delle azioni del programma con i nomi nei sei cataloghi, Esci e Schermo intero, benchmark | ✅ | 0,5–1 |
-| F2.11d2 | **Barra dei menu e menu contestuali disegnati**: modello unico dei menu, tastiera, puntatore, mnemonici nei sei cataloghi, scorciatoie scritte nei menu, accessibilità, benchmark | 🔄 (F2.11d2a–b) | 0,5–1 |
+| F2.11d2 | **Barra dei menu e menu contestuali disegnati**: modello unico dei menu, tastiera, puntatore, mnemonici nei sei cataloghi, scorciatoie scritte nei menu, accessibilità, benchmark | ✅ (F2.11d2a–b) | 0,5–1 |
 | F2.11d2a | **Menu contestuali**: modello unico dei menu, menu disegnati (tastiera, puntatore, sottomenu), menu contestuale del campo di testo, scorciatoie scritte nello stile della piattaforma e tradotte, puntini, accessibilità dei menu, benchmark | ✅ PR #85 | 0,5–1 |
-| F2.11d2b | **Barra dei menu disegnata e mnemonici**: F10, Alt da solo, Alt+lettera, frecce tra i menu, passaggio tra i titoli col puntatore, mnemonici nei sei cataloghi con il test di unicità, sottolineatura con Alt, `access_key`, la barra nella finestra, screenshot, capitolo delle guide | ⬜ | 0,5–1 |
+| F2.11d2b | **Barra dei menu disegnata e mnemonici**: F10, Alt da solo, Alt+lettera, frecce tra i menu, passaggio tra i titoli col puntatore, mnemonici nei sei cataloghi con il test di unicità, sottolineatura con Alt, `access_key`, la barra nella finestra, screenshot, capitolo delle guide | ✅ PR #86 | 0,5–1 |
 | F2.11e | **`muda` su macOS**: lo stesso modello dei menu, ruoli nel menu dell'app, misura di dimensione e compilazione in CI (ADR-0048 AM9, ADR-0036 B5) | ⬜ | 0,5 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
@@ -1044,6 +1044,13 @@ controllo completo. Va fatta bene una volta sola.
   `MenuClosed`; Destra e Sinistra nel primo menu passano al menu vicino della barra (oggi Sinistra
   lì non fa nulla); le lettere dentro un menu aperto oggi sono consumate e non fanno nulla, da qui
   scelgono i mnemonici; serve la chiave del sottomenu Aiuto (`menu-help`, glossario `help`).
+- **F2.11d2b** **Fatto il 2026-11-19:** scelte 1–6 del proprietario (contenuto della barra, Alt da
+  solo senza nulla in mezzo, Alt+lettera alla barra prima del widget con il fuoco su Linux e
+  Windows con `AltGr` intatto, niente barra disegnata su macOS fino a F2.11e, mnemonici in ogni
+  menu aperto sottolineati solo con Alt o dalla tastiera, la barra in cima alla finestra);
+  precisioni di ADR-0048 approvate; mnemonici dai cataloghi di MuseScore (glossario
+  `menu_mnemonics`); la lettera sottolineata è la prima a inizio parola. Provato a mano dal
+  proprietario. Con F2.11d2b è chiuso F2.11d.
 - **F2.11e** Da F2.11d2a: l'interfaccia svuota a ogni frame i segni delle azioni cambiate
   (`Registry::drain_changed`); va deciso come li legge anche `muda` (per esempio l'interfaccia
   che li consegna, oppure due consumatori).
@@ -1397,3 +1404,4 @@ raccomandato.
 | 2026-11-17 | 0.77 | F2.11c fatto: strati della lista di disegno, menu e suggerimento; suggerimento senza ombra (scelta B del proprietario sulle misure); precisioni di ADR-0039 e ADR-0048; note in F2.11d; prossimo passo F2.11d | proprietario |
 | 2026-11-18 | 0.78 | F2.11d diviso in F2.11d1 e F2.11d2; F2.11d1 fatto (registro delle azioni e scorciatoie, scelte A–E del proprietario e precisioni di ADR-0048, precisione di ADR-0040: tasto fisico e richieste alla finestra; dodici termini nuovi nel glossario); note in F2.11d2; prossimo passo F2.11d2 | proprietario |
 | 2026-11-19 | 0.79 | F2.11d2 diviso in F2.11d2a e F2.11d2b; F2.11d2a fatto (modello unico dei menu, menu contestuali, scorciatoie nello stile della piattaforma e tradotte, puntini, "Guida per l'utente"; scelte S1–S3, menu senza ombra per scelta B del proprietario, precisioni di ADR-0048); note in F2.11d2b e F2.11e; prossimo passo F2.11d2b | proprietario |
+| 2026-11-19 | 0.80 | F2.11d2b fatto (barra dei menu disegnata, F10 e Alt da solo, Alt+lettera prima del widget con il fuoco, mnemonici nei sei cataloghi; scelte 1–6 e precisioni di ADR-0048 del proprietario); F2.11d chiuso; prossimo passo F2.11e | proprietario |
