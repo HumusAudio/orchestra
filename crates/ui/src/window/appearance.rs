@@ -42,6 +42,9 @@ pub(crate) enum ShellEvent {
     /// AccessKit's adapter needs something (ADR-0045 WA5, WC6): the whole tree, an action carried
     /// out, or nothing more (assistive technology gone).
     Access(accesskit_winit::WindowEvent),
+    /// The user chose this action in the system's menu bar (macOS, F2.11e1, ADR-0048 AM9): it
+    /// runs as the drawn menus and the shortcuts run theirs.
+    MenuAction(crate::ActionId),
 }
 
 /// AccessKit's adapter sends its requests through our proxy (`with_event_loop_proxy` requires

@@ -135,6 +135,7 @@ use super::popup::{self, Popup, PopupSide};
 
 mod bar;
 mod menus;
+mod system;
 
 use super::tooltip::Tooltip;
 use super::tree::{
@@ -142,6 +143,7 @@ use super::tree::{
 };
 use bar::BarState;
 use menus::{MenuChain, ModelMenu, SubmenuTimer};
+use system::SystemTracking;
 
 /// Why an operation on the interface was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -252,6 +254,9 @@ pub struct Ui<M> {
     access_window: bool,
     /// The menu bar, once added ([`Ui::add_menu_bar`], F2.11d2b).
     bar: Option<BarState>,
+    /// What the interface keeps for the system's menu, once asked for one ([`Ui::system_menu`],
+    /// F2.11e1).
+    system: Option<SystemTracking>,
     /// Alt was pressed with nothing else held, and no other key or press came since: its release
     /// reaches the bar (F2.11d2b, the module `bar`).
     alt_alone: bool,
@@ -359,6 +364,7 @@ impl<M: 'static> Ui<M> {
             changed_actions: Vec::new(),
             access_window: false,
             bar: None,
+            system: None,
             alt_alone: false,
             bounds: Rect::EMPTY,
             messages: Vec::new(),

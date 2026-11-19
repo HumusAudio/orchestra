@@ -94,6 +94,27 @@ jobs:
       - name: cargo xtask check
         run: cargo xtask check
 
+      # TEMPORARY (F2.11e1, ADR-0036 B5): one measure of what `muda` costs on macOS, the release
+      # program's size and build time on this branch against `main` (which has no `muda`), each
+      # built cold in its own target directory. Removed once the numbers are in the ADR.
+      - name: (temporary) muda's cost on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main
+          git worktree add ../base FETCH_HEAD
+          measure() {
+            local dir=$1 target=$2
+            local start=$(date +%s)
+            (cd "$dir" && cargo build --release --locked -p orchestra-app --bin orchestra --target-dir "$target" >/dev/null 2>&1)
+            local end=$(date +%s)
+            echo "$(stat -f %z "$target/release/orchestra") bytes, $((end - start)) s"
+          }
+          echo "main:   $(measure ../base "$RUNNER_TEMP/base-target")"
+          echo "branch: $(measure . "$RUNNER_TEMP/branch-target")"
+          cargo tree --locked -p orchestra-ui -e normal --prefix none | sort -u | wc -l
+
       # On Windows and macOS `cargo xtask bench` only compiles the benchmarks (no Valgrind there);
       # on Linux the dedicated `bench` job below runs them for real.
       - name: cargo xtask bench (compile only)

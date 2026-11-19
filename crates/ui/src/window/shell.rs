@@ -22,6 +22,7 @@ use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
 use super::{WindowApp, WindowError, WindowOptions, WindowRequest};
 use crate::draw::device::DeviceRegions;
 use crate::platform::appearance::{Reporter, SystemObservation, observe_system};
+use crate::platform::menu::{SystemMenuHost, install as install_system_menu};
 use crate::{AppearanceWatch, CpuRenderer, DisplayList, Image, Point, Rect, Renderer};
 
 /// The window and what draws into it, once it exists.
@@ -84,6 +85,10 @@ pub(crate) struct Shell<A> {
     present_rects: Vec<softbuffer::Rect>,
     /// The error that stopped the loop, returned by [`super::run`].
     pub(crate) error: Option<WindowError>,
+    /// The system's menu bar once installed (macOS, F2.11e1); `None` elsewhere.
+    system_menu: Option<Box<dyn SystemMenuHost>>,
+    /// The changed states the app hands on after a batch, reused from batch to batch.
+    menu_updates: Vec<(crate::ActionId, crate::ActionState)>,
 }
 
 impl<A: WindowApp> Shell<A> {
@@ -106,6 +111,8 @@ impl<A: WindowApp> Shell<A> {
             pixels_lost: false,
             present_rects: Vec::new(),
             error: None,
+            system_menu: None,
+            menu_updates: Vec::new(),
         }
     }
 
@@ -431,6 +438,19 @@ impl<A: WindowApp> Shell<A> {
         }
     }
 
+    /// Shows in the system's menu bar the states that changed in this batch (F2.11e1, AM2): asked
+    /// of the app only while a system menu is installed, so Linux and Windows pay nothing.
+    fn sync_system_menu(&mut self) {
+        let Some(host) = self.system_menu.as_mut() else {
+            return;
+        };
+        self.menu_updates.clear();
+        self.app.take_menu_updates(&mut self.menu_updates);
+        for &(action, state) in &self.menu_updates {
+            host.update(action, state);
+        }
+    }
+
     /// The scale in effect, 1 before the window exists.
     fn scale(&self) -> f64 {
         self.open.as_ref().map_or(1.0, |open| open.scale)
@@ -460,6 +480,7 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
     /// none (frames on demand, W2). Set after every batch, so a wake-up asked by any event of it
     /// (a key that restarted the caret's blink) is in effect before the loop sleeps.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.sync_system_menu();
         let flow = self
             .app
             .next_wakeup()
@@ -477,6 +498,21 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
             && let Err(error) = self.open_window(event_loop)
         {
             self.fail(event_loop, error);
+        }
+        // The system's menu bar, once (macOS, F2.11e1): the event loop runs, so the system's
+        // application object exists. Elsewhere `install` answers `None`.
+        if self.system_menu.is_none()
+            && let Some(menu) = self.app.system_menu()
+        {
+            // `muda` calls back on the main thread, but asks for a `Send + Sync` handler: the proxy
+            // goes in behind a mutex, locked once per choice.
+            let proxy = std::sync::Mutex::new(self.proxy.clone());
+            self.system_menu = install_system_menu(&menu, move |action| {
+                if let Ok(proxy) = proxy.lock() {
+                    // A closed loop has nobody to run the action for: nothing to do.
+                    let _closed = proxy.send_event(ShellEvent::MenuAction(action));
+                }
+            });
         }
     }
 
@@ -596,10 +632,22 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
     }
 
     /// Our own events, sent through the proxy (ADR-0040 W3): today the system's preference.
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ShellEvent) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellEvent) {
         match event {
             ShellEvent::SystemAppearance(system) => self.apply_system_appearance(system),
             ShellEvent::Access(event) => self.handle_access(event),
+            ShellEvent::MenuAction(action) => {
+                self.app.run_action(action, &mut self.list);
+                self.sync_pointer();
+                self.sync_text_input();
+                self.apply_requests(event_loop);
+                if !self.list.damage().is_empty()
+                    && let Some(open) = self.open.as_ref()
+                {
+                    open.window.request_redraw();
+                    self.push_access(false);
+                }
+            }
         }
     }
 }

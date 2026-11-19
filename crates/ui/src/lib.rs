@@ -83,6 +83,11 @@ pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
 pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
 
+// The system's menu bar (ADR-0048 AM9, F2.11e1): a description on every platform, `muda` on macOS.
+#[cfg(target_os = "macos")]
+pub use platform::menu::build_system_menu;
+pub use platform::menu::{SystemItem, SystemMenu};
+
 // The clipboard (ADR-0047 TF12).
 pub use platform::clipboard::{ClipboardError, ClipboardSource, MemoryClipboard};
 

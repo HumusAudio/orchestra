@@ -83,7 +83,8 @@ position on every layout, so on a French keyboard you do not need Shift to use t
 == The menu bar
 
 On Linux and Windows the menus are at the top of the window: File, Edit, View and Help. On macOS
-they will be in the menu bar at the top of the screen, as in every Mac program.
+they are in the menu bar at the top of the screen, as in every Mac program, and Preferences and
+Quit are in the menu named Orchestra.
 
 - *With the mouse*, click a menu's name to open it, and click a command. You can also keep the
   button pressed, move onto a command and release it there. While a menu is open, moving the

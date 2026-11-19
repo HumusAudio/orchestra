@@ -48,6 +48,10 @@
 //! attribute of its message, chosen for each language from the shipped catalogues of a music program and
 //! unique among its siblings (tested in the six languages; glossary entries `menu_mnemonics`).
 //!
+//! The roles of ADR-0048 AM9 are on the model too: Preferences and Quit go into macOS's
+//! application menu, the Help menu is given to the system (F2.11e1); on Linux and Windows they
+//! change nothing.
+//!
 //! # The field's context menu (F2.11d2a)
 //! [`field_menu`] is the standard editing menu of a text field (ADR-0048 AM13): Undo, Redo, then
 //! Cut, Copy, Paste, then Select all. Its items act on the focused field.
@@ -55,7 +59,8 @@
 use orchestra_i18n::{FluentArgs, I18nError, Localizer};
 use orchestra_ui::{
     ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, KeyName, KeyNames, MenuModel,
-    Modifiers, NamedKey, Platform, Registry, RegistryError, Shortcut, ShortcutError, ShortcutKey,
+    MenuRole, Modifiers, NamedKey, Platform, Registry, RegistryError, Shortcut, ShortcutError,
+    ShortcutKey,
 };
 
 /// The program's actions, by their index in the registry.
@@ -472,7 +477,8 @@ pub fn menu_bar(ids: &ActionIds, texts: &ActionTexts) -> MenuModel {
         .action(ids.save)
         .action(ids.save_as)
         .separator()
-        .action(ids.quit);
+        .action(ids.quit)
+        .role(MenuRole::Quit);
     let edit = MenuModel::new()
         .action(ids.undo)
         .action(ids.redo)
@@ -483,7 +489,8 @@ pub fn menu_bar(ids: &ActionIds, texts: &ActionTexts) -> MenuModel {
         .separator()
         .action(ids.select_all)
         .separator()
-        .action(ids.preferences);
+        .action(ids.preferences)
+        .role(MenuRole::Preferences);
     let view = MenuModel::new().action(ids.full_screen);
     let help = MenuModel::new().action(ids.help);
     let title = |index: usize| {
@@ -495,7 +502,8 @@ pub fn menu_bar(ids: &ActionIds, texts: &ActionTexts) -> MenuModel {
         let (name, mnemonic) = title(index);
         bar = bar.submenu(name, mnemonic, items);
     }
-    bar
+    // macOS gives the Help menu its search field (AM9, F2.11e1).
+    bar.role(MenuRole::Help)
 }
 
 /// The Fluent message of a key's name (choice S1 of F2.11d2a); the function keys and the keypad
