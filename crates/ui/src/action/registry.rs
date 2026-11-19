@@ -28,10 +28,24 @@
 //! [`Registry::load_overrides`] applies them as the file has them: the **later entry wins** a
 //! conflict, an unknown action is kept (to be written back) and ignored, and every problem is
 //! reported as a [`LoadWarning`], never as an error that would stop the program.
+//!
+//! # The texts people read (F2.11d2a, choice S1)
+//! Once the application hands in the names ([`Registry::set_texts`]: the actions' names from its
+//! catalogues and the keys' names, [`KeyNames`]), the registry keeps, next to each action, its
+//! name and the text of its **first** shortcut (the one the menus show, AM6), written in the
+//! platform's style ([`Shortcut::write_label`]). They are written again only when the language or
+//! that action's shortcuts change, so a menu that opens copies them and formats nothing.
+//!
+//! # What changed (AM2, choice S3 of F2.11d2a)
+//! Every change of an action's state, shortcuts or texts sets the action's bit in a bit set sized
+//! at registration (one `u64` per 64 actions, so marking never allocates). The interface drains
+//! it at the end of every frame ([`Registry::drain_changed`]) and records again the items of the
+//! open menus whose action changed; `muda` on macOS will read the same marks (F2.11e).
 
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 
+use super::label::KeyNames;
 use super::shortcut::{Platform, Shortcut};
 use crate::draw::glyph_cache::KeyHasher;
 
@@ -253,6 +267,12 @@ struct Entry {
     shortcuts: Vec<Shortcut>,
     /// Its state.
     state: ActionState,
+    /// Its name as people read it, from the catalogue ([`Registry::set_texts`]); empty until the
+    /// texts are given.
+    name_text: String,
+    /// Its first shortcut written for people ([`Shortcut::write_label`]); empty without a
+    /// shortcut or until the texts are given.
+    shortcut_text: String,
 }
 
 /// The registry of actions (see the module documentation).
@@ -268,6 +288,12 @@ pub struct Registry {
     lookup: Lookup,
     /// The user's entries for actions that do not exist (AM7): kept, to be written back.
     unknown: Vec<(String, Vec<Shortcut>)>,
+    /// The keys' names in the interface's language, once given ([`Registry::set_texts`]): the
+    /// shortcuts' texts are written with them.
+    keys: Option<KeyNames>,
+    /// One bit per action whose state, shortcuts or texts changed since the last
+    /// [`Registry::drain_changed`] (AM2, choice S3): bit `i % 64` of word `i / 64`.
+    changed: Vec<u64>,
 }
 
 impl Registry {
@@ -280,6 +306,8 @@ impl Registry {
             actions: Vec::new(),
             lookup: Lookup::default(),
             unknown: Vec::new(),
+            keys: None,
+            changed: Vec::new(),
         }
     }
 
@@ -331,8 +359,95 @@ impl Registry {
             shortcuts: defaults.clone(),
             defaults,
             state: ActionState::ENABLED,
+            name_text: String::new(),
+            shortcut_text: String::new(),
         });
+        // The bit set grows with the actions, here and never while marking: one word per 64.
+        if self.changed.len() * 64 < self.actions.len() {
+            self.changed.push(0);
+        }
+        self.write_shortcut_text(id);
         Ok(id)
+    }
+
+    /// Gives the registry the texts people read (F2.11d2a): `name` turns each action's Fluent key
+    /// ([`ActionSpec::name`]) into its name in the interface's language, and `keys` holds the
+    /// keys' names for the shortcuts' texts. Called at start-up and when the language changes;
+    /// every action is marked as changed (AM2), so open menus show the new texts.
+    ///
+    /// # Cost
+    /// One call of `name` and one shortcut written per action; allocates the strings. Never on
+    /// the path of a key or a frame.
+    pub fn set_texts(&mut self, keys: KeyNames, mut name: impl FnMut(&'static str) -> String) {
+        self.keys = Some(keys);
+        for entry in &mut self.actions {
+            entry.name_text = name(entry.spec.name);
+        }
+        for index in 0..self.actions.len() {
+            if let Ok(index) = u16::try_from(index) {
+                self.write_shortcut_text(ActionId(index));
+            }
+        }
+    }
+
+    /// The name of `id` as people read it (empty until [`Registry::set_texts`], or for an unknown
+    /// action).
+    #[must_use]
+    pub fn name_text(&self, id: ActionId) -> &str {
+        self.actions
+            .get(id.index())
+            .map_or("", |entry| entry.name_text.as_str())
+    }
+
+    /// The first shortcut of `id` written for people, in the platform's style (F2.11d2a, choice
+    /// S1): what a menu item shows at its right. Empty without a shortcut, until
+    /// [`Registry::set_texts`], or for an unknown action.
+    #[must_use]
+    pub fn shortcut_text(&self, id: ActionId) -> &str {
+        self.actions
+            .get(id.index())
+            .map_or("", |entry| entry.shortcut_text.as_str())
+    }
+
+    /// Calls `each` with every action marked as changed since the last call, in index order, and
+    /// clears the marks (AM2, choice S3 of F2.11d2a).
+    ///
+    /// # Cost
+    /// O(actions / 64 + marked): one word tested per 64 actions; no allocation.
+    pub fn drain_changed(&mut self, mut each: impl FnMut(ActionId)) {
+        for (word_index, word) in self.changed.iter_mut().enumerate() {
+            let mut bits = std::mem::take(word);
+            while bits != 0 {
+                // The lowest set bit first, so the actions come in index order.
+                let bit = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if let Ok(index) = u16::try_from(word_index * 64 + bit) {
+                    each(ActionId(index));
+                }
+            }
+        }
+    }
+
+    /// Marks `id` as changed (see [`Registry::drain_changed`]). O(1), no allocation: the bit set
+    /// grew at registration.
+    fn mark(&mut self, id: ActionId) {
+        let index = id.index();
+        if let Some(word) = self.changed.get_mut(index / 64) {
+            *word |= 1 << (index % 64);
+        }
+    }
+
+    /// Writes again the text of the first shortcut of `id` (when the texts are known) and marks
+    /// the action as changed.
+    fn write_shortcut_text(&mut self, id: ActionId) {
+        let platform = self.platform;
+        if let (Some(keys), Some(entry)) = (self.keys.as_ref(), self.actions.get_mut(id.index())) {
+            entry.shortcut_text.clear();
+            if let Some(first) = entry.shortcuts.first() {
+                first.write_label(platform, keys, &mut entry.shortcut_text);
+            }
+        }
+        self.mark(id);
     }
 
     /// The action whose identifier is `identifier`. O(n) in the number of actions: for loading
@@ -385,6 +500,9 @@ impl Registry {
             .ok_or(RegistryError::UnknownAction(id))?;
         let changed = entry.state != state;
         entry.state = state;
+        if changed {
+            self.mark(id);
+        }
         Ok(changed)
     }
 
@@ -449,6 +567,12 @@ impl Registry {
             for &shortcut in &entry.shortcuts {
                 self.lookup
                     .insert((entry.spec.context, shortcut), ActionId(index));
+            }
+        }
+        // Every action's first shortcut may be another now: written again, and marked.
+        for index in 0..self.actions.len() {
+            if let Ok(index) = u16::try_from(index) {
+                self.write_shortcut_text(ActionId(index));
             }
         }
     }
@@ -551,6 +675,7 @@ impl Registry {
             self.lookup.insert((context, shortcut), id);
         }
         entry.shortcuts = shortcuts;
+        self.write_shortcut_text(id);
     }
 
     /// Takes `shortcut` away from `id` (it lost a conflict while loading).
@@ -560,6 +685,7 @@ impl Registry {
         };
         entry.shortcuts.retain(|&own| own != shortcut);
         self.lookup.remove(&(entry.spec.context, shortcut));
+        self.write_shortcut_text(id);
     }
 }
 

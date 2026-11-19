@@ -25,7 +25,7 @@
 //! turned into characters of the whole text here, so a widget never sees a run.
 
 use accesskit::{
-    Action, Node, NodeId, Orientation, Role, ScrollUnit, TextDirection, TextPosition,
+    Action, HasPopup, Node, NodeId, Orientation, Role, ScrollUnit, TextDirection, TextPosition,
     TextSelection, Toggled, TreeId, TreeInfo, TreeUpdate,
 };
 
@@ -62,6 +62,15 @@ pub enum AccessRole {
     /// A one-line text field (F2.10b2), with its text, caret and selection in
     /// [`AccessInfo::text`] (F2.10b3, ADR-0047 TF11).
     TextInput,
+    /// A menu: a context menu or a submenu (F2.11d2a, ADR-0048 AM12).
+    Menu,
+    /// An item of a menu.
+    MenuItem,
+    /// An item of a menu with a check (a toggle), its state in [`AccessInfo::toggled`].
+    MenuItemCheckBox,
+    /// A line between groups of items: hidden from assistive technologies, which count the items
+    /// without it.
+    Separator,
 }
 
 /// What a widget tells assistive technologies besides its role (WC2): all optional.
@@ -92,6 +101,18 @@ pub struct AccessInfo {
     pub text: Option<TextInfo>,
     /// The hint shown while a text field is empty, announced then (F2.10b3, ADR-0045 WI4).
     pub placeholder: Option<String>,
+    /// The shortcut that does what the widget does, as people read it (a menu item's,
+    /// F2.11d2a, ADR-0048 AM12): already written in the platform's style and language.
+    pub keyboard_shortcut: Option<String>,
+    /// The widget's place among its siblings of the same kind, from 1, and their number (a menu
+    /// item's "3 of 7").
+    pub position: Option<(usize, usize)>,
+    /// For a widget that opens a menu (a submenu's item), whether the menu is open now: the node
+    /// then also says it opens a menu (`has_popup`). `None` for a widget that opens nothing.
+    pub expanded: Option<bool>,
+    /// The widget has a context menu ([`crate::Widget::context_menu`]): assistive technologies
+    /// then offer to show it. Filled by the interface, not by the widget.
+    pub context_menu: bool,
 }
 
 /// One line of text as assistive technologies read it (F2.10b3, ADR-0045 WI1, ADR-0047 TF11).
@@ -191,6 +212,8 @@ pub enum AccessActionKind {
         /// Where the caret goes.
         focus: usize,
     },
+    /// Show the target's context menu (F2.11d2a, ADR-0048 AM12), as the Menu key would.
+    ShowContextMenu,
 }
 
 /// An update of the accessibility tree, ready for the window's adapter. Opaque: only the window
@@ -226,11 +249,20 @@ pub(crate) fn empty_update(focus: Option<WidgetId>, full: bool) -> TreeUpdate {
     }
 }
 
-/// The window node: named after the window, with the root widget as its only child.
-pub(crate) fn window_node(title: &str, root: WidgetId) -> Node {
+/// The window node: named after the window, with the root widget as its first child and the
+/// open menus after it (F2.11d2a: a menu is drawn above the window's content, and assistive
+/// technologies find it as the window's own child, as they find a native popup menu).
+pub(crate) fn window_node(
+    title: &str,
+    root: WidgetId,
+    menus: impl Iterator<Item = WidgetId>,
+) -> Node {
     let mut node = Node::new(Role::Window);
     node.set_label(title);
     node.push_child(NodeId(root.get()));
+    for menu in menus {
+        node.push_child(NodeId(menu.get()));
+    }
     node
 }
 
@@ -246,17 +278,10 @@ pub(crate) fn push_widget_nodes(
     info: &AccessInfo,
     focusable: bool,
 ) {
-    let mut node = Node::new(match role {
-        AccessRole::Group => Role::GenericContainer,
-        AccessRole::Label => Role::Label,
-        AccessRole::Button => Role::Button,
-        AccessRole::CheckBox => Role::CheckBox,
-        AccessRole::Switch => Role::Switch,
-        AccessRole::Slider => Role::Slider,
-        AccessRole::ScrollView => Role::ScrollView,
-        AccessRole::Splitter => Role::Splitter,
-        AccessRole::TextInput => Role::TextInput,
-    });
+    let mut node = Node::new(role_of(role));
+    if role == AccessRole::Separator {
+        node.set_hidden();
+    }
     if !rect.is_empty() {
         node.set_bounds(accesskit::Rect {
             x0: f64::from(rect.x0),
@@ -304,6 +329,7 @@ pub(crate) fn push_widget_nodes(
     if let Some(placeholder) = &info.placeholder {
         node.set_placeholder(placeholder.as_str());
     }
+    set_menu_properties(&mut node, info);
     if info.text.is_some() {
         // The line may be scrolled inside the widget and reach past its edges (TF11).
         node.set_clips_children();
@@ -319,6 +345,9 @@ pub(crate) fn push_widget_nodes(
         }
         if info.clickable {
             node.add_action(Action::Click);
+        }
+        if info.context_menu {
+            node.add_action(Action::ShowContextMenu);
         }
         if focusable {
             node.add_action(Action::Focus);
@@ -354,6 +383,43 @@ pub(crate) fn push_widget_nodes(
         push_text_runs(nodes, &mut node, id, text);
     }
     nodes.insert(at, (NodeId(id.get()), node));
+}
+
+/// AccessKit's role for `role` (WC2).
+const fn role_of(role: AccessRole) -> Role {
+    match role {
+        // AccessKit 0.25 has no separator role; a hidden container is skipped by every screen
+        // reader, which is what a menu's separator should be (`push_widget_nodes` hides it).
+        AccessRole::Group | AccessRole::Separator => Role::GenericContainer,
+        AccessRole::Label => Role::Label,
+        AccessRole::Button => Role::Button,
+        AccessRole::CheckBox => Role::CheckBox,
+        AccessRole::Switch => Role::Switch,
+        AccessRole::Slider => Role::Slider,
+        AccessRole::ScrollView => Role::ScrollView,
+        AccessRole::Splitter => Role::Splitter,
+        AccessRole::TextInput => Role::TextInput,
+        AccessRole::Menu => Role::Menu,
+        AccessRole::MenuItem => Role::MenuItem,
+        AccessRole::MenuItemCheckBox => Role::MenuItemCheckBox,
+    }
+}
+
+/// The properties of a menu's item (F2.11d2a, ADR-0048 AM12): its shortcut, its place among the
+/// items, and whether it opens a submenu and that submenu is open. Nothing for other widgets,
+/// which leave these empty.
+fn set_menu_properties(node: &mut Node, info: &AccessInfo) {
+    if let Some(shortcut) = &info.keyboard_shortcut {
+        node.set_keyboard_shortcut(shortcut.as_str());
+    }
+    if let Some((position, size)) = info.position {
+        node.set_position_in_set(position);
+        node.set_size_of_set(size);
+    }
+    if let Some(expanded) = info.expanded {
+        node.set_has_popup(HasPopup::Menu);
+        node.set_expanded(expanded);
+    }
 }
 
 /// Adds to `nodes` the text runs of `text`, held by the widget `owner`, and to `parent` (the
@@ -560,6 +626,7 @@ pub(crate) fn action_from(request: &accesskit::ActionRequest) -> Option<AccessAc
         Action::ScrollLeft => scroll(ScrollDirection::Left, request),
         Action::ScrollRight => scroll(ScrollDirection::Right, request),
         Action::ScrollIntoView => AccessActionKind::ScrollIntoView,
+        Action::ShowContextMenu => AccessActionKind::ShowContextMenu,
         _ => return None,
     };
     Some(AccessAction { target, kind })

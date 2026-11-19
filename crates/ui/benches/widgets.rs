@@ -82,6 +82,19 @@
 //! - `registry_lookup` (F2.11d1, AM15): the registry alone, 1 024 probes (half found, half
 //!   missing) as a batch (ADR-0017 §4). Budget: under a microsecond per probe, that is well under
 //!   a few thousand instructions.
+//! - `context_menu_open` (F2.11d2a, ADR-0048 AM12, AM15): the real panel (200 widgets) with a
+//!   focused text field below it whose context menu has the eight editing items of the program
+//!   (three of them separators), the registry holding their names and shortcuts; one secondary
+//!   press on the field (Linux opens on the press): the menu's nine widgets built with their
+//!   texts, laid out, placed under the pointer, recorded in a new layer, drawn with the overlay
+//!   shadow, and the accessibility update (the window node, the menu's nodes, the focus). `fresh`
+//!   opens where no menu was drawn before (a context menu opens at the pointer, so the shadow's
+//!   cache, keyed by the exact place, ADR-0043 K2, usually misses); `again` where the same menu
+//!   was drawn before. The budget is the 50 ms from input to frame of ADR-0007; the measure
+//!   decides whether the shadow needs a cache keyed by size (the note of F2.11c).
+//! - `menu_highlight_move` (F2.11d2a, AM15): the same menu open, one Down as a keyboard sends it
+//!   (press and release): the highlight moves, two entries re-recorded and drawn, the
+//!   accessibility focus moves. Target: an event's 0.5 M.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -119,7 +132,8 @@ use orchestra_ui::{ImeEvent, Key, Modifiers, NamedKey, Popup, PopupSide, TextFie
 use std::time::Instant;
 
 use orchestra_ui::{
-    ActionId, ActionSpec, Context, Defaults, PhysicalKey, Platform, Registry, Shortcut, ShortcutKey,
+    ActionId, ActionSpec, Context, Defaults, EditRole, KeyNames, MenuModel, PhysicalKey, Platform,
+    Registry, Shortcut, ShortcutKey,
 };
 
 // A button-like leaf whose width can change.
@@ -1344,11 +1358,189 @@ library_benchmark_group!(
     benchmarks = [shortcut_press, registry_lookup]
 );
 
+// The real panel with a focused text field below it whose context menu has the program's eight
+// editing items, and a registry with their names and shortcuts (F2.11d2a). With `drawn_before`
+// the same menu was opened, drawn and closed at the same place first, so the renderer met its
+// shadow there. The pointer rests where the secondary press will come.
+struct Menued {
+    real: Real,
+    at: Point,
+}
+
+fn menued(drawn_before: bool) -> Menued {
+    let mut real = real_shown();
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    let shifted = Modifiers {
+        shift: true,
+        ..primary
+    };
+    let mut registry = Registry::new(Platform::Linux);
+    let mut menu = MenuModel::new();
+    let editing = [
+        ("edit.undo", "Undo", primary, 'z', EditRole::Undo),
+        ("edit.redo", "Redo", shifted, 'z', EditRole::Redo),
+        ("edit.cut", "Cut", primary, 'x', EditRole::Cut),
+        ("edit.copy", "Copy", primary, 'c', EditRole::Copy),
+        ("edit.paste", "Paste", primary, 'v', EditRole::Paste),
+        (
+            "edit.select-all",
+            "Select all",
+            primary,
+            'a',
+            EditRole::SelectAll,
+        ),
+    ];
+    for (index, (identifier, name, modifiers, key, role)) in editing.into_iter().enumerate() {
+        let id = registry
+            .register(ActionSpec {
+                identifier,
+                name,
+                context: Context::GLOBAL,
+                defaults: Defaults::everywhere(&[Shortcut::new(
+                    modifiers,
+                    ShortcutKey::Character(key),
+                )
+                .unwrap()]),
+                repeatable: false,
+                edit: Some(role),
+            })
+            .unwrap();
+        menu = menu.action(id);
+        // Undo, Redo | Cut, Copy, Paste | Select all.
+        if index == 1 || index == 4 {
+            menu = menu.separator();
+        }
+    }
+    registry.set_texts(KeyNames::new(|key| format!("{key:?}")), str::to_owned);
+    real.ui
+        .set_actions(registry, |id: ActionId| usize::from(id.get()));
+    let root = real.ui.root();
+    let field = real
+        .ui
+        .add(
+            root,
+            TextField::new("Violin I", |_| 0).with_context_menu(menu),
+            LayoutProps::default().width(Length::Fixed(300.0)),
+        )
+        .unwrap();
+    real.ui
+        .layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut real.list);
+    real.ui.set_focus(Some(field), &mut real.list).unwrap();
+    let rect = real.ui.rect(field).unwrap();
+    // Near the top of the window would be better for the menu, but the field is the panel's last
+    // row: the menu opens above the pointer, which costs the same.
+    let at = Point::new(rect.x0 + 40.0, f32::midpoint(rect.y0, rect.y1));
+    real.ui
+        .input(&InputEvent::PointerMoved { position: at }, &mut real.list);
+    if drawn_before {
+        real.ui.input(&secondary_press(at), &mut real.list);
+        real_draw(&mut real);
+        let _ = real.ui.take_access_update();
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            real.ui
+                .input(&named_key(NamedKey::Escape, state), &mut real.list);
+        }
+    }
+    real_draw(&mut real);
+    let _ = real.ui.take_access_update();
+    Menued { real, at }
+}
+
+fn secondary_press(at: Point) -> InputEvent {
+    InputEvent::PointerButton {
+        button: PointerButton::Right,
+        state: ButtonState::Pressed,
+        position: at,
+        clicks: 1,
+    }
+}
+
+fn named_key(key: NamedKey, state: ButtonState) -> InputEvent {
+    InputEvent::Key {
+        key: Key::Named(key),
+        physical: PhysicalKey::Other,
+        state,
+        repeat: false,
+        modifiers: Modifiers::default(),
+    }
+}
+
+fn menued_fresh() -> Menued {
+    menued(false)
+}
+
+fn menued_again() -> Menued {
+    menued(true)
+}
+
+#[library_benchmark]
+#[bench::fresh(menued_fresh())]
+#[bench::again(menued_again())]
+fn context_menu_open(mut menued: Menued) -> Menued {
+    menued.real.ui.input(
+        black_box(&secondary_press(menued.at)),
+        &mut menued.real.list,
+    );
+    real_draw(&mut menued.real);
+    black_box(menued.real.ui.take_access_update());
+    menued
+}
+
+fn menued_open() -> Menued {
+    let mut menued = menued(false);
+    menued
+        .real
+        .ui
+        .input(&secondary_press(menued.at), &mut menued.real.list);
+    // Released where it was pressed: the menu stays open with nothing highlighted; one Down
+    // highlights the first item, so the measured Down moves from one item to the next.
+    let release = InputEvent::PointerButton {
+        button: PointerButton::Right,
+        state: ButtonState::Released,
+        position: menued.at,
+        clicks: 1,
+    };
+    menued.real.ui.input(&release, &mut menued.real.list);
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        menued.real.ui.input(
+            &named_key(NamedKey::ArrowDown, state),
+            &mut menued.real.list,
+        );
+    }
+    real_draw(&mut menued.real);
+    let _ = menued.real.ui.take_access_update();
+    assert_eq!(menued.real.ui.menus().count(), 1);
+    menued
+}
+
+#[library_benchmark]
+#[bench::menu(menued_open())]
+fn menu_highlight_move(mut menued: Menued) -> Menued {
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        menued.real.ui.input(
+            black_box(&named_key(NamedKey::ArrowDown, state)),
+            &mut menued.real.list,
+        );
+    }
+    real_draw(&mut menued.real);
+    black_box(menued.real.ui.take_access_update());
+    menued
+}
+
+library_benchmark_group!(
+    name = menus,
+    benchmarks = [context_menu_open, menu_highlight_move]
+);
+
 main!(
     library_benchmark_groups = core,
     controls,
     scrolling,
     editing,
     popups,
-    actions
+    actions,
+    menus
 );

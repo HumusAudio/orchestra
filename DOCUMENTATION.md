@@ -4708,6 +4708,128 @@ registry on the three platforms, finds every name in the six languages and check
 Ctrl+Q reach the window. The benchmark `shortcut_press` measures a whole Ctrl+S (press, bubbling,
 contexts, lookup, message, consumed release) on the panel of 200 widgets: 26 174 instructions.
 
+#### Menus and context menus
+
+Step F2.11d2a (ADR-0048 AM9, AM11–AM13) draws the first real menus: the **context menus**, with
+the keyboard, the pointer, submenus and accessibility, built from **one menu model** that the menu
+bar (F2.11d2b) and `muda` on macOS (F2.11e) will share. The new files are
+`crates/ui/src/action/label.rs` (a shortcut written for people), `crates/ui/src/widget/menu.rs`
+(the model and the two widgets of a drawn menu) and `crates/ui/src/widget/ui/menus.rs` (what a
+menu does, a child module of `Ui`).
+
+**A shortcut written for people** (choice S1). `Shortcut::write_label(platform, names, out)`
+writes a shortcut in the platform's style. On Linux and Windows the keys' names are **translated**
+and joined by "+", modifiers in a fixed order (Ctrl, Alt, Shift, then the logo key: Super on Linux,
+Win on Windows), the letter in upper case: "Ctrl+Shift+S", "Strg+Umschalt+S", "Ctrl+Maiusc+S". On
+macOS Apple's symbols in Apple's order, with no separator: "⇧⌘S", "⌃⌘F". The names come from the
+catalogues through `KeyNames`, asked once for every key:
+
+```rust
+let keys = KeyNames::new(|key| {
+    key_name(localizer, key).unwrap_or_else(|failure| {
+        error.get_or_insert(failure);
+        String::new()
+    })
+});
+```
+
+Each name was researched in GTK's and Qt's translations and in Microsoft's localised list of
+Windows shortcuts, and recorded in the glossary (`key_ctrl` … `key_numpad`, 23 entries). The
+messages `key-function` (F1–F24) and `key-numpad` take the number as a Fluent argument; the app
+drops the invisible isolation marks Fluent puts around it, because a key's name ends up in the
+accessibility tree.
+
+**Texts in the registry, and what changed** (choices S1, S3). `Registry::set_texts(keys, name)`
+stores each action's name and the text of its **first** shortcut (`name_text`, `shortcut_text`),
+written again only when the language or that action's shortcuts change: a menu that opens copies
+them and formats nothing. Every change of a state, of shortcuts or of texts sets the action's bit
+in a bit set sized at registration; `Registry::drain_changed` hands the marked actions over and
+clears them. The interface drains it at the start of every frame and brings the open menus' items
+up to date; `muda` will read the same marks.
+
+**The menu model** (AM9). A `MenuModel` is a list of `MenuItem`s: an action (its name, shortcut,
+state and check are the registry's), a submenu (a name, already translated, and its own items) or
+a separator, each with an optional `MenuRole` that only macOS will use. It is built with a few
+calls:
+
+```rust
+pub fn field_menu(ids: &ActionIds) -> MenuModel {
+    MenuModel::new()
+        .action(ids.undo)
+        .action(ids.redo)
+        .separator()
+        .action(ids.cut)
+        .action(ids.copy)
+        .action(ids.paste)
+        .separator()
+        .action(ids.select_all)
+}
+```
+
+**The widgets** (`widget/menu.rs`). `Ui::open_menu_model(model, popup, from_keyboard, list)` opens a
+menu layer (the popup layer of F2.11c) whose root is a `MenuPanel` (the box: `surface-overlay`, a
+`border`, the theme's corners and the overlay shadow) with one `MenuEntry` per item. **Each entry
+is a widget of its own**, so moving the highlight re-records two entries. The entries handle no
+events: the interface owns what a menu does, as it owns the tooltip, and tells an entry how to
+look. An entry is `control-height` high, with its name at the left and its shortcut at the right
+in `text-muted` (in `text` when highlighted: `text-muted` on `control-hover` is not a checked
+contrast pair), an arrow for a submenu, a check mark in a column when the menu has a toggle; a
+disabled entry is drawn in `text-disabled`.
+
+**The keyboard** (AM12). With a menu of a model on top, the keys are its own: Up and Down move the
+highlight, wrapping and skipping separators and disabled items; Home and End; Enter or Space
+choose; Right opens a submenu with its first item highlighted, Left and Escape close it; Escape
+closes the first menu. Every other key is consumed. A menu opened from the keyboard starts with its
+first enabled item highlighted, one opened by the pointer with none.
+
+**The pointer** (AM12). Moving over an item highlights it. Resting on a submenu's item for
+`SUBMENU_DELAY` (250 ms, a wake-up of the interface) opens its submenu; moving to another item
+closes an open submenu after the same delay, so crossing a neighbour on the way to the submenu
+does not lose it. A press on a submenu's item opens it at once. Choosing happens on the
+**release**, so press-drag-release works, but only once the chain of menus is **armed** (a press
+inside it, or a pointer move since it opened): otherwise a context menu that opens on the press,
+under the pointer, would choose an item at the release of the very press that opened it.
+
+**Choosing** (AM13). Every menu of the chain closes and the action runs on the shortcut's path
+(`Ui::invoke`): an editing action goes to the focused widget, which kept the focus, so Copy in a
+text field's menu copies the field's selection.
+
+**Context menus.** A widget answers `Widget::context_menu()` (new, `None` by default). The
+interface opens it with the secondary button when no widget handled it, **on the press on Linux and
+macOS, on the release on Windows**; with the Menu key or Shift+F10, at the widget (at the caret
+for a text field); and for AccessKit's `ShowContextMenu`. A click opens it under the pointer,
+rounded to whole logical pixels. The text field takes a menu with `with_context_menu(model)`; a
+secondary press gives it the focus, keeps the selection when it lands inside it and otherwise moves
+the caret there, and is left unhandled so the menu opens. In the demonstration window the Track
+name field has the program's editing menu (`actions::field_menu`).
+
+**Accessibility** (AM12). The open menus are children of the window node, after the root; the
+window node is sent again whenever a menu opens or closes. A panel is a `Menu`, an entry a
+`MenuItem` or a `MenuItemCheckBox`, with its shortcut in `keyboard_shortcut`, its place among the
+items (`position_in_set`, `size_of_set`) and, for a submenu, `has_popup` and `expanded`; a
+separator is a hidden node. While a menu is open the accessibility focus is its highlighted item,
+even though the keyboard focus of the interface stays on the field. AccessKit's click on an item
+chooses it.
+
+**Ellipsis and the guide's item** (choice S2). The items that open a window end with an ellipsis
+in the catalogues ("Open…", "Save as…", "Preferences…", U+2026, with no space before it in any
+language). Help's item, which opens the guide, is now named "User guide" ("Guida per l'utente"),
+like the guides' own subtitles.
+
+**Tests and benchmarks.** `crates/ui/tests/menus.rs` (16 tests) writes shortcuts on the three
+platforms in two languages, checks the registry's texts and marks, and drives a field's context
+menu: opened on the press on Linux and on the release on Windows, by the Menu key, Shift+F10 and
+an assistive technology; the keyboard's walk; submenus by the keys and by the pointer with
+made-up times (also the diagonal move); a release under a menu that just opened choosing nothing
+until the pointer moves; disabled items; a state changed while the menu is open; the accessibility
+tree. `widgets_no_alloc.rs` checks that moving inside an open menu allocates nothing;
+`crates/app/tests/actions.rs` checks the shortcuts in the six languages, the ellipses and the
+field's menu. The screenshot scene `demo-context-menu` shows the Track name field's menu with Copy
+highlighted. The benchmarks `context_menu_open` and `menu_highlight_move` measure, on the real
+panel: 27.1 M instructions to open the menu where none was drawn before, 4.0 M where it was, 0.82 M
+to move the highlight; without the overlay shadow 4.6 M, 0.71 M and 0.17 M (the shadow is drawn
+again under the opaque panel at every redraw of the menu).
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
@@ -4860,6 +4982,10 @@ encodes as PNG and renders identically twice; every scene uses Studio dark; a ba
 error (`ScreenshotError::Size`), not a panic. Pixel-identical pictures across platforms are not
 required (`tiny-skia` runs different code on x86 and ARM), and there are no reference images yet:
 the guides' files are generated on Linux by CI.
+
+Since F2.11c the catalogue also has `demo-tooltip` (a shortened button's tooltip), and since
+F2.11d2a `demo-context-menu`: the Track name field holding "Violin I", selected, with its context
+menu opened by a secondary click and the pointer resting on Copy.
 
 ### orchestra-test-support: counting allocations in tests
 

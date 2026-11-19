@@ -48,6 +48,9 @@ breitkopf-lexikon = "https://www.breitkopf.com/assets/pdf/BV395_70_Lexikon.pdf �
 logic-de-count-in = "https://support.apple.com/de-li/guide/logicpro-ipad/toc/3.3 — 'Metronom verwenden', 'Einzählfunktion verwenden' (Logic Pro for iPad, German)"
 logic9-es = "https://help.apple.com/logicpro/mac/9.1.6/help/Spanish.lproj/Explorando%20Logic%20Pro%209.pdf — 'Ajuste del metrónomo y de la cuenta atrás'"
 cubase-ai13-it = "https://steinberg.help/cubase_ai/v13/it/Cubase_AI_13_Manuale_operativo_it.pdf — 'Click del metronomo'"
+gtk-ui = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (de, fr, it, es, en_GB), messages with msgctxt 'keyboard label' (the names GTK writes in its menus' shortcuts)"
+qt-ui = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QShortcut (the names Qt and KDE write in shortcuts)"
+ms-shortcuts = "https://support.microsoft.com/<lang>/windows/keyboard-shortcuts-in-windows-dcc61a57-8ff0-cffe-9796-cb9706c75eec — Microsoft's localised list of Windows shortcuts (it-it, de-de, fr-fr, es-es), counted by occurrence"
 
 # ================================================================================================
 # Notation
@@ -772,7 +775,7 @@ fr = "Ouvrir"
 de = "Öffnen"
 es = "Abrir"
 sources = ["musescore-ui", "ardour-ui"]
-note = "File menu command (file.open). MuseScore's Italian 'Vuota' for 'Open' is another context (an open string); the command is 'Apri'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+note = "File menu command (file.open). MuseScore's Italian 'Vuota' for 'Open' is another context (an open string); the command is 'Apri'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues. Menu item: the catalogues end it with an ellipsis (U+2026, no space before it in any of the six languages), because it opens a window that asks for more before acting (choice S2 of F2.11d2a, owner's approval 2026-11-19; Apple's, Microsoft's, GNOME's and KDE's guidelines agree). The glossary keeps the term without it."
 review = false
 
 [[term]]
@@ -798,7 +801,7 @@ fr = "Enregistrer sous"
 de = "Speichern unter"
 es = "Guardar como"
 sources = ["musescore-ui", "ardour-ui"]
-note = "File menu command (file.save-as). it: both sources say 'Salva come' (Microsoft's 'Salva con nome' is also common). de: MuseScore 'Speichern als', Ardour 'Speichern unter' (the systems' own word): 'Speichern unter'. Native speakers to confirm it and de. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+note = "File menu command (file.save-as). it: both sources say 'Salva come' (Microsoft's 'Salva con nome' is also common). de: MuseScore 'Speichern als', Ardour 'Speichern unter' (the systems' own word): 'Speichern unter'. Native speakers to confirm it and de. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues. Menu item: the catalogues end it with an ellipsis (U+2026, no space before it in any of the six languages), because it opens a window that asks for more before acting (choice S2 of F2.11d2a, owner's approval 2026-11-19; Apple's, Microsoft's, GNOME's and KDE's guidelines agree). The glossary keeps the term without it."
 review = true
 
 [[term]]
@@ -876,7 +879,7 @@ fr = "Préférences"
 de = "Einstellungen"
 es = "Preferencias"
 sources = ["musescore-ui", "ardour-ui"]
-note = "The Preferences window and its command (edit.preferences, Edit → Preferences on Linux and Windows, ADR-0048 AM9). de: MuseScore 'Einstellungen', Ardour 'Globale Einstellungen': 'Einstellungen'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+note = "The Preferences window and its command (edit.preferences, Edit → Preferences on Linux and Windows, ADR-0048 AM9). de: MuseScore 'Einstellungen', Ardour 'Globale Einstellungen': 'Einstellungen'. en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues. Menu item: the catalogues end it with an ellipsis (U+2026, no space before it in any of the six languages), because it opens a window that asks for more before acting (choice S2 of F2.11d2a, owner's approval 2026-11-19; Apple's, Microsoft's, GNOME's and KDE's guidelines agree). The glossary keeps the term without it."
 review = false
 
 [[term]]
@@ -902,7 +905,7 @@ fr = "Aide"
 de = "Hilfe"
 es = "Ayuda"
 sources = ["musescore-ui", "ardour-ui"]
-note = "The Help command (help.contents, F1) and later the Help menu. Both sources agree; it: 'Aiuto' (Windows says 'Guida', the music programs 'Aiuto'). en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues."
+note = "The Help command (help.contents, F1) and later the Help menu. Both sources agree; it: 'Aiuto' (Windows says 'Guida', the music programs 'Aiuto'). en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues. F2.11d2a: the item that opens the guide is named 'user guide' instead (entry user_guide, owner's approval 2026-11-19), so it no longer repeats the Help menu's own name; this term stays for the Help menu (F2.11d2b)."
 review = false
 
 [[term]]
@@ -962,3 +965,315 @@ note = """Researched 2026-11-14 (F2.10b2): Ardour's 'unnamed' (it 'senza nome', 
 es 'sin nombre'), capitalised because it stands alone as a field's placeholder: an empty name means \
 an unnamed track."""
 review = false
+
+[[term]]
+id = "user_guide"
+category = "general"
+en-US = "User guide"
+en-GB = "User guide"
+it = "Guida per l'utente"
+fr = "Guide de l'utilisateur"
+de = "Benutzerhandbuch"
+es = "Guía del usuario"
+sources = ["musescore-ui"]
+note = """The Help menu's item that opens the guide (help.contents, F1; F2.11d2a, owner's approval 2026-11-19). en-US and it are the guides' own subtitles (docs/guide/*/main.typ: 'User guide', 'Guida per l'utente'), so the item names what it opens. fr, de, es: the usual names of a program's user guide ('Guide de l'utilisateur', 'Benutzerhandbuch', 'Guía del usuario'); MuseScore names its own 'Online handbook' differently, so it confirms only that no shorter term is established. Native speakers to confirm fr, de, es."""
+review = true
+
+[[term]]
+id = "key_ctrl"
+category = "general"
+en-US = "Ctrl"
+en-GB = "Ctrl"
+it = "Ctrl"
+fr = "Ctrl"
+de = "Strg"
+es = "Ctrl"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """de: all three sources 'Strg' (the German keycap). es: GTK and Microsoft 'Ctrl', Qt 'Control': 'Ctrl'. The others agree on 'Ctrl'. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_shift"
+category = "general"
+en-US = "Shift"
+en-GB = "Shift"
+it = "Maiusc"
+fr = "Maj"
+de = "Umschalt"
+es = "Mayús"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """it: GTK and Microsoft 'Maiusc', Qt 'Shift': 'Maiusc'. es: GTK and Microsoft 'Mayús', Qt 'Mayúsculas' (too long next to a menu item): 'Mayús'. fr 'Maj' and de 'Umschalt' in all three. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_alt"
+category = "general"
+en-US = "Alt"
+en-GB = "Alt"
+it = "Alt"
+fr = "Alt"
+de = "Alt"
+es = "Alt"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """'Alt' in every source and language. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_super"
+category = "general"
+en-US = "Super"
+en-GB = "Super"
+it = "Super"
+fr = "Super"
+de = "Super"
+es = "Super"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """The logo key on Linux. GTK writes 'Super' in every language; KDE (Qt) says 'Meta'. 'Super' is GNOME's and the X11 keysym's name and needs no translation. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_windows"
+category = "general"
+en-US = "Win"
+en-GB = "Win"
+it = "Win"
+fr = "Win"
+de = "Win"
+es = "Win"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """The logo key on Windows, written in shortcuts. Microsoft's prose says 'tasto WINDOWS', 'Touche Windows', 'Tecla Windows'; a shortcut label needs the short form, 'Win', which no language translates (it is the system's name). Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = true
+
+[[term]]
+id = "key_enter"
+category = "general"
+en-US = "Enter"
+en-GB = "Enter"
+it = "Invio"
+fr = "Entrée"
+de = "Eingabe"
+es = "Intro"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """it 'Invio' and es 'Intro' in GTK and Qt (Microsoft es 'Entrar' is a verb in its prose). fr: Microsoft and Qt 'Entrée', GTK 'Retour': 'Entrée'. de: GTK 'Eingabe', Microsoft 'EINGABE', Qt 'Return': 'Eingabe'. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_escape"
+category = "general"
+en-US = "Esc"
+en-GB = "Esc"
+it = "Esc"
+fr = "Échap"
+de = "Esc"
+es = "Esc"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """fr: all three 'Échap' (GTK with a dot). es: Microsoft 'Esc', GTK and Qt 'Escape': 'Esc', the keycap. The others 'Esc'. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_tab"
+category = "general"
+en-US = "Tab"
+en-GB = "Tab"
+it = "Tab"
+fr = "Tab"
+de = "Tab"
+es = "Tab"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """Microsoft writes 'Tab' in every language; GTK de 'Tabulator', fr 'Tabulation' and Qt es 'Tabulador' are longer forms of the same: 'Tab', the keycap. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_space"
+category = "general"
+en-US = "Space"
+en-GB = "Space"
+it = "Spazio"
+fr = "Espace"
+de = "Leertaste"
+es = "Espacio"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """GTK and Qt agree in every language; Microsoft's 'BARRA SPAZIATRICE' and 'Barra espaciadora' are prose. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_backspace"
+category = "general"
+en-US = "Backspace"
+en-GB = "Backspace"
+it = "Backspace"
+fr = "Retour arrière"
+de = "Rücktaste"
+es = "Retroceso"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """it: all three 'Backspace'. fr: GTK and Microsoft 'Retour arrière'. de: Microsoft and Qt 'Rücktaste' (GTK 'Löschen' is ambiguous with Delete). es: GTK and Microsoft 'Retroceso'. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_delete"
+category = "general"
+en-US = "Del"
+en-GB = "Del"
+it = "Canc"
+fr = "Suppr"
+de = "Entf"
+es = "Supr"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """The forward delete key. Every source agrees in it, fr, de, es (the keycaps). en: Qt and Windows' menus 'Del', GTK 'Delete': the short keycap form, like the others. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_insert"
+category = "general"
+en-US = "Ins"
+en-GB = "Ins"
+it = "Ins"
+fr = "Inser"
+de = "Einfg"
+es = "Insert"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """it: GTK, Qt and Microsoft 'Ins'. fr: GTK and Qt 'Inser'. de: GTK and Qt 'Einfg'. es: Microsoft 'Insert' (9) and 'Insertar' (7), GTK 'Insertar': 'Insert', the keycap. en 'Ins' as Qt, matching 'Del'. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = true
+
+[[term]]
+id = "key_home"
+category = "general"
+en-US = "Home"
+en-GB = "Home"
+it = "Home"
+fr = "Origine"
+de = "Pos1"
+es = "Inicio"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """it: GTK and Microsoft 'Home' (Qt writes an arrow). fr: GTK and Microsoft 'Origine', Qt 'Début': 'Origine'. de 'Pos1' and es 'Inicio' in all three. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_end"
+category = "general"
+en-US = "End"
+en-GB = "End"
+it = "Fine"
+fr = "Fin"
+de = "Ende"
+es = "Fin"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """All three sources agree in every language. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_page_up"
+category = "general"
+en-US = "PgUp"
+en-GB = "PgUp"
+it = "PgSu"
+fr = "Pg. préc"
+de = "Bild auf"
+es = "Re Pág"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """it: Microsoft 'PGSU', GTK 'Pag Su': 'PgSu'. fr: Microsoft 'Pg. préc', Qt 'Page préc': Microsoft's. de: GTK 'Bild auf', Microsoft 'BILD-AUF': GTK's spelling. es: all three 'Re Pág'. en: the keycap 'PgUp' (Qt, Microsoft). Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = true
+
+[[term]]
+id = "key_page_down"
+category = "general"
+en-US = "PgDn"
+en-GB = "PgDn"
+it = "PgGiù"
+fr = "Pg. suiv"
+de = "Bild ab"
+es = "Av Pág"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """As key_page_up: it Microsoft 'PGGIÙ', fr Microsoft 'Pg. suiv' (Qt 'Page suiv'), de GTK 'Bild ab', es all three 'Av Pág', en the keycap 'PgDn'. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = true
+
+[[term]]
+id = "key_left"
+category = "general"
+en-US = "Left"
+en-GB = "Left"
+it = "Sinistra"
+fr = "Gauche"
+de = "Links"
+es = "Izquierda"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """GTK and Qt agree in every language. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_right"
+category = "general"
+en-US = "Right"
+en-GB = "Right"
+it = "Destra"
+fr = "Droite"
+de = "Rechts"
+es = "Derecha"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """GTK and Qt agree in every language. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_up"
+category = "general"
+en-US = "Up"
+en-GB = "Up"
+it = "Su"
+fr = "Haut"
+de = "Hoch"
+es = "Arriba"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """GTK and Qt agree in every language. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_down"
+category = "general"
+en-US = "Down"
+en-GB = "Down"
+it = "Giù"
+fr = "Bas"
+de = "Runter"
+es = "Abajo"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """de: GTK 'Runter', Qt 'Herunter': 'Runter', the shorter and GTK's. The others agree. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = true
+
+[[term]]
+id = "key_menu"
+category = "general"
+en-US = "Menu"
+en-GB = "Menu"
+it = "Menu"
+fr = "Menu"
+de = "Menü"
+es = "Menú"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """The Menu (application) key. Qt agrees in every language. Never part of an action's shortcut (ADR-0048 AM8); named for completeness of the shortcut writer. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_function"
+category = "general"
+en-US = "F1"
+en-GB = "F1"
+it = "F1"
+fr = "F1"
+de = "F1"
+es = "F1"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """A function key: 'F' and its number in every source and language (Qt 'F%1'). A catalogue message with the number as an argument, so a language could write it otherwise. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = false
+
+[[term]]
+id = "key_numpad"
+category = "general"
+en-US = "Num 1"
+en-GB = "Num 1"
+it = "Num 1"
+fr = "Num 1"
+de = "Zahlenblock 1"
+es = "Núm 1"
+sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
+note = """A digit of the numeric keypad. Qt writes 'Num', de 'Zahlenblock', es 'Núm' (GTK writes the keypad as 'TN', 'Nmblck' and others, inconsistently). Qt's forms, with the digit as an argument. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
+review = true

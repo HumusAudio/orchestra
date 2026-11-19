@@ -91,6 +91,16 @@
 //! method, [`EventCx::reset_ime`]: most input methods then commit it); losing the focus, being
 //! disabled, the input method being turned off and a text set by the application drop it.
 //!
+//! # The context menu (F2.11d2a, ADR-0048 AM12)
+//! A field given a menu ([`TextField::with_context_menu`]: the application's Undo, Redo, Cut,
+//! Copy, Paste and Select all) answers it as its [`Widget::context_menu`], and the interface opens
+//! it under a secondary click, with the Menu key or Shift+F10 at the caret, and for an assistive
+//! technology. Its items act on the field (AM13): the focus stays in the field while the menu is
+//! open. A **secondary press** gives the field the focus, as any press does; inside the selection
+//! it changes nothing (so Copy copies what was selected), elsewhere it puts the caret where it
+//! lands, like a primary press without the drag (the convention of GTK, Firefox and Chrome). It
+//! is left unhandled, so the interface opens the menu.
+//!
 //! # Not here yet
 //! The multi-line field and the primary selection (postponed, ADR-0047). A fallback font for the
 //! scripts the bundled faces do not cover (ADR-0044 TX4): Japanese or Chinese, composed or
@@ -238,6 +248,8 @@ pub struct TextField<M> {
     /// allocates nothing once warm); unused, and possibly stale, while not composing:
     /// [`TextField::shown`] is the only way to read it.
     composed: String,
+    /// The field's context menu, if the application gave it one (F2.11d2a).
+    context_menu: Option<crate::MenuModel>,
 }
 
 impl<M> TextField<M> {
@@ -273,6 +285,7 @@ impl<M> TextField<M> {
             preedit: String::new(),
             preedit_cursor: None,
             composed: String::new(),
+            context_menu: None,
         }
     }
 
@@ -289,6 +302,14 @@ impl<M> TextField<M> {
     #[must_use]
     pub fn labelled(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
+        self
+    }
+
+    /// The same field with `menu` as its context menu (F2.11d2a): usually the application's
+    /// standard editing items, which act on the field while it has the focus (ADR-0048 AM13).
+    #[must_use]
+    pub fn with_context_menu(mut self, menu: crate::MenuModel) -> Self {
+        self.context_menu = Some(menu);
         self
     }
 
@@ -939,6 +960,26 @@ impl<M> TextField<M> {
         self.after(cx, response);
     }
 
+    /// A secondary press at `point` (F2.11d2a, see the module documentation): inside the
+    /// selection nothing changes; elsewhere, or right after the press gave the focus (whose
+    /// "select everything" belongs to the keyboard), the caret goes where the press lands.
+    /// Answers [`Handled::No`], always: the interface opens the context menu after it.
+    fn secondary_press(&mut self, cx: &mut EventCx<'_, M>, point: Point) -> Handled {
+        let fresh = std::mem::take(&mut self.fresh_focus);
+        let offset = self.offset_at(point);
+        let selection = self.editor.selection();
+        // Inside, edges included: a press on the selection's edge keeps it too.
+        let inside = !selection.is_empty() && (selection.start..=selection.end).contains(&offset);
+        if !inside || fresh {
+            if self.drop_preedit() {
+                cx.reset_ime();
+            }
+            let response = self.editor.select(offset, offset);
+            self.after(cx, response);
+        }
+        Handled::No
+    }
+
     /// The pointer moved to `point` during a drag (TF4).
     fn drag_to(&mut self, cx: &mut EventCx<'_, M>, point: Point) {
         let response = match &self.drag {
@@ -1251,6 +1292,13 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
                 self.press(cx, position, clicks);
                 Handled::Yes
             }
+            // Left unhandled after moving the caret: the interface then opens the context menu.
+            WidgetEvent::PointerButton {
+                button: PointerButton::Right,
+                state: ButtonState::Pressed,
+                position,
+                ..
+            } => self.secondary_press(cx, position),
             WidgetEvent::PointerMoved { position } if self.drag.is_some() => {
                 self.drag_to(cx, position);
                 Handled::Yes
@@ -1321,6 +1369,11 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for TextField<M> {
             EditRole::Undo => self.editor.can_undo(),
             EditRole::Redo => self.editor.can_redo(),
         })
+    }
+
+    fn context_menu(&self) -> Option<&crate::MenuModel> {
+        // A disabled field takes no focus, so its editing items would have nothing to act on.
+        self.context_menu.as_ref().filter(|_| self.enabled)
     }
 
     fn ime_area(&self) -> Option<Rect> {

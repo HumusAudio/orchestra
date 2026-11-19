@@ -8,10 +8,14 @@
 //! - [`shortcut`]: what a shortcut is, how a key press becomes the shortcuts it may mean (with
 //!   the two fallbacks by position of AM5), the fixed keys of AM8.
 //! - [`registry`]: the actions, their contexts, defaults, the user's shortcuts with the conflict
-//!   rules of AM7, their states (AM2) and the lookup.
+//!   rules of AM7, their states (AM2), the texts people read and the marks of what changed.
+//! - [`label`]: a shortcut written for people, in each platform's style, with the keys' names
+//!   from the catalogues (F2.11d2a).
 //!
-//! The menus built on the same registry come in F2.11d2; `muda` on macOS in F2.11e.
+//! The menus built on the same registry are in `crate::widget::menu` (F2.11d2a); `muda` on macOS
+//! comes in F2.11e.
 
+pub(crate) mod label;
 pub(crate) mod registry;
 pub(crate) mod shortcut;
 #[cfg(test)]

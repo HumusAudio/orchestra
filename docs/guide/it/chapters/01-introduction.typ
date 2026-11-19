@@ -84,6 +84,34 @@ Maiusc per usarli.
   Tab, le frecce, Invio, Esc e Spazio servono a muoversi nella finestra, e F10 aprirà i menu.
 ]
 
+== Menu contestuali
+
+Fai clic con il tasto destro del mouse su una casella di testo per aprire il suo *menu
+contestuale*: Annulla e Ripeti, Taglia, Copia e Incolla, Seleziona tutto. Puoi aprirlo anche dalla
+tastiera, con il tasto Menu oppure con Maiusc+F10: allora si apre al cursore del testo, con il primo
+comando disponibile già evidenziato.
+
+- Ogni comando mostra a destra la sua scorciatoia da tastiera, scritta come la scrive il tuo
+  sistema (Ctrl+C su Linux e Windows, ⌘C su macOS): così il menu ti insegna anche le scorciatoie.
+- I comandi che in quel momento non possono fare nulla sono in grigio: Copia, per esempio, finché
+  non hai selezionato del testo.
+- Spostati con i tasti freccia, Home e Fine; premi Invio o Spazio per eseguire il comando
+  evidenziato; premi Esc per chiudere il menu.
+- Con il mouse puoi premere il tasto destro, spostarti su un comando e rilasciare lì il tasto: il
+  comando parte subito.
+- Un comando con una freccia sulla destra apre un sottomenu: fermati un attimo con il puntatore,
+  fai clic, oppure premi la freccia a destra; la freccia a sinistra richiude il sottomenu.
+
+#note("Nota")[
+  I comandi del menu agiscono sulla casella di testo in cui stavi lavorando: la casella tiene la
+  tastiera mentre il menu è aperto, così Copia copia proprio il testo che avevi selezionato.
+]
+
+#screenshot-placeholder(
+  [Screenshot: il menu contestuale di una casella di testo],
+  [Il menu contestuale di una casella di testo, con la scorciatoia di ogni comando a destra.],
+)
+
 == Stato di questa guida
 
 Orchestra è in una fase di sviluppo molto iniziale. Questa edizione di anteprima spiega le idee

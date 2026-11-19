@@ -13,7 +13,8 @@
 //!   undo;
 //! - `field`: the text field itself (F2.10b2): drawing, pointer, caret blink, commit;
 //! - `elide`: a control's text, shortened with an ellipsis when it does not fit (F2.09f);
-//! - `look`: what every control draws the same way (the focus ring).
+//! - `look`: what every control draws the same way (the focus ring);
+//! - `menu`: the one menu model and the widgets of a drawn menu (F2.11d2a).
 
 pub(crate) mod access;
 pub(crate) mod button;
@@ -23,6 +24,7 @@ pub(crate) mod field;
 pub(crate) mod label;
 pub(crate) mod layout;
 pub(crate) mod look;
+pub(crate) mod menu;
 pub(crate) mod popup;
 pub(crate) mod scroll;
 pub(crate) mod slider;
