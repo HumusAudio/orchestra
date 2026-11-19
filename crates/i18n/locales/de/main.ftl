@@ -9,13 +9,25 @@ app-name = Orchestra
 ## Main menu
 
 menu-file = Datei
+menu-file-new = Neu
+menu-file-open = Öffnen
+menu-file-save = Speichern
+menu-file-save-as = Speichern unter
+menu-file-quit = Beenden
 menu-edit = Bearbeiten
 menu-edit-undo = Rückgängig
 menu-edit-redo = Wiederherstellen
+menu-edit-cut = Ausschneiden
+menu-edit-copy = Kopieren
+menu-edit-paste = Einfügen
+menu-edit-select-all = Alles auswählen
+menu-edit-preferences = Einstellungen
 menu-view = Ansicht
 menu-view-score = Partitur
 menu-view-tracks = Spuren
 menu-view-mixer = Mixer
+menu-view-full-screen = Vollbild
+menu-help-contents = Hilfe
 
 ## Status bar (glossary: measure → "Takt", plural "Takte")
 

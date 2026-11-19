@@ -7,7 +7,10 @@
 //! function of `winit` values that tests can build, so it is tested without a display.
 
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
-use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey as WinitNamedKey};
+use winit::keyboard::{
+    Key as WinitKey, KeyCode, ModifiersState, NamedKey as WinitNamedKey,
+    PhysicalKey as WinitPhysicalKey,
+};
 
 use crate::Point;
 
@@ -42,6 +45,9 @@ pub enum InputEvent {
     Key {
         /// The key, as the keyboard layout names it.
         key: Key,
+        /// Where the key is on the keyboard (a precision of ADR-0040 W5 written in F2.11d1):
+        /// only for the shortcuts' two fallbacks by position (ADR-0048 AM5) and the keypad.
+        physical: PhysicalKey,
         /// Pressed or released.
         state: ButtonState,
         /// `true` for an automatic repeat while the key is held.
@@ -167,6 +173,23 @@ pub enum Key {
     Unknown,
 }
 
+/// Where a key is on the keyboard, whatever the layout says it types (a precision of ADR-0040 W5
+/// written in F2.11d1). Only the positions the shortcuts need are named (ADR-0048 AM5): the
+/// letters and the digit row by their place on the US layout, and the keypad's digits; every
+/// other key is [`PhysicalKey::Other`] (no keys "for later", SCALETTA §1.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PhysicalKey {
+    /// The key where the US layout has a letter: 0 for A, 25 for Z (the fallback for letters
+    /// outside the Latin script, AM5 (i)).
+    Letter(u8),
+    /// A key of the digit row, 0 to 9, where the US layout has that digit (AM5 (ii)).
+    Digit(u8),
+    /// A digit of the numeric keypad, 0 to 9.
+    Numpad(u8),
+    /// Any other key, or one the system could not place.
+    Other,
+}
+
 /// The named keys the interface uses. Others arrive as [`Key::Unknown`]; a new one is added here
 /// when a feature needs it (no keys "for later", SCALETTA §1.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -203,6 +226,9 @@ pub enum NamedKey {
     PageDown,
     /// A function key, F1 to F24.
     Function(u8),
+    /// The Menu key (the "application" key), which opens a context menu (ADR-0048 AM12); never
+    /// an action's shortcut (AM8).
+    ContextMenu,
 }
 
 /// The modifier keys held (ADR-0040 W5).
@@ -322,6 +348,64 @@ pub(crate) fn key(key: &WinitKey) -> Key {
     }
 }
 
+/// `winit`'s physical key as ours (see [`PhysicalKey`]): a plain table, tested without a
+/// display.
+#[must_use]
+pub(crate) const fn physical_key(key: WinitPhysicalKey) -> PhysicalKey {
+    let WinitPhysicalKey::Code(code) = key else {
+        return PhysicalKey::Other;
+    };
+    match code {
+        KeyCode::KeyA => PhysicalKey::Letter(0),
+        KeyCode::KeyB => PhysicalKey::Letter(1),
+        KeyCode::KeyC => PhysicalKey::Letter(2),
+        KeyCode::KeyD => PhysicalKey::Letter(3),
+        KeyCode::KeyE => PhysicalKey::Letter(4),
+        KeyCode::KeyF => PhysicalKey::Letter(5),
+        KeyCode::KeyG => PhysicalKey::Letter(6),
+        KeyCode::KeyH => PhysicalKey::Letter(7),
+        KeyCode::KeyI => PhysicalKey::Letter(8),
+        KeyCode::KeyJ => PhysicalKey::Letter(9),
+        KeyCode::KeyK => PhysicalKey::Letter(10),
+        KeyCode::KeyL => PhysicalKey::Letter(11),
+        KeyCode::KeyM => PhysicalKey::Letter(12),
+        KeyCode::KeyN => PhysicalKey::Letter(13),
+        KeyCode::KeyO => PhysicalKey::Letter(14),
+        KeyCode::KeyP => PhysicalKey::Letter(15),
+        KeyCode::KeyQ => PhysicalKey::Letter(16),
+        KeyCode::KeyR => PhysicalKey::Letter(17),
+        KeyCode::KeyS => PhysicalKey::Letter(18),
+        KeyCode::KeyT => PhysicalKey::Letter(19),
+        KeyCode::KeyU => PhysicalKey::Letter(20),
+        KeyCode::KeyV => PhysicalKey::Letter(21),
+        KeyCode::KeyW => PhysicalKey::Letter(22),
+        KeyCode::KeyX => PhysicalKey::Letter(23),
+        KeyCode::KeyY => PhysicalKey::Letter(24),
+        KeyCode::KeyZ => PhysicalKey::Letter(25),
+        KeyCode::Digit0 => PhysicalKey::Digit(0),
+        KeyCode::Digit1 => PhysicalKey::Digit(1),
+        KeyCode::Digit2 => PhysicalKey::Digit(2),
+        KeyCode::Digit3 => PhysicalKey::Digit(3),
+        KeyCode::Digit4 => PhysicalKey::Digit(4),
+        KeyCode::Digit5 => PhysicalKey::Digit(5),
+        KeyCode::Digit6 => PhysicalKey::Digit(6),
+        KeyCode::Digit7 => PhysicalKey::Digit(7),
+        KeyCode::Digit8 => PhysicalKey::Digit(8),
+        KeyCode::Digit9 => PhysicalKey::Digit(9),
+        KeyCode::Numpad0 => PhysicalKey::Numpad(0),
+        KeyCode::Numpad1 => PhysicalKey::Numpad(1),
+        KeyCode::Numpad2 => PhysicalKey::Numpad(2),
+        KeyCode::Numpad3 => PhysicalKey::Numpad(3),
+        KeyCode::Numpad4 => PhysicalKey::Numpad(4),
+        KeyCode::Numpad5 => PhysicalKey::Numpad(5),
+        KeyCode::Numpad6 => PhysicalKey::Numpad(6),
+        KeyCode::Numpad7 => PhysicalKey::Numpad(7),
+        KeyCode::Numpad8 => PhysicalKey::Numpad(8),
+        KeyCode::Numpad9 => PhysicalKey::Numpad(9),
+        _ => PhysicalKey::Other,
+    }
+}
+
 /// The text a key press typed (ADR-0047 TF5), from `winit`'s `KeyEvent::text`, or `None` when
 /// it typed nothing a text field should insert.
 ///
@@ -413,6 +497,7 @@ fn named_key(key: WinitNamedKey) -> Option<NamedKey> {
         WinitNamedKey::F22 => NamedKey::Function(22),
         WinitNamedKey::F23 => NamedKey::Function(23),
         WinitNamedKey::F24 => NamedKey::Function(24),
+        WinitNamedKey::ContextMenu => NamedKey::ContextMenu,
         _ => return None,
     })
 }

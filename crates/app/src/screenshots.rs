@@ -187,6 +187,7 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneConte
     demo.input(
         &InputEvent::Key {
             key: Key::Named(NamedKey::Tab),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers: Modifiers::default(),

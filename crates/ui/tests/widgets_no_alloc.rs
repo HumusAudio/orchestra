@@ -91,6 +91,7 @@ fn routing_never_allocates() {
     ui.layout(Rect::from_origin_size(0.0, 0.0, 600.0, 400.0), &mut list);
     let tab = InputEvent::Key {
         key: Key::Named(NamedKey::Tab),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers::default(),
@@ -166,6 +167,7 @@ fn scrolling_and_moving_a_divider_never_allocate() {
     };
     let tab = InputEvent::Key {
         key: Key::Named(NamedKey::Tab),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers::default(),
@@ -385,6 +387,76 @@ fn showing_and_hiding_tooltips_never_allocates() {
         black_box(list.take_damage());
     };
     round(&mut ui, &mut list);
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
+}
+
+#[test]
+fn running_actions_from_the_keyboard_never_allocates() {
+    use orchestra_ui::{
+        ActionSpec, Context, Defaults, PhysicalKey, Platform, Registry, Shortcut, ShortcutKey,
+    };
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui = Ui::new(
+        Flex::column(Space::S, Space::M),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let pad = ui
+        .add(root, Pad { on: false }, LayoutProps::default())
+        .unwrap();
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    let mut registry = Registry::new(Platform::Linux);
+    for (identifier, key) in [("file.save", 's'), ("edit.undo", 'z')] {
+        registry
+            .register(ActionSpec {
+                identifier,
+                name: "action-test",
+                context: Context::GLOBAL,
+                defaults: Defaults::everywhere(&[Shortcut::new(
+                    primary,
+                    ShortcutKey::Character(key),
+                )
+                .unwrap()]),
+                repeatable: false,
+                edit: None,
+            })
+            .unwrap();
+    }
+    ui.set_actions(registry, |_| ());
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 600.0, 400.0), &mut list);
+    ui.set_focus(Some(pad), &mut list).unwrap();
+    // The events are built once: their text is the test's, not the interface's.
+    let events: Vec<InputEvent> = [
+        ("s", PhysicalKey::Letter(18)),
+        // A Russian layout: the fallback by position.
+        ("я", PhysicalKey::Letter(25)),
+        // A key with no action.
+        ("k", PhysicalKey::Letter(10)),
+    ]
+    .into_iter()
+    .flat_map(|(text, physical)| {
+        [ButtonState::Pressed, ButtonState::Released].map(|state| InputEvent::Key {
+            key: Key::Character(text.into()),
+            physical,
+            state,
+            repeat: false,
+            modifiers: primary,
+        })
+    })
+    .collect();
+    let round = |ui: &mut Ui<()>, list: &mut DisplayList| {
+        for event in &events {
+            ui.input(event, list);
+        }
+        black_box(ui.take_messages().count());
+        black_box(list.take_damage());
+    };
     round(&mut ui, &mut list);
     assert_no_allocations(|| round(&mut ui, &mut list));
 }

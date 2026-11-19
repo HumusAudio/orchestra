@@ -12,14 +12,14 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event::{StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
-use winit::window::{Window, WindowId};
+use winit::window::{Fullscreen, Window, WindowId};
 
 use super::appearance::{ShellEvent, ThemeState, appearance_from_winit};
 use super::input::{self, ButtonState, InputEvent, Modifiers};
 use super::order::open_in_order;
 use super::pointer::{self, PointerShape};
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
-use super::{WindowApp, WindowError, WindowOptions};
+use super::{WindowApp, WindowError, WindowOptions, WindowRequest};
 use crate::draw::device::DeviceRegions;
 use crate::platform::appearance::{Reporter, SystemObservation, observe_system};
 use crate::{AppearanceWatch, CpuRenderer, DisplayList, Image, Point, Rect, Renderer};
@@ -374,6 +374,24 @@ impl<A: WindowApp> Shell<A> {
         self.sync_text_input();
     }
 
+    /// Carries out what the app asks of the window ([`WindowApp::take_window_request`]), every
+    /// request until the app has none.
+    fn apply_requests(&mut self, event_loop: &ActiveEventLoop) {
+        while let Some(request) = self.app.take_window_request() {
+            match request {
+                WindowRequest::Close => event_loop.exit(),
+                WindowRequest::ToggleFullScreen => {
+                    if let Some(open) = self.open.as_ref() {
+                        // Borderless on the window's monitor (`None`): no change of video mode.
+                        let full = open.window.fullscreen().is_some();
+                        open.window
+                            .set_fullscreen((!full).then_some(Fullscreen::Borderless(None)));
+                    }
+                }
+            }
+        }
+    }
+
     /// Sends AccessKit what changed in the interface, if an assistive technology is listening
     /// (WC6). The app is asked only then: without a listener its marks just wait (WC3).
     fn push_access(&mut self, full: bool) {
@@ -529,6 +547,7 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
                 let state = input::button_state(event.state);
                 self.deliver(&InputEvent::Key {
                     key: input::key(&event.logical_key),
+                    physical: input::physical_key(event.physical_key),
                     state,
                     repeat: event.repeat,
                     modifiers: self.modifiers,
@@ -564,6 +583,8 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
             }
             _ => {}
         }
+        // What the app asked of the window while it handled the event (Quit, Full screen).
+        self.apply_requests(event_loop);
         // Frames on demand (W2): only when something is damaged.
         if !self.list.damage().is_empty()
             && let Some(open) = self.open.as_ref()

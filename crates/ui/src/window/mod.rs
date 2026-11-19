@@ -125,6 +125,27 @@ pub trait WindowApp {
     fn text_input(&self) -> Option<crate::TextInput> {
         None
     }
+
+    /// What the app asks of the window itself (a precision of ADR-0040 written in F2.11d1): to
+    /// close, or to enter or leave full screen, after an action asked for it (Quit, Full screen:
+    /// ADR-0048 AM6). The window asks after every window event and keeps asking until `None`
+    /// (the default), so the app hands its requests out one by one.
+    ///
+    /// # Cost
+    /// Called once per event: answer from a stored queue, without allocating.
+    fn take_window_request(&mut self) -> Option<WindowRequest> {
+        None
+    }
+}
+
+/// Something the app asks of its window ([`WindowApp::take_window_request`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowRequest {
+    /// Close the window and end the event loop (Quit).
+    Close,
+    /// Enter full screen when windowed, leave it when in full screen (Full screen). Borderless
+    /// on the current monitor: the system's video mode is never changed.
+    ToggleFullScreen,
 }
 
 /// How to open the window.

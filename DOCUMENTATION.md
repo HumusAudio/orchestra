@@ -4570,6 +4570,144 @@ first time), 0.23 M at the same place, 0.14 M to hide it, 0.35 M to record a wid
 menu. The screenshot scene `demo-tooltip` shows a shortened button's tooltip in the demonstration
 window narrowed to 200 px (`TOOLTIP_SCENE_WIDTH`), checked by a test of `crates/app/tests/demo.rs`.
 
+#### Actions and shortcuts
+
+Step F2.11d1 (ADR-0048 AM1–AM8, AM13) adds the **actions**: the things a menu item, a shortcut or
+a button invoke by name (Undo, Save, Full screen). They are not called *commands* because that
+word belongs to the changes of the document (ADR-0026); an action that changes the document will
+produce one command, one undo step. The generic machinery is in the new private module
+`crates/ui/src/action/` of `orchestra-ui`, which knows nothing of music; the concrete list of the
+program's actions is in `crates/app/src/actions.rs`.
+
+**What a shortcut is** (`action/shortcut.rs`). A `Shortcut` is the abstract modifiers
+(`Modifiers`: *Primary* is Ctrl or ⌘) plus one `ShortcutKey`, always normalised by
+`Shortcut::new`, so two spellings of the same press are equal and hash the same:
+- a letter, in any script with upper and lower case, is kept in lower case and Shift is a
+  modifier of its own: Ctrl+Shift+Z is `Primary+Shift+z` whether the layout reported "Z" or "z";
+- an ASCII digit becomes `ShortcutKey::Digit`, the digit row; the keypad is `ShortcutKey::Numpad`;
+- any other character (punctuation, symbols) is kept as produced and **Shift is dropped** (the
+  owner's choice A): ⌘? is `Primary+?` and fires whether the layout needs Shift for "?" (US) or
+  not;
+- a named key (F1, an arrow) is `ShortcutKey::Named`.
+
+```rust
+} else if has_case(character) {
+    ShortcutKey::Character(lower(character))
+} else {
+    // The character already says whether Shift was needed (precision A).
+    modifiers.shift = false;
+    ShortcutKey::Character(character)
+}
+```
+
+**The physical key and the two fallbacks.** `InputEvent::Key` now also carries `physical`, a
+`PhysicalKey` (a precision of ADR-0040 W5): only the positions the shortcuts need are named, the
+26 letters and the ten digits where the US layout has them, and the keypad's digits; every other
+key is `Other`. `candidates(key, physical, modifiers)` turns a press into at most two shortcuts,
+tried in this order: the **logical** one, then a **fallback by position**:
+- the digit row counts as its digit on every layout, so on French AZERTY the key that types "&"
+  (and "1" with Shift) is also the digit 1, as step input (F2.22) will need;
+- a letter outside the Latin script (Cyrillic, Greek…) also counts as the US letter at its place,
+  so Ctrl+Z still undoes with a Russian layout. "Latin" is a small table of Unicode ranges,
+  enough for every Latin keyboard layout, instead of a Unicode script crate.
+
+The logical shortcut comes first: a user who bound `Primary+/` on German QWERTZ (where "/" is
+Shift+7) gets their action, and only a press that matches nothing falls back to the position.
+
+**Fixed keys** (`Shortcut::is_fixed`, the owner's choice B). No action may take Tab, the arrows,
+Enter, Escape or Space with no modifier or with Shift alone (the widgets' navigation), F10 and
+Shift+F10, the Menu key (`NamedKey::ContextMenu`, new), and on Linux and Windows Alt+letter (the
+menus' mnemonics, F2.11d2). With *Primary* the arrows stay free (Ctrl+↑ in the score). The editing
+keys of a text field are not refused: inside a field the field wins anyway.
+
+**The registry** (`action/registry.rs`). One `Registry` for the whole program, made for one
+`Platform` (chosen by value, so the tests on Linux build the tables of all three). It holds:
+- the **contexts**: `Context::GLOBAL` and those added with `add_context("notation")`;
+- the **actions**, registered with an `ActionSpec` (a stable identifier `group.name`, the Fluent
+  key of the name, the context, the `Defaults` of the three platforms, whether a held key repeats
+  it, and its `EditRole` if it is a standard editing action) and found again by an `ActionId`, a
+  small index: no string is compared or hashed while keys are handled;
+- each action's **state** (`ActionState`: enabled, checked);
+- the **lookup**, a hash map from (context, shortcut) to `ActionId`, hashed with the glyph cache's
+  FxHash: about 180 instructions per probe (`registry_lookup`, 1 024 probes in 186 382).
+
+`register` refuses malformed or repeated identifiers, unknown contexts, fixed keys and two actions
+of the same context with the same shortcut: a program whose own tables are wrong fails in its
+tests, never in a user's hands. A context's shortcut that covers a global one is allowed. The
+user's shortcuts (AM7) exist in the API until the settings file arrives (F2.12): `set_shortcuts`
+(all or nothing, refusing conflicts and fixed keys), `restore`, `restore_all`, `overrides` (only
+the differences from the defaults, what the file will store) and `load_overrides`, which applies a
+file's entries with the **later entry winning** a conflict, drops fixed keys, keeps unknown
+actions to write them back, and returns `LoadWarning`s instead of failing.
+
+**The path of a key in `Ui`** (`widget/ui.rs`). The application hands in the registry and the
+message that runs an action:
+
+```rust
+ui.set_actions(registry, DemoMessage::Action);
+```
+
+A key press still goes to the focused widget and bubbles; only if nobody handles it (and it is not
+Tab) is it looked up. The **active contexts** are collected from the focused widget up to the root
+(`Widget::context()`, new, `None` by default; at most eight, in a fixed array), innermost first,
+with *Global* last; in each context the logical shortcut is tried before the fallback. When an
+action is found the press is consumed, its repeats run it again only if it is *repeatable*, and
+its release is consumed too (compared by key alone, because the modifiers may be released
+first). A disabled action does nothing; an enabled one becomes the application's message, in the
+same queue as the widgets' messages. With a menu open no shortcut is looked up (the keys are the
+menu's).
+
+**The Edit actions on a focused field (AM13).** Cut, Copy, Paste, Select all, Undo and Redo carry
+an `EditRole`. Before running one, `Ui` asks the focused widget `Widget::edit_state(role)` (new):
+`None` means "not my business" and the application runs the action; `Some(true)` means the widget
+does it, and gets `WidgetEvent::Edit(role)` (new); `Some(false)` means it takes the action but
+cannot do it now, so nothing runs. The text field answers from its editor (Copy and Cut need a
+selection, Undo and Redo its local history) and carries the action out on the same path as its
+keys:
+
+```rust
+fn edit_state(&self, role: EditRole) -> Option<bool> {
+    ...
+    Some(match role {
+        EditRole::Cut | EditRole::Copy => !self.editor.selection().is_empty(),
+        EditRole::Paste | EditRole::SelectAll => true,
+        EditRole::Undo => self.editor.can_undo(),
+        EditRole::Redo => self.editor.can_redo(),
+    })
+}
+```
+
+So with the focus in a field, Undo never reaches the document, even after the user moved Undo to
+another key. `Ui::action_state(id)` gives the state a menu will show (F2.11d2): the registry's,
+or the field's for these six.
+
+**What the window is asked** (a precision of ADR-0040). `WindowApp::take_window_request` (new,
+`None` by default) lets the app ask its window for a `WindowRequest`: `Close` or
+`ToggleFullScreen` (borderless on the current monitor). The window asks after every window event,
+until the app has nothing more.
+
+**The program's actions** (`crates/app/src/actions.rs`). `registry(platform)` registers the
+fourteen actions of AM6 with their defaults (Ctrl+Z, Ctrl+Shift+Z and on Windows also Ctrl+Y,
+Ctrl+X/C/V/A, Ctrl+N/O/S, Ctrl+Shift+S, Ctrl+Q except on Windows where Alt+F4 is the system's,
+Ctrl+, for Preferences, F11 or ⌃⌘F for Full screen, F1 or ⌘? for Help). By the owner's choice E,
+Quit and Full screen work in the demonstration window; New, Open, Save, Save as, Preferences and
+Help are registered but disabled until what they do exists; the editing actions act on the Track
+name field and are disabled outside it. Each action's name is the Fluent key of its menu item
+(`menu-edit-undo`, `menu-file-save-as`, …), translated in the six catalogues after the research in
+MuseScore's and Ardour's shipped catalogues, recorded in the glossary (twelve new terms; *Save
+as*, *New* in Spanish and *Full screen* in German are marked for review by native speakers).
+
+**Tests and benchmarks.** `crates/ui/src/action/tests.rs` covers the normalisation, the candidates
+with made-up AZERTY, Russian, Greek and QWERTZ presses, the keypad, the fixed keys on the three
+platforms, registration, the user's shortcuts and the loading rules. `crates/ui/tests/actions.rs`
+runs the actions through `Ui`: a key no widget handles, a consumed release, repeats, a view's
+context covering a global shortcut, a disabled action, the fallbacks, and Undo and Copy on a
+focused field (also after moving Undo to Ctrl+U). `widgets_no_alloc.rs` checks that running
+actions from the keyboard allocates nothing; `crates/app/tests/actions.rs` builds the program's
+registry on the three platforms, finds every name in the six languages and checks that F11 and
+Ctrl+Q reach the window. The benchmark `shortcut_press` measures a whole Ctrl+S (press, bubbling,
+contexts, lookup, message, consumed release) on the panel of 200 widgets: 26 174 instructions.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

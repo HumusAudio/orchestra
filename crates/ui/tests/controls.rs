@@ -82,6 +82,7 @@ fn pointer(state: ButtonState, at: Point) -> InputEvent {
 fn key(named: NamedKey) -> InputEvent {
     InputEvent::Key {
         key: Key::Named(named),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: Modifiers::default(),
@@ -556,6 +557,7 @@ fn a_slider_answers_the_keyboard_and_assistive_technologies() {
     // With the primary modifier, the arrows move one step (V3).
     let fine_key = |named| InputEvent::Key {
         key: Key::Named(named),
+        physical: orchestra_ui::PhysicalKey::Other,
         state: ButtonState::Pressed,
         repeat: false,
         modifiers: PRIMARY,
@@ -908,6 +910,7 @@ fn key_events_update_the_modifiers() {
     ui.input(
         &InputEvent::Key {
             key: Key::Character("a".into()),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers: PRIMARY,

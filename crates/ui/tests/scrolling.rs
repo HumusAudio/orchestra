@@ -201,6 +201,7 @@ fn key(ui: &mut Ui<Msg>, list: &mut DisplayList, named: NamedKey, modifiers: Mod
     ui.input(
         &InputEvent::Key {
             key: Key::Named(named),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers,

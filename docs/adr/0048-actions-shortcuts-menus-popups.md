@@ -1,7 +1,7 @@
 # ADR-0048 — Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer
 
 - **Status:** Accepted (owner, 2026-11-17; outline AM1–AM15 presented first, with the owner's
-  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c below.
+  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c and F2.11d1 below.
 - **Date:** 2026-11-17
 - **Implements:** ADR-0045 (retained widgets; WA3 leaves the table of window-level shortcuts to
   the menus; WB9 leaves the popups' outside click to them; WH1 overlays), ADR-0040 W5 (our own
@@ -353,3 +353,57 @@ and a key that hides the tooltip without being consumed (choice 4). While writin
   menus); it is left to a later step if their measures ask for it.
 - **Screenshots.** A scene `demo-tooltip` shows a shortened button's tooltip in the demonstration
   window, narrowed to 200 logical pixels (at the options' minimum width the button still fits).
+
+## Precisions of the implementation (F2.11d1, approved by the owner on 2026-11-18)
+
+F2.11d is split in F2.11d1 (the registry, shortcuts, the Edit actions on the focused field) and
+F2.11d2 (the drawn menu bar and context menus, mnemonics, the menus' accessibility). Before
+writing, the owner approved choices A–E:
+- **A, AM5: the key of a shortcut.** A letter (a character with upper and lower case, in any
+  script) is stored in lower case and Shift is a modifier of its own; an ASCII digit is the digit
+  row; **any other character is the character produced, and Shift is not part of the
+  shortcut** (⌘? is `Primary+?` on every layout, whether "?" needs Shift or not). A press gives at
+  most two candidates, tried in each context in this order: the logical shortcut, then the
+  fallback by position (the digit row for any press that is not already a digit, AM5 (ii); the
+  US letter for a letter outside the Latin script, AM5 (i)). Latin is a fixed table of Unicode
+  ranges (ASCII, Latin-1 Supplement, Latin Extended-A and -B, IPA Extensions, Latin Extended
+  Additional, the Latin ligatures).
+- **B, AM8: the fixed keys.** Tab, the arrows, Enter, Escape, Space and F10 are fixed **with no
+  modifier or with Shift alone**; the Menu key whatever is held; Alt+letter (with no *Primary* and
+  no *Secondary*) on Linux and Windows. The editing keys of a text field are not refused by the
+  registry: inside a field the field wins (AM4), and the shortcut editor (F2.12c) will warn.
+- **C, AM4: how the application learns of an action.** `Ui::set_actions(registry, message)` with
+  a `fn(ActionId) -> M`: an action that runs is queued as the application's own message, in the
+  same queue as the widgets' messages and in the order of the input. The registry, with the
+  states, lives in `Ui` (`Ui::actions`, `Ui::actions_mut`); `Ui::action_state` gives a state as
+  the user sees it (AM13).
+- **D, AM3: a view's context.** `Widget::context() -> Option<Context>` (default `None`); the
+  active contexts are collected from the focused widget (or the open modal layer) up to the root,
+  at most eight with *Global* last, in a fixed array.
+- **E: which actions now.** The fourteen of AM6's table are registered; Quit and Full screen work,
+  the six editing actions work on a focused field, and New, Open, Save, Save as, Preferences and
+  Help are registered but **disabled** until what they do exists (as are the editing actions
+  outside a field: there is no document view yet).
+
+While writing:
+- **AM13, the focused widget's answer.** `Widget::edit_state(role) -> Option<bool>`: `None`, the
+  action is the application's; `Some(true)`, the widget carries it out and receives
+  `WidgetEvent::Edit(role)` (to it alone, without bubbling); `Some(false)`, the widget takes the
+  action but cannot do it now, so nothing runs and nothing falls through to the document. The
+  text field answers Cut and Copy with a selection, Paste and Select all always (whether the
+  clipboard holds text is not asked of the system for a state), Undo and Redo with its local
+  history; it carries the action out on the same path as its keys.
+- **AM4, releases.** The release of a press that matched an action (also a disabled one, or a
+  repeat that ran nothing) is consumed; it is recognised by its key alone, among the release's
+  candidates, because the modifiers may be released first. The window losing the focus forgets
+  it.
+- **AM1, names.** An action's name is the Fluent key of its menu item (`menu-edit-undo`), so a
+  menu, the search and a tooltip show one text. Help is `help.contents` (`menu-help-contents`).
+- **AM15, measured.** A whole Ctrl+S on the panel of 200 widgets (press, bubbling, contexts,
+  lookup, message, consumed release): 26 174 instructions. The lookup alone, hashed with the
+  glyph cache's FxHash: 186 382 instructions for 1 024 probes, about 180 each. No allocation
+  (tested).
+- **AM6, Quit on Windows** has no default shortcut in the registry: Alt+F4 is the system's and
+  reaches the program as the window's close request.
+- **Requests to the window**: Quit and Full screen reach the window through
+  `WindowApp::take_window_request` (a precision of ADR-0040 written in this step).

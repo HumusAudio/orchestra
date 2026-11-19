@@ -155,6 +155,7 @@ impl Bench {
             self.ui.input(
                 &InputEvent::Key {
                     key: key.clone(),
+                    physical: orchestra_ui::PhysicalKey::Other,
                     state,
                     repeat: false,
                     modifiers,

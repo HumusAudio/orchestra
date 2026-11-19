@@ -159,6 +159,7 @@ fn press(demo: &mut Demo, list: &mut DisplayList, key: NamedKey) {
     demo.input(
         &InputEvent::Key {
             key: Key::Named(key),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers: Modifiers::default(),

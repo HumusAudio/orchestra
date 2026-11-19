@@ -182,3 +182,18 @@ system only when the answer changes: `set_ime_allowed(true)` when it becomes `So
 caret's area moves, and `set_ime_allowed(false)` then `true` when `TextInput::reset` changed
 (`winit` 0.30 has no call that ends a composition). The default answer is `None`: the input
 method stays off.
+
+## Precision of the implementation (F2.11d1, approved by the owner on 2026-11-18)
+
+**The physical key (W5, ADR-0048 AM5).** `InputEvent::Key` gains `physical: PhysicalKey`, from
+`winit`'s `KeyEvent::physical_key`: `Letter(0..=25)` and `Digit(0..=9)` where the US layout has
+them, `Numpad(0..=9)`, and `Other` for every other key and for one the system could not place.
+Only the positions the shortcuts' fallbacks need are named (no keys "for later"). The logical
+key stays the one widgets read; the physical one is for the action registry. `NamedKey` gains
+`ContextMenu` (the Menu key), which AM8 keeps from actions and AM12 will use.
+
+**Requests to the window.** `WindowApp::take_window_request() -> Option<WindowRequest>` (default
+`None`) lets the application ask its window to `Close` (end the loop) or `ToggleFullScreen`
+(borderless on the current monitor, `Fullscreen::Borderless(None)`: the system's video mode never
+changes). The window asks after every window event, until the answer is `None`, so requests are
+carried out in the order the actions ran (Quit and Full screen, ADR-0048 AM6).

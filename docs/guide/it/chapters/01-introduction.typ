@@ -60,6 +60,30 @@ Ogni cursore e ogni manopola di Orchestra funziona allo stesso modo, ovunque si 
   controllo sotto il puntatore.
 ]
 
+== Scorciatoie da tastiera
+
+I comandi di Orchestra hanno scorciatoie da tastiera che seguono le convenzioni del tuo sistema:
+su Linux e Windows usano Ctrl, su macOS ⌘. Queste funzionano già:
+
+- *F11* (⌃⌘F su macOS) attiva e disattiva lo schermo intero.
+- *Ctrl+Q* (⌘Q su macOS) chiude Orchestra; su Windows chiudi la finestra con Alt+F4, come
+  sempre.
+- In una casella di testo, *Ctrl+Z* annulla quello che hai scritto, *Ctrl+Maiusc+Z* (e Ctrl+Y su
+  Windows) lo ripristina, e *Ctrl+X*, *Ctrl+C*, *Ctrl+V* e *Ctrl+A* tagliano, copiano, incollano e
+  selezionano tutto. Mentre scrivi in una casella, Annulla annulla solo ciò che hai scritto lì,
+  mai una modifica al progetto.
+
+Le scorciatoie seguono le lettere stampate sui tasti, qualunque sia il layout della tua tastiera.
+Con un layout che non scrive lettere latine, come il russo o il greco, usano il tasto nella
+posizione della lettera US, quindi Ctrl+Z resta il tasto dove si trova la Z su una tastiera US. I
+tasti dei numeri funzionano per posizione su ogni layout, così su una tastiera francese non serve
+Maiusc per usarli.
+
+#note("Nota")[
+  Potrai cambiare ogni scorciatoia nelle Preferenze. Alcuni tasti restano uguali su ogni sistema:
+  Tab, le frecce, Invio, Esc e Spazio servono a muoversi nella finestra, e F10 aprirà i menu.
+]
+
 == Stato di questa guida
 
 Orchestra è in una fase di sviluppo molto iniziale. Questa edizione di anteprima spiega le idee

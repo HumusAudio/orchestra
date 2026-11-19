@@ -14,6 +14,7 @@
 //! modules without copying them, so the views live here and each binary is a thin `main`.
 //!
 //! ## Modules (private, ADR-0034 D1: the root re-exports the API)
+//! - `actions`: the program's actions with their default shortcuts per platform (ADR-0048 AM6);
 //! - `demo`: the demonstration window of ADR-0040 W8, until the real views exist;
 //! - `screenshots`: the catalogue of screenshot scenes and how one is rendered (ADR-0041).
 //!
@@ -27,9 +28,11 @@
 
 #![forbid(unsafe_code)]
 
+mod actions;
 mod demo;
 mod screenshots;
 
+pub use actions::{ActionIds, ActionsError, registry};
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,

@@ -90,6 +90,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::Scroll { .. } => "scroll",
             WidgetEvent::WakeUp => "wake",
             WidgetEvent::MenuClosed(_) => "menu-closed",
+            WidgetEvent::Edit(_) => "edit-action",
             WidgetEvent::SetText(_)
             | WidgetEvent::ReplaceSelectedText(_)
             | WidgetEvent::SetTextSelection { .. } => "edit",
@@ -144,6 +145,7 @@ fn press(ui: &mut Ui<Msg>, list: &mut DisplayList, key: NamedKey, shift: bool) {
     ui.input(
         &InputEvent::Key {
             key: Key::Named(key),
+            physical: orchestra_ui::PhysicalKey::Other,
             state: ButtonState::Pressed,
             repeat: false,
             modifiers: Modifiers {
