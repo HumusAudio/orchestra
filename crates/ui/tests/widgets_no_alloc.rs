@@ -500,7 +500,7 @@ fn moving_inside_an_open_menu_never_allocates() {
             .unwrap();
         model = model.action(id).separator();
     }
-    let model = model.submenu("More", MenuModel::new());
+    let model = model.submenu("More", None, MenuModel::new());
     registry.set_texts(KeyNames::new(|key| format!("{key:?}")), str::to_owned);
     ui.set_actions(registry, |_| ());
     let mut list = DisplayList::new();

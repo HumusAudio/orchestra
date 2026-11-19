@@ -182,10 +182,11 @@ fn registry(platform: Platform) -> (Registry, Ids) {
 /// disabled Save, the toggle, and a submenu *Deeper* with Copy.
 fn context_menu(ids: Ids) -> MenuModel {
     let deeper = MenuModel::new().action(ids.copy);
-    let more = MenuModel::new()
-        .action(ids.save)
-        .action(ids.grid)
-        .submenu("Deeper", deeper);
+    let more =
+        MenuModel::new()
+            .action(ids.save)
+            .action(ids.grid)
+            .submenu("Deeper", Some('d'), deeper);
     MenuModel::new()
         .action(ids.undo)
         .action(ids.redo)
@@ -196,7 +197,7 @@ fn context_menu(ids: Ids) -> MenuModel {
         .separator()
         .action(ids.select_all)
         .separator()
-        .submenu("More", more)
+        .submenu("More", Some('m'), more)
 }
 
 /// The places of the context menu's entries (see [`context_menu`]).

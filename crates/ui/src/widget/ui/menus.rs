@@ -256,12 +256,13 @@ impl<M: 'static> Ui<M> {
         match item {
             MenuItem::Action { action, .. } => {
                 let state = self.action_state(*action).unwrap_or(ActionState::DISABLED);
-                let (name, shortcut) = self.actions().map_or_else(
-                    || (String::new(), String::new()),
+                let (name, shortcut, mnemonic) = self.actions().map_or_else(
+                    || (String::new(), String::new(), None),
                     |registry| {
                         (
                             registry.name_text(*action).to_owned(),
                             registry.shortcut_text(*action).to_owned(),
+                            registry.mnemonic(*action),
                         )
                     },
                 );
@@ -272,18 +273,26 @@ impl<M: 'static> Ui<M> {
                     },
                     name,
                     shortcut,
+                    mnemonic,
                 )
             }
-            MenuItem::Submenu { name, items, .. } => MenuEntry::new(
+            MenuItem::Submenu {
+                name,
+                mnemonic,
+                items,
+                ..
+            } => MenuEntry::new(
                 EntryKind::Submenu {
                     items: items.clone(),
                     open: false,
                 },
                 name.clone(),
                 String::new(),
+                // Compared in lower case, as the registry keeps the actions' letters.
+                mnemonic.and_then(|letter| letter.to_lowercase().next()),
             ),
             MenuItem::Separator => {
-                MenuEntry::new(EntryKind::Separator, String::new(), String::new())
+                MenuEntry::new(EntryKind::Separator, String::new(), String::new(), None)
             }
         }
     }
@@ -428,6 +437,8 @@ impl<M: 'static> Ui<M> {
             EntryKind::Action { action, .. } => {
                 let action = *action;
                 self.close_menus_from(0, list, false);
+                // Choosing also leaves the bar, when the menu was one of its (F2.11d2b).
+                self.bar_reset();
                 self.invoke(action);
             }
             EntryKind::Submenu { .. } => self.open_submenu(menu, entry, from_keyboard, list),
@@ -490,14 +501,29 @@ impl<M: 'static> Ui<M> {
         key: &Key,
         state: ButtonState,
         repeat: bool,
+        modifiers: Modifiers,
         list: &mut DisplayList,
     ) {
         if state != ButtonState::Pressed {
             return;
         }
+        // A menu of the bar: F10, Left and Right towards the other titles, Escape to the title
+        // (F2.11d2b, the module `bar`).
+        if self.bar_menu_key(key, modifiers, list) {
+            return;
+        }
         let top = self.menus.len().saturating_sub(1);
         let Key::Named(named) = key else {
-            // Letters choose by their mnemonics from F2.11d2b; until then they do nothing.
+            // A letter chooses the item with that mnemonic (AM10, F2.11d2b), alone or with Alt;
+            // never with *Primary* or *Secondary* (a shortcut's key, consumed here).
+            if !modifiers.primary
+                && !modifiers.secondary
+                && !repeat
+                && let Some(item) = Self::key_letter(key).and_then(|letter| self.item_with(letter))
+            {
+                self.set_highlight(top, Some(item));
+                self.activate(top, item, true, list);
+            }
             return;
         };
         let is_submenu = self
@@ -531,6 +557,16 @@ impl<M: 'static> Ui<M> {
             NamedKey::Escape => self.close_menus_from(top, list, !is_submenu),
             _ => {}
         }
+    }
+
+    /// `true` when the highlighted item of the topmost menu opens a submenu (Right then opens it,
+    /// instead of moving to the bar's next title).
+    pub(super) fn highlighted_opens_submenu(&self) -> bool {
+        let top = self.menus.len().saturating_sub(1);
+        self.highlighted(top)
+            .and_then(|place| self.entry_slot(top, place))
+            .and_then(|slot| self.entry(slot))
+            .is_some_and(|widget| matches!(widget.kind(), EntryKind::Submenu { .. }))
     }
 
     /// The pointer moved to `position` while menus are open and nothing captures it (AM12): the
@@ -797,7 +833,11 @@ impl<M: 'static> Ui<M> {
         let Some(registry) = self.actions.as_ref().map(|actions| &actions.registry) else {
             return;
         };
-        let (name, shortcut) = (registry.name_text(action), registry.shortcut_text(action));
+        let (name, shortcut, mnemonic) = (
+            registry.name_text(action),
+            registry.shortcut_text(action),
+            registry.mnemonic(action),
+        );
         // The registry and the arena are separate fields: the texts are read while the entry
         // changes, with no copy.
         let redo = self
@@ -805,7 +845,7 @@ impl<M: 'static> Ui<M> {
             .slot_mut(slot)
             .and_then(|slot| slot.widget.as_deref_mut())
             .and_then(|widget| widget.as_any_mut().downcast_mut::<MenuEntry>())
-            .and_then(|entry| entry.update(state, name, shortcut));
+            .and_then(|entry| entry.update(state, name, shortcut, mnemonic));
         match redo {
             Some(true) => self.tree.invalidate_layout(slot),
             Some(false) => {}
@@ -833,6 +873,8 @@ impl<M: 'static> Ui<M> {
         if self.menus.is_empty() {
             self.chain.armed = false;
             self.submenu_timer = None;
+            // No title of the bar is open any more (F2.11d2b).
+            self.bar_menus_closed();
             return;
         }
         let Some(entry) = closed.and_then(|model| model.parent) else {
@@ -859,7 +901,8 @@ impl<M: 'static> Ui<M> {
                 .and_then(|model| model.entries.get(model.highlighted?).copied());
             return self.id_of(item.unwrap_or(layer.root));
         }
-        self.focused()
+        // The bar's title while the keyboard is on the bar (F2.11d2b).
+        self.bar_access_focus().or_else(|| self.focused())
     }
 
     /// Opens a menu layer whose root is `widget` (without running a frame) and answers its root's

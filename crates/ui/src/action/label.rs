@@ -260,6 +260,7 @@ const fn key_name(key: NamedKey) -> KeyName {
         NamedKey::PageDown => KeyName::PageDown,
         NamedKey::Function(number) => KeyName::Function(number),
         NamedKey::ContextMenu => KeyName::Menu,
+        NamedKey::Alt => KeyName::Alt,
     }
 }
 

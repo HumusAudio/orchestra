@@ -229,6 +229,11 @@ pub enum NamedKey {
     /// The Menu key (the "application" key), which opens a context menu (ADR-0048 AM12); never
     /// an action's shortcut (AM8).
     ContextMenu,
+    /// The Alt key itself (Option on macOS), pressed or released alone (F2.11d2b): on Linux and
+    /// Windows, Alt pressed and released with nothing in between opens the menu bar (ADR-0048
+    /// AM12). `AltGr` is not this key (it types characters) and stays [`Key::Unknown`]. Never an
+    /// action's shortcut (AM8).
+    Alt,
 }
 
 /// The modifier keys held (ADR-0040 W5).
@@ -498,6 +503,7 @@ fn named_key(key: WinitNamedKey) -> Option<NamedKey> {
         WinitNamedKey::F23 => NamedKey::Function(23),
         WinitNamedKey::F24 => NamedKey::Function(24),
         WinitNamedKey::ContextMenu => NamedKey::ContextMenu,
+        WinitNamedKey::Alt => NamedKey::Alt,
         _ => return None,
     })
 }

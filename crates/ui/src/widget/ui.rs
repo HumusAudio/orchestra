@@ -133,12 +133,14 @@ use super::access::{
 use super::layout::{Constraints, LayoutProps, Size};
 use super::popup::{self, Popup, PopupSide};
 
+mod bar;
 mod menus;
 
 use super::tooltip::Tooltip;
 use super::tree::{
     EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId, WidgetTree,
 };
+use bar::BarState;
 use menus::{MenuChain, ModelMenu, SubmenuTimer};
 
 /// Why an operation on the interface was refused.
@@ -163,6 +165,11 @@ impl std::error::Error for UiError {}
 
 /// The interface of one window: widgets, routing state, messages (WB11).
 #[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent flags of the routing (the accessibility tree sent, its window node, a \
+              release to swallow, Alt pressed alone), each set and cleared by different events"
+)]
 pub struct Ui<M> {
     /// The widgets.
     tree: WidgetTree<M>,
@@ -243,6 +250,11 @@ pub struct Ui<M> {
     /// The window's accessibility node must be sent again: the open menus, its children after
     /// the root, changed (F2.11d2a).
     access_window: bool,
+    /// The menu bar, once added ([`Ui::add_menu_bar`], F2.11d2b).
+    bar: Option<BarState>,
+    /// Alt was pressed with nothing else held, and no other key or press came since: its release
+    /// reaches the bar (F2.11d2b, the module `bar`).
+    alt_alone: bool,
 }
 
 /// The registry of actions and the application's message for running one (F2.11d1).
@@ -346,6 +358,8 @@ impl<M: 'static> Ui<M> {
             submenu_timer: None,
             changed_actions: Vec::new(),
             access_window: false,
+            bar: None,
+            alt_alone: false,
             bounds: Rect::EMPTY,
             messages: Vec::new(),
             hovered: None,
@@ -458,6 +472,14 @@ impl<M: 'static> Ui<M> {
             .filter(|&(slot, _)| tree.slot(slot).is_some());
         if self.tooltip.shown_for.is_some() && alive(self.tooltip.shown_for, tree).is_none() {
             self.hide_tooltip();
+        }
+        // A removed bar is no longer driven (F2.11d2b).
+        if self
+            .bar
+            .as_ref()
+            .is_some_and(|bar| self.tree.slot(bar.root).is_none())
+        {
+            self.bar = None;
         }
         // Slots freed by the removal may be reused by the next insertion: forget their requests.
         let tree = &self.tree;
@@ -685,6 +707,8 @@ impl<M: 'static> Ui<M> {
         // The open menus' items follow their actions' states first (F2.11d2a): a changed text
         // lays an entry out again in this same frame.
         self.refresh_menus();
+        // The bar's titles and the menus' underlined letters follow the state (F2.11d2b).
+        self.sync_menu_looks();
         if self.tree.slot(ROOT).is_some_and(|root| root.needs_layout) {
             let size = Size::new(self.bounds.width(), self.bounds.height());
             self.tree.measure(ROOT, Constraints::tight(size));
@@ -925,8 +949,9 @@ impl<M: 'static> Ui<M> {
                             true,
                         );
                     }
-                    // A drawn menu follows the pointer with its highlight (F2.11d2a).
-                    if !self.menus.is_empty() {
+                    // Over another title of the bar, its menu opens (F2.11d2b); otherwise a drawn
+                    // menu follows the pointer with its highlight (F2.11d2a).
+                    if !self.menus.is_empty() && !self.bar_pointer_moved(list) {
                         self.menu_pointer_moved(*position);
                     }
                     // Not during a drag: a tooltip would cover what is being dragged.
@@ -950,6 +975,7 @@ impl<M: 'static> Ui<M> {
             } => self.pointer_button(*button, *state, *position, *clicks, list),
             InputEvent::Wheel { delta } => {
                 self.dismiss_tooltip();
+                self.alt_alone = false;
                 if let Some(target) = self.hit(self.pointer) {
                     let event = WidgetEvent::Wheel {
                         delta: *delta,
@@ -996,6 +1022,7 @@ impl<M: 'static> Ui<M> {
                 // The release of a shortcut's key will not come either.
                 self.action_key = None;
                 self.close_menus_from(0, list, true);
+                self.bar_reset();
                 self.hide_tooltip();
                 self.tooltip.pending = None;
             }
@@ -1038,17 +1065,25 @@ impl<M: 'static> Ui<M> {
             self.action_key = None;
             return;
         }
+        // The bar's keys before anything else (F2.11d2b): Alt alone, Alt+letter.
+        if self.bar_key_first(key, state, modifiers, list) {
+            return;
+        }
         // With a menu open the keys are the topmost menu's, bubbling inside it only, and Tab moves
         // nothing in the main interface (ADR-0048 AM11).
         if let Some(menu) = self.menus.last() {
             // A menu built from a model has its own keys (F2.11d2a); another menu gets them in
             // its root, as F2.11c routed them.
             if menu.model.is_some() {
-                self.menu_key(key, state, repeat, list);
+                self.menu_key(key, state, repeat, modifiers, list);
             } else {
                 let root = menu.root;
                 self.deliver(root, &event, true);
             }
+            return;
+        }
+        // The bar, while the keyboard is on it, takes every key (F2.11d2b).
+        if self.bar_key(key, state, list) {
             return;
         }
         let start = self
@@ -1060,7 +1095,9 @@ impl<M: 'static> Ui<M> {
         }
         if *key == Key::Named(NamedKey::Tab) {
             self.move_focus(!modifiers.shift);
-        } else if !self.context_menu_key(start, key, modifiers) {
+        } else if !self.bar_f10(key, modifiers, list)
+            && !self.context_menu_key(start, key, modifiers)
+        {
             self.shortcut(start, key, physical, repeat, modifiers);
         }
     }
@@ -1241,8 +1278,11 @@ impl<M: 'static> Ui<M> {
             (ButtonState::Pressed, _) if !self.menus.is_empty() => match self.hit(position) {
                 None => {
                     self.close_menus_from(0, list, true);
+                    self.bar_reset();
                     self.swallow_release = true;
                 }
+                // A press on a title of the bar opens, switches or closes its menu (F2.11d2b).
+                Some(target) if self.bar_press(Some(target), list) => {}
                 // A press inside a drawn menu is the menu's (F2.11d2a).
                 Some(target) if self.menu_press(target, list) => {}
                 Some(target) => {
@@ -1252,7 +1292,12 @@ impl<M: 'static> Ui<M> {
                 }
             },
             (ButtonState::Pressed, _) => {
-                if let Some(target) = self.hit(position) {
+                let target = self.hit(position);
+                // A press on a title of the bar opens its menu, and goes no further (F2.11d2b).
+                if self.bar_press(target, list) {
+                    return;
+                }
+                if let Some(target) = target {
                     self.focus_on_press(target);
                     if let Some(handler) = self.deliver(target, &widget_event, true) {
                         self.captured = Some(handler);
@@ -1988,7 +2033,8 @@ impl<M: 'static> Ui<M> {
             .ok_or(UiError::UnknownWidget(action.target))?;
         match action.kind {
             // An item of an open menu is chosen as Enter chooses it (F2.11d2a).
-            AccessActionKind::Click if self.menu_access_click(slot, list) => {}
+            AccessActionKind::Click
+                if self.menu_access_click(slot, list) || self.bar_access_click(slot, list) => {}
             AccessActionKind::Click => {
                 self.deliver(slot, &WidgetEvent::Activate, false);
             }

@@ -100,6 +100,9 @@ pub enum MenuItem {
     Submenu {
         /// Its name, already localised by the application (CLAUDE.md §7).
         name: String,
+        /// Its mnemonic (ADR-0048 AM10, F2.11d2b): a letter of `name`, chosen by the translator
+        /// (the message's `.mnemonic` attribute); `None` for none.
+        mnemonic: Option<char>,
         /// Its role on macOS, if any.
         role: Option<MenuRole>,
         /// Its items.
@@ -139,12 +142,14 @@ impl MenuModel {
         self
     }
 
-    /// The same menu with the submenu `items`, named `name` (already localised), added at the
-    /// end.
+    /// The same menu with the submenu `items`, named `name` (already localised) with its
+    /// `mnemonic` (F2.11d2b), added at the end. A menu bar is a model whose items are such
+    /// submenus, one per title ([`Ui::add_menu_bar`](crate::Ui::add_menu_bar)).
     #[must_use]
-    pub fn submenu(mut self, name: impl Into<String>, items: Self) -> Self {
+    pub fn submenu(mut self, name: impl Into<String>, mnemonic: Option<char>, items: Self) -> Self {
         self.items.push(MenuItem::Submenu {
             name: name.into(),
+            mnemonic,
             role: None,
             items,
         });
@@ -255,15 +260,27 @@ pub(crate) struct MenuEntry {
     /// Its place among the menu's items that are not separators, from 1, and their number: for
     /// assistive technologies ("3 of 7").
     position: (usize, usize),
+    /// Its mnemonic, in lower case (F2.11d2b, ADR-0048 AM10).
+    mnemonic: Option<char>,
+    /// `true` while the mnemonic is underlined: Alt is held, or the menus were reached from the
+    /// keyboard (AM10). The interface sets it on every open entry when it changes.
+    show_mnemonic: bool,
 }
 
 impl MenuEntry {
-    /// An entry of `kind` named `name`, showing `shortcut`.
-    pub(crate) fn new(kind: EntryKind, name: String, shortcut: String) -> Self {
+    /// An entry of `kind` named `name`, showing `shortcut`, chosen with `mnemonic`.
+    pub(crate) fn new(
+        kind: EntryKind,
+        name: String,
+        shortcut: String,
+        mnemonic: Option<char>,
+    ) -> Self {
         Self {
             kind,
             name,
             shortcut,
+            mnemonic,
+            show_mnemonic: false,
             name_layout: TextLayout::new(),
             shortcut_layout: TextLayout::new(),
             laid_out_for: None,
@@ -276,6 +293,18 @@ impl MenuEntry {
     /// What it is.
     pub(crate) const fn kind(&self) -> &EntryKind {
         &self.kind
+    }
+
+    /// Its mnemonic, in lower case (F2.11d2b).
+    pub(crate) const fn mnemonic(&self) -> Option<char> {
+        self.mnemonic
+    }
+
+    /// Underlines its mnemonic or not; `true` when that changed (the caller records it again).
+    pub(crate) const fn set_show_mnemonic(&mut self, show: bool) -> bool {
+        let changed = self.show_mnemonic != show && self.mnemonic.is_some();
+        self.show_mnemonic = show;
+        changed
     }
 
     /// `true` when it can be highlighted and chosen: an enabled action, or a submenu. Separators
@@ -330,12 +359,14 @@ impl MenuEntry {
         state: ActionState,
         name: &str,
         shortcut: &str,
+        mnemonic: Option<char>,
     ) -> Option<bool> {
         let EntryKind::Action { state: own, .. } = &mut self.kind else {
             return None;
         };
-        let look = *own != state;
+        let look = *own != state || self.mnemonic != mnemonic;
         *own = state;
+        self.mnemonic = mnemonic;
         let text = name != self.name || shortcut != self.shortcut;
         if text {
             name.clone_into(&mut self.name);
@@ -463,6 +494,18 @@ impl<M: 'static> Widget<M> for MenuEntry {
         }
         let name_x = left + self.check_width(spacing);
         recorder.text(&self.name_layout, Point::new(name_x, text_top), text);
+        if self.show_mnemonic
+            && let Some(letter) = self.mnemonic
+        {
+            underline(
+                recorder,
+                &self.name,
+                &self.name_layout,
+                letter,
+                Point::new(name_x, text_top),
+                text,
+            );
+        }
         match self.kind {
             EntryKind::Submenu { .. } => {
                 // A small triangle pointing right, centred on the text's middle.
@@ -508,10 +551,256 @@ impl<M: 'static> Widget<M> for MenuEntry {
             info.keyboard_shortcut = Some(self.shortcut.clone());
         }
         info.position = Some(self.position);
+        info.access_key = self.mnemonic;
         match &self.kind {
             EntryKind::Action { state, .. } => info.toggled = state.checked,
             EntryKind::Submenu { open, .. } => info.expanded = Some(*open),
             EntryKind::Separator => {}
         }
+    }
+}
+
+/// Underlines the mnemonic `letter` in `text`, laid out as `layout` and drawn with its top-left
+/// corner at `origin`, in `paint` (F2.11d2b, ADR-0048 AM10): a line of one logical pixel, one
+/// pixel below the baseline, under the character of `text` that is `letter` in either case.
+///
+/// # Which occurrence
+/// The first one **at the start of a word**, otherwise the first one: "Save **a**s…" and not
+/// "S**a**ve as…", "Salva **c**ome…", "Speichern **u**nter…", "Plein **é**cran", as Windows and
+/// the translated catalogues of other music programs place it (the glossary's `menu_mnemonics`).
+/// Nothing is drawn when the text has no such character (the catalogues' test prevents it).
+///
+/// # Cost
+/// O(characters of the text) to find the letter, O(log stops) for its two edges; no allocation.
+fn underline(
+    recorder: &mut Recorder<'_>,
+    text: &str,
+    layout: &TextLayout,
+    letter: char,
+    origin: Point,
+    paint: ColorToken,
+) {
+    let matches =
+        |character: char| character == letter || character.to_lowercase().eq(letter.to_lowercase());
+    // Each character with whether it starts a word (the text's start, or after a character
+    // that is not alphanumeric).
+    let mut previous: Option<char> = None;
+    let mut first = None;
+    let mut at_word = None;
+    for (index, character) in text.char_indices() {
+        let starts_word = previous.is_none_or(|before| !before.is_alphanumeric());
+        previous = Some(character);
+        if !matches(character) {
+            continue;
+        }
+        first.get_or_insert((index, character));
+        if starts_word {
+            at_word = Some((index, character));
+            break;
+        }
+    }
+    let Some((start, character)) = at_word.or(first) else {
+        return;
+    };
+    let end = start + character.len_utf8();
+    let (x0, x1) = (layout.caret_x(text, start), layout.caret_x(text, end));
+    let baseline = layout.lines().first().map_or(0.0, |line| line.baseline);
+    let y = (origin.y + baseline + 1.5).round() - 0.5;
+    recorder.line(
+        Point::new(origin.x + x0, y),
+        Point::new(origin.x + x1, y),
+        StrokeStyle::new(1.0),
+        paint,
+    );
+}
+
+/// The drawn menu bar (F2.11d2b, ADR-0048 AM9, AM12): a row of [`BarTitle`]s across the top of
+/// the window, on Linux and Windows (macOS has its own bar through `muda`, F2.11e). Like a menu,
+/// it handles no events itself: the interface opens and switches its menus
+/// ([`Ui::add_menu_bar`](crate::Ui::add_menu_bar)).
+///
+/// # Looks
+/// `control-height` high and as wide as it is given, on `surface` with a `border` line along its
+/// bottom edge; the titles start after the density's extra-small gap.
+#[derive(Debug, Default)]
+pub(crate) struct MenuBar;
+
+impl<M: 'static> Widget<M> for MenuBar {
+    fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
+        let spacing = cx.spacing();
+        let mut height = spacing.control_height;
+        for child in 0..cx.child_count() {
+            let size = cx.measure_child(child, Constraints::loose(constraints.max));
+            height = height.max(size.height);
+        }
+        // As wide as it may be (it spans the window); as high as a control.
+        constraints.constrain(Size::new(constraints.max.width, height))
+    }
+
+    fn arrange(&mut self, cx: &mut LayoutCx<'_, M>, rect: Rect) {
+        let mut x = rect.x0 + cx.spacing().gap_xs;
+        for child in 0..cx.child_count() {
+            let width = cx.child_size(child).width;
+            cx.place_child(child, Rect::new(x, rect.y0, x + width, rect.y1));
+            x += width;
+        }
+    }
+
+    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        let rect = cx.rect;
+        recorder.fill_rect(rect, ColorToken::Surface);
+        let width = f32::from(cx.shape.line_width.max(1));
+        let y = rect.y1 - width / 2.0;
+        recorder.line(
+            Point::new(rect.x0, y),
+            Point::new(rect.x1, y),
+            StrokeStyle::new(width),
+            ColorToken::Border,
+        );
+    }
+
+    fn access_role(&self) -> AccessRole {
+        AccessRole::MenuBar
+    }
+}
+
+/// One title of the menu bar (F2.11d2b): its name, with the mnemonic underlined while it is
+/// shown; a rounded `control-hover` background while the pointer is over it, the keyboard is on
+/// it, or its menu is open.
+#[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "four independent looks (hovered, highlighted, open, mnemonic shown) set by different \
+              events; an enum would have to list their combinations"
+)]
+pub(crate) struct BarTitle {
+    /// The name, already localised.
+    name: String,
+    /// The laid-out name.
+    layout: TextLayout,
+    /// The text generation the layout was made for.
+    laid_out_for: Option<u64>,
+    /// Its mnemonic, in lower case.
+    mnemonic: Option<char>,
+    /// The pointer is over it.
+    hovered: bool,
+    /// The keyboard is on it (the bar was reached with F10 or Alt).
+    highlighted: bool,
+    /// Its menu is open.
+    open: bool,
+    /// The mnemonic is underlined.
+    show_mnemonic: bool,
+}
+
+impl BarTitle {
+    /// A title named `name`, opened with `mnemonic`.
+    pub(crate) const fn new(name: String, mnemonic: Option<char>) -> Self {
+        Self {
+            name,
+            layout: TextLayout::new(),
+            laid_out_for: None,
+            mnemonic,
+            hovered: false,
+            highlighted: false,
+            open: false,
+            show_mnemonic: false,
+        }
+    }
+
+    /// Its mnemonic, in lower case.
+    pub(crate) const fn mnemonic(&self) -> Option<char> {
+        self.mnemonic
+    }
+
+    /// Sets what the interface decides about it: the keyboard on it, its menu open, its mnemonic
+    /// shown. `true` when its look changed (the caller records it again).
+    pub(crate) const fn set_state(&mut self, highlighted: bool, open: bool, show: bool) -> bool {
+        let show = show && self.mnemonic.is_some();
+        let changed =
+            self.highlighted != highlighted || self.open != open || self.show_mnemonic != show;
+        self.highlighted = highlighted;
+        self.open = open;
+        self.show_mnemonic = show;
+        changed
+    }
+}
+
+impl<M: 'static> Widget<M> for BarTitle {
+    fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
+        let generation = cx.text_generation();
+        if self.laid_out_for != Some(generation) {
+            if cx
+                .lay_out_text(&self.name, STYLE, None, &mut self.layout)
+                .is_err()
+            {
+                self.layout = TextLayout::new();
+            }
+            self.laid_out_for = Some(generation);
+        }
+        let spacing = cx.spacing();
+        constraints.constrain(Size::new(
+            self.layout.width() + 2.0 * spacing.control_padding,
+            spacing.control_height.max(self.layout.height()),
+        ))
+    }
+
+    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        let rect = cx.rect;
+        let pad = cx.spacing.gap_xs;
+        if self.hovered || self.highlighted || self.open {
+            let radius = f32::from(cx.shape.corner_radius);
+            recorder.fill_rounded_rect(
+                RoundedRect::new(
+                    Rect::new(rect.x0, rect.y0 + pad, rect.x1, rect.y1 - pad),
+                    radius,
+                ),
+                ColorToken::ControlHover,
+            );
+        }
+        let origin = Point::new(
+            rect.x0 + (rect.width() - self.layout.width()) / 2.0,
+            rect.y0 + (rect.height() - self.layout.height()) / 2.0,
+        );
+        recorder.text(&self.layout, origin, ColorToken::Text);
+        if self.show_mnemonic
+            && let Some(letter) = self.mnemonic
+        {
+            underline(
+                recorder,
+                &self.name,
+                &self.layout,
+                letter,
+                origin,
+                ColorToken::Text,
+            );
+        }
+    }
+
+    fn event(
+        &mut self,
+        cx: &mut super::tree::EventCx<'_, M>,
+        event: &super::tree::WidgetEvent<'_>,
+    ) -> super::tree::Handled {
+        use super::tree::{Handled, WidgetEvent};
+        // The hover is the title's own look; everything else is the interface's.
+        match event {
+            WidgetEvent::PointerEntered | WidgetEvent::PointerLeft => {
+                self.hovered = matches!(event, WidgetEvent::PointerEntered);
+                cx.request_record();
+                Handled::Yes
+            }
+            _ => Handled::No,
+        }
+    }
+
+    fn access_role(&self) -> AccessRole {
+        AccessRole::MenuItem
+    }
+
+    fn access_info(&self, info: &mut AccessInfo) {
+        info.label = Some(self.name.clone());
+        info.clickable = true;
+        info.access_key = self.mnemonic;
+        info.expanded = Some(self.open);
     }
 }

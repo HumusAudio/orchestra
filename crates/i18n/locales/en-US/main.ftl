@@ -11,28 +11,49 @@ app-name = Orchestra
 ## Main menu (glossary: menu_file, menu_edit, menu_view, undo, redo, score, track, mixer, new,
 ## open, save, save_as, quit, cut, copy, paste, select_all, preferences, full_screen, help,
 ## user_guide). The items that open a window end with an ellipsis (F2.11d2a, choice S2).
+## Each name has a .mnemonic: the letter that chooses it with Alt (titles) or alone (in an open
+## menu) on Linux and Windows, unique among its siblings (ADR-0048 AM10, F2.11d2b; tested).
 ## The items are also the actions' names (ADR-0048 AM10).
 
 menu-file = File
+    .mnemonic = f
 menu-file-new = New
+    .mnemonic = n
 menu-file-open = Open…
+    .mnemonic = o
 menu-file-save = Save
+    .mnemonic = s
 menu-file-save-as = Save as…
+    .mnemonic = a
 menu-file-quit = Quit
+    .mnemonic = q
 menu-edit = Edit
+    .mnemonic = e
 menu-edit-undo = Undo
+    .mnemonic = u
 menu-edit-redo = Redo
+    .mnemonic = r
 menu-edit-cut = Cut
+    .mnemonic = t
 menu-edit-copy = Copy
+    .mnemonic = c
 menu-edit-paste = Paste
+    .mnemonic = p
 menu-edit-select-all = Select all
+    .mnemonic = a
 menu-edit-preferences = Preferences…
+    .mnemonic = n
 menu-view = View
+    .mnemonic = v
 menu-view-score = Score
 menu-view-tracks = Tracks
 menu-view-mixer = Mixer
 menu-view-full-screen = Full screen
+    .mnemonic = f
+menu-help = Help
+    .mnemonic = h
 menu-help-contents = User guide
+    .mnemonic = u
 
 ## Keys' names in shortcuts, as menus write them next to an item, joined by "+" (glossary:
 ## key_ctrl … key_numpad; ADR-0048 AM12, F2.11d2a). $number is a function key's number (1–24),

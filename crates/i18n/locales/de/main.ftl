@@ -9,25 +9,44 @@ app-name = Orchestra
 ## Main menu
 
 menu-file = Datei
+    .mnemonic = d
 menu-file-new = Neu
+    .mnemonic = n
 menu-file-open = Öffnen…
+    .mnemonic = ö
 menu-file-save = Speichern
+    .mnemonic = s
 menu-file-save-as = Speichern unter…
+    .mnemonic = u
 menu-file-quit = Beenden
+    .mnemonic = b
 menu-edit = Bearbeiten
+    .mnemonic = b
 menu-edit-undo = Rückgängig
+    .mnemonic = r
 menu-edit-redo = Wiederherstellen
+    .mnemonic = w
 menu-edit-cut = Ausschneiden
+    .mnemonic = a
 menu-edit-copy = Kopieren
+    .mnemonic = k
 menu-edit-paste = Einfügen
+    .mnemonic = i
 menu-edit-select-all = Alles auswählen
+    .mnemonic = l
 menu-edit-preferences = Einstellungen…
+    .mnemonic = e
 menu-view = Ansicht
+    .mnemonic = a
 menu-view-score = Partitur
 menu-view-tracks = Spuren
 menu-view-mixer = Mixer
 menu-view-full-screen = Vollbild
+    .mnemonic = v
+menu-help = Hilfe
+    .mnemonic = h
 menu-help-contents = Benutzerhandbuch
+    .mnemonic = b
 
 ## Keys' names in shortcuts, as menus write them next to an item, joined by "+" (glossary:
 ## key_ctrl … key_numpad; ADR-0048 AM12, F2.11d2a). $number is a function key's number (1–24),

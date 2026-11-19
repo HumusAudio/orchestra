@@ -4833,6 +4833,83 @@ opaque panel at every redraw. After the measures and screenshots of both appeara
 effect in the light half, almost nothing in the dark one) the owner chose **B: no shadow on
 menus**, as on the tooltip.
 
+#### The menu bar and mnemonics
+
+Step F2.11d2b (ADR-0048 AM9, AM10, AM12) draws the **menu bar** of Linux and Windows and gives
+every title and item a **mnemonic**. The new file is `crates/ui/src/widget/ui/bar.rs` (what the bar
+does, another child module of `Ui`); the bar's widgets, `MenuBar` and `BarTitle`, are in
+`crates/ui/src/widget/menu.rs`.
+
+**Adding a bar.** `Ui::add_menu_bar(parent, model, props)` adds a `MenuBar` with one `BarTitle` per
+submenu of a `MenuModel`; each submenu now has a mnemonic too
+(`MenuModel::submenu(name, mnemonic, items)`). The bar's menus are ordinary menus of the model,
+opened below their title with the bar as their owner, so the pointer still reaches the titles while
+one is open. In the demonstration window it sits at the top, edge to edge, on Linux and Windows:
+
+```rust
+let model = actions::menu_bar(actions?, texts);
+let root = ui.root();
+ui.add_menu_bar(
+    root,
+    &model,
+    LayoutProps::default().width(Length::Fill(1.0)),
+)
+.ok()
+```
+
+`actions::menu_bar` builds File (New, Open…, Save, Save as…, Quit), Edit (Undo, Redo, Cut, Copy,
+Paste, Select all, Preferences…), View (Full screen) and Help (User guide); the actions that do not
+exist yet are shown disabled. On macOS the demonstration has no bar until `muda` (F2.11e).
+
+**The keyboard.** F10, or **Alt pressed and released alone**, puts the keyboard on the first title
+(the bar is *active*); Left and Right move across the titles, Down, Up, Enter or Space open the
+title's menu with its first enabled item highlighted, a title's letter opens it, Escape, F10, Tab or
+Alt leave. "Alone" means nothing else in between: `NamedKey::Alt` (new) arms the release only if no
+other key, press or wheel comes before it, so Alt+Tab and Alt+drag never open the bar. In a menu of
+the bar, Left and Right go to the neighbouring title's menu (Right opens a submenu first, if the
+item has one), Escape goes back to the title, a second Escape leaves.
+
+**Alt+letter before the focused widget** (a precision of AM4 and AM8). Alt+letter, with neither
+Ctrl nor Super, is looked up among the titles **before** the focused widget gets the key: otherwise
+a text field would take Alt+E as typing. `AltGr` still types, because it is not Alt (Ctrl+Alt on
+Windows, a key of its own on Linux).
+
+**Mnemonics** (AM10). Each menu message has a `.mnemonic` attribute in the catalogues:
+
+```
+menu-edit = Modifica
+    .mnemonic = m
+```
+
+The new `Localizer::format_attribute(id, attribute, args)` reads it; `Registry::set_mnemonics`
+keeps each action's letter (in lower case) next to its name. Inside an open menu the letter alone
+(or with Alt) chooses its item; on the bar it opens its title. The letters are **underlined only
+while Alt is held or while the bar is used from the keyboard** (`Ui::mnemonics_underlined`), never
+on macOS, and the underline goes under the first occurrence of the letter **at the start of a
+word**, otherwise under its first occurrence ("Save **a**s…", "Speichern **u**nter…"). Assistive
+technologies get the letter as `access_key`. The letters were chosen from MuseScore's shipped
+catalogues where our words are the same, and recorded in the glossary (`menu_mnemonics`);
+a test checks, in the six languages, that each is a letter of its name and unique among its
+siblings.
+
+**The pointer.** A press on a title opens its menu, a second press on the open title closes it,
+and while a menu of the bar is open moving over another title opens that one. Press-drag-release
+from a title works as in every menu. Choosing an item, or a press outside, leaves the bar.
+
+**Accessibility.** The bar is a `MenuBar` node; its titles are `MenuItem`s with `has_popup`,
+`expanded` and their `access_key`. While the bar is active the accessibility focus is its title;
+AccessKit's click on a title opens its menu.
+
+**Tests and benchmarks.** `crates/ui/tests/menu_bar.rs` (8 tests): the pointer on the titles,
+F10 and the arrows, letters on the bar and in a menu, Alt alone (and not with a key, a press or
+Ctrl in between), Alt+letter before a focused field with `AltGr` untouched, the underlines, macOS
+without a bar, the accessibility tree. Two injected bugs (Alt+letter after the field, a press not
+disarming Alt) were caught. `crates/app/tests/actions.rs` checks the mnemonics in the six languages
+and the demonstration's bar from the keyboard. The scene `demo-menu-bar` shows File's menu opened
+from the keyboard with the letters underlined. The benchmark `bar_menu_switch` measures moving the
+pointer from File to Edit with File's menu open (one menu closed, the other opened where none was
+drawn before): 6.7 M instructions.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
@@ -4989,6 +5066,8 @@ the guides' files are generated on Linux by CI.
 Since F2.11c the catalogue also has `demo-tooltip` (a shortened button's tooltip), and since
 F2.11d2a `demo-context-menu`: the Track name field holding "Violin I", selected, with its context
 menu opened by a secondary click and the pointer resting on Copy.
+Since F2.11d2b also `demo-menu-bar`: File's menu opened from the keyboard (F10, Enter), its letters
+underlined.
 
 ### orchestra-test-support: counting allocations in tests
 
@@ -5285,6 +5364,10 @@ a missing `$count`) is a typed `I18nError`, not a best-effort string with `{$cou
 also wraps every placeable in the invisible Unicode isolation marks U+2068/U+2069: we keep them,
 because they make mixed left-to-right and right-to-left text (a track named in Arabic, say) render
 correctly.
+
+Since F2.11d2b `format_attribute(id, attribute, args)` reads a message's attribute (the menus'
+`.mnemonic`), from the catalogue that defines the message: a translation never mixes its own name
+with another language's letter. A missing attribute is `I18nError::MissingAttribute`.
 
 #### The tests
 

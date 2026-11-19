@@ -77,8 +77,35 @@ position on every layout, so on a French keyboard you do not need Shift to use t
 #note("Note")[
   You will be able to change every shortcut in the Preferences. A few keys stay as they are on
   every system: Tab, the arrow keys, Enter, Escape and Space move around the window, and F10
-  will open the menus.
+  opens the menus.
 ]
+
+== The menu bar
+
+On Linux and Windows the menus are at the top of the window: File, Edit, View and Help. On macOS
+they will be in the menu bar at the top of the screen, as in every Mac program.
+
+- *With the mouse*, click a menu's name to open it, and click a command. You can also keep the
+  button pressed, move onto a command and release it there. While a menu is open, moving the
+  pointer over another menu's name opens that one; clicking the open menu's name again closes it.
+- *With the keyboard*, press *F10*, or press and release *Alt* on its own: the first menu's name is
+  highlighted. Move with the left and right arrow keys, open the menu with the down arrow or Enter,
+  and choose a command with the up and down arrows and Enter. In an open menu the left and right
+  arrows go to the next menu. Escape goes back one step; press it again to leave the menus.
+- *Faster*: hold *Alt* and the underlined letter of a menu's name to open it (Alt+F opens File),
+  then press a command's underlined letter to run it. The letters are underlined while you hold
+  Alt or use the menus from the keyboard. They are chosen for each language, so in Italian
+  Alt+M opens _Modifica_.
+
+#tip("Tip")[
+  Commands that are not available yet, or cannot do anything right now, are shown greyed out.
+  Their shortcuts are still written next to them, so the menus are also a list of the shortcuts.
+]
+
+#screenshot-placeholder(
+  [Screenshot: the File menu opened from the menu bar],
+  [The File menu opened from the keyboard, with the underlined letters.],
+)
 
 == Context menus
 

@@ -159,7 +159,36 @@ pub const SCENES: &[Scene] = &[
         height: 370.0,
         record: record_demo_context_menu,
     },
+    Scene {
+        name: "demo-menu-bar",
+        width: 640.0,
+        height: 370.0,
+        record: record_demo_menu_bar,
+    },
 ];
+
+/// The demonstration window with the menu bar used from the keyboard (F2.11d2b, ADR-0048 AM12):
+/// F10 puts the keyboard on *File*, Enter opens its menu; its first enabled item (*Quit*) is
+/// highlighted and the mnemonics are underlined, as they are while the bar is used from the
+/// keyboard. The scenes are rendered on Linux, where the bar is drawn.
+fn record_demo_menu_bar(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    for key in [NamedKey::Function(10), NamedKey::Enter] {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            demo.input(
+                &InputEvent::Key {
+                    key: Key::Named(key),
+                    physical: orchestra_ui::PhysicalKey::Other,
+                    state,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+                list,
+            );
+        }
+    }
+}
 
 /// The demonstration window with the context menu of the *Track name* field open (F2.11d2a,
 /// ADR-0048 AM12): a name typed and selected, the menu opened by a secondary click inside the
