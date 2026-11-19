@@ -81,8 +81,38 @@ Maiusc per usarli.
 
 #note("Nota")[
   Potrai cambiare ogni scorciatoia nelle Preferenze. Alcuni tasti restano uguali su ogni sistema:
-  Tab, le frecce, Invio, Esc e Spazio servono a muoversi nella finestra, e F10 aprirà i menu.
+  Tab, le frecce, Invio, Esc e Spazio servono a muoversi nella finestra, e F10 apre i menu.
 ]
+
+== La barra dei menu
+
+Su Linux e Windows i menu sono in cima alla finestra: File, Modifica, Vista e Aiuto. Su macOS
+saranno nella barra dei menu in cima allo schermo, come in ogni programma per Mac.
+
+- *Con il mouse*, fai clic sul nome di un menu per aprirlo e poi su un comando. Puoi anche tenere
+  premuto il tasto, spostarti su un comando e rilasciarlo lì. Mentre un menu è aperto, passando con
+  il puntatore sul nome di un altro menu si apre quello; un nuovo clic sul nome del menu aperto lo
+  chiude.
+- *Con la tastiera*, premi *F10*, oppure premi e rilascia *Alt* da solo: il nome del primo menu si
+  evidenzia. Spostati con le frecce a sinistra e a destra, apri il menu con la freccia in giù o con
+  Invio, e scegli un comando con le frecce in su e in giù e con Invio. In un menu aperto le frecce a
+  sinistra e a destra passano al menu vicino. Esc torna indietro di un passo; premilo ancora per
+  lasciare i menu.
+- *Più in fretta*: tieni premuto *Alt* e la lettera sottolineata del nome di un menu per aprirlo
+  (Alt+M apre Modifica), poi premi la lettera sottolineata di un comando per eseguirlo. Le lettere
+  sono sottolineate mentre tieni premuto Alt o usi i menu dalla tastiera. Sono scelte per ogni
+  lingua, così in inglese Alt+E apre _Edit_.
+
+#tip("Suggerimento")[
+  I comandi che non sono ancora disponibili, o che in quel momento non possono fare nulla, sono in
+  grigio. Le loro scorciatoie sono comunque scritte accanto, così i menu sono anche un elenco delle
+  scorciatoie.
+]
+
+#screenshot-placeholder(
+  [Screenshot: il menu File aperto dalla barra dei menu],
+  [Il menu File aperto dalla tastiera, con le lettere sottolineate.],
+)
 
 == Menu contestuali
 

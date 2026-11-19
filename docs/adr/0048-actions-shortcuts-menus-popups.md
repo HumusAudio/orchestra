@@ -1,8 +1,8 @@
 # ADR-0048 — Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer
 
 - **Status:** Accepted (owner, 2026-11-17; outline AM1–AM15 presented first, with the owner's
-  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c, F2.11d1 and F2.11d2a
-  below.
+  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c, F2.11d1, F2.11d2a
+  and F2.11d2b below.
 - **Date:** 2026-11-17
 - **Implements:** ADR-0045 (retained widgets; WA3 leaves the table of window-level shortcuts to
   the menus; WB9 leaves the popups' outside click to them; WH1 overlays), ADR-0040 W5 (our own
@@ -471,4 +471,38 @@ the owner approved choices S1–S3; while writing, the rest:
   chooses it.
 - **AM15, measured** on the panel of 200 widgets: the figures above; no allocation while moving in
   an open menu (tested).
+
+## Precisions of the implementation (F2.11d2b, approved by the owner on 2026-11-19)
+
+Before writing, the owner approved: the bar's content (File, Edit, View, Help with the fourteen
+actions, those that do not exist yet shown disabled), Alt alone as AM12 says, the precision on
+Alt+letter below, no drawn bar on macOS until F2.11e, mnemonics in every open menu, the bar at the
+top of the window. While writing, the rest:
+- **AM4, AM8: Alt+letter before the focused widget.** On Linux and Windows, Alt+letter with neither
+  *Primary* nor *Secondary* is looked up among the bar's titles **before** the focused widget gets
+  the key; a text field would otherwise take it as typing. `AltGr` is not Alt (Ctrl+Alt on Windows,
+  a key of its own on Linux) and keeps typing. A letter that is no title's goes on as before.
+- **AM8, AM12: Alt alone.** The Alt key itself is a named key (`NamedKey::Alt`) and a fixed key.
+  Its release reaches the bar only when its press came with no other modifier and no other key,
+  pointer press or wheel came in between, so Alt+Tab and Alt+drag never open the bar; pressed
+  again, it leaves the bar.
+- **AM12: the active bar.** While the keyboard is on the bar (F10, Alt alone) every key is
+  consumed: Left and Right move across the titles, Down, Up, Enter and Space open a menu with its
+  first enabled item highlighted, a title's letter opens it, Escape, F10, Tab and Alt leave. In a
+  menu of the bar Right opens the highlighted item's submenu if it has one, otherwise the next
+  title's menu; Left in the first menu goes to the previous title; Escape in the first menu goes
+  back to its title, a second Escape leaves; F10 leaves everything. Choosing an item or a press
+  outside leaves the bar. A second press on the open title closes its menu.
+- **AM10: mnemonics.** Each name's letter is the Fluent attribute `.mnemonic` (read with
+  `Localizer::format_attribute`), compared in lower case; inside an open menu the letter alone (or
+  with Alt, never with *Primary* or *Secondary*) chooses its item. The underline goes under the
+  first occurrence of the letter at the start of a word, otherwise under its first occurrence
+  ("Save **a**s…"). Underlined while Alt is held or while the bar is used from the keyboard,
+  never on macOS. The letters are recorded in the glossary (`menu_mnemonics`) and tested in the six
+  languages (a letter of the name, unique among siblings).
+- **AM12: accessibility.** The bar is a `MenuBar`; its titles are menu items with `has_popup`,
+  `expanded` and the letter as `access_key`; while the bar is active the accessibility focus is its
+  title; AccessKit's click on a title opens its menu.
+- **AM15, measured:** moving the pointer from File to Edit with File's menu open, 6.7 M
+  instructions (one menu closed, the other opened where none was drawn before).
 

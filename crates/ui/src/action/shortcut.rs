@@ -188,8 +188,9 @@ impl Shortcut {
                 | NamedKey::Space
                 | NamedKey::Function(10),
             ) => plain,
-            // The Menu key opens the context menu whatever is held.
-            ShortcutKey::Named(NamedKey::ContextMenu) => true,
+            // The Menu key opens the context menu whatever is held; Alt alone opens the menu bar
+            // (F2.11d2b) and is a modifier, never a key of its own.
+            ShortcutKey::Named(NamedKey::ContextMenu | NamedKey::Alt) => true,
             // Alt+letter opens a menu by its mnemonic on Linux and Windows (AM10, AM12); macOS has
             // no mnemonics, and ⌥ there types special characters or is a modifier like any other.
             ShortcutKey::Character(character) => {

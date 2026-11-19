@@ -186,6 +186,13 @@ pub enum I18nError {
         /// The requested message key.
         id: String,
     },
+    /// The message exists but has no such attribute ([`Localizer::format_attribute`], F2.11d2b).
+    MissingAttribute {
+        /// The requested message key.
+        id: String,
+        /// The requested attribute.
+        attribute: String,
+    },
     /// Formatting failed, typically because an argument the message uses was not supplied.
     Format {
         /// Locale of the catalog that provided the message.
@@ -211,6 +218,9 @@ impl fmt::Display for I18nError {
                 write!(f, "message `{id}` is not defined in any catalog")
             }
             Self::NoValue { id } => write!(f, "message `{id}` has no value"),
+            Self::MissingAttribute { id, attribute } => {
+                write!(f, "message `{id}` has no attribute `{attribute}`")
+            }
             Self::Format {
                 locale,
                 id,
@@ -327,6 +337,57 @@ impl Localizer {
         }
         Err(I18nError::MissingMessage { id: id.into() })
     }
+
+    /// Formats the attribute `attribute` of the message `id` (`menu-file.mnemonic`, F2.11d2b),
+    /// with optional arguments.
+    ///
+    /// # Why attributes
+    /// A menu's mnemonic is a property of its name chosen by the translator, not a marker inside
+    /// the text (ADR-0048 AM10): the name stays clean for assistive technologies and searches,
+    /// and the letter lives next to it, in the same message, as Fluent's attributes are meant
+    /// for.
+    ///
+    /// The first bundle of the chain that defines the **message** answers: an attribute missing
+    /// there is an error even if a fallback catalogue has it, so a translation can never mix its
+    /// own name with another language's letter.
+    ///
+    /// # Errors
+    /// - [`I18nError::MissingMessage`] if no catalog in the chain defines `id`;
+    /// - [`I18nError::MissingAttribute`] if the message has no such attribute;
+    /// - [`I18nError::Format`] as [`Localizer::format`].
+    ///
+    /// # Complexity
+    /// As [`Localizer::format`], plus a linear scan of the message's attributes (one or two).
+    pub fn format_attribute(
+        &self,
+        id: &str,
+        attribute: &str,
+        args: Option<&FluentArgs<'_>>,
+    ) -> Result<String, I18nError> {
+        for link in &self.chain {
+            let Some(message) = link.bundle.get_message(id) else {
+                continue;
+            };
+            let pattern = message
+                .get_attribute(attribute)
+                .map(|attribute| attribute.value())
+                .ok_or_else(|| I18nError::MissingAttribute {
+                    id: id.into(),
+                    attribute: attribute.into(),
+                })?;
+            let mut errors = Vec::new();
+            let text = link.bundle.format_pattern(pattern, args, &mut errors);
+            if !errors.is_empty() {
+                return Err(I18nError::Format {
+                    locale: link.locale,
+                    id: format!("{id}.{attribute}"),
+                    details: join_debug(&errors),
+                });
+            }
+            return Ok(text.into_owned());
+        }
+        Err(I18nError::MissingMessage { id: id.into() })
+    }
 }
 
 /// Parses every catalog of `locale` and adds it to a new bundle.
@@ -376,6 +437,28 @@ mod tests {
     //! Unit tests of the public API. Catalog completeness is tested in `tests/parity.rs`.
 
     use super::*;
+
+    /// Attributes are read from the message's own catalogue (F2.11d2b): a mnemonic exists in
+    /// every language, a missing attribute and a missing message are typed errors.
+    #[test]
+    fn attributes_are_formatted_and_missing_ones_reported() {
+        for locale in Locale::ALL {
+            let localizer = Localizer::new(locale).unwrap();
+            let letter = localizer
+                .format_attribute("menu-file", "mnemonic", None)
+                .unwrap();
+            assert_eq!(letter.chars().count(), 1, "{locale}: {letter:?}");
+        }
+        let en = Localizer::new(Locale::EnUs).unwrap();
+        assert!(matches!(
+            en.format_attribute("menu-file", "nothing", None),
+            Err(I18nError::MissingAttribute { .. })
+        ));
+        assert!(matches!(
+            en.format_attribute("no-such-message", "mnemonic", None),
+            Err(I18nError::MissingMessage { .. })
+        ));
+    }
 
     /// Every locale has a valid catalog, a localizer can be built and the tag round-trips.
     #[test]

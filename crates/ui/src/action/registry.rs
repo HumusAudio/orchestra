@@ -273,6 +273,8 @@ struct Entry {
     /// Its first shortcut written for people ([`Shortcut::write_label`]); empty without a
     /// shortcut or until the texts are given.
     shortcut_text: String,
+    /// Its menu item's mnemonic, in lower case ([`Registry::set_mnemonics`], F2.11d2b).
+    mnemonic: Option<char>,
 }
 
 /// The registry of actions (see the module documentation).
@@ -361,6 +363,7 @@ impl Registry {
             state: ActionState::ENABLED,
             name_text: String::new(),
             shortcut_text: String::new(),
+            mnemonic: None,
         });
         // The bit set grows with the actions, here and never while marking: one word per 64.
         if self.changed.len() * 64 < self.actions.len() {
@@ -388,6 +391,35 @@ impl Registry {
                 self.write_shortcut_text(ActionId(index));
             }
         }
+    }
+
+    /// Gives the registry the actions' **mnemonics** (F2.11d2b, ADR-0048 AM10): `mnemonic` turns
+    /// each action's Fluent key into the letter its menu item is chosen with (the message's
+    /// `.mnemonic` attribute), or `None`. The letter is kept in lower case, so a press matches it
+    /// whatever the case. Called with [`Registry::set_texts`], when the language changes; every
+    /// action whose letter changed is marked (AM2).
+    pub fn set_mnemonics(&mut self, mut mnemonic: impl FnMut(&'static str) -> Option<char>) {
+        for index in 0..self.actions.len() {
+            let Some(entry) = self.actions.get_mut(index) else {
+                continue;
+            };
+            let letter = mnemonic(entry.spec.name).map(lower_case);
+            if entry.mnemonic != letter {
+                entry.mnemonic = letter;
+                if let Ok(index) = u16::try_from(index) {
+                    self.mark(ActionId(index));
+                }
+            }
+        }
+    }
+
+    /// The mnemonic of `id`'s menu item, in lower case (F2.11d2b): `None` without one, or for an
+    /// unknown action.
+    #[must_use]
+    pub fn mnemonic(&self, id: ActionId) -> Option<char> {
+        self.actions
+            .get(id.index())
+            .and_then(|entry| entry.mnemonic)
     }
 
     /// The name of `id` as people read it (empty until [`Registry::set_texts`], or for an unknown
@@ -686,6 +718,16 @@ impl Registry {
         entry.shortcuts.retain(|&own| own != shortcut);
         self.lookup.remove(&(entry.spec.context, shortcut));
         self.write_shortcut_text(id);
+    }
+}
+
+/// The lower case of `letter` when it is a single character, otherwise `letter` itself (as the
+/// shortcuts do, ADR-0048 AM5).
+fn lower_case(letter: char) -> char {
+    let mut lowered = letter.to_lowercase();
+    match (lowered.next(), lowered.next()) {
+        (Some(single), None) => single,
+        _ => letter,
     }
 }
 

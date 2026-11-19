@@ -96,6 +96,11 @@
 //!   (press and release): the highlight moves, two entries re-recorded and drawn, the
 //!   accessibility focus moves. Target: an event's 0.5 M; measured 0.17 M (0.82 M with the
 //!   shadow).
+//! - `bar_menu_switch` (F2.11d2b, AM12, AM15): the real panel with a menu bar of four titles on
+//!   top (File with six items, Edit with seven, View and Help with one), File's menu open; the
+//!   pointer moves onto *Edit*: File's menu closes, Edit's opens (its widgets built, laid out,
+//!   recorded and drawn), both titles re-recorded, the accessibility update. The cost of opening
+//!   a menu where none was drawn before, as `context_menu_open fresh`.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -1531,9 +1536,150 @@ fn menu_highlight_move(mut menued: Menued) -> Menued {
     menued
 }
 
+// The real panel with a menu bar on top (F2.11d2b): four titles whose menus hold the program's
+// fourteen actions, File's menu open by a click; the pointer rests on File.
+struct Barred {
+    real: Real,
+    edit: Point,
+}
+
+// The real panel's 40 rows (a label and four buttons each) under `root` (F2.11d2b's bench).
+fn add_rows(ui: &mut Ui<usize>, root: WidgetId) {
+    let column = ui
+        .add(
+            root,
+            Flex::column(Space::Xs, Space::M),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    for row_index in 0..40 {
+        let row = ui
+            .add(
+                column,
+                Flex::row(Space::S, Space::None),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        ui.add(
+            row,
+            Label::new(format!("Track {row_index}: Violin I")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        for button in 0..4 {
+            ui.add(
+                row,
+                Button::new(format!("Action {button}"), row_index * 4 + button),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        }
+    }
+}
+
+fn barred_open() -> Barred {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        faces.clone(),
+    );
+    ui.set_title("Benchmark");
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    let mut registry = Registry::new(Platform::Linux);
+    let mut ids = Vec::new();
+    for (index, letter) in "nosqzyxcvapfhg".chars().enumerate() {
+        let identifier: &'static str = Box::leak(format!("bench.item-{index}").into_boxed_str());
+        ids.push(
+            registry
+                .register(ActionSpec {
+                    identifier,
+                    name: identifier,
+                    context: Context::GLOBAL,
+                    defaults: Defaults::everywhere(&[Shortcut::new(
+                        primary,
+                        ShortcutKey::Character(letter),
+                    )
+                    .unwrap()]),
+                    repeatable: false,
+                    edit: None,
+                })
+                .unwrap(),
+        );
+    }
+    registry.set_texts(KeyNames::new(|key| format!("{key:?}")), |name| {
+        format!("Menu item {name}")
+    });
+    registry.set_mnemonics(|_| Some('m'));
+    ui.set_actions(registry, |id: ActionId| usize::from(id.get()));
+    let menu = |range: std::ops::Range<usize>| {
+        ids[range]
+            .iter()
+            .fold(MenuModel::new(), |menu, &id| menu.action(id))
+    };
+    let model = MenuModel::new()
+        .submenu("File", Some('f'), menu(0..6))
+        .submenu("Edit", Some('e'), menu(6..13))
+        .submenu("View", Some('v'), menu(13..14))
+        .submenu("Help", Some('h'), menu(13..14));
+    let root = ui.root();
+    ui.add_menu_bar(
+        root,
+        &model,
+        LayoutProps::default().width(Length::Fill(1.0)),
+    )
+    .unwrap();
+    add_rows(&mut ui, root);
+    let mut real = Real {
+        ui,
+        list: DisplayList::new(),
+        renderer: CpuRenderer::new(faces),
+        image: Image::new(1000, 1600).unwrap(),
+        buttons: Vec::new(),
+    };
+    real.ui
+        .layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut real.list);
+    let file = real.ui.menu_bar_title_point(0).unwrap();
+    let edit = real.ui.menu_bar_title_point(1).unwrap();
+    real.ui
+        .input(&InputEvent::PointerMoved { position: file }, &mut real.list);
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        real.ui.input(
+            &InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state,
+                position: file,
+                clicks: 1,
+            },
+            &mut real.list,
+        );
+    }
+    assert_eq!(real.ui.menu_bar_open(), Some(0));
+    real_draw(&mut real);
+    let _ = real.ui.take_access_update();
+    Barred { real, edit }
+}
+
+#[library_benchmark]
+#[bench::bar(barred_open())]
+fn bar_menu_switch(mut barred: Barred) -> Barred {
+    barred.real.ui.input(
+        black_box(&InputEvent::PointerMoved {
+            position: barred.edit,
+        }),
+        &mut barred.real.list,
+    );
+    real_draw(&mut barred.real);
+    black_box(barred.real.ui.take_access_update());
+    barred
+}
+
 library_benchmark_group!(
     name = menus,
-    benchmarks = [context_menu_open, menu_highlight_move]
+    benchmarks = [context_menu_open, menu_highlight_move, bar_menu_switch]
 );
 
 main!(

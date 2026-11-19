@@ -5146,6 +5146,87 @@ esatta) e si ridisegnava sotto il pannello opaco a ogni ridisegno. Dopo le misur
 dei due aspetti (un effetto leggero nel chiaro, quasi nulla nello scuro) il proprietario ha scelto
 **B: niente ombra sui menu**, come sul suggerimento.
 
+#### La barra dei menu e i mnemonici
+
+Il passo F2.11d2b (ADR-0048 AM9, AM10, AM12) disegna la **barra dei menu** di Linux e Windows e dà a
+ogni titolo e voce un **mnemonico**. Il file nuovo è `crates/ui/src/widget/ui/bar.rs` (che cosa fa
+la barra, un altro modulo figlio di `Ui`); i widget della barra, `MenuBar` e `BarTitle`, stanno in
+`crates/ui/src/widget/menu.rs`.
+
+**Aggiungere una barra.** `Ui::add_menu_bar(parent, model, props)` aggiunge una `MenuBar` con un
+`BarTitle` per ogni sottomenu di un `MenuModel`; ogni sottomenu ora ha anche un mnemonico
+(`MenuModel::submenu(name, mnemonic, items)`). I menu della barra sono normali menu del modello,
+aperti sotto il loro titolo con la barra come proprietaria, così il puntatore raggiunge ancora i
+titoli mentre uno è aperto. Nella finestra di prova sta in cima, da bordo a bordo, su Linux e
+Windows:
+
+```rust
+let model = actions::menu_bar(actions?, texts);
+let root = ui.root();
+ui.add_menu_bar(
+    root,
+    &model,
+    LayoutProps::default().width(Length::Fill(1.0)),
+)
+.ok()
+```
+
+`actions::menu_bar` costruisce File (Nuovo, Apri…, Salva, Salva come…, Esci), Modifica (Annulla,
+Ripristina, Taglia, Copia, Incolla, Seleziona tutto, Preferenze…), Vista (Schermo intero) e Aiuto
+(Guida per l'utente); le azioni che ancora non esistono sono mostrate disabilitate. Su macOS la
+finestra di prova non ha la barra finché non arriva `muda` (F2.11e).
+
+**La tastiera.** F10, oppure **Alt premuto e rilasciato da solo**, porta la tastiera sul primo
+titolo (la barra è *attiva*); Sinistra e Destra si spostano fra i titoli, Giù, Su, Invio o Spazio
+aprono il menu del titolo con la prima voce abilitata evidenziata, la lettera di un titolo lo apre,
+Esc, F10, Tab o Alt la lasciano. "Da solo" vuol dire senza nulla in mezzo: `NamedKey::Alt` (nuovo)
+arma il rilascio solo se prima non arrivano altri tasti, pressioni o rotelle, così Alt+Tab e
+Alt+trascinamento non aprono mai la barra. In un menu della barra Sinistra e Destra passano al menu
+del titolo vicino (Destra apre prima un sottomenu, se la voce ne ha uno), Esc torna al titolo, un
+secondo Esc esce.
+
+**Alt+lettera prima del widget con il fuoco** (una precisione di AM4 e AM8). Alt+lettera, senza Ctrl
+né Super, si cerca fra i titoli **prima** che il widget con il fuoco riceva il tasto: altrimenti un
+campo di testo prenderebbe Alt+E come testo. `AltGr` continua a scrivere, perché non è Alt (Ctrl+Alt
+su Windows, un tasto a sé su Linux).
+
+**I mnemonici** (AM10). Ogni messaggio dei menu ha un attributo `.mnemonic` nei cataloghi:
+
+```
+menu-edit = Modifica
+    .mnemonic = m
+```
+
+Il nuovo `Localizer::format_attribute(id, attribute, args)` lo legge; `Registry::set_mnemonics`
+conserva la lettera di ogni azione (in minuscolo) accanto al nome. Dentro un menu aperto la lettera
+da sola (o con Alt) sceglie la sua voce; sulla barra apre il suo titolo. Le lettere sono
+**sottolineate solo mentre Alt è premuto o mentre la barra si usa dalla tastiera**
+(`Ui::mnemonics_underlined`), mai su macOS, e la sottolineatura va sotto la prima occorrenza della
+lettera **all'inizio di una parola**, altrimenti sotto la prima in assoluto ("Salva **c**ome…",
+"Speichern **u**nter…"). Le tecnologie assistive ricevono la lettera come `access_key`. Le lettere
+sono state scelte dai cataloghi di MuseScore dove le nostre parole sono le stesse e registrate nel
+glossario (`menu_mnemonics`); un test controlla, nelle sei lingue, che ognuna sia una lettera del
+suo nome e unica fra le voci vicine.
+
+**Il puntatore.** Una pressione su un titolo apre il suo menu, una seconda pressione sul titolo
+aperto lo chiude, e mentre un menu della barra è aperto passare su un altro titolo apre quello.
+Premi-trascina-rilascia da un titolo funziona come in ogni menu. Scegliere una voce, o premere
+fuori, lascia la barra.
+
+**Accessibilità.** La barra è un nodo `MenuBar`; i suoi titoli sono `MenuItem` con `has_popup`,
+`expanded` e la loro `access_key`. Mentre la barra è attiva il fuoco dell'accessibilità è il suo
+titolo; il clic di AccessKit su un titolo apre il suo menu.
+
+**Test e benchmark.** `crates/ui/tests/menu_bar.rs` (8 test): il puntatore sui titoli, F10 e le
+frecce, le lettere sulla barra e in un menu, Alt da solo (e non con un tasto, una pressione o Ctrl
+in mezzo), Alt+lettera prima di un campo con il fuoco lasciando stare `AltGr`, le sottolineature,
+macOS senza barra, l'albero dell'accessibilità. Due bug iniettati (Alt+lettera dopo il campo, una
+pressione che non disarma Alt) sono stati colti. `crates/app/tests/actions.rs` controlla i
+mnemonici nelle sei lingue e la barra della finestra di prova dalla tastiera. La scena
+`demo-menu-bar` mostra il menu File aperto dalla tastiera con le lettere sottolineate. Il benchmark
+`bar_menu_switch` misura lo spostamento del puntatore da File a Modifica con il menu File aperto
+(un menu chiuso, l'altro aperto dove non ne era mai stato disegnato uno): 6,7 M istruzioni.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
@@ -5310,6 +5391,8 @@ ARM) e per ora non ci sono immagini di riferimento: i file delle guide li genera
 Da F2.11c il catalogo ha anche `demo-tooltip` (il suggerimento di un pulsante accorciato), e da
 F2.11d2a `demo-context-menu`: il campo Nome traccia con "Violin I", selezionato, con il menu
 contestuale aperto da un clic secondario e il puntatore fermo su Copia.
+Da F2.11d2b anche `demo-menu-bar`: il menu File aperto dalla tastiera (F10, Invio), con le lettere
+sottolineate.
 
 ### orchestra-test-support: contare le allocazioni nei test
 
@@ -5613,6 +5696,11 @@ un `Localizer` si può condividere tra thread.
 dentro `{$count}`. Fluent inoltre racchiude ogni segnaposto tra i caratteri Unicode invisibili di
 isolamento U+2068/U+2069: li teniamo, perché fanno visualizzare correttamente testo misto da
 sinistra a destra e da destra a sinistra (una traccia con un nome in arabo, per esempio).
+
+Da F2.11d2b `format_attribute(id, attribute, args)` legge un attributo di un messaggio (il
+`.mnemonic` dei menu), dal catalogo che definisce il messaggio: una traduzione non mescola mai il
+proprio nome con la lettera di un'altra lingua. Un attributo mancante è
+`I18nError::MissingAttribute`.
 
 #### I test
 

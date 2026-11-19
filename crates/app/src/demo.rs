@@ -132,6 +132,8 @@ pub struct Demo {
     staff: WidgetId,
     /// The *Restore defaults* button (its tooltip is the screenshots' example, F2.11c).
     restore_defaults: WidgetId,
+    /// The menu bar (F2.11d2b), on Linux and Windows.
+    menu_bar: Option<WidgetId>,
     /// The program's actions (F2.11d1), `None` if their tables were wrong (the tests prevent it).
     actions: Option<ActionIds>,
     /// What the actions asked of the window, waiting for it ([`WindowApp::take_window_request`]).
@@ -148,12 +150,11 @@ impl Demo {
     /// renderer anyway (ADR-0039 D3), so only density, text and shapes come from here.
     #[must_use]
     pub fn new(faces: &Faces, theme: &Theme, window_title: &str, texts: &DemoTexts) -> Self {
-        let mut ui = Ui::new(Flex::column(Space::M, Space::L), theme, faces.clone());
+        // The root stacks the menu bar (edge to edge, F2.11d2b) above the padded content.
+        let mut ui = Ui::new(Flex::column(Space::None, Space::None), theme, faces.clone());
         ui.set_title(window_title);
-        let root = ui.root();
         let content = LayoutProps::default();
-        // The actions first (F2.11d1): the text field's context menu names them (F2.11d2a).
-        let actions = attach_actions(&mut ui, &texts.actions);
+        let (actions, menu_bar, root) = frame_window(&mut ui, &texts.actions);
         // `add` fails only for an unknown parent; every parent here was just created, so a
         // failure would leave the demonstration incomplete, never crash it.
         let title = ui
@@ -167,7 +168,7 @@ impl Demo {
                 content,
             )
             .unwrap_or_else(|_| ui.root());
-        let (options, staff_area) = panes(&mut ui);
+        let (options, staff_area) = panes(&mut ui, root);
         let metronome = ui
             .add(
                 options,
@@ -246,6 +247,7 @@ impl Demo {
             track_name,
             staff,
             restore_defaults,
+            menu_bar,
         }
     }
 
@@ -283,6 +285,12 @@ impl Demo {
     #[must_use]
     pub const fn staff(&self) -> WidgetId {
         self.staff
+    }
+
+    /// The menu bar (F2.11d2b): `None` on macOS, where the system's bar comes with F2.11e.
+    #[must_use]
+    pub const fn menu_bar(&self) -> Option<WidgetId> {
+        self.menu_bar
     }
 
     /// The *Restore defaults* button.
@@ -337,6 +345,48 @@ impl Demo {
             self.ui.frame(list);
         }
     }
+}
+
+/// The window's frame (F2.11d2b): the program's actions handed to `ui` first (the text field's
+/// context menu and the bar name them, F2.11d1, F2.11d2a), the menu bar along the top, and below it
+/// the padded column the demonstration's content goes in. Returns the actions, the bar and that
+/// column.
+fn frame_window(
+    ui: &mut Ui<DemoMessage>,
+    texts: &ActionTexts,
+) -> (Option<ActionIds>, Option<WidgetId>, WidgetId) {
+    let actions = attach_actions(ui, texts);
+    let menu_bar = add_menu_bar(ui, actions.as_ref(), texts);
+    let fill = LayoutProps::default()
+        .width(Length::Fill(1.0))
+        .height(Length::Fill(1.0));
+    let window_root = ui.root();
+    // `add` fails only for an unknown parent: the root always exists.
+    let root = ui
+        .add(window_root, Flex::column(Space::M, Space::L), fill)
+        .unwrap_or(window_root);
+    (actions, menu_bar, root)
+}
+
+/// Adds the menu bar at the top of the window (F2.11d2b), on Linux and Windows only: macOS shows
+/// the system's bar through `muda` (F2.11e), and until then the demonstration has none there.
+/// `None` without the actions or on macOS.
+fn add_menu_bar(
+    ui: &mut Ui<DemoMessage>,
+    actions: Option<&ActionIds>,
+    texts: &ActionTexts,
+) -> Option<WidgetId> {
+    if Platform::CURRENT == Platform::MacOs {
+        return None;
+    }
+    let model = actions::menu_bar(actions?, texts);
+    let root = ui.root();
+    ui.add_menu_bar(
+        root,
+        &model,
+        LayoutProps::default().width(Length::Fill(1.0)),
+    )
+    .ok()
 }
 
 /// Hands the program's actions and their shortcuts to `ui` (F2.11d1), with their names and the
@@ -401,8 +451,7 @@ const OPTIONS_MIN_WIDTH: f32 = 160.0;
 ///
 /// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
 /// created: a failure would leave the demonstration incomplete, never crash it.
-fn panes(ui: &mut Ui<DemoMessage>) -> (WidgetId, WidgetId) {
-    let root = ui.root();
+fn panes(ui: &mut Ui<DemoMessage>, root: WidgetId) -> (WidgetId, WidgetId) {
     let fill = LayoutProps::default()
         .width(Length::Fill(1.0))
         .height(Length::Fill(1.0));

@@ -41,6 +41,13 @@
 //! style ("Strg+Umschalt+S", "⇧⌘S"). The names of the items that open a window end with an
 //! ellipsis in the catalogues themselves (choice S2: "Open…", "Save as…", "Preferences…").
 //!
+//! # The menu bar and the mnemonics (F2.11d2b)
+//! [`menu_bar`] is the drawn bar of Linux and Windows (ADR-0048 AM9): File (New, Open…, Save,
+//! Save as…, Quit), Edit (Undo, Redo, Cut, Copy, Paste, Select all, Preferences…), View (Full
+//! screen) and Help (User guide). Each title and item has a **mnemonic**, the `.mnemonic`
+//! attribute of its message, chosen for each language from the shipped catalogues of a music program and
+//! unique among its siblings (tested in the six languages; glossary entries `menu_mnemonics`).
+//!
 //! # The field's context menu (F2.11d2a)
 //! [`field_menu`] is the standard editing menu of a text field (ADR-0048 AM13): Undo, Redo, then
 //! Cut, Copy, Paste, then Select all. Its items act on the focused field.
@@ -399,23 +406,96 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
 /// and the keys' names for the shortcuts.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ActionTexts {
-    /// Each action's Fluent key ([`ActionSpec::name`]) and its text.
-    names: Vec<(&'static str, String)>,
+    /// Each action's Fluent key ([`ActionSpec::name`]), its text and its mnemonic.
+    names: Vec<(&'static str, String, Option<char>)>,
     /// The keys' names.
     keys: KeyNames,
+    /// The menu bar's titles ([`TITLES`]): their names and mnemonics (F2.11d2b).
+    titles: Vec<(String, Option<char>)>,
 }
 
 impl ActionTexts {
-    /// Hands the texts to `registry` ([`Registry::set_texts`]): every action's name and its
-    /// shortcut written in the registry's platform's style.
+    /// Hands the texts to `registry` ([`Registry::set_texts`], [`Registry::set_mnemonics`]):
+    /// every action's name, its shortcut written in the registry's platform's style, and its
+    /// menu item's mnemonic.
     pub fn apply(&self, registry: &mut Registry) {
         registry.set_texts(self.keys.clone(), |key| {
             self.names
                 .iter()
-                .find(|(name, _)| *name == key)
-                .map_or_else(String::new, |(_, text)| text.clone())
+                .find(|(name, _, _)| *name == key)
+                .map_or_else(String::new, |(_, text, _)| text.clone())
+        });
+        registry.set_mnemonics(|key| {
+            self.names
+                .iter()
+                .find(|(name, _, _)| *name == key)
+                .and_then(|(_, _, mnemonic)| *mnemonic)
         });
     }
+
+    /// The name and the mnemonic of the bar's title number `title` ([`TITLES`]).
+    #[must_use]
+    pub fn title(&self, title: usize) -> (&str, Option<char>) {
+        self.titles
+            .get(title)
+            .map_or(("", None), |(name, mnemonic)| (name.as_str(), *mnemonic))
+    }
+}
+
+/// The Fluent keys of the menu bar's titles, in order: File, Edit, View, Help (F2.11d2b).
+pub const TITLES: [&str; 4] = ["menu-file", "menu-edit", "menu-view", "menu-help"];
+
+/// The mnemonic of the message `key`: the single character of its `.mnemonic` attribute
+/// (F2.11d2b, ADR-0048 AM10), or `None` when the attribute is empty or longer than one character
+/// (the catalogues' test prevents both).
+///
+/// # Errors
+/// The localizer's, if the message or its attribute is missing (the catalogues' parity tests and
+/// the mnemonics' test prevent it).
+fn mnemonic_of(localizer: &Localizer, key: &str) -> Result<Option<char>, I18nError> {
+    let text = localizer.format_attribute(key, "mnemonic", None)?;
+    let mut characters = text.chars();
+    Ok(match (characters.next(), characters.next()) {
+        (Some(letter), None) => Some(letter),
+        _ => None,
+    })
+}
+
+/// The menu bar of Linux and Windows (F2.11d2b, ADR-0048 AM9; see the module documentation),
+/// with the titles' names and mnemonics of `texts`. The actions' own names and letters come from
+/// the registry.
+#[must_use]
+pub fn menu_bar(ids: &ActionIds, texts: &ActionTexts) -> MenuModel {
+    let file = MenuModel::new()
+        .action(ids.new)
+        .action(ids.open)
+        .action(ids.save)
+        .action(ids.save_as)
+        .separator()
+        .action(ids.quit);
+    let edit = MenuModel::new()
+        .action(ids.undo)
+        .action(ids.redo)
+        .separator()
+        .action(ids.cut)
+        .action(ids.copy)
+        .action(ids.paste)
+        .separator()
+        .action(ids.select_all)
+        .separator()
+        .action(ids.preferences);
+    let view = MenuModel::new().action(ids.full_screen);
+    let help = MenuModel::new().action(ids.help);
+    let title = |index: usize| {
+        let (name, mnemonic) = texts.title(index);
+        (name.to_owned(), mnemonic)
+    };
+    let mut bar = MenuModel::new();
+    for (index, items) in [file, edit, view, help].into_iter().enumerate() {
+        let (name, mnemonic) = title(index);
+        bar = bar.submenu(name, mnemonic, items);
+    }
+    bar
 }
 
 /// The Fluent message of a key's name (choice S1 of F2.11d2a); the function keys and the keypad
@@ -487,7 +567,15 @@ pub fn action_texts(localizer: &Localizer) -> Result<ActionTexts, I18nError> {
         .unwrap_or_default();
     let mut names = Vec::with_capacity(keys.len());
     for key in keys {
-        names.push((key, localizer.format(key, None)?));
+        names.push((
+            key,
+            localizer.format(key, None)?,
+            mnemonic_of(localizer, key)?,
+        ));
+    }
+    let mut titles = Vec::with_capacity(TITLES.len());
+    for key in TITLES {
+        titles.push((localizer.format(key, None)?, mnemonic_of(localizer, key)?));
     }
     // Every key's name, asked once; the first missing message is reported.
     let mut error = None;
@@ -499,7 +587,11 @@ pub fn action_texts(localizer: &Localizer) -> Result<ActionTexts, I18nError> {
     });
     match error {
         Some(error) => Err(error),
-        None => Ok(ActionTexts { names, keys }),
+        None => Ok(ActionTexts {
+            names,
+            keys,
+            titles,
+        }),
     }
 }
 

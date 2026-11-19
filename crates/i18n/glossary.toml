@@ -905,7 +905,7 @@ fr = "Aide"
 de = "Hilfe"
 es = "Ayuda"
 sources = ["musescore-ui", "ardour-ui"]
-note = "The Help command (help.contents, F1) and later the Help menu. Both sources agree; it: 'Aiuto' (Windows says 'Guida', the music programs 'Aiuto'). en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues. F2.11d2a: the item that opens the guide is named 'user guide' instead (entry user_guide, owner's approval 2026-11-19), so it no longer repeats the Help menu's own name; this term stays for the Help menu (F2.11d2b)."
+note = "The Help command (help.contents, F1) and later the Help menu. Both sources agree; it: 'Aiuto' (Windows says 'Guida', the music programs 'Aiuto'). en-GB as en-US (Ardour's en_GB catalogue and MuseScore's en_GB agree). Research 2026-11-18 on the shipped catalogues. F2.11d2a: the item that opens the guide is named 'user guide' instead (entry user_guide, owner's approval 2026-11-19), so it no longer repeats the Help menu's own name; this term stays for the Help menu (F2.11d2b). F2.11d2b: the Help menu's title (menu-help) uses this term."
 review = false
 
 [[term]]
@@ -1277,3 +1277,17 @@ es = "Núm 1"
 sources = ["gtk-ui", "qt-ui", "ms-shortcuts"]
 note = """A digit of the numeric keypad. Qt writes 'Num', de 'Zahlenblock', es 'Núm' (GTK writes the keypad as 'TN', 'Nmblck' and others, inconsistently). Qt's forms, with the digit as an argument. Research 2026-11-19 (F2.11d2a, choice S1): the names GTK and Qt write in their menus' shortcuts and Microsoft's localised list of Windows shortcuts."""
 review = true
+
+[[term]]
+id = "menu_mnemonics"
+category = "general"
+en-US = "File F, Edit E, View V, Help H; New N, Open O, Save S, Save as A, Quit Q; Undo U, Redo R, Cut T, Copy C, Paste P, Select all A, Preferences N; Full screen F; User guide U"
+en-GB = "as en-US"
+it = "File F, Modifica M, Vista V, Aiuto I; Nuovo N, Apri A, Salva S, Salva come C, Esci E; Annulla A, Ripristina R, Taglia G, Copia C, Incolla I, Seleziona tutto T, Preferenze P; Schermo intero S; Guida per l'utente G"
+fr = "Fichier F, Éditer É, Affichage A, Aide D; Nouveau N, Ouvrir O, Enregistrer S, Enregistrer sous G, Quitter Q; Annuler A, Rétablir R, Couper U, Copier C, Coller E, Tout sélectionner T, Préférences P; Plein écran É; Guide de l'utilisateur G"
+de = "Datei D, Bearbeiten B, Ansicht A, Hilfe H; Neu N, Öffnen Ö, Speichern S, Speichern unter U, Beenden B; Rückgängig R, Wiederherstellen W, Ausschneiden A, Kopieren K, Einfügen I, Alles auswählen L, Einstellungen E; Vollbild V; Benutzerhandbuch B"
+es = "Archivo A, Editar E, Vista V, Ayuda U; Nuevo N, Abrir A, Guardar G, Guardar como C, Salir S; Deshacer D, Rehacer R, Cortar T, Copiar C, Pegar P, Seleccionar todo S, Preferencias E; Pantalla completa C; Guía del usuario G"
+sources = ["musescore-ui"]
+note = """The menus' mnemonics (ADR-0048 AM10, F2.11d2b): the .mnemonic attribute of each menu message, the letter that opens a title with Alt or chooses an item in an open menu, underlined at the first word that starts with it, otherwise its first occurrence. Not terms but choices tied to the terms above, recorded here so a translator changes them knowingly. Research 2026-11-19 in MuseScore's shipped catalogues (the '&' Qt puts before the letter): its letters are kept where our name is the same word (it &File, &Modifica, A&iuto, Ta&glia, Seleziona &tutto, Salva &come; fr &Fichier, &Affichage, Ai&de, Co&uper, Coll&er, Enre&gistrer sous, Plein &écran; de &Datei, &Bearbeiten, &Ansicht, E&infügen, A&lles; es &Archivo, &Editar, Ay&uda, Cor&tar, Pantalla &completa). Where our word differs (it Vista, fr Éditer, de Speichern unter, es Vista, Salir) or two siblings would share a letter (it Annulla/Incolla, es Cortar/Seleccionar todo, Pegar/Preferencias), the letter is the word's first free letter. Unique among siblings in all six languages, tested (crates/app/tests/actions.rs)."""
+review = true
+

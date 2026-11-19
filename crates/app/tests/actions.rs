@@ -252,3 +252,109 @@ fn the_track_name_field_has_the_editing_context_menu() {
     assert_eq!(demo.ui().menus().count(), 0);
     assert_eq!(demo.ui().focused(), Some(field));
 }
+
+/// The siblings of a menu: each item's name and mnemonic, from the registry for actions and from
+/// the model for submenus.
+fn siblings(
+    registry: &orchestra_ui::Registry,
+    model: &orchestra_ui::MenuModel,
+) -> Vec<(String, Option<char>)> {
+    model
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            orchestra_ui::MenuItem::Action { action, .. } => Some((
+                registry.name_text(*action).to_owned(),
+                registry.mnemonic(*action),
+            )),
+            orchestra_ui::MenuItem::Submenu { name, mnemonic, .. } => {
+                Some((name.clone(), *mnemonic))
+            }
+            orchestra_ui::MenuItem::Separator => None,
+        })
+        .collect()
+}
+
+/// Every item has a mnemonic that is a letter of its name, and no two siblings share one.
+fn check_siblings(items: &[(String, Option<char>)], locale: Locale) {
+    let mut seen = Vec::new();
+    for (name, mnemonic) in items {
+        assert!(mnemonic.is_some(), "{name:?} in {locale:?}: no mnemonic");
+        let letter = mnemonic.unwrap();
+        assert!(
+            name.to_lowercase()
+                .contains(&letter.to_lowercase().to_string()),
+            "{locale:?}: {letter:?} is not a letter of {name:?}"
+        );
+        assert!(
+            letter.is_alphanumeric(),
+            "{locale:?}: {letter:?} of {name:?} is not a letter"
+        );
+        let lower = letter.to_lowercase().to_string();
+        assert!(
+            !seen.contains(&lower),
+            "{locale:?}: {letter:?} of {name:?} is taken by a sibling"
+        );
+        seen.push(lower);
+    }
+}
+
+#[test]
+fn every_mnemonic_is_a_letter_of_its_name_and_unique_among_its_siblings() {
+    // ADR-0048 AM10, in the six catalogues (F2.11d2b): the bar's titles, each menu of the bar,
+    // and the text field's context menu.
+    for locale in Locale::ALL {
+        let (registry, ids) = named_registry(Platform::Linux, locale);
+        let texts = action_texts(&Localizer::new(locale).unwrap()).unwrap();
+        let bar = orchestra_app::menu_bar(&ids, &texts);
+        check_siblings(&siblings(&registry, &bar), locale);
+        for item in &bar.items {
+            if let orchestra_ui::MenuItem::Submenu { items, .. } = item {
+                check_siblings(&siblings(&registry, items), locale);
+            }
+        }
+        check_siblings(
+            &siblings(&registry, &orchestra_app::field_menu(&ids)),
+            locale,
+        );
+    }
+}
+
+#[test]
+fn the_demonstrations_menu_bar_opens_from_the_keyboard() {
+    let (mut demo, mut list) = demo();
+    if Platform::CURRENT == Platform::MacOs {
+        // The system's bar comes with F2.11e: no drawn bar on macOS.
+        assert_eq!(demo.menu_bar(), None);
+        return;
+    }
+    assert!(demo.menu_bar().is_some());
+    // F10, then Enter: File's menu, New highlighted (disabled, so the first enabled: Quit).
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Function(10)),
+        Modifiers::default(),
+    );
+    assert_eq!(demo.ui().menu_bar_active(), Some(0));
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Enter),
+        Modifiers::default(),
+    );
+    let menus: Vec<_> = demo.ui().menus().collect();
+    assert_eq!(menus.len(), 1);
+    // New, Open…, Save, Save as…, a separator, Quit.
+    let items: Vec<_> = demo.ui().menu_items(menus[0]).collect();
+    assert_eq!(items.len(), 6);
+    assert_eq!(demo.ui().highlighted_menu_item(), Some(items[5]));
+    // Enter quits (on Linux; on Windows Quit has no shortcut but still works from the menu).
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Enter),
+        Modifiers::default(),
+    );
+    assert_eq!(demo.take_window_request(), Some(WindowRequest::Close));
+}

@@ -64,6 +64,8 @@ pub enum AccessRole {
     TextInput,
     /// A menu: a context menu or a submenu (F2.11d2a, ADR-0048 AM12).
     Menu,
+    /// The menu bar (F2.11d2b): its titles are menu items that open menus.
+    MenuBar,
     /// An item of a menu.
     MenuItem,
     /// An item of a menu with a check (a toggle), its state in [`AccessInfo::toggled`].
@@ -113,6 +115,9 @@ pub struct AccessInfo {
     /// The widget has a context menu ([`crate::Widget::context_menu`]): assistive technologies
     /// then offer to show it. Filled by the interface, not by the widget.
     pub context_menu: bool,
+    /// The letter that chooses the widget inside its menu, or opens its menu from the bar with
+    /// Alt (a menu item's mnemonic, F2.11d2b, ADR-0048 AM10).
+    pub access_key: Option<char>,
 }
 
 /// One line of text as assistive technologies read it (F2.10b3, ADR-0045 WI1, ADR-0047 TF11).
@@ -400,6 +405,7 @@ const fn role_of(role: AccessRole) -> Role {
         AccessRole::Splitter => Role::Splitter,
         AccessRole::TextInput => Role::TextInput,
         AccessRole::Menu => Role::Menu,
+        AccessRole::MenuBar => Role::MenuBar,
         AccessRole::MenuItem => Role::MenuItem,
         AccessRole::MenuItemCheckBox => Role::MenuItemCheckBox,
     }
@@ -419,6 +425,11 @@ fn set_menu_properties(node: &mut Node, info: &AccessInfo) {
     if let Some(expanded) = info.expanded {
         node.set_has_popup(HasPopup::Menu);
         node.set_expanded(expanded);
+    }
+    if let Some(letter) = info.access_key {
+        // AccessKit takes a string; a letter is at most four bytes, built on the stack.
+        let mut buffer = [0; 4];
+        node.set_access_key(&*letter.encode_utf8(&mut buffer));
     }
 }
 
