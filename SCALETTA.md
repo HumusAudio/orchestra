@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.82, approvata dal proprietario il 2026-11-23.**
+> **Stato di questo documento: v0.83, approvata dal proprietario il 2026-11-23.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -720,7 +720,10 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11e | **`muda` su macOS**: lo stesso modello dei menu, ruoli nel menu dell'app, misura di dimensione e compilazione in CI (ADR-0048 AM9, ADR-0036 B5) | ✅ (F2.11e1–e2) | 0,5–1 |
 | F2.11e1 | **Descrizione e `muda`**: il menu di sistema descritto dal modello unico e provato su ogni piattaforma, `muda` dietro `SystemMenuHost`, voci con ruolo nel menu dell'app, scelte che tornano come azioni, stati aggiornati, test in CI su macOS, misura di dimensione e compilazione | ✅ PR #87 | 0,5 |
 | F2.11e2 | **Voci di sistema di macOS**: nel menu dell'app Servizi, Nascondi, Nascondi altri, Mostra tutto; il menu Finestra con le voci del sistema; i testi nei sei cataloghi con la ricerca terminologica | ✅ PR #88 | 0,5 |
-| F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
+| F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | 🔄 (F2.11b1 ✅) | 1,5–2,5 |
+| F2.11b1 | **ADR della barra del titolo**: ricerca, schema TB1–TB13, scelte del proprietario | ✅ ADR-0049 | 0,5 |
+| F2.11b2 | **Sonda, barra e pulsanti** (ADR-0049 TB1–TB6, TB8–TB10): sonda delle decorazioni con la sua misura, finestra senza decorazioni, `sctk-adwaita` fuori, barra con menu, titolo e pulsanti, trascinamento, doppio clic, menu della finestra, schermo intero, accessibilità, testi nei sei cataloghi | ⬜ | 1 |
+| F2.11b3 | **Bordi e disposizione dei pulsanti** (ADR-0049 TB4, TB7, TB11, TB12): fascia di ridimensionamento e angoli con le forme del puntatore, bordo, `button-layout` dal portale, benchmark, screenshot e capitolo delle guide, prove a mano su GNOME, KDE Wayland e X11 | ⬜ | 0,5–1 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
 | F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ⬜ | 2 |
@@ -1084,6 +1087,14 @@ controllo completo. Va fatta bene una volta sola.
   chiudono i menu con `Ui::close_menu`. Se i menu contestuali (che si aprono sotto il puntatore)
   misurano troppo per l'ombra, una cache delle ombre per dimensione e frazione di pixel
   (precisione di ADR-0043 K2).
+- **F2.11b1** **Fatto il 2026-11-23 (ADR-0049 Accepted):** la nostra barra solo dove il sistema non
+  ne disegna una (Wayland senza decorazioni del compositore, cioè GNOME), scoperto con una sonda
+  all'avvio; menu dentro la barra del titolo; pulsanti secondo `button-layout` di GNOME; niente
+  opzione nelle Preferenze per ora; screenshot senza barra più uno della barra. F2.11b diviso in
+  F2.11b1–b3.
+- **Futuro** Da ADR-0049 TB7: quando esce `softbuffer` 0.5 (trasparenza, `AlphaMode`), un passo
+  che lo adotta (cambio di dipendenza, ADR-0036) e dà alla nostra barra l'ombra, gli angoli
+  arrotondati e la fascia di ridimensionamento fuori dalla finestra.
 - **F2.11b** Da F2.09e (ADR-0045 WG4): i bordi e gli angoli della nostra barra del titolo e della
   finestra aggiungono le loro forme di ridimensionamento a `PointerShape` (orizzontale, verticale,
   le due diagonali), con le corrispondenti di `winit`.
@@ -1432,3 +1443,4 @@ raccomandato.
 | 2026-11-19 | 0.80 | F2.11d2b fatto (barra dei menu disegnata, F10 e Alt da solo, Alt+lettera prima del widget con il fuoco, mnemonici nei sei cataloghi; scelte 1–6 e precisioni di ADR-0048 del proprietario); F2.11d chiuso; prossimo passo F2.11e | proprietario |
 | 2026-11-23 | 0.81 | F2.11e diviso in F2.11e1 ed F2.11e2; F2.11e1 fatto (PR #87: il menu di sistema descritto dal modello unico, `muda` dietro `SystemMenuHost`, un solo lettore delle azioni cambiate, test in CI su macOS; misura: binario +3,9% dopo lo `strip`, circa 8 s di compilazione, costo accettato; precisioni di ADR-0048); prossimo passo F2.11e2 | proprietario |
 | 2026-11-23 | 0.82 | F2.11e2 fatto (PR #88: voci di sistema del menu dell'app e menu Finestra su macOS, ⌘H ⌥⌘H ⌘M tasti fissi, nomi di Apple nei sei cataloghi; scelte 1–4 e precisioni di ADR-0048); F2.11e chiuso; nota in F2.12 (Informazioni su Orchestra); prossimo passo F2.11b | proprietario |
+| 2026-11-23 | 0.83 | F2.11b diviso in F2.11b1–b3; F2.11b1 fatto (ADR-0049 Accepted: la nostra barra del titolo solo dove il sistema non ne disegna una, sonda delle decorazioni, menu nella barra, pulsanti di GNOME); nota futura su `softbuffer` 0.5; prossimo passo F2.11b2 | proprietario |
