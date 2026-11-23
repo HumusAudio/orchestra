@@ -1,6 +1,6 @@
 # ADR-0049 — Our own title bar, only where the system draws none
 
-- **Status:** Proposed (outline TB1–TB13 presented to the owner on 2026-11-23, with the owner's
+- **Status:** Accepted (owner, 2026-11-23; outline TB1–TB13 presented first, with the owner's
   choices on TB1, TB4, TB5, TB11 and on a Preferences option, then this text).
 - **Date:** 2026-11-23
 - **Implements:** ADR-0036 B6 and B7 (Wayland decorations: `winit`'s own for now, our title bar
