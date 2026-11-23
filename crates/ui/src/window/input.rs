@@ -75,6 +75,19 @@ pub enum InputEvent {
     },
     /// The window gained (`true`) or lost (`false`) the keyboard focus.
     Focus(bool),
+    /// The window's state changed (ADR-0049 TB6, TB8, F2.11b2): sent once when it opens, then
+    /// whenever one of its parts changes. Our title bar shows Restore instead of Maximise while
+    /// maximised, and hides its title and buttons in full screen.
+    WindowState(WindowState),
+}
+
+/// The state of the window that our title bar shows (see [`InputEvent::WindowState`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WindowState {
+    /// The window fills the screen's work area (maximised).
+    pub maximized: bool,
+    /// The window is in full screen.
+    pub fullscreen: bool,
 }
 
 /// What an input method reports (ADR-0047 TF5, TF6), as `winit` gives it on every platform.

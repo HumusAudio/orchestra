@@ -5319,6 +5319,74 @@ macOS: ha un `main` suo, perché i menu di AppKit si creano sul thread principal
 ed Esci, nessun segno di isolamento, i puntini di Impostazioni) e che nessuna azione abbia ⌘H, ⌥⌘H
 o ⌘M.
 
+#### La nostra barra del titolo (Wayland senza la cornice del compositore)
+
+Il passo F2.11b2 (ADR-0049) disegna la nostra barra del titolo **solo dove il sistema non disegna
+la cornice**: su Wayland quando il compositore non dà decorazioni (GNOME); X11, KDE e sway su
+Wayland, Windows e macOS tengono la cornice del sistema. I file nuovi sono
+`crates/ui/src/platform/decorations/` (la decisione e la sonda Wayland),
+`crates/ui/src/widget/titlebar.rs` (la barra e i suoi pulsanti) e `crates/ui/src/widget/ui/title.rs`
+(la parte dell'interfaccia).
+
+**Chi disegna la cornice.** `winit` non dice se il compositore ha accettato di disegnare la
+cornice, quindi prima che la finestra esista `orchestra_ui::decorations()` lo chiede: una seconda
+connessione breve (`wayland-client`, `wayland-protocols`, già nell'albero tramite `winit`) crea una
+finestra che non riceve mai un buffer, chiede le decorazioni del server e legge la modalità che il
+compositore risponde. Lato server, o niente Wayland (X11): `Decorations::System`. Lato client,
+niente protocollo, nessuna risposta o qualunque errore: `Decorations::Own`, perché una finestra
+senza cornice non si potrebbe spostare né chiudere. La decisione è una piccola funzione provata con
+risposte finte:
+
+```rust
+match probe() {
+    ProbeAnswer::NotWayland | ProbeAnswer::ServerSide => Decorations::System,
+    ProbeAnswer::ClientSide
+    | ProbeAnswer::NoManager
+    | ProbeAnswer::NoAnswer
+    | ProbeAnswer::Failed => Decorations::Own,
+}
+```
+
+`ORCHESTRA_DECORATIONS=own` (o `=system`) salta la domanda: è così che la nostra barra si vede su
+KDE. `cargo run -p orchestra-ui --example decorations_probe` stampa la risposta e quanto ci ha
+messo. Il programma passa la risposta sia alla finestra (`WindowOptions::decorations`, la finestra
+si crea allora con `with_decorations(false)`) sia all'interfaccia che costruisce, così le due vanno
+d'accordo. Le decorazioni Wayland di `winit` (`sctk-adwaita`) non ci sono più, e con loro il
+secondo `tiny-skia`.
+
+**La barra.** `Ui::add_title_bar(parent, model, spec)` aggiunge una `TitleBar` i cui figli sono i
+pulsanti della finestra in testa, la barra dei menu di ADR-0048 in forma **compatta** (larga quanto
+i suoi titoli, senza uno sfondo suo), poi i pulsanti in coda; il titolo va nello spazio libero,
+centrato sulla finestra quando ci sta. `TitleBarSpec::gnome_default` ha solo Chiudi, come GNOME
+per impostazione predefinita; la disposizione dell'utente letta dal sistema arriva con F2.11b3.
+
+**Che cosa chiede alla finestra.** Un widget ora può chiedere qualcosa alla finestra attraverso il
+suo contesto degli eventi (`EventCx::request_window`); l'interfaccia la mette in coda e
+l'applicazione la passa avanti (`Ui::take_window_request`, prima dei suoi Esci e Schermo intero).
+Quattro `WindowRequest` nuove: `Drag` (una pressione sullo spazio libero e uno spostamento di più
+di 4 pixel logici, così il doppio clic resta possibile), `ToggleMaximized` (il doppio clic, il
+pulsante Ingrandisci), `Minimize`, e `ShowWindowMenu { at }` (un clic secondario). Chiudi è la
+`WindowRequest::Close` che c'era già, la stessa strada del pulsante di chiusura del sistema. La
+finestra le esegue subito dopo l'evento.
+
+**Lo stato della finestra.** Un nuovo evento d'ingresso, `InputEvent::WindowState { maximized,
+fullscreen }`, mandato quando la finestra si apre e dopo ogni ridimensionamento che lo cambia:
+Ingrandisci diventa Ripristina (anche per le tecnologie assistive), e a schermo intero il titolo e
+i pulsanti spariscono mentre i menu restano. Il fuoco della finestra attenua il titolo e i simboli
+(`text-muted`).
+
+**Accessibilità.** La barra è un nodo `TitleBar` col nome della finestra; i pulsanti sono nodi
+`Button` con i nomi dei cataloghi (`window-close`, `window-maximize`, `window-restore`,
+`window-minimize`, le parole di GTK, voci del glossario `window_*`), fuori dal giro del Tab.
+
+**Test.** `crates/ui/src/platform/decorations/tests.rs` (la decisione e la variabile),
+`crates/ui/tests/title_bar.rs` (9 test: disposizione con i pulsanti ai due lati, trascinamento solo
+dopo uno spostamento, doppio clic, menu della finestra, pulsanti al rilascio, i menu che si aprono
+ancora, schermo intero, l'albero dell'accessibilità, il Tab), un test senza allocazioni in
+`widgets_no_alloc.rs`, e in `crates/app/tests/demo.rs` la finestra di prova con `Decorations::Own`.
+Due errori iniettati (nessuna soglia di trascinamento, Chiudi che chiede di ridurre a icona) sono
+stati colti. La sonda vera ha bisogno di un compositore: si prova a mano.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di
@@ -5407,10 +5475,10 @@ proprietario su Linux, Wayland e X11). Senza display il programma si ferma con u
 compositor") invece di andare in panic.
 
 **Dipendenze.** `winit` 0.30.13 e `softbuffer` 0.4.8, con le feature di ADR-0036 (X11 e Wayland
-caricati a runtime, decorazioni di Wayland disegnate da `winit` fino alla nostra barra del titolo
-in F2.11b). Portano copie più vecchie di alcuni crate (`rustix`, `windows-sys`, `objc2`,
-`bitflags`, `getrandom`, `thiserror`, e `tiny-skia` 0.11 per le decorazioni), elencate in
-`deny.toml` con la loro uscita: `winit` 0.31, o la nostra barra del titolo. Il binario di rilascio
+caricati a runtime; da F2.11b2 niente decorazioni di Wayland di `winit`, ADR-0049 TB3). Portano
+copie più vecchie di alcuni crate (`rustix`, `windows-sys`, `objc2`, `bitflags`, `getrandom`,
+`thiserror`), elencate in `deny.toml` con la loro uscita, `winit` 0.31; il `tiny-skia` 0.11 delle
+decorazioni di `winit` se n'è andato con la nostra barra del titolo. Il binario di rilascio
 della finestra di prova pesa 7,0 MB.
 
 **Test.** `window/tests.rs` (13 test) gira sulle tre piattaforme senza display: il modificatore

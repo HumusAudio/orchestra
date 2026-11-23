@@ -529,6 +529,8 @@ pub struct EventCx<'a, M> {
     pub(crate) clipboard: &'a mut dyn ClipboardSource,
     /// End the input method's composition ([`EventCx::reset_ime`]).
     pub(crate) ime_reset: bool,
+    /// What the widget asks of the window ([`EventCx::request_window`]), if anything.
+    pub(crate) window: Option<crate::WindowRequest>,
 }
 
 impl<M> EventCx<'_, M> {
@@ -631,6 +633,15 @@ impl<M> EventCx<'_, M> {
     /// new caret.
     pub const fn reset_ime(&mut self) {
         self.ime_reset = true;
+    }
+
+    /// Asks the window for `request` after the event (ADR-0049 TB6, F2.11b2): our title bar
+    /// moves, maximises, minimises or closes the window this way. The interface queues it and the
+    /// application hands it to the window ([`Ui::take_window_request`](crate::Ui)), which carries
+    /// it out right after the event, while the press it belongs to is still the latest (dragging
+    /// needs that). A second request in the same event replaces the first.
+    pub const fn request_window(&mut self, request: crate::WindowRequest) {
+        self.window = Some(request);
     }
 }
 

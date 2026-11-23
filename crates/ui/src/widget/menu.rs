@@ -637,18 +637,32 @@ fn underline(
 /// `control-height` high and as wide as it is given, on `surface` with a `border` line along its
 /// bottom edge; the titles start after the density's extra-small gap.
 #[derive(Debug, Default)]
-pub(crate) struct MenuBar;
+pub(crate) struct MenuBar {
+    /// `true` inside our title bar (F2.11b2, ADR-0049 TB5): as wide as its titles, and drawing
+    /// nothing of its own (the title bar draws the background). `false` for the bar that spans
+    /// the window under the system's frame.
+    pub(crate) compact: bool,
+}
 
 impl<M: 'static> Widget<M> for MenuBar {
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
         let spacing = cx.spacing();
         let mut height = spacing.control_height;
+        // The titles side by side, with the small gap `arrange` leaves before the first one.
+        let mut width = spacing.gap_xs;
         for child in 0..cx.child_count() {
             let size = cx.measure_child(child, Constraints::loose(constraints.max));
             height = height.max(size.height);
+            width += size.width;
         }
-        // As wide as it may be (it spans the window); as high as a control.
-        constraints.constrain(Size::new(constraints.max.width, height))
+        // Spanning the window, as wide as it may be; compact, as wide as its titles. As high as a
+        // control either way.
+        let width = if self.compact {
+            width
+        } else {
+            constraints.max.width
+        };
+        constraints.constrain(Size::new(width, height))
     }
 
     fn arrange(&mut self, cx: &mut LayoutCx<'_, M>, rect: Rect) {
@@ -661,6 +675,10 @@ impl<M: 'static> Widget<M> for MenuBar {
     }
 
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        // Inside our title bar the bar draws the background and the line under it.
+        if self.compact {
+            return;
+        }
         let rect = cx.rect;
         recorder.fill_rect(rect, ColorToken::Surface);
         let width = f32::from(cx.shape.line_width.max(1));

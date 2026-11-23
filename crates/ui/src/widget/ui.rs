@@ -136,6 +136,7 @@ use super::popup::{self, Popup, PopupSide};
 mod bar;
 mod menus;
 mod system;
+mod title;
 
 use super::tooltip::Tooltip;
 use super::tree::{
@@ -254,6 +255,11 @@ pub struct Ui<M> {
     access_window: bool,
     /// The menu bar, once added ([`Ui::add_menu_bar`], F2.11d2b).
     bar: Option<BarState>,
+    /// Our title bar, once added ([`Ui::add_title_bar`], F2.11b2, ADR-0049).
+    title_bar: Option<title::TitleBarState>,
+    /// What widgets asked of the window, oldest first, until the application takes them
+    /// ([`Ui::take_window_request`], F2.11b2).
+    window_requests: std::collections::VecDeque<crate::WindowRequest>,
     /// What the interface keeps for the system's menu, once asked for one ([`Ui::system_menu`],
     /// F2.11e1).
     system: Option<SystemTracking>,
@@ -364,6 +370,8 @@ impl<M: 'static> Ui<M> {
             changed_actions: Vec::new(),
             access_window: false,
             bar: None,
+            title_bar: None,
+            window_requests: std::collections::VecDeque::new(),
             system: None,
             alt_alone: false,
             bounds: Rect::EMPTY,
@@ -1033,6 +1041,12 @@ impl<M: 'static> Ui<M> {
                 self.tooltip.pending = None;
             }
             InputEvent::Focus(true) => {}
+            // The window's own state, for our title bar (F2.11b2, ADR-0049 TB6, TB8).
+            InputEvent::WindowState(state) => self.title_bar_window(*state),
+        }
+        // The window's focus changes the colour of our title bar (TB8).
+        if let InputEvent::Focus(focused) = event {
+            self.title_bar_focus(*focused);
         }
         self.frame(list);
     }
@@ -1371,8 +1385,13 @@ impl<M: 'static> Ui<M> {
             wakeup: WakeRequest::Keep,
             clipboard: self.clipboard.as_mut(),
             ime_reset: false,
+            window: None,
         };
         let handled = widget.event(&mut cx, event);
+        if let Some(request) = cx.window {
+            // Handed to the window by the application, in order ([`Ui::take_window_request`]).
+            self.window_requests.push_back(request);
+        }
         if cx.ime_reset {
             // A new request: the window sees the count change and resets the input method
             // ([`Ui::text_input`]). Wrapping, because only a change matters, never the value.

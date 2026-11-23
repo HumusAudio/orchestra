@@ -61,6 +61,10 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Who draws the window's frame, asked once before the interface is built (ADR-0049 TB2): on
+    // Wayland without the compositor's decorations (GNOME) the demonstration draws its own title
+    // bar, and the window is opened without decorations to match.
+    let decorations = orchestra_ui::decorations();
     let options = WindowOptions {
         title,
         pair: *BuiltInTheme::Studio.pair(),
@@ -68,11 +72,12 @@ fn main() -> ExitCode {
         width: 960.0,
         height: 600.0,
         faces,
+        decorations,
     };
     // The density, text and shape tokens of Studio (the same in both halves); the colours follow
     // the system through the window.
     let theme = *options.pair.instance(orchestra_ui::Appearance::Light);
-    let demo = Demo::new(&options.faces, &theme, &options.title, &texts);
+    let demo = Demo::with_decorations(&options.faces, &theme, &options.title, &texts, decorations);
     match orchestra_ui::run(demo, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

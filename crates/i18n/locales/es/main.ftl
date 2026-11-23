@@ -65,6 +65,16 @@ menu-mac-minimize = Minimizar
 menu-mac-zoom = Zoom
 menu-mac-bring-all-to-front = Traer todo al frente
 
+## Our title bar's window buttons (F2.11b2, ADR-0049 TB10; glossary: window_close …
+## window_minimize). Drawn only where the system draws no frame (GNOME on Wayland), so the names
+## are GTK's own; they are what assistive technologies read and the buttons' tooltips.
+## "restore" is the Maximise button's name while the window is maximised.
+
+window-close = Cerrar
+window-maximize = Maximizar
+window-restore = Restaurar
+window-minimize = Minimizar
+
 ## Keys' names in shortcuts, as menus write them next to an item, joined by "+" (glossary:
 ## key_ctrl … key_numpad; ADR-0048 AM12, F2.11d2a). $number is a function key's number (1–24),
 ## $digit a digit of the numeric keypad (0–9).

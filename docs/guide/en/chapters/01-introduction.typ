@@ -90,6 +90,12 @@ system's *Services*, *Hide Orchestra* (⌘H), *Hide Others* (⌥⌘H), *Show All
 macOS adds the list of Orchestra's windows to it. Because ⌘H, ⌥⌘H and ⌘M belong to these system
 commands, Orchestra never gives them to one of its own commands on a Mac.
 
+On GNOME the system draws no title bar around a program's window, so Orchestra draws its own,
+with the menus in it to leave more room for the score. Drag its empty part to move the window,
+double-click it to maximise or restore the window, and right-click it for the system's window
+menu. The button on the right closes the window. On every other desktop the window keeps the
+title bar of the system, with the menus under it.
+
 - *With the mouse*, click a menu's name to open it, and click a command. You can also keep the
   button pressed, move onto a command and release it there. While a menu is open, moving the
   pointer over another menu's name opens that one; clicking the open menu's name again closes it.

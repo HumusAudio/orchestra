@@ -239,3 +239,40 @@ own decision; it is not part of this ADR.
 - Four new messages and glossary entries; one more screenshot in the guides.
 - The probe and the bar are checked by hand on GNOME, KDE Wayland and X11 by the owner (CI has
   no compositor).
+
+## Precisions of the implementation (F2.11b2, proposed to the owner on 2026-11-23)
+
+Before writing, the owner approved: F2.11b2 and F2.11b3 merged in one pull request, so `main`
+never loses the mouse resizing that `sctk-adwaita` gave on GNOME (choice a); a `TitleBar` widget
+holding the existing menu bar; the window's state as an input event and the title bar's wishes
+as window requests; the probe run before the window exists. While writing, the rest:
+- **TB2: who asks, and when.** The application asks `orchestra_ui::decorations()` once, before
+  building its interface, and passes the answer both to the window (`WindowOptions::decorations`;
+  with `Own` the window is created with `with_decorations(false)`) and to the interface it builds
+  (`Demo::with_decorations`), so the two always agree. The probe opens its own short connection
+  with `wayland-client` 0.31.15 and `wayland-protocols` 0.32.13 (`client`, `unstable`), the
+  versions already in the lock file: nothing new is compiled. Its cost could not be measured in
+  the sandbox (which refuses Unix sockets): `cargo run -p orchestra-ui --example decorations_probe`
+  prints it on a desktop.
+- **TB5: the menus in the bar.** The menu bar of ADR-0048 gains a **compact** form, as wide as its
+  titles and drawing nothing of its own, which the `TitleBar` places after the leading buttons.
+  The title is centred on the whole window when it fits in the free space there, otherwise in the
+  free space; when even the free space is narrower than the title it is not drawn (no ellipsis:
+  the window's name stays the bar's accessible name).
+- **TB6: dragging.** A press on the free space starts the drag only after the pointer moved more
+  than 4 logical pixels, not at the press: a drag taken by the compositor at the press would
+  swallow the second click of a double click (GTK does the same).
+- **TB6: full screen.** The title and the buttons disappear and the free space does nothing, but
+  **the menus stay**, as the menu bar under a system frame stays in full screen (TB6 said the bar
+  was not drawn; drawing nothing would leave the menus reachable only from the keyboard).
+- **TB6, TB8: the window's side.** A widget asks the window through its event context
+  (`EventCx::request_window`); the interface queues the requests and the application hands them on
+  first (`Ui::take_window_request`), then its own Quit and Full screen. New `WindowRequest`s:
+  `Drag`, `ToggleMaximized`, `Minimize`, `ShowWindowMenu { at }` (it loses `Eq`: the point is made
+  of `f32`s). The window tells the application `InputEvent::WindowState { maximized, fullscreen }`
+  when it opens and after every resize that changes it (`winit` has no event of its own for
+  either).
+- **TB9: tooltips.** The buttons' tooltips are their names, as GNOME's buttons have them.
+- **TB10: the words.** GTK's, from its catalogues (`gtkwindowcontrols.c`, `gtkwindowhandle.c`),
+  checked against Qt's (`QMdiSubWindow`): they agree except French Maximise, GTK "Maximiser", Qt
+  "Agrandir"; our bar is drawn only on GNOME, so GTK's.
