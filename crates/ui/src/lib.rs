@@ -85,6 +85,7 @@ pub use draw::skia::CpuRenderer;
 
 // Who draws the window's frame (ADR-0049 TB1, TB2, F2.11b2): the system or our title bar.
 pub use platform::decorations::{Decorations, button_layout, decorations};
+pub use platform::dialog::{ButtonOrder, button_order, system_button_order};
 
 // The system's menu bar (ADR-0048 AM9, F2.11e1): a description on every platform, `muda` on macOS.
 #[cfg(target_os = "macos")]
@@ -109,6 +110,10 @@ pub use widget::access::{
     ScrollInfo, TextInfo,
 };
 pub use widget::button::{Button, ButtonKind};
+pub use widget::dialog::{
+    ButtonRole, DialogButton, DialogKind, DialogSpec, MAX_WIDTH as DIALOG_MAX_WIDTH,
+    MIN_WIDTH as DIALOG_MIN_WIDTH,
+};
 pub use widget::edit::keys::{Direction, EditAction, EditConvention, Unit, edit_action};
 pub use widget::edit::{EditResponse, TextEditor};
 pub use widget::field::TextField;

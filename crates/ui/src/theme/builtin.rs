@@ -35,7 +35,10 @@ const SHADOW_DARK: Color = Color::rgba(0x0000_0080);
 const NO_SHADOW: Color = Color::rgba(0x0000_0000);
 
 /// The shape of a pair: its corners and line width; the focus ring is 2 px everywhere (ADR-0037
-/// T3, the thickness WCAG 2.4.13 asks for), the shadow 18 px of blur moved 6 px down, or nothing.
+/// T3, the thickness WCAG 2.4.13 asks for), the shadow 18 px of blur moved 6 px down, or nothing;
+/// the frame around a dialog 3 px everywhere (owner's choice in F2.12a3a, after screenshots of the
+/// veil and of the frame: thick enough to set the panel apart from the window behind on every
+/// pair, the black-and-white ones included).
 const fn shape(corner_radius: u8, line_width: u8, shadow: bool) -> Shape {
     Shape {
         corner_radius,
@@ -43,6 +46,7 @@ const fn shape(corner_radius: u8, line_width: u8, shadow: bool) -> Shape {
         focus_width: 2,
         shadow_blur: if shadow { 18 } else { 0 },
         shadow_offset: if shadow { 6 } else { 0 },
+        dialog_frame: 3,
     }
 }
 

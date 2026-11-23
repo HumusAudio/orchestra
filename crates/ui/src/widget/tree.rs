@@ -531,6 +531,8 @@ pub struct EventCx<'a, M> {
     pub(crate) ime_reset: bool,
     /// What the widget asks of the window ([`EventCx::request_window`]), if anything.
     pub(crate) window: Option<crate::WindowRequest>,
+    /// The widget asked to close the dialog it is in ([`EventCx::close_dialog`]).
+    pub(crate) close_dialog: bool,
 }
 
 impl<M> EventCx<'_, M> {
@@ -558,6 +560,13 @@ impl<M> EventCx<'_, M> {
     #[must_use]
     pub const fn modifiers(&self) -> Modifiers {
         self.modifiers
+    }
+
+    /// Closes the dialog this widget is in (ADR-0050 DG2), after the event: a dialog's button
+    /// sends its message and closes the dialog with it. The interface closes the innermost dialog
+    /// that contains the widget at the end of the input; nothing happens outside a dialog.
+    pub const fn close_dialog(&mut self) {
+        self.close_dialog = true;
     }
 
     /// Sends `message` to the application (WA7), after the event.

@@ -59,7 +59,8 @@ fn counts_match_the_adr() {
     assert_eq!(BuiltInTheme::ALL.len(), 10);
     assert_eq!(CONTRAST_PAIRS.len(), 31);
     assert_eq!(ColorToken::ALL.len(), 24);
-    assert_eq!(ShapeToken::ALL.len(), 5);
+    // 5 of ADR-0037 T3 and `dialog-frame`, added in F2.12a3a (ADR-0050 DG2 as amended).
+    assert_eq!(ShapeToken::ALL.len(), 6);
 }
 
 /// T5, second point: no token can be forgotten. Every colour token is a foreground or a background

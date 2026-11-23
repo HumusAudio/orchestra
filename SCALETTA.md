@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.86, approvata dal proprietario il 2026-11-23.**
+> **Stato di questo documento: v0.87, approvata dal proprietario il 2026-11-23.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -727,7 +727,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | 🔄 (F2.12a1–a5) | 2–3 |
 | F2.12a1 | **ADR delle finestre di dialogo, del file delle impostazioni e delle Preferenze**: livelli modali nella finestra, velo `scrim`, ordine dei pulsanti, `rfd` 0.18 asincrono, Nuovo/Apri/Salva collegati, file JSON con versione e lettura tollerante, cartella per piattaforma, modifiche applicate subito, sezioni, Informazioni su | ✅ ADR-0050 | 0,5 |
 | F2.12a2 | **File delle impostazioni** (ADR-0050 DG6–DG7): schema in `io`, lettura tollerante, file di una versione più nuova mai sovrascritto, migrazioni e file golden, cartella per piattaforma, scrittura ritardata, conversione in `app`, benchmark | ✅ | 1 |
-| F2.12a3 | **Finestre di dialogo nostre** (DG1–DG3, DG10): livello nella pila dei popup, token `scrim` nelle dieci coppie, pulsanti nell'ordine della piattaforma, domande ed errori, accessibilità, **Informazioni su Orchestra** con il logo, testi nei sei cataloghi | ⬜ | 1 |
+| F2.12a3 | **Finestre di dialogo nostre** (DG1–DG3, DG10): livello nella pila dei popup, token `scrim` nelle dieci coppie, pulsanti nell'ordine della piattaforma, domande ed errori, accessibilità, **Informazioni su Orchestra** con il logo, testi nei sei cataloghi | 🔄 (F2.12a3a–b) | 1,5–2 |
+| F2.12a3a | **Finestre di dialogo**: livello nella pila dei popup, cornice d'accento (token `dialog-frame`, niente velo), pulsanti nell'ordine del sistema, domande ed errori, tastiera e fuoco, accessibilità, testi *OK / Annulla / Chiudi* | ✅ | 1 |
+| F2.12a3b | **Informazioni su Orchestra**: azione `help.about`, convertitore nostro dei tracciati del logo, la finestra con versione, licenza, link e licenze dei font; screenshot e capitolo "Finestre di dialogo" delle guide | ⬜ | 0,5–1 |
 | F2.12a4 | **Preferenze** (DG8–DG9): sezioni Aspetto, Lingua, Riproduzione, Tastiera; modifiche applicate subito; `set_theme` con il modo scelto a mano; lampeggio, modificatore fine, valori di riproduzione; nomi delle coppie; screenshot e capitolo delle guide | ⬜ | 1–1,5 |
 | F2.12a5 | **Scelta dei file e progetto aperto** (DG4–DG5): `rfd` 0.18 rimisurato, finestra di scelta asincrona con il livello che blocca, errore senza portale; Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti; guide | ⬜ | 1 |
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
@@ -1033,6 +1035,16 @@ controllo completo. Va fatta bene una volta sola.
   (`WindowApp`) con la prima modifica delle Preferenze, e applicare le scorciatoie salvate al
   registro della finestra (`apply_settings_shortcuts`); lingua, lampeggio e modificatore fine
   letti dal file.
+- **F2.12a3a** **Fatto il 2026-11-23:** scelte C1–C9 approvate dal proprietario. Il velo
+  semitrasparente costava circa 47 M istruzioni per aprire una finestra di dialogo (fusione di
+  `tiny-skia` su ogni pixel), oltre il budget di 33 M: dopo gli screenshot il proprietario ha
+  scelto una **cornice d'accento di 3 px e niente velo** (modifica di ADR-0050 DG2, nuovo token di
+  forma `dialog-frame`, `scrim` tolto): circa 13 M, indipendente dalla finestra. Precisioni annotate
+  in ADR-0050.
+- **F2.12a3b** Da F2.12a3a: l'azione `help.about` con il ruolo *About*; il pulsante *Chiudi*
+  (`dialog-close`) esiste già nei cataloghi; la finestra si apre con `Ui::open_dialog_with` o con
+  una `DialogSpec`; serve `Ui::set_button_order(system_button_order())` all'avvio in `main.rs`;
+  porta lo screenshot e il capitolo "Finestre di dialogo" delle guide (C8).
 - **Più avanti** Da F2.12a2 (S4): un sistema di log vero al posto dell'uscita degli errori per gli
   avvisi delle impostazioni (e per il resto del programma); da decidere in un passo suo.
 - **F2.11a** **Fatto il 2026-11-17 (ADR-0048 Accepted):** si chiamano *azioni* le voci del
@@ -1483,3 +1495,4 @@ raccomandato.
 | 2026-11-23 | 0.84 | F2.11b2 e F2.11b3 fatti (una PR: sonda, barra del titolo nostra con menu e pulsanti, fascia di ridimensionamento, `button-layout` di GNOME; precisioni di ADR-0049; provati a mano su KDE); F2.11b chiuso; nota per una prova su GNOME vero; prossimo passo F2.12 | proprietario |
 | 2026-11-23 | 0.85 | F2.11 segnato ✅; F2.12 diviso in F2.12a1–a5; F2.12a1 fatto (ADR-0050 Accepted: finestre di dialogo come livelli modali, file delle impostazioni, Preferenze applicate subito, Informazioni su; raccomandazioni DG1–DG10 seguite dal proprietario); prossimo passo F2.12a2 | proprietario |
 | 2026-11-23 | 0.86 | F2.12a2 fatto (file delle impostazioni: scelte S1–S9 e precisioni P1–P6 di ADR-0050); note in F2.12a4 (sveglia dell'archivio, scorciatoie salvate) e per un log futuro; prossimo passo F2.12a3 | proprietario |
+| 2026-11-23 | 0.87 | F2.12a3 diviso in F2.12a3a e F2.12a3b; F2.12a3a fatto (finestre di dialogo; cornice d'accento al posto del velo dopo le misure e gli screenshot, modifica di ADR-0050 DG2); nota in F2.12a3b; prossimo passo F2.12a3b | proprietario |

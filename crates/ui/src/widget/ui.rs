@@ -134,6 +134,7 @@ use super::layout::{Constraints, LayoutProps, Size};
 use super::popup::{self, Popup, PopupSide};
 
 mod bar;
+mod dialogs;
 mod menus;
 mod system;
 mod title;
@@ -229,6 +230,13 @@ pub struct Ui<M> {
     ime_resets: u64,
     /// The open menus, lowest first (F2.11c, ADR-0048 AM11; see the module documentation).
     menus: Vec<MenuLayer>,
+    /// The open dialogs, lowest first (ADR-0050 DG1, F2.12a3a; the module `dialogs`).
+    dialogs: Vec<dialogs::DialogLayer>,
+    /// Widgets that asked to close their dialog during this input, carried out at the next frame
+    /// (`EventCx::close_dialog`). Reused.
+    dialogs_to_close: Vec<usize>,
+    /// The order of the dialogs' buttons (ADR-0050 DG2), set by the application.
+    button_order: crate::ButtonOrder,
     /// The display-list layer the next menu opens in: one above the last, back to the first when
     /// none is open.
     next_layer: u32,
@@ -364,6 +372,9 @@ impl<M: 'static> Ui<M> {
             ime_resets: 0,
             menus: Vec::new(),
             next_layer: FIRST_MENU_LAYER,
+            dialogs: Vec::new(),
+            dialogs_to_close: Vec::new(),
+            button_order: crate::ButtonOrder::AffirmativeLast,
             tooltip: TooltipState::default(),
             swallow_release: false,
             actions: None,
@@ -478,8 +489,11 @@ impl<M: 'static> Ui<M> {
         for menu in &mut self.menus {
             menu.owner = alive(menu.owner, tree);
         }
+        // A removed dialog is no longer open (its root went).
+        self.dialogs
+            .retain(|dialog| tree.slot(dialog.root).is_some());
         if self.menus.is_empty() {
-            self.next_layer = FIRST_MENU_LAYER;
+            self.next_layer = self.layer_floor();
         }
         // The tooltip forgets the controls that went; one shown for a removed control is hidden.
         self.tooltip.root = alive(self.tooltip.root, tree);
@@ -554,6 +568,20 @@ impl<M: 'static> Ui<M> {
     pub fn rect(&self, id: WidgetId) -> Option<Rect> {
         let slot = self.tree.slot_of(id)?;
         self.tree.slot(slot).map(|slot| slot.rect)
+    }
+
+    /// The children of `id`, in order (empty for an unknown widget). For the application to find
+    /// the widgets the interface built for it (a dialog's buttons) and for the tests; it
+    /// allocates the list, so it is not for a frame's path.
+    #[must_use]
+    pub fn children(&self, id: WidgetId) -> Vec<WidgetId> {
+        let Some(slot) = self.tree.slot_of(id).and_then(|slot| self.tree.slot(slot)) else {
+            return Vec::new();
+        };
+        slot.children
+            .iter()
+            .filter_map(|&child| self.id_of(child))
+            .collect()
     }
 
     /// The widget with the keyboard focus.
@@ -726,6 +754,11 @@ impl<M: 'static> Ui<M> {
     /// re-arranging is O(descendants that moved); recording walks the tree once, O(widgets),
     /// recording only the marked ones (and those whose clip changed).
     pub fn frame(&mut self, list: &mut DisplayList) {
+        // The dialogs whose buttons were pressed close first (ADR-0050 DG2): what follows lays
+        // out and records the interface without them.
+        if !self.dialogs_to_close.is_empty() {
+            self.close_requested(list);
+        }
         // The open menus' items follow their actions' states first (F2.11d2a): a changed text
         // lays an entry out again in this same frame.
         self.refresh_menus();
@@ -761,6 +794,8 @@ impl<M: 'static> Ui<M> {
     /// O(open popups) when nothing changed (one cached measure and one skipped arrange each),
     /// plus the layout of what did change.
     fn lay_out_popups(&mut self) {
+        // The dialogs first: a menu opened from inside one is placed after it.
+        self.lay_out_dialogs();
         for index in 0..self.menus.len() {
             if let Some(menu) = self.menus.get(index) {
                 let (root, popup) = (menu.root, menu.popup);
@@ -795,6 +830,8 @@ impl<M: 'static> Ui<M> {
         if let Some(frame) = self.frame_slot() {
             self.record_from(frame, 0, list);
         }
+        // The dialogs in their layers, below the menus opened after them (ADR-0050 DG1).
+        self.record_dialogs(list);
         for index in 0..self.menus.len() {
             if let Some(menu) = self.menus.get(index) {
                 let root = menu.root;
@@ -1111,8 +1148,10 @@ impl<M: 'static> Ui<M> {
             self.action_key = None;
             return;
         }
-        // The bar's keys before anything else (F2.11d2b): Alt alone, Alt+letter.
-        if self.bar_key_first(key, state, modifiers, list) {
+        // The bar's keys before anything else (F2.11d2b): Alt alone, Alt+letter. Not while a
+        // dialog is open: the bar is behind it (ADR-0050 DG2).
+        let dialog_open = !self.dialogs.is_empty();
+        if !dialog_open && self.bar_key_first(key, state, modifiers, list) {
             return;
         }
         // With a menu open the keys are the topmost menu's, bubbling inside it only, and Tab moves
@@ -1129,7 +1168,7 @@ impl<M: 'static> Ui<M> {
             return;
         }
         // The bar, while the keyboard is on it, takes every key (F2.11d2b).
-        if self.bar_key(key, state, list) {
+        if !dialog_open && self.bar_key(key, state, list) {
             return;
         }
         let start = self
@@ -1141,7 +1180,7 @@ impl<M: 'static> Ui<M> {
         }
         if *key == Key::Named(NamedKey::Tab) {
             self.move_focus(!modifiers.shift);
-        } else if !self.bar_f10(key, modifiers, list)
+        } else if (dialog_open || !self.bar_f10(key, modifiers, list))
             && !self.context_menu_key(start, key, modifiers)
         {
             self.shortcut(start, key, physical, repeat, modifiers);
@@ -1237,6 +1276,11 @@ impl<M: 'static> Ui<M> {
             return false;
         };
         let role = actions.registry.spec(id).and_then(|spec| spec.edit);
+        // While a dialog is open only the standard editing actions run, on its focused field
+        // (ADR-0050 DG2): no other action may act behind a question.
+        if role.is_none() && !self.dialogs.is_empty() {
+            return false;
+        }
         if let Some(role) = role
             && let Some(focused) = self.focused
             && let Some(enabled) = self.focused_edit_state(role)
@@ -1423,11 +1467,16 @@ impl<M: 'static> Ui<M> {
             clipboard: self.clipboard.as_mut(),
             ime_reset: false,
             window: None,
+            close_dialog: false,
         };
         let handled = widget.event(&mut cx, event);
         if let Some(request) = cx.window {
             // Handed to the window by the application, in order ([`Ui::take_window_request`]).
             self.window_requests.push_back(request);
+        }
+        if cx.close_dialog {
+            // Closed at the next frame, which ends every input (`dialogs::close_requested`).
+            self.dialogs_to_close.push(index);
         }
         if cx.ime_reset {
             // A new request: the window sees the count change and resets the input method
@@ -1822,7 +1871,7 @@ impl<M: 'static> Ui<M> {
             }
         }
         if self.menus.is_empty() {
-            self.next_layer = FIRST_MENU_LAYER;
+            self.next_layer = self.layer_floor();
         }
         // The pointer may be over the main interface again.
         if self.captured.is_none() {
@@ -2027,10 +2076,13 @@ impl<M: 'static> Ui<M> {
         let full = !self.access_sent;
         let mut update = empty_update(self.access_focus(), full);
         if full || self.access_window {
-            let menus = self.menus.iter().filter_map(|menu| self.id_of(menu.root));
+            // The open dialogs (their roots) and then the open menus, in their layers' order.
+            let dialogs = self.dialogs.iter().map(|dialog| dialog.root);
+            let menus = self.menus.iter().map(|menu| menu.root);
+            let layers = dialogs.chain(menus).filter_map(|slot| self.id_of(slot));
             update
                 .nodes
-                .push((WINDOW_NODE, window_node(&self.title, self.root(), menus)));
+                .push((WINDOW_NODE, window_node(&self.title, self.root(), layers)));
         }
         for index in 0..self.tree.slots.len() {
             let Some(slot) = self.tree.slot(index) else {

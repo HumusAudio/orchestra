@@ -11,7 +11,8 @@
   blink can be turned off), ADR-0046 V3 (the fine modifier), ADR-0027 §14–§15 (the playback values
   tuned by ear), ADR-0036 B4 (`rfd` and libdbus-1), ADR-0029 (the project file, its safe saving),
   ADR-0010 (versions and migrations), ADR-0008 (six languages), ADR-0006 (platform conventions).
-- **Amends:** ADR-0037 T3 (one colour token more, `scrim`: DG2); ADR-0036 (the `rfd` version:
+- **Amends:** ADR-0037 T3 (one shape token more, `dialog-frame`: DG2 as amended in F2.12a3a; the
+  colour token `scrim` first planned here was dropped with the veil); ADR-0036 (the `rfd` version:
   DG4).
 - **Step:** F2.12a1 of SCALETTA (this ADR); the realisation in F2.12a2–a5 (Consequences).
 
@@ -305,3 +306,37 @@ these precisions:
 - **P6, the shared engine.** The migration engine and the version scanner of the project file
   moved to `crates/io/src/migration.rs` and serve both files, each with its own version key;
   `orchestra_io::MigrationError` keeps its path.
+
+## Amendment of DG2 and precisions of the implementation (F2.12a3a, owner's choices of 2026-11-23)
+
+Choices C1–C9 were approved by the owner before the code (all as recommended): dialogs as layers
+of the popup stack sharing the layer counter with the menus (C1); the panel centred, 320–480
+logical pixels wide, its texts in a vertical scroll area and its buttons always visible (C2); the
+buttons' order from the system, KDE Plasma recognised in `XDG_CURRENT_DESKTOP` (C3); the focus on
+the default button, Enter, Escape, Tab inside, no mnemonics on the buttons (C4); `Ui::open_dialog`
+with a `DialogSpec` and `Ui::open_dialog_with` for a panel of the caller's (C5); no icon (C6); only
+the texts *OK*, *Cancel*, *Close* now (C7); nothing in the program opens a dialog until *About*
+(F2.12a3b), which brings the screenshot and the guides (C8); the tests and benchmarks (C9).
+
+- **The veil is replaced by a frame (amends DG2).** Measured: blending the translucent `scrim` over
+  every pixel cost about 43 instructions per pixel in `tiny-skia`, so opening a dialog in a 1000 ×
+  1000 window cost about 47 M instructions (about 90 M at 1080p), over the frame's budget of 33 M.
+  The owner saw screenshots with and without the veil and with a thick accent frame, and chose
+  **the frame and no veil**: the panel is drawn with a frame in the `accent` colour as wide as a
+  new shape token, **`dialog-frame`** (3 logical pixels in every pair; at least 1 when a custom
+  theme sets 0), and nothing is drawn over the window behind. Opening a dialog then costs about
+  13 M instructions whatever the window's size (the panel's texts and glyphs included). The colour
+  token `scrim` is not added; the window behind is not dimmed (a recorded limit: only the frame,
+  the default button and the focus tell that it is blocked).
+- **The root of a dialog's layer** spans the window and draws nothing; it centres the panel and
+  consumes every pointer event outside it (WB9 already blocks them; the root makes it explicit).
+- **Keys behind a dialog.** While a dialog is open the menu bar's keys (Alt, F10, the mnemonics)
+  and every action's shortcut are off, except the standard editing actions on a focused field
+  (ADR-0048 AM13).
+- **Closing.** A dialog's buttons are ordinary buttons made with `closing_dialog()`: they send
+  their message and ask (`EventCx::close_dialog`) for their dialog to close at the next frame, so
+  the message is queued before the dialog goes; Enter and Escape on the panel do the same with the
+  default's and the cancel button's messages.
+- **Accessibility.** `AccessInfo` gains `description` and `modal`; the panel is a modal `Dialog`
+  or `AlertDialog` named by its title and described by its message; the dialogs' roots are
+  children of the window node after the root and before the menus.

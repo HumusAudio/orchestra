@@ -161,6 +161,9 @@ pub enum ShapeToken {
     ShadowBlur,
     /// Vertical offset of the overlay shadow (downwards).
     ShadowOffset,
+    /// Width of the frame around a dialog's panel, drawn in the accent (ADR-0050 DG2 as amended
+    /// in F2.12a3a: a frame instead of a veil over the window).
+    DialogFrame,
 }
 
 impl ShapeToken {
@@ -171,6 +174,7 @@ impl ShapeToken {
         Self::FocusWidth,
         Self::ShadowBlur,
         Self::ShadowOffset,
+        Self::DialogFrame,
     ];
 
     /// The token's stable name (kebab case), the key of a custom theme's override; never shown
@@ -183,10 +187,11 @@ impl ShapeToken {
             Self::FocusWidth => "focus-width",
             Self::ShadowBlur => "shadow-blur",
             Self::ShadowOffset => "shadow-offset",
+            Self::DialogFrame => "dialog-frame",
         }
     }
 
-    /// The token with this stable name, or `None`. O(n) over 5 tokens, as
+    /// The token with this stable name, or `None`. O(n) over 6 tokens, as
     /// [`ColorToken::from_name`].
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
@@ -197,7 +202,7 @@ impl ShapeToken {
 /// The shape tokens of one theme instance, in logical pixels (see [`ShapeToken`]).
 ///
 /// Public with public fields: it is plain data that a renderer reads all at once (a button needs
-/// the radius, the line width and the focus width together), and five bytes copy for free.
+/// the radius, the line width and the focus width together), and six bytes copy for free.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Shape {
     /// [`ShapeToken::CornerRadius`].
@@ -210,6 +215,8 @@ pub struct Shape {
     pub shadow_blur: u8,
     /// [`ShapeToken::ShadowOffset`].
     pub shadow_offset: u8,
+    /// [`ShapeToken::DialogFrame`].
+    pub dialog_frame: u8,
 }
 
 impl Shape {
@@ -222,6 +229,7 @@ impl Shape {
             ShapeToken::FocusWidth => self.focus_width,
             ShapeToken::ShadowBlur => self.shadow_blur,
             ShapeToken::ShadowOffset => self.shadow_offset,
+            ShapeToken::DialogFrame => self.dialog_frame,
         }
     }
 
@@ -233,6 +241,7 @@ impl Shape {
             ShapeToken::FocusWidth => self.focus_width = value,
             ShapeToken::ShadowBlur => self.shadow_blur = value,
             ShapeToken::ShadowOffset => self.shadow_offset = value,
+            ShapeToken::DialogFrame => self.dialog_frame = value,
         }
     }
 }

@@ -75,10 +75,19 @@ pub enum AccessRole {
     /// A line between groups of items: hidden from assistive technologies, which count the items
     /// without it.
     Separator,
+    /// A dialog that asks something (ADR-0050 DG2).
+    Dialog,
+    /// A dialog that reports an error: assistive technologies announce it at once.
+    AlertDialog,
 }
 
 /// What a widget tells assistive technologies besides its role (WC2): all optional.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent facts a widget reports (disabled, clickable, has a context menu, modal), \
+              each read on its own by the AccessKit node builder"
+)]
 pub struct AccessInfo {
     /// The accessible name: a button's text, a label's text.
     pub label: Option<String>,
@@ -120,6 +129,11 @@ pub struct AccessInfo {
     /// The letter that chooses the widget inside its menu, or opens its menu from the bar with
     /// Alt (a menu item's mnemonic, F2.11d2b, ADR-0048 AM10).
     pub access_key: Option<char>,
+    /// A longer text that says what the widget is about, read after its name (a dialog's message,
+    /// ADR-0050 DG2).
+    pub description: Option<String>,
+    /// The widget is modal: nothing outside it can be used while it is shown (a dialog).
+    pub modal: bool,
 }
 
 /// One line of text as assistive technologies read it (F2.10b3, ADR-0045 WI1, ADR-0047 TF11).
@@ -303,6 +317,12 @@ pub(crate) fn push_widget_nodes(
     if let Some(label) = &info.label {
         node.set_label(label.as_str());
     }
+    if let Some(description) = &info.description {
+        node.set_description(description.as_str());
+    }
+    if info.modal {
+        node.set_modal();
+    }
     if let Some(on) = info.toggled {
         node.set_toggled(if on { Toggled::True } else { Toggled::False });
     }
@@ -411,6 +431,8 @@ const fn role_of(role: AccessRole) -> Role {
         AccessRole::TitleBar => Role::TitleBar,
         AccessRole::MenuItem => Role::MenuItem,
         AccessRole::MenuItemCheckBox => Role::MenuItemCheckBox,
+        AccessRole::Dialog => Role::Dialog,
+        AccessRole::AlertDialog => Role::AlertDialog,
     }
 }
 

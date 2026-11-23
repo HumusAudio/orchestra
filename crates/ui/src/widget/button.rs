@@ -46,6 +46,11 @@ pub enum ButtonKind {
 
 /// A push button that emits a message when activated (WC8).
 #[derive(Debug)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "independent flags (enabled, hovered, pressed, closes its dialog), each set by a \
+              different event or builder"
+)]
 pub struct Button<M> {
     /// The text, already localised.
     text: String,
@@ -62,6 +67,8 @@ pub struct Button<M> {
     /// The laid-out text: whole and, when the button is narrower than its text and padding,
     /// shortened with an ellipsis (F2.09f, ADR-0045 WJ1).
     layout: ElidedText,
+    /// Activating it also closes the dialog it is in (a dialog's button, ADR-0050 DG2).
+    closes_dialog: bool,
 }
 
 impl<M: Clone> Button<M> {
@@ -76,7 +83,16 @@ impl<M: Clone> Button<M> {
             hovered: false,
             pressed: false,
             layout: ElidedText::new(),
+            closes_dialog: false,
         }
+    }
+
+    /// The same button, closing the dialog it is in when activated, after sending its message
+    /// (ADR-0050 DG2: a dialog's buttons answer and close it).
+    #[must_use]
+    pub const fn closing_dialog(mut self) -> Self {
+        self.closes_dialog = true;
+        self
     }
 
     /// The same button with another look.
@@ -84,6 +100,18 @@ impl<M: Clone> Button<M> {
     pub const fn kind(mut self, kind: ButtonKind) -> Self {
         self.kind = kind;
         self
+    }
+
+    /// The text, as given.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Plain or primary.
+    #[must_use]
+    pub const fn look(&self) -> ButtonKind {
+        self.kind
     }
 
     /// Enables or disables the button. The caller asks the interface to record it again.
@@ -115,9 +143,12 @@ impl<M: Clone> Button<M> {
         self.layout.is_elided()
     }
 
-    /// Emits the message.
+    /// Emits the message, and closes the dialog for a dialog's button.
     fn activate(&self, cx: &mut EventCx<'_, M>) {
         cx.emit(self.message.clone());
+        if self.closes_dialog {
+            cx.close_dialog();
+        }
     }
 
     /// The fill, the text colour and whether to draw a border, for the current state.
