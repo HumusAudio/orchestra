@@ -2980,7 +2980,8 @@ ornamenti `"trill[1]"`, `"tremolo[3]"`; tutto ciò che è raro è un oggetto con
   scrive, così un elenco conosce il proprio nome.
 - `header.rs`: legge `"orchestra_format": N` dai primi byte prima di qualunque lettura (S5); una
   firma zip o gzip è "fatto con un Orchestra più nuovo" (una versione futura potrà comprimere),
-  tutto il resto che non comincia come un progetto è "non è un progetto".
+  tutto il resto che non comincia come un progetto è "non è un progetto". Lo scanner vero e
+  proprio, `migration::leading_version`, è in comune con il file delle impostazioni (F2.12a2).
 - `mod.rs`: l'API e gli errori. `LoadError` ha `Io`, `TooLarge` (oltre 1 GiB, controllato sulla
   dimensione del file prima di leggerlo), `NotAProject`, `NewerFormat`, `Syntax` e `Schema` con
   riga e colonna date da `serde_json` (I8; `Schema` non ha riga per gli errori della conversione,
@@ -3016,8 +3017,9 @@ cargo test -p orchestra-io --test golden -- --ignored   # writes only the missin
 
 Un file di una versione più vecchia segue una strada più lenta quando viene caricato: l'albero JSON
 generico, la catena delle migrazioni di `src/project/migrate.rs` (`MIGRATIONS[k]` migra dalla
-versione `k + 1` alla `k + 2`, ognuna una funzione pura sull'albero; il meccanismo imposta
-`orchestra_format` dopo ogni passo), poi lo schema corrente. La catena è vuota finché la versione 1
+versione `k + 1` alla `k + 2`, ognuna una funzione pura sull'albero; il motore,
+`src/migration.rs`, in comune con il file delle impostazioni da F2.12a2, imposta `orchestra_format`
+dopo ogni passo), poi lo schema corrente. La catena è vuota finché la versione 1
 è l'unica; il meccanismo è provato con una catena di due passi solo per i test (un campo
 rinominato, uno aggiunto), e un passo che fallisce o che manca dà `LoadError::Migration { from,
 reason }`, dove `reason` è un `MigrationError` tipizzato (`MissingStep`, `NotAnObject`,
@@ -3200,6 +3202,140 @@ midi::export (full preset)       18 390 000     442 690 000 instructions
 Circa 18 ms e 0,44 s con la regola di F1.16c (1 istruzione per nanosecondo sul portatile di
 riferimento), dentro i budget proposti da ADR-0032 (100 M e 2 G). Il file della partitura pesante
 pesa circa 0,9 MB.
+
+#### Il file delle impostazioni
+
+**Che cos'è** (ADR-0050 DG6–DG7, SCALETTA F2.12a2). Le scelte del programma, quelle che
+appartengono all'utente e non a un progetto, stanno in un solo file, `settings.json`: il tema (la
+coppia o il tema personalizzato in uso, il modo, i temi personalizzati), la lingua
+dell'interfaccia, il lampeggio del cursore, il modificatore della regolazione fine, le scorciatoie
+dell'utente e i valori di riproduzione. Come il file di progetto è JSON semplice, indentato di due
+spazi e scritto sempre nello stesso ordine, così si può leggere e perfino cambiare a mano; il suo
+primo campo è la sua versione del formato, `orchestra_settings`:
+
+```json
+{
+  "orchestra_settings": 1,
+  "theme": {
+    "use": "custom:Night desk",
+    "mode": "dark",
+    "custom": [
+      { "name": "Night desk", "base": "slate",
+        "light": [ { "color": "accent", "value": "#3366ccff" } ],
+        "dark": [ { "density": "compact" } ] }
+    ]
+  },
+  "language": "it",
+  "caret_blink": false,
+  "fine_modifier": "shift",
+  "shortcuts": [ { "action": "file.save", "keys": ["Primary+s", "F2"] } ],
+  "playback": { "accent-step": 2 }
+}
+```
+
+**Dove sta** (`crates/io/src/platform/config_dir.rs`, DG7). Su Linux in
+`$XDG_CONFIG_HOME/orchestra/` (oppure `~/.config/orchestra/` quando la variabile manca, è vuota o
+è relativa, come chiede la specifica XDG), su Windows in `%APPDATA%\Orchestra\`, su macOS in
+`~/Library/Application Support/Orchestra/`. La cartella si calcola solo dalle variabili
+d'ambiente, così `orchestra-io` continua a non avere bisogno di `unsafe` né di un crate nuovo; il
+sistema è un valore (`System::Unix`, `Windows`, `MacOs`) e le variabili si leggono attraverso una
+funzione passata dall'esterno, così i test su Linux provano tutti e tre i sistemi con ambienti
+inventati. Senza nessuna variabile utilizzabile `settings::directory()` risponde `None`, e il
+programma funziona con i valori predefiniti senza salvare.
+
+**Il modulo** (`crates/io/src/settings/`, pubblico come `orchestra_io::settings`, come `midi`,
+perché il suo `load` e il suo `save` si scontrerebbero nella radice con quelli del file di
+progetto):
+- `mod.rs`: i tipi semplici (`Settings`, `ThemeSettings`, `ThemeChoice`, `Mode`, `CustomTheme`,
+  `ThemeOverride`, `Language`, `FineModifier`, `ShortcutEntry`), gli avvisi e l'API (`load`,
+  `save`, `from_bytes`, `to_bytes`, `directory`, `default_path`). I tipi sono fatti di
+  identificatori e di testi, mai dei tipi dell'interfaccia: `orchestra-io` e `orchestra-ui` non
+  dipendono l'uno dall'altro, e la traduzione la fa l'applicazione (sotto).
+- `read.rs`: la lettura **tollerante**. Percorre a mano l'albero `serde_json::Value` invece di
+  derivare `Deserialize`, perché una lettura derivata fa fallire tutto il valore al primo campo
+  sbagliato, mentre qui ogni campo deve fallire da solo: un tipo sbagliato, una parola
+  sconosciuta, un colore malformato o un numero fuori dai limiti danno il valore predefinito di
+  quella voce e un `Warning` con il percorso del punto (`theme.custom[0].light[2]`), e il resto si
+  tiene. Il percorso si costruisce solo quando nasce un avviso.
+- `write.rs`: la scrittura, con strutture `serde` che prendono in prestito da `Settings`: un
+  oggetto `Value` ordinerebbe le chiavi e metterebbe `caret_blink` prima della versione.
+- `migrate.rs`: la catena delle migrazioni delle impostazioni (vuota nella versione 1), provata
+  con una catena di due passi solo per i test.
+
+**Mai un motivo per non partire** (DG6). `load` non fallisce mai. Un file che manca dà i valori
+predefiniti. Un file che non è affatto un file di impostazioni (non è JSON, non ha la versione,
+supera 1 MiB, una versione vecchia la cui migrazione fallisce) viene rinominato
+`settings.json.broken`, sostituendo quello di prima (scelta S6), e si usano i valori predefiniti.
+Un file scritto da un Orchestra **più nuovo** si legge per quanto questa versione capisce e
+`Loaded::writable` è `false`: non viene mai sovrascritto, così le scelte di una versione più nuova
+non si perdono. Neppure un file che non si riesce a leggere (permessi, un errore del disco) viene
+sovrascritto durante la sessione. Ogni problema è un `Warning` tipizzato; il programma li scrive
+sull'uscita degli errori finché non esiste un log vero (scelta S4).
+
+**Ordine e doppioni.** Le scorciatoie sono un **elenco** di voci `{ "action", "keys" }`, non un
+oggetto: `serde_json` legge un oggetto in una mappa ordinata e tiene solo l'ultima di due chiavi
+uguali, così la regola di ADR-0048 AM7, "in un conflitto vince la voce successiva", perderebbe il
+suo "successiva". Le modifiche di un tema personalizzato sono un elenco per lo stesso motivo (vince
+la modifica successiva di un token, ADR-0037 T7); un nome di tema personalizzato ripetuto tiene il
+primo. I valori di riproduzione (scelta S2) sono una mappa da un nome a un intero, con i nomi
+fissati in F2.12a4: uno sconosciuto si conserva e si riscrive, così la versione 1 non cambia
+quando arriveranno.
+
+**In comune con il file di progetto.** Il motore delle migrazioni e lo scanner della versione nei
+primi byte ora stanno in `crates/io/src/migration.rs`, usati da entrambi i file con la loro chiave
+(`orchestra_format`, `orchestra_settings`); `MigrationError` vive lì e mantiene il suo percorso
+pubblico. Il salvataggio passa per lo stesso `safe_write` dei progetti, dopo aver creato la
+cartella.
+
+**Nell'applicazione** (`crates/app/src/settings/`). `convert.rs` traduce nei due sensi:
+`theme_from_settings` dà la coppia risolta e il modo (un tema personalizzato dalla sua base e
+dalle sue modifiche), `language_from_settings` il `Locale` o quello di sistema,
+`apply_settings_shortcuts` legge ogni testo con `Shortcut::from_settings_text` e passa gli elenchi
+a `load_overrides` del registro delle azioni, e le funzioni `*_to_settings` sono le inverse. Ciò
+che l'interfaccia non conosce (una coppia, un token, una lingua, un'azione o un testo di
+scorciatoia sconosciuti) è un `SettingsProblem`, con il valore predefinito al suo posto.
+`SettingsStore` tiene le impostazioni della sessione: `update` le cambia e, quando sono cambiate
+davvero, fa scadere una scrittura mezzo secondo dopo (ripartendo a ogni modifica, così il
+trascinamento di un cursore è una sola scrittura); `next_wakeup` e `advance` servono alla sveglia a
+tempo della finestra (agganciata quando le Preferenze faranno la prima modifica, F2.12a4); la
+scrittura avviene su un **thread tutto suo**, `orchestra-settings`, che riceve copie delle
+impostazioni da un canale, scrive solo l'ultima in attesa e rimanda indietro i fallimenti
+(`take_failures`), così il thread dell'interfaccia non aspetta mai `fsync`; `close` scrive ciò che
+aspetta e attende la fine del thread. `main.rs` apre l'archivio prima della finestra e ne prende la
+coppia e il modo del tema.
+
+**Il testo delle impostazioni di una scorciatoia** (`crates/ui/src/action/text.rs`).
+`Shortcut::settings_text` scrive `Primary+Shift+z`: i modificatori astratti nell'ordine Primary,
+Secondary, Alt, Shift, poi il tasto (un carattere, la cifra della fila dei numeri, `Numpad7`,
+`F1`–`F24`, oppure un nome come `Delete`, `ArrowUp`, `Menu`). `Shortcut::from_settings_text` lo
+rilegge con i modificatori in qualunque ordine, ognuno una volta sola; una parola di modificatore
+conta solo se la segue un `+`, così `Primary++` è il tasto più. Sono metodi che portano il nome
+delle impostazioni, non `Display`, perché sullo schermo si vede la grafia di ogni piattaforma (le
+etichette di F2.11d2a), mai questa.
+
+**Test e benchmark.** `crates/io/tests/settings_cases.rs`: i file golden di
+`tests/golden/settings-v1/` (`defaults.json`, `everything.json`) si leggono nelle loro impostazioni
+senza avvisi e si riscrivono byte per byte; un test di proprietà dell'andata e ritorno; un campo
+sbagliato dopo l'altro che lascia intatti gli altri; temi personalizzati e modifiche controllati
+uno per uno; una versione più nuova; file che non sono impostazioni; e, su file veri, un file che
+manca, uno rovinato spostato da parte, uno più nuovo lasciato intatto, un salvataggio in cartelle
+che non esistono ancora. `crates/app/tests/settings.rs` verifica che la coppia predefinita del
+file sia quella dell'interfaccia, che ogni nome di `everything.json` sia noto all'interfaccia, i
+problemi e l'andata e ritorno delle scorciatoie attraverso il registro; i test dell'archivio
+verificano il ritardo, la scrittura alla chiusura, un file più nuovo conservato e una scrittura
+fallita segnalata. La forma testuale ha i suoi test unitari e di proprietà. Il benchmark
+`crates/io/benches/settings.rs` codifica e legge cento volte un file di impostazioni grande (dieci
+temi personalizzati con 20 modifiche per metà, 60 azioni cambiate, 20 valori di riproduzione):
+
+```text
+operation                      large settings (≈ 42 KB)
+settings_write (100 ×)          71 659 221 instructions
+settings_read  (100 ×)         314 763 376 instructions
+```
+
+Circa 0,7 M istruzioni per scrittura e 3,1 M per lettura: con la regola di F1.16c circa 0,7 ms sul
+thread di scrittura e 3 ms una volta all'avvio (budget 3 s); i file normali ne costano una piccola
+frazione.
 
 #### Il comando di prova della tappa M1
 
@@ -5017,6 +5153,8 @@ allochi; `crates/app/tests/actions.rs` costruisce il registro del programma sull
 piattaforme, trova ogni nome nelle sei lingue e verifica che F11 e Ctrl+Q arrivino alla finestra.
 Il benchmark `shortcut_press` misura un Ctrl+S intero (pressione, risalita, contesti, ricerca,
 messaggio, rilascio consumato) sul pannello di 200 widget: 26 174 istruzioni.
+Le scorciatoie dell'utente si scrivono nel file delle impostazioni con `Shortcut::settings_text`
+e si rileggono con `Shortcut::from_settings_text` (vedi "Il file delle impostazioni").
 
 #### Menu e menu contestuali
 

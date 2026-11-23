@@ -43,5 +43,11 @@ harness = false
 name = "midi"
 harness = false
 
+# Instruction-count benchmarks of encoding and reading a large settings file (ADR-0050 DG6,
+# SCALETTA F2.12a2).
+[[bench]]
+name = "settings"
+harness = false
+
 [lints]
 workspace = true

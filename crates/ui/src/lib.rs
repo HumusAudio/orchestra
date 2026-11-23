@@ -101,6 +101,7 @@ pub use action::registry::{
     RegistryError,
 };
 pub use action::shortcut::{Platform, Shortcut, ShortcutError, ShortcutKey};
+pub use action::text::ShortcutTextError;
 
 // The window and the event loop (ADR-0040), re-exported like the rest.
 pub use widget::access::{

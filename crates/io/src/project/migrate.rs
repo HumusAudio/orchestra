@@ -22,86 +22,35 @@
 //! The tree path measured about 3× slower than reading the typed schema directly (the spike of
 //! `spikes/fileformat/`), paid once per old file: the next save writes the current version.
 
-use std::fmt;
-
 use serde_json::Value;
 
 use super::LoadError;
 
-/// Why a file could not be migrated from one version to the next (ADR-0029 S11): typed, so that
-/// the interface can map each case to a Fluent key (ADR-0008) and the tests can match it, instead
-/// of a free English text.
-///
-/// The fields name places in the file as `&'static str` paths written by the migration itself
-/// (for example `"written_by"` or `"tracks[].voices"`): a migration knows statically what the
-/// old version guarantees, so it never needs to build a path at run time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MigrationError {
-    /// The chain has no migration from this version (a bug of the program, never of the file:
-    /// a unit test checks that the chain covers every step).
-    MissingStep,
-    /// The file, or the tree a step produced, is not a JSON object.
-    NotAnObject,
-    /// A field that the old version guarantees is missing.
-    MissingField(&'static str),
-    /// A field has a value of a type the old version does not allow.
-    WrongType(&'static str),
-}
-
-impl fmt::Display for MigrationError {
-    /// A short English description, for developers (the interface maps the variants to Fluent
-    /// keys).
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MissingStep => f.write_str("no migration from this version"),
-            Self::NotAnObject => f.write_str("the file is not a JSON object"),
-            Self::MissingField(path) => write!(f, "the field `{path}` is missing"),
-            Self::WrongType(path) => write!(f, "the field `{path}` has the wrong type"),
-        }
-    }
-}
-
-impl std::error::Error for MigrationError {}
-
-/// One migration: the tree of a file of version `n` → the tree of version `n + 1`. A failure
-/// means the file does not have what version `n` guarantees.
-pub(crate) type Migration = fn(Value) -> Result<Value, MigrationError>;
+use crate::migration::Migration;
+pub use crate::migration::MigrationError;
 
 /// The chain: `MIGRATIONS[k]` migrates version `k + 1` to `k + 2`. Empty while version 1 is the
 /// only one; its length is always `FORMAT_VERSION - 1` (checked by a unit test).
 pub(crate) const MIGRATIONS: [Migration; 0] = [];
 
-/// Migrates the tree of a file of version `from` to version `to` with `chain` (see the module
-/// documentation). O(steps × size of the tree).
+/// The key of the format version, which every step updates (ADR-0029 S5).
+const VERSION_KEY: &str = "orchestra_format";
+
+/// Migrates the tree of a project file of version `from` to version `to` with `chain`, through
+/// the engine shared with the settings file ([`crate::migration::run`]). O(steps × size of the
+/// tree).
 ///
 /// # Errors
 /// [`LoadError::Migration`] if a step is missing from the chain, if the tree is not an object, or
 /// if a step fails.
 pub(crate) fn migrate_with(
-    mut tree: Value,
+    tree: Value,
     from: u64,
     to: u64,
     chain: &[Migration],
 ) -> Result<Value, LoadError> {
-    let mut version = from;
-    while version < to {
-        // The version of this step, copied: the loop variable moves on after the step.
-        let at = version;
-        let fail = move |reason: MigrationError| LoadError::Migration { from: at, reason };
-        let step = usize::try_from(version.saturating_sub(1))
-            .ok()
-            .and_then(|k| chain.get(k))
-            .ok_or(fail(MigrationError::MissingStep))?;
-        tree = step(tree).map_err(fail)?;
-        version = version.saturating_add(1);
-        match &mut tree {
-            Value::Object(map) => {
-                map.insert("orchestra_format".to_owned(), Value::from(version));
-            }
-            _ => return Err(fail(MigrationError::NotAnObject)),
-        }
-    }
-    Ok(tree)
+    crate::migration::run(tree, from, to, chain, VERSION_KEY)
+        .map_err(|(from, reason)| LoadError::Migration { from, reason })
 }
 
 #[cfg(test)]

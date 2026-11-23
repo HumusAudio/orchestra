@@ -16,7 +16,9 @@
 //! ## Modules (private, ADR-0034 D1: the root re-exports the API)
 //! - `actions`: the program's actions with their default shortcuts per platform (ADR-0048 AM6);
 //! - `demo`: the demonstration window of ADR-0040 W8, until the real views exist;
-//! - `screenshots`: the catalogue of screenshot scenes and how one is rendered (ADR-0041).
+//! - `screenshots`: the catalogue of screenshot scenes and how one is rendered (ADR-0041);
+//! - `settings`: the settings of the session, their writing on a thread of their own, and their
+//!   translation between the settings file and the interface's types (ADR-0050 DG6, F2.12a2).
 //!
 //! ## What this crate must NOT do
 //! - Contain business logic: if something here grows beyond wiring, it belongs in a library crate.
@@ -31,6 +33,7 @@
 mod actions;
 mod demo;
 mod screenshots;
+mod settings;
 
 pub use actions::{
     ActionIds, ActionTexts, ActionsError, TITLES, action_texts, field_menu, menu_bar, registry,
@@ -40,3 +43,9 @@ pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
 };
+pub use settings::convert::{
+    SettingsProblem, apply_settings_shortcuts, custom_theme_from_settings,
+    custom_theme_to_settings, language_from_settings, language_to_settings, mode_to_settings,
+    shortcuts_to_settings, theme_from_settings,
+};
+pub use settings::{SettingsStore, WRITE_DELAY};

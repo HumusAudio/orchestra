@@ -1,0 +1,13 @@
+{
+  "orchestra_settings": 1,
+  "theme": {
+    "use": "studio",
+    "mode": "system",
+    "custom": []
+  },
+  "language": "system",
+  "caret_blink": true,
+  "fine_modifier": "primary",
+  "shortcuts": [],
+  "playback": {}
+}

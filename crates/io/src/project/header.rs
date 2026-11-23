@@ -21,7 +21,7 @@ const ZIP: &[u8] = b"PK\x03\x04";
 /// The signature of a gzip stream.
 const GZIP: &[u8] = b"\x1F\x8B";
 /// The UTF-8 byte order mark, which some editors add and the reader ignores (ADR-0029 S3).
-pub(crate) const BOM: &[u8] = b"\xEF\xBB\xBF";
+pub(crate) const BOM: &[u8] = crate::migration::BOM;
 /// The key that must come first.
 const KEY: &[u8] = b"\"orchestra_format\"";
 
@@ -41,32 +41,7 @@ pub(crate) fn version(bytes: &[u8]) -> Result<u64, LoadError> {
             supported: super::FORMAT_VERSION,
         });
     }
-    let rest = bytes.strip_prefix(BOM).unwrap_or(bytes);
-    let rest = after_whitespace(rest);
-    let rest = rest.strip_prefix(b"{").ok_or(LoadError::NotAProject)?;
-    let rest = after_whitespace(rest);
-    let rest = rest.strip_prefix(KEY).ok_or(LoadError::NotAProject)?;
-    let rest = after_whitespace(rest);
-    let rest = rest.strip_prefix(b":").ok_or(LoadError::NotAProject)?;
-    let rest = after_whitespace(rest);
-    let digits = rest.iter().take_while(|c| c.is_ascii_digit()).count();
-    let mut value: u64 = 0;
-    for &d in rest.get(..digits).unwrap_or(&[]) {
-        value = value
-            .checked_mul(10)
-            .and_then(|v| v.checked_add(u64::from(d.wrapping_sub(b'0'))))
-            .ok_or(LoadError::NotAProject)?;
-    }
-    if digits == 0 || value == 0 {
-        return Err(LoadError::NotAProject);
-    }
-    Ok(value)
-}
-
-/// The bytes after the leading ASCII whitespace (JSON's whitespace is a subset). O(whitespace).
-fn after_whitespace(bytes: &[u8]) -> &[u8] {
-    let n = bytes.iter().take_while(|c| c.is_ascii_whitespace()).count();
-    bytes.get(n..).unwrap_or(&[])
+    crate::migration::leading_version(bytes, KEY).ok_or(LoadError::NotAProject)
 }
 
 #[cfg(test)]

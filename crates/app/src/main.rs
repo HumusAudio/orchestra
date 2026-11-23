@@ -28,18 +28,30 @@
 
 use std::process::ExitCode;
 
-use orchestra_app::{Demo, DemoTexts};
+use orchestra_app::{Demo, DemoTexts, SettingsStore, theme_from_settings};
 use orchestra_i18n::{Locale, Localizer};
-use orchestra_ui::{BuiltInTheme, ThemeMode, WindowOptions};
+use orchestra_ui::WindowOptions;
 
 /// Program entry point: opens the demonstration window of ADR-0040 W8 until the real interface
 /// exists.
 ///
 /// The title is the localised application name (CLAUDE.md §7; the language is fixed to en-US
-/// until F2.13 detects the system's). The theme is Studio (ADR-0037 T1) in the *System* mode: the
-/// window reads the system's light/dark preference and follows its changes (ADR-0038), until the
-/// Preferences of F2.12 let the user choose both.
+/// until F2.13 detects the system's). The theme comes from the **settings file** (ADR-0050 DG6,
+/// F2.12a2): the pair (or custom theme) and the mode saved there, Studio in the *System* mode by
+/// default; in *System* the window reads the system's light/dark preference and follows its
+/// changes (ADR-0038). What the settings could not use is written to the standard error (choice
+/// S4: no log yet), and the program starts anyway.
 fn main() -> ExitCode {
+    // The settings first, before the window: a few kilobytes read synchronously (choice S7).
+    let (store, warnings) = SettingsStore::open(orchestra_io::settings::default_path());
+    for warning in &warnings {
+        eprintln!("orchestra: settings: {warning}");
+    }
+    let mut problems = Vec::new();
+    let (pair, mode) = theme_from_settings(&store.settings().theme, &mut problems);
+    for problem in &problems {
+        eprintln!("orchestra: settings: {problem}");
+    }
     let texts = Localizer::new(Locale::EnUs).and_then(|localizer| {
         Ok((
             localizer.format("app-name", None)?,
@@ -67,15 +79,17 @@ fn main() -> ExitCode {
     let decorations = orchestra_ui::decorations();
     let options = WindowOptions {
         title,
-        pair: *BuiltInTheme::Studio.pair(),
-        mode: ThemeMode::System,
+        pair,
+        mode,
         width: 960.0,
         height: 600.0,
         faces,
         decorations,
     };
-    // The density, text and shape tokens of Studio (the same in both halves); the colours follow
-    // the system through the window.
+    // The density, text and shape tokens of the chosen pair's light half: the same in both halves
+    // of every built-in pair, so only a custom theme that changes them in one half differs (the
+    // layout following the mode for those comes with the Preferences, F2.12a4); the colours
+    // follow the mode through the window.
     let theme = *options.pair.instance(orchestra_ui::Appearance::Light);
     // GNOME's choice of title bar buttons, read once, only where our title bar is drawn (F2.11b3).
     let button_layout = (decorations == orchestra_ui::Decorations::Own)
@@ -89,7 +103,12 @@ fn main() -> ExitCode {
         decorations,
         button_layout.as_deref(),
     );
-    match orchestra_ui::run(demo, options) {
+    let result = orchestra_ui::run(demo, options);
+    // What is still waiting is written, and the writer thread is waited for (DG6).
+    for failure in store.close() {
+        eprintln!("orchestra: settings: {failure}");
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("orchestra: {error}");

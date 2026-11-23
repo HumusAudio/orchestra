@@ -18,6 +18,13 @@
 //! the next save fail if copied (a read-only target refuses the replacing rename anyway, which
 //! reports the problem instead of hiding it).
 
+//!
+//! # Where the settings file lives
+//! `config_dir` answers the directory of the settings file on each system (ADR-0050 DG7) from
+//! environment variables only; it is chosen by value, so that every system's answer is tested
+//! everywhere.
+
+pub(crate) mod config_dir;
 #[cfg(not(unix))]
 mod other;
 #[cfg(unix)]

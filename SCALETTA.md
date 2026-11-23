@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.85, approvata dal proprietario il 2026-11-23.**
+> **Stato di questo documento: v0.86, approvata dal proprietario il 2026-11-23.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -726,7 +726,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11b3 | **Bordi e disposizione dei pulsanti** (ADR-0049 TB4, TB7, TB11, TB12): fascia di ridimensionamento e angoli con le forme del puntatore, bordo, `button-layout` dal portale, benchmark, screenshot e capitolo delle guide, prove a mano su GNOME, KDE Wayland e X11 | ✅ | 0,5–1 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | 🔄 (F2.12a1–a5) | 2–3 |
 | F2.12a1 | **ADR delle finestre di dialogo, del file delle impostazioni e delle Preferenze**: livelli modali nella finestra, velo `scrim`, ordine dei pulsanti, `rfd` 0.18 asincrono, Nuovo/Apri/Salva collegati, file JSON con versione e lettura tollerante, cartella per piattaforma, modifiche applicate subito, sezioni, Informazioni su | ✅ ADR-0050 | 0,5 |
-| F2.12a2 | **File delle impostazioni** (ADR-0050 DG6–DG7): schema in `io`, lettura tollerante, file di una versione più nuova mai sovrascritto, migrazioni e file golden, cartella per piattaforma, scrittura ritardata, conversione in `app`, benchmark | ⬜ | 1 |
+| F2.12a2 | **File delle impostazioni** (ADR-0050 DG6–DG7): schema in `io`, lettura tollerante, file di una versione più nuova mai sovrascritto, migrazioni e file golden, cartella per piattaforma, scrittura ritardata, conversione in `app`, benchmark | ✅ | 1 |
 | F2.12a3 | **Finestre di dialogo nostre** (DG1–DG3, DG10): livello nella pila dei popup, token `scrim` nelle dieci coppie, pulsanti nell'ordine della piattaforma, domande ed errori, accessibilità, **Informazioni su Orchestra** con il logo, testi nei sei cataloghi | ⬜ | 1 |
 | F2.12a4 | **Preferenze** (DG8–DG9): sezioni Aspetto, Lingua, Riproduzione, Tastiera; modifiche applicate subito; `set_theme` con il modo scelto a mano; lampeggio, modificatore fine, valori di riproduzione; nomi delle coppie; screenshot e capitolo delle guide | ⬜ | 1–1,5 |
 | F2.12a5 | **Scelta dei file e progetto aperto** (DG4–DG5): `rfd` 0.18 rimisurato, finestra di scelta asincrona con il livello che blocca, errore senza portale; Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti; guide | ⬜ | 1 |
@@ -1023,6 +1023,18 @@ controllo completo. Va fatta bene una volta sola.
   schema in `io`, cartella letta dalle variabili d'ambiente (niente `unsafe`, `dirs` di riserva);
   Preferenze applicate subito (Aspetto, Lingua al riavvio fino a F2.13, Riproduzione, Tastiera);
   `help.about` con il logo convertito da noi in tracciati, senza un motore SVG.
+- **F2.12a2** **Fatto il 2026-11-23:** scelte S1–S9 e precisioni P1–P6 di ADR-0050 approvate dal
+  proprietario. Modulo `orchestra_io::settings` (lettura tollerante, file rovinato spostato in
+  `settings.json.broken`, file più nuovo mai sovrascritto, file golden `settings-v1`, migrazioni con
+  il motore ora in comune con il file di progetto), cartella dalle variabili d'ambiente, testo delle
+  scorciatoie nelle impostazioni (`Primary+Shift+z`), conversione e `SettingsStore` con il thread di
+  scrittura in `app`; all'avvio si applicano tema e modo. Lettura del file grande ≈ 3,1 M istruzioni.
+- **F2.12a4** Da F2.12a2 (P5): agganciare `SettingsStore::next_wakeup`/`advance` alla finestra
+  (`WindowApp`) con la prima modifica delle Preferenze, e applicare le scorciatoie salvate al
+  registro della finestra (`apply_settings_shortcuts`); lingua, lampeggio e modificatore fine
+  letti dal file.
+- **Più avanti** Da F2.12a2 (S4): un sistema di log vero al posto dell'uscita degli errori per gli
+  avvisi delle impostazioni (e per il resto del programma); da decidere in un passo suo.
 - **F2.11a** **Fatto il 2026-11-17 (ADR-0048 Accepted):** si chiamano *azioni* le voci del
   registro, per non confonderle con i comandi di ADR-0026; contesti decisi subito (servono allo
   step input di F2.22); scelte del proprietario: solo combinazioni singole, tasto logico con due
@@ -1470,3 +1482,4 @@ raccomandato.
 | 2026-11-23 | 0.83 | F2.11b diviso in F2.11b1–b3; F2.11b1 fatto (ADR-0049 Accepted: la nostra barra del titolo solo dove il sistema non ne disegna una, sonda delle decorazioni, menu nella barra, pulsanti di GNOME); nota futura su `softbuffer` 0.5; prossimo passo F2.11b2 | proprietario |
 | 2026-11-23 | 0.84 | F2.11b2 e F2.11b3 fatti (una PR: sonda, barra del titolo nostra con menu e pulsanti, fascia di ridimensionamento, `button-layout` di GNOME; precisioni di ADR-0049; provati a mano su KDE); F2.11b chiuso; nota per una prova su GNOME vero; prossimo passo F2.12 | proprietario |
 | 2026-11-23 | 0.85 | F2.11 segnato ✅; F2.12 diviso in F2.12a1–a5; F2.12a1 fatto (ADR-0050 Accepted: finestre di dialogo come livelli modali, file delle impostazioni, Preferenze applicate subito, Informazioni su; raccomandazioni DG1–DG10 seguite dal proprietario); prossimo passo F2.12a2 | proprietario |
+| 2026-11-23 | 0.86 | F2.12a2 fatto (file delle impostazioni: scelte S1–S9 e precisioni P1–P6 di ADR-0050); note in F2.12a4 (sveglia dell'archivio, scorciatoie salvate) e per un log futuro; prossimo passo F2.12a3 | proprietario |

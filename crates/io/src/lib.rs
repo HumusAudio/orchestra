@@ -4,7 +4,7 @@
 //!
 //! ## Purpose
 //! Everything that crosses the boundary between the model and the outside world as files or
-//! streams: the **project file format**, MIDI, MusicXML.
+//! streams: the **project file format**, the **settings file**, MIDI, MusicXML.
 //!
 //! ## Responsibilities (planned)
 //! - The native project file: **versioned from day one** with a chain of migrations, each tested
@@ -30,7 +30,12 @@
 //!   [`load`], [`to_bytes`], [`from_bytes`].
 //! - [`midi`]: the export of the played notes as a Standard MIDI File 1.0 (ADR-0032; SCALETTA
 //!   F1.18): [`midi::export`], [`midi::save`].
-//! - `safe_write` (internal): the safe write shared by both (ADR-0029 S13).
+//! - [`settings`]: the settings file, version 1 (ADR-0050 DG6–DG7; SCALETTA F2.12a2): read
+//!   leniently with [`settings::load`], written with [`settings::save`], in the directory of
+//!   [`settings::directory`].
+//! - `safe_write` (internal): the safe write shared by all of them (ADR-0029 S13).
+//! - `migration` (internal): the migration engine and the version scanner shared by the two
+//!   versioned files.
 
 // `unsafe` is allowed in this crate (FFI or memory-mapped file access), but only where it is
 // written on purpose: `deny` makes every `unsafe` block an error until the item that needs it says
@@ -38,13 +43,16 @@
 // slip in unnoticed, and a search for that `allow` lists every place that uses it.
 #![deny(unsafe_code)]
 
-// The one public module (ADR-0034 D1): the MIDI export's `export` and `save` would clash at the
-// root with the project file's `save`, and `midi::save` says which file it writes. Every other
-// module is private; the project file's API is re-exported below.
+// The two public modules (ADR-0034 D1): the MIDI export's `export` and `save`, and the settings
+// file's `load` and `save`, would clash at the root with the project file's `save`, and
+// `midi::save` and `settings::save` say which file they write. Every other module is private; the
+// project file's API is re-exported below.
 pub mod midi;
+mod migration;
 mod platform;
 mod project;
 mod safe_write;
+pub mod settings;
 
 /// The shape of every I/O error of the crate (the `Io` variants of [`LoadError`], [`SaveError`]
 /// and [`midi::MidiError`]).
