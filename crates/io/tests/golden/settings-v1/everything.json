@@ -1,0 +1,62 @@
+{
+  "orchestra_settings": 1,
+  "theme": {
+    "use": "custom:Night desk",
+    "mode": "dark",
+    "custom": [
+      {
+        "name": "Night desk",
+        "base": "slate",
+        "light": [
+          {
+            "color": "accent",
+            "value": "#3366ccff"
+          },
+          {
+            "shape": "corner-radius",
+            "value": 4
+          }
+        ],
+        "dark": [
+          {
+            "family": "family-ui",
+            "value": "inter"
+          },
+          {
+            "size": "size-body",
+            "value": 14
+          },
+          {
+            "density": "compact"
+          }
+        ]
+      },
+      {
+        "name": "Paper",
+        "base": "parchment",
+        "light": [],
+        "dark": []
+      }
+    ]
+  },
+  "language": "it",
+  "caret_blink": false,
+  "fine_modifier": "shift",
+  "shortcuts": [
+    {
+      "action": "file.save",
+      "keys": [
+        "Primary+s",
+        "F2"
+      ]
+    },
+    {
+      "action": "edit.redo",
+      "keys": []
+    }
+  ],
+  "playback": {
+    "accent-step": 2,
+    "staccato-percent": 50
+  }
+}

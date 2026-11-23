@@ -275,3 +275,32 @@ F6).
 - Recorded limits: dialogs stay inside the main window; macOS has the modification mark in the
   title instead of the close button's dot; two processes writing the settings file, the last one
   wins; the language applies at the next start until F2.13.
+
+## Precisions of the implementation (F2.12a2, proposed to the owner on 2026-11-23)
+
+Choices S1–S9 were approved by the owner before the code (all as recommended). Writing it gave
+these precisions:
+- **P1, the shortcuts are a list.** `"shortcuts": [ { "action": "file.save", "keys": ["Primary+s"] } ]`
+  instead of the object `{ "file.save": [...] }` shown with S1: `serde_json` reads an object into a
+  sorted map and keeps only the last of two equal keys, so AM7's "the later entry wins a conflict"
+  would have no "later". A custom theme's overrides were already a list (T7).
+- **P2, letters in lower case.** A shortcut's settings text writes the letter as the shortcut holds
+  it, lower case with Shift as its own modifier (`Primary+Shift+z`, precision A of F2.11d1); AM7's
+  example `Primary+Shift+Z` reads to the same shortcut. Modifiers are written Primary, Secondary,
+  Alt, Shift and read in any order; a hand-written `Ctrl+s` is refused, not guessed.
+- **P3, what is "broken".** A file is moved aside (S6) when it is larger than 1 MiB, does not start
+  with `{ "orchestra_settings": N`, is not JSON, or is an older version whose migration fails. A
+  file that cannot be read (permissions, a disk error) is not moved and is not written over during
+  the session, like a newer one.
+- **P4, a half-understood entry is dropped whole.** An override with an unknown kind or an extra
+  key, a custom theme without a name or a base, a shortcut entry without `action` or `keys` are
+  dropped with a warning; a repeated custom theme name keeps the first. A shortcut text that cannot
+  be read is dropped alone, the action's other shortcuts are kept.
+- **P5, not wired yet.** At start-up only the theme's pair and mode are applied. The shortcuts,
+  the language, the blink and the fine modifier are read, kept and written back unchanged, and
+  applied when the Preferences and F2.13 use them; the store's timed wake-up is hooked to the
+  window with the first change the Preferences make (F2.12a4). The conversion of every entry is
+  written and tested now.
+- **P6, the shared engine.** The migration engine and the version scanner of the project file
+  moved to `crates/io/src/migration.rs` and serve both files, each with its own version key;
+  `orchestra_io::MigrationError` keeps its path.

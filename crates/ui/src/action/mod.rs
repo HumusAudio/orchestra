@@ -11,6 +11,8 @@
 //!   rules of AM7, their states (AM2), the texts people read and the marks of what changed.
 //! - [`label`]: a shortcut written for people, in each platform's style, with the keys' names
 //!   from the catalogues (F2.11d2a).
+//! - [`text`]: a shortcut written for the settings file (`Primary+Shift+z`, AM7, F2.12a2), with
+//!   the abstract modifiers, and read back.
 //!
 //! The menus built on the same registry are in `crate::widget::menu` (F2.11d2a); `muda` on macOS
 //! comes in F2.11e.
@@ -20,3 +22,4 @@ pub(crate) mod registry;
 pub(crate) mod shortcut;
 #[cfg(test)]
 mod tests;
+pub(crate) mod text;
