@@ -636,3 +636,72 @@ fn our_title_bar_never_allocates() {
     round(&mut ui, &mut list);
     assert_no_allocations(|| round(&mut ui, &mut list));
 }
+
+/// Inside an open dialog (ADR-0050, F2.12a3a choice C9): Tab moving the focus between its
+/// buttons, a key it ignores, the pointer over its buttons and over the veil, a press and release
+/// on the veil (consumed, nothing happens) allocate nothing. Opening and closing do allocate (the
+/// dialog's widgets), once per dialog, and are not part of the round.
+#[test]
+fn moving_inside_an_open_dialog_never_allocates() {
+    use orchestra_ui::{ButtonOrder, ButtonRole, DialogKind, DialogSpec, PhysicalKey};
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui: Ui<u8> = Ui::new(
+        Flex::column(Space::S, Space::M),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    ui.set_button_order(ButtonOrder::AffirmativeLast);
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 800.0, 600.0), &mut list);
+    let spec = DialogSpec::new(DialogKind::Question, "Save the changes?", "They will be lost.")
+        .button("Cancel", ButtonRole::Cancel, 0)
+        .button("Don't save", ButtonRole::Destructive, 1)
+        .button("Save", ButtonRole::Affirmative, 2);
+    let panel = ui.open_dialog(spec, &mut list).unwrap();
+    let points: Vec<Point> = ui
+        .children(panel)
+        .into_iter()
+        .skip(1)
+        .filter_map(|button| ui.rect(button))
+        .map(|rect| Point::new(f32::midpoint(rect.x0, rect.x1), f32::midpoint(rect.y0, rect.y1)))
+        .chain([Point::new(10.0, 10.0)])
+        .collect();
+    let keys: Vec<InputEvent> = [NamedKey::Tab, NamedKey::ArrowDown, NamedKey::Tab]
+        .into_iter()
+        .flat_map(|key| {
+            [ButtonState::Pressed, ButtonState::Released].map(|state| InputEvent::Key {
+                key: Key::Named(key),
+                physical: PhysicalKey::Other,
+                state,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            })
+        })
+        .collect();
+    let veil = Point::new(10.0, 10.0);
+    let round = |ui: &mut Ui<u8>, list: &mut DisplayList| {
+        for event in &keys {
+            ui.input(event, list);
+        }
+        for &position in &points {
+            ui.input(&InputEvent::PointerMoved { position }, list);
+        }
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            ui.input(
+                &InputEvent::PointerButton {
+                    button: PointerButton::Left,
+                    state,
+                    position: veil,
+                    clicks: 1,
+                },
+                list,
+            );
+        }
+        black_box(list.take_damage());
+        black_box(ui.take_messages().count());
+    };
+    round(&mut ui, &mut list);
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
+    assert_eq!(ui.dialogs().count(), 1, "the dialog stayed open the whole time");
+}

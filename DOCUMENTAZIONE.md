@@ -3379,9 +3379,9 @@ andarlo a cercare in tutto il codice. Non c'è ancora una finestra, né una dipe
 piattaforma: solo dati, una formula e i loro test.
 
 **Token, non colori.** Un widget non dice mai "grigio"; dice "testo secondario" o "il bordo di un
-controllo", e chiede al tema attivo di che colore è. Questi ruoli sono i *token*: 24 token di
+controllo", e chiede al tema attivo di che colore è. Questi ruoli sono i *token*: 25 token di
 colore (superfici, linee, testo, accento, controlli, selezione e focus, errore/avviso/conferma,
-l'ombra) e 5 token di forma in pixel logici (raggio degli angoli, spessore delle linee, spessore
+l'ombra, e da F2.12a3a il velo `scrim` sotto una finestra di dialogo, ADR-0050 DG2) e 5 token di forma in pixel logici (raggio degli angoli, spessore delle linee, spessore
 dell'anello di focus, sfocatura e spostamento dell'ombra). I token di colore sono elencati **una
 volta sola**, in una macro di `token.rs`, che ne ricava l'enum pubblico `ColorToken`, i nomi stabili
 (`surface-raised`, `on-accent`…) e una struttura privata con un campo per token. I temi inclusi
@@ -5560,6 +5560,89 @@ un menu aperto che si prende la pressione), un test senza allocazioni in `widget
 in `crates/app/tests/demo.rs` la finestra di prova con `Decorations::Own`. Tre errori iniettati
 (nessuna soglia di trascinamento, Chiudi che chiede di ridurre a icona, la fascia che ridimensiona
 sotto un menu aperto) sono stati colti. La sonda vera ha bisogno di un compositore: si prova a mano.
+
+#### Le finestre di dialogo
+
+**Che cos'è una finestra di dialogo** (ADR-0050 DG1–DG3, SCALETTA F2.12a3a). Una domanda che il
+programma fa ("Salvare le modifiche?") o un errore che segnala, disegnati da noi dentro la finestra
+principale: un velo su tutta la finestra nel nuovo colore `scrim` del tema, e al centro un riquadro
+con un titolo, un messaggio, un dettaglio facoltativo e una fila di pulsanti. L'applicazione la
+descrive e l'interfaccia la costruisce:
+
+```rust
+let spec = DialogSpec::new(DialogKind::Question, title, message)
+    .detail(file_name)
+    .button(cancel, ButtonRole::Cancel, Msg::Cancel)
+    .button(dont_save, ButtonRole::Destructive, Msg::Discard)
+    .button(save, ButtonRole::Affirmative, Msg::Save);
+let panel = ui.open_dialog(spec, &mut list)?;
+```
+
+**I pezzi** (`crates/ui/src/widget/dialog.rs`). `DialogSpec` contiene il tipo (`Question`, oppure
+`Error`, un *avviso* per le tecnologie assistive), i testi già tradotti e i pulsanti, ognuno con un
+`ButtonRole`: *conferma* (il primo è il predefinito, disegnato nel colore d'accento),
+*distruttivo* (mai il predefinito), *annulla* (il primo risponde a Esc; un pulsante da solo gli
+risponde qualunque sia il suo ruolo) e *altro*. La disegnano due widget privati: `DialogVeil`, la
+radice, che riempie la finestra di `scrim`, centra il riquadro su pixel interi e consuma ogni evento
+del puntatore che gli arriva; e `DialogPanel`, il riquadro in `surface-overlay` con l'angolo e la
+linea dei menu e senza ombra (come i menu), che dispone i testi in un'area scorrevole verticale (in
+una finestra bassa scorrono e i pulsanti restano) e i pulsanti allineati a destra in basso, largo
+fra 320 e 480 pixel logici. Quando nessun figlio ha gestito Invio o Esc, il riquadro manda il
+messaggio del pulsante predefinito o di quello di annullamento e chiude la finestra di dialogo.
+
+**L'ordine dei pulsanti** (`crates/ui/src/platform/dialog.rs`). Windows e KDE Plasma mettono per
+primo il pulsante di conferma (*Salva, Non salvare, Annulla*), macOS, GNOME e gli altri desktop
+Linux per ultimo (*Non salvare, Annulla, Salva*). Su Linux il desktop si legge da
+`XDG_CURRENT_DESKTOP`, un elenco separato da due punti in cui un `KDE` (maiuscolo o minuscolo)
+significa Plasma; `system_button_order()` lo legge una volta e l'applicazione passa la risposta a
+`Ui::set_button_order`. La decisione vera e propria, `button_order(platform, desktop)`, riceve
+entrambi come argomenti, così i test provano ogni sistema ovunque.
+
+**Nell'interfaccia** (`crates/ui/src/widget/ui/dialogs.rs`). Una finestra di dialogo è un livello
+della stessa pila dei menu: il suo velo è una radice a sé con il numero di livello successivo,
+così un menu aperto dal suo interno le va sopra, e una finestra di dialogo aperta da un'altra va
+sopra la prima; quando si chiude l'ultimo menu, il livello del menu successivo torna appena sopra
+la finestra di dialogo più in alto. Il velo è anche un livello modale (WA4, WB9): Tab gira al suo
+interno, i tasti vanno al suo pulsante con il fuoco e risalgono fino al riquadro, e il puntatore
+non raggiunge nulla dietro. All'apertura i menu aperti si chiudono, il suggerimento sparisce e il
+fuoco va sul pulsante predefinito (o su quello di annullamento, o sul primo); alla chiusura torna
+dov'era. I tasti della barra dei menu (Alt, F10, i mnemonici) e le scorciatoie delle azioni sono
+spenti mentre una finestra di dialogo è aperta, tranne le azioni standard di modifica su un campo
+con il fuoco: Ctrl+S non deve salvare dietro una domanda. I pulsanti di una finestra di dialogo
+sono normali `Button` costruiti con `closing_dialog()`: attivati, mandano il loro messaggio e
+chiedono, tramite `EventCx::close_dialog`, che la loro finestra di dialogo si chiuda al fotogramma
+successivo, così il messaggio è già in coda quando la finestra se ne va. `Ui::close_dialog` ne
+chiude una dal programma, `Ui::dialogs` elenca quelle aperte, e `Ui::open_dialog_with` apre un
+riquadro fornito dal chiamante per le Preferenze (F2.12a4). Per le tecnologie assistive il
+riquadro è un `Dialog` modale (o `AlertDialog`), con il titolo come nome e il messaggio come
+descrizione (due campi nuovi di `AccessInfo`, `description` e `modal`), e i veli sono figli del
+nodo della finestra, dopo la radice e prima dei menu.
+
+**Cosa vede l'utente, e cosa non ancora.** In questo passo nulla nel programma apre una finestra di
+dialogo: la prima che l'utente potrà aprire è *Informazioni su Orchestra* (F2.12a3b), che porta lo
+screenshot e il capitolo delle guide (scelta C8 del proprietario).
+
+**Test e benchmark.** `crates/ui/tests/dialogs.rs`: l'ordine nelle due convenzioni e il fuoco sul
+pulsante predefinito; Invio, Esc (anche con il fuoco su un altro pulsante), Tab che gira dentro;
+un pulsante con il fuoco premuto con Invio, un clic fuori che non fa nulla e un clic su un
+pulsante; un errore sopra una domanda, chiuso da solo con Esc, con il fuoco che torna sulla
+domanda; un menu sopra una finestra di dialogo; Ctrl+S e F10 che non fanno nulla dietro una
+finestra di dialogo; la misura e la posizione del riquadro in una finestra grande e in una
+piccola; il colore del velo in ogni coppia; i nodi per l'accessibilità. Un errore inserito apposta
+(scorciatoie che funzionano dietro una finestra di dialogo) è stato preso. `widgets_no_alloc.rs`
+verifica che Tab, i tasti, il puntatore e un clic sul velo dentro una finestra di dialogo aperta
+non allochino nulla. I benchmark di `benches/widgets.rs` (gruppo `dialogs`), sul pannello di 200
+widget in una finestra di 1000 × 1000:
+
+```text
+benchmark                       instructions
+dialog_open (open + draw)         47 042 498
+dialog_tab  (Tab + draw)             868 104
+```
+
+Costruire la finestra di dialogo costa circa 2 M istruzioni; quasi tutto il resto di `dialog_open`
+è il velo semitrasparente fuso su tutta la finestra da `tiny-skia` (circa 43 istruzioni per pixel).
+È oltre il budget del fotogramma di 33 M (F2.07c): vedi "Open decisions" in `ROADMAP.md`.
 
 #### La finestra e il ciclo degli eventi
 

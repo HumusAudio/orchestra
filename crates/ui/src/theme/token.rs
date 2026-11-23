@@ -54,7 +54,7 @@ macro_rules! color_tokens {
 
             /// The token with this stable name, or `None` if no token has it.
             ///
-            /// O(n) in the number of tokens (24): a linear scan of [`Self::ALL`]. It runs only
+            /// O(n) in the number of tokens (25): a linear scan of [`Self::ALL`]. It runs only
             /// when a custom theme is read from the settings file, never per frame, so a hash
             /// table would be overhead for nothing.
             #[must_use]
@@ -143,6 +143,9 @@ color_tokens! {
     /// The colour of the shadow under overlays, usually translucent black; alpha 0 means no
     /// shadow. Exempt from the contrast pairs: depth is not information.
     Shadow => shadow, "shadow";
+    /// The veil over the window under a dialog (ADR-0050 DG2), translucent black. Exempt from the
+    /// contrast pairs: it carries no text, it only sets the window back.
+    Scrim => scrim, "scrim";
 }
 
 /// A shape token: a size in **logical pixels**, multiplied by the window's scale factor when
@@ -243,7 +246,7 @@ impl Shape {
 /// Widgets never store a colour of their own: they ask the active instance at draw time, so
 /// switching colours is a full redraw and nothing more (ADR-0037 T6); switching the text tokens
 /// re-lays out the texts (ADR-0044 TX9). Reading a token is O(1) and allocation-free; the whole
-/// instance is about 24 × 4 + 5 + 10 + 1 = 112 bytes, `Copy`.
+/// instance is about 25 × 4 + 5 + 10 + 1 = 116 bytes, `Copy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// The colour tokens.

@@ -1772,6 +1772,65 @@ fn title_bar_focus_change(mut real: Real) -> Real {
 
 library_benchmark_group!(name = frame, benchmarks = [title_bar_focus_change]);
 
+// The question of the dialogs' benchmarks (ADR-0050, F2.12a3a): a title, a message, a detail and
+// three buttons, the usual "Save the changes?".
+fn question() -> orchestra_ui::DialogSpec<()> {
+    use orchestra_ui::{ButtonRole, DialogKind, DialogSpec};
+    DialogSpec::new(
+        DialogKind::Question,
+        "Save the changes to the project before closing?",
+        "If you don't save, the changes made since the last save will be lost.",
+    )
+    .detail("Symphony No. 1.orchestra")
+    .button("Cancel", ButtonRole::Cancel, ())
+    .button("Don't save", ButtonRole::Destructive, ())
+    .button("Save", ButtonRole::Affirmative, ())
+}
+
+// Opening a question over the panel of 200 widgets and drawing it: the widgets built, the texts
+// shaped, the veil and the panel recorded and rendered (the whole window is damaged by the veil).
+// Once per dialog, never on a frame's path; the budget is the 50 ms of an input (CLAUDE.md §5).
+#[library_benchmark]
+#[bench::panel(shown())]
+fn dialog_open(mut panel: Panel) -> Panel {
+    let id = panel.ui.open_dialog(black_box(question()), &mut panel.list).unwrap();
+    draw(&mut panel);
+    black_box(id);
+    panel
+}
+
+// The question open and drawn once, its accessibility tree handed out.
+fn asked() -> Panel {
+    let mut panel = shown();
+    panel.ui.open_dialog(question(), &mut panel.list).unwrap();
+    draw(&mut panel);
+    let _ = panel.ui.take_access_update();
+    panel
+}
+
+// Tab pressed and released inside the open question, and the frame drawn: the focus ring moves
+// from one button to the next (two buttons recorded again and repainted).
+#[library_benchmark]
+#[bench::panel(asked())]
+fn dialog_tab(mut panel: Panel) -> Panel {
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        panel.ui.input(
+            black_box(&InputEvent::Key {
+                key: Key::Named(NamedKey::Tab),
+                physical: PhysicalKey::Other,
+                state,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }),
+            &mut panel.list,
+        );
+    }
+    draw(&mut panel);
+    panel
+}
+
+library_benchmark_group!(name = dialogs, benchmarks = [dialog_open, dialog_tab]);
+
 main!(
     library_benchmark_groups = core,
     controls,
@@ -1780,5 +1839,6 @@ main!(
     popups,
     actions,
     menus,
-    frame
+    frame,
+    dialogs
 );

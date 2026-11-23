@@ -124,6 +124,8 @@ pub const EXEMPT_TOKENS: &[ColorToken] = &[
     ColorToken::Border,
     ColorToken::TextDisabled,
     ColorToken::Shadow,
+    // The veil under a dialog carries no text (ADR-0050 DG2).
+    ColorToken::Scrim,
 ];
 
 /// The relative luminance of an opaque colour, WCAG 2.x definition: 0.0 (black) to 1.0 (white).
