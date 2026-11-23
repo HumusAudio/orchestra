@@ -5349,7 +5349,7 @@ match probe() {
 
 `ORCHESTRA_DECORATIONS=own` (o `=system`) salta la domanda: è così che la nostra barra si vede su
 KDE. `cargo run -p orchestra-ui --example decorations_probe` stampa la risposta e quanto ci ha
-messo. Il programma passa la risposta sia alla finestra (`WindowOptions::decorations`, la finestra
+messo: su KDE Plasma (Wayland), "lato server" in 1,5–3,1 ms per domanda (compilazione di debug). Il programma passa la risposta sia alla finestra (`WindowOptions::decorations`, la finestra
 si crea allora con `with_decorations(false)`) sia all'interfaccia che costruisce, così le due vanno
 d'accordo. Le decorazioni Wayland di `winit` (`sctk-adwaita`) non ci sono più, e con loro il
 secondo `tiny-skia`.

@@ -251,9 +251,10 @@ as window requests; the probe run before the window exists. While writing, the r
   with `Own` the window is created with `with_decorations(false)`) and to the interface it builds
   (`Demo::with_decorations`), so the two always agree. The probe opens its own short connection
   with `wayland-client` 0.31.15 and `wayland-protocols` 0.32.13 (`client`, `unstable`), the
-  versions already in the lock file: nothing new is compiled. Its cost could not be measured in
-  the sandbox (which refuses Unix sockets): `cargo run -p orchestra-ui --example decorations_probe`
-  prints it on a desktop.
+  versions already in the lock file: nothing new is compiled. **Measured** by the owner on KDE
+  Plasma (Wayland) with `cargo run -p orchestra-ui --example decorations_probe` (a debug build):
+  answer "server-side", 1.5–3.1 ms per question over ten runs, within the start-up budget of
+  ADR-0007 (3 s) by three orders of magnitude.
 - **TB5: the menus in the bar.** The menu bar of ADR-0048 gains a **compact** form, as wide as its
   titles and drawing nothing of its own, which the `TitleBar` places after the leading buttons.
   The title is centred on the whole window when it fits in the free space there, otherwise in the

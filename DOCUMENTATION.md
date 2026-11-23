@@ -5024,7 +5024,8 @@ match probe() {
 ```
 
 `ORCHESTRA_DECORATIONS=own` (or `=system`) skips the question: that is how our bar is seen on KDE.
-`cargo run -p orchestra-ui --example decorations_probe` prints the answer and how long it took.
+`cargo run -p orchestra-ui --example decorations_probe` prints the answer and how long it took: on
+KDE Plasma (Wayland), "server-side" in 1.5–3.1 ms per question (debug build).
 The program passes the answer both to the window (`WindowOptions::decorations`, the window is
 then created with `with_decorations(false)`) and to the interface it builds, so the two agree.
 `winit`'s own Wayland decorations (`sctk-adwaita`) are gone, and with them the second `tiny-skia`.
