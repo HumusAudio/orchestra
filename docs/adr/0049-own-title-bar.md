@@ -1,7 +1,8 @@
 # ADR-0049 — Our own title bar, only where the system draws none
 
 - **Status:** Accepted (owner, 2026-11-23; outline TB1–TB13 presented first, with the owner's
-  choices on TB1, TB4, TB5, TB11 and on a Preferences option, then this text).
+  choices on TB1, TB4, TB5, TB11 and on a Preferences option, then this text). Precisions of
+  F2.11b2 and F2.11b3 below.
 - **Date:** 2026-11-23
 - **Implements:** ADR-0036 B6 and B7 (Wayland decorations: `winit`'s own for now, our title bar
   later; the second `tiny-skia`), ADR-0040 (the window and the event loop; W3 the proxy, W5 our
@@ -278,7 +279,7 @@ as window requests; the probe run before the window exists. While writing, the r
   checked against Qt's (`QMdiSubWindow`): they agree except French Maximise, GTK "Maximiser", Qt
   "Agrandir"; our bar is drawn only on GNOME, so GTK's.
 
-## Precisions of the implementation (F2.11b3, proposed to the owner on 2026-11-23)
+## Precisions of the implementation (F2.11b3, approved by the owner on 2026-11-23)
 
 Before writing, the owner chose: the band inside the window on the left, the right and the
 bottom, and **over** the title bar's highest pixels at the top rather than above them (choice 1);
