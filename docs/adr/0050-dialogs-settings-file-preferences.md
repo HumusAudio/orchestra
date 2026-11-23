@@ -1,7 +1,8 @@
 # ADR-0050 — Dialogs, the settings file and the Preferences
 
-- **Status:** Proposed (outline DG1–DG10 presented first; the owner followed every
-  recommendation on 2026-11-23, then this text).
+- **Status:** Accepted (owner, 2026-11-23; outline DG1–DG10 presented first, the owner followed
+  every recommendation, then this text, accepted with its three points: the buttons' order on KDE
+  corrected, the logo converted by our own code, the playback values as the user's settings).
 - **Date:** 2026-11-23
 - **Implements:** ADR-0045 WA4 and WB9 (modal layers: the focus trapped, the pointer blocked),
   ADR-0048 AM7 (the user's shortcuts in the settings file), AM9 (the *About* role), AM11 (the

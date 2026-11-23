@@ -725,7 +725,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11b2 | **Sonda, barra e pulsanti** (ADR-0049 TB1–TB6, TB8–TB10): sonda delle decorazioni con la sua misura, finestra senza decorazioni, `sctk-adwaita` fuori, barra con menu, titolo e pulsanti, trascinamento, doppio clic, menu della finestra, schermo intero, accessibilità, testi nei sei cataloghi | ✅ | 1 |
 | F2.11b3 | **Bordi e disposizione dei pulsanti** (ADR-0049 TB4, TB7, TB11, TB12): fascia di ridimensionamento e angoli con le forme del puntatore, bordo, `button-layout` dal portale, benchmark, screenshot e capitolo delle guide, prove a mano su GNOME, KDE Wayland e X11 | ✅ | 0,5–1 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | 🔄 (F2.12a1–a5) | 2–3 |
-| F2.12a1 | **ADR delle finestre di dialogo, del file delle impostazioni e delle Preferenze**: livelli modali nella finestra, velo `scrim`, ordine dei pulsanti, `rfd` 0.18 asincrono, Nuovo/Apri/Salva collegati, file JSON con versione e lettura tollerante, cartella per piattaforma, modifiche applicate subito, sezioni, Informazioni su | ✅ ADR-0050 (Proposed) | 0,5 |
+| F2.12a1 | **ADR delle finestre di dialogo, del file delle impostazioni e delle Preferenze**: livelli modali nella finestra, velo `scrim`, ordine dei pulsanti, `rfd` 0.18 asincrono, Nuovo/Apri/Salva collegati, file JSON con versione e lettura tollerante, cartella per piattaforma, modifiche applicate subito, sezioni, Informazioni su | ✅ ADR-0050 | 0,5 |
 | F2.12a2 | **File delle impostazioni** (ADR-0050 DG6–DG7): schema in `io`, lettura tollerante, file di una versione più nuova mai sovrascritto, migrazioni e file golden, cartella per piattaforma, scrittura ritardata, conversione in `app`, benchmark | ⬜ | 1 |
 | F2.12a3 | **Finestre di dialogo nostre** (DG1–DG3, DG10): livello nella pila dei popup, token `scrim` nelle dieci coppie, pulsanti nell'ordine della piattaforma, domande ed errori, accessibilità, **Informazioni su Orchestra** con il logo, testi nei sei cataloghi | ⬜ | 1 |
 | F2.12a4 | **Preferenze** (DG8–DG9): sezioni Aspetto, Lingua, Riproduzione, Tastiera; modifiche applicate subito; `set_theme` con il modo scelto a mano; lampeggio, modificatore fine, valori di riproduzione; nomi delle coppie; screenshot e capitolo delle guide | ⬜ | 1–1,5 |
@@ -1014,7 +1014,7 @@ controllo completo. Va fatta bene una volta sola.
   torna a `set_theme(None)` quando il modo ritorna *Sistema*, perché finché il tema è fissato su
   Windows e macOS non arrivano più gli avvisi di cambio. Se nel frattempo F2.11b porta la nostra
   barra del titolo, lì il problema sparisce su Linux.
-- **F2.12a1** **Fatto il 2026-11-23 (ADR-0050 Proposed):** il proprietario ha seguito tutte le
+- **F2.12a1** **Fatto il 2026-11-23 (ADR-0050 Accepted):** il proprietario ha seguito tutte le
   raccomandazioni DG1–DG10. Finestre di dialogo come livelli modali nella pila dei popup, con il
   velo `scrim` (nuovo token, emenda ADR-0037 T3); pulsanti nell'ordine di ogni sistema (KDE come
   Windows, correzione dello schema); domande ed errori nostri; `rfd` 0.18 asincrono con la finestra
@@ -1022,8 +1022,7 @@ controllo completo. Va fatta bene una volta sola.
   `settings.json` con versione, lettura tollerante, mai sovrascritto da un Orchestra più vecchio,
   schema in `io`, cartella letta dalle variabili d'ambiente (niente `unsafe`, `dirs` di riserva);
   Preferenze applicate subito (Aspetto, Lingua al riavvio fino a F2.13, Riproduzione, Tastiera);
-  `help.about` con il logo convertito da noi in tracciati, senza un motore SVG. Da far approvare:
-  ADR-0050 da Proposed ad Accepted.
+  `help.about` con il logo convertito da noi in tracciati, senza un motore SVG.
 - **F2.11a** **Fatto il 2026-11-17 (ADR-0048 Accepted):** si chiamano *azioni* le voci del
   registro, per non confonderle con i comandi di ADR-0026; contesti decisi subito (servono allo
   step input di F2.22); scelte del proprietario: solo combinazioni singole, tasto logico con due
@@ -1470,4 +1469,4 @@ raccomandato.
 | 2026-11-23 | 0.82 | F2.11e2 fatto (PR #88: voci di sistema del menu dell'app e menu Finestra su macOS, ⌘H ⌥⌘H ⌘M tasti fissi, nomi di Apple nei sei cataloghi; scelte 1–4 e precisioni di ADR-0048); F2.11e chiuso; nota in F2.12 (Informazioni su Orchestra); prossimo passo F2.11b | proprietario |
 | 2026-11-23 | 0.83 | F2.11b diviso in F2.11b1–b3; F2.11b1 fatto (ADR-0049 Accepted: la nostra barra del titolo solo dove il sistema non ne disegna una, sonda delle decorazioni, menu nella barra, pulsanti di GNOME); nota futura su `softbuffer` 0.5; prossimo passo F2.11b2 | proprietario |
 | 2026-11-23 | 0.84 | F2.11b2 e F2.11b3 fatti (una PR: sonda, barra del titolo nostra con menu e pulsanti, fascia di ridimensionamento, `button-layout` di GNOME; precisioni di ADR-0049; provati a mano su KDE); F2.11b chiuso; nota per una prova su GNOME vero; prossimo passo F2.12 | proprietario |
-| 2026-11-23 | 0.85 | F2.11 segnato ✅; F2.12 diviso in F2.12a1–a5; F2.12a1 fatto (ADR-0050 Proposed: finestre di dialogo come livelli modali, file delle impostazioni, Preferenze applicate subito, Informazioni su; raccomandazioni DG1–DG10 seguite dal proprietario); prossimo passo F2.12a2 | proprietario |
+| 2026-11-23 | 0.85 | F2.11 segnato ✅; F2.12 diviso in F2.12a1–a5; F2.12a1 fatto (ADR-0050 Accepted: finestre di dialogo come livelli modali, file delle impostazioni, Preferenze applicate subito, Informazioni su; raccomandazioni DG1–DG10 seguite dal proprietario); prossimo passo F2.12a2 | proprietario |
