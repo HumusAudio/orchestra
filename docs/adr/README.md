@@ -55,4 +55,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0045](0045-widget-architecture.md) | Widget architecture: a retained tree, our own layout, routed events, AccessKit per widget | Accepted (precisions F2.09a–f, F2.10b2, F2.10b3, F2.10c2) |
 | [0046](0046-value-control-conventions.md) | Value-control conventions: wheel, double click to the default, fine adjustment | Accepted |
 | [0047](0047-text-field.md) | The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard | Accepted (precisions F2.10b1, F2.10b2, F2.10b3, F2.10c1, F2.10c2) |
-| [0048](0048-actions-shortcuts-menus-popups.md) | Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer | Accepted (precisions F2.11c, F2.11d1, F2.11d2a, F2.11d2b) |
+| [0048](0048-actions-shortcuts-menus-popups.md) | Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer | Accepted (precisions F2.11c, F2.11d1, F2.11d2a, F2.11d2b, F2.11e1) |
