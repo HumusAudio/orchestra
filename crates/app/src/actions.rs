@@ -60,7 +60,7 @@ use orchestra_i18n::{FluentArgs, I18nError, Localizer};
 use orchestra_ui::{
     ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, KeyName, KeyNames, MenuModel,
     MenuRole, Modifiers, NamedKey, Platform, Registry, RegistryError, Shortcut, ShortcutError,
-    ShortcutKey,
+    ShortcutKey, SystemTexts,
 };
 
 /// The program's actions, by their index in the registry.
@@ -601,6 +601,36 @@ pub fn action_texts(localizer: &Localizer) -> Result<ActionTexts, I18nError> {
             titles,
         }),
     }
+}
+
+/// The names macOS's own menus need (F2.11e2, ADR-0048 AM9), in `localizer`'s language: the
+/// application menu's Settings, Services, Hide, Hide Others, Show All and Quit, and the *Window*
+/// menu with Minimize, Zoom and Bring All to Front. The messages name the program through
+/// `{ app-name }` ("Quit Orchestra", "Esci da Orchestra", "Orchestra beenden"), so the word order
+/// is each language's. Fluent's isolation marks around that reference are dropped, as for the
+/// keys' names: the program's name is never right-to-left, and the system's menu shows the text
+/// as given.
+///
+/// # Errors
+/// The localizer's, if a message is missing (the catalogues' parity tests prevent it).
+pub fn system_texts(localizer: &Localizer) -> Result<SystemTexts, I18nError> {
+    let text = |key: &str| -> Result<String, I18nError> {
+        Ok(localizer
+            .format(key, None)?
+            .replace(['\u{2068}', '\u{2069}'], ""))
+    };
+    Ok(SystemTexts {
+        settings: text("menu-mac-settings")?,
+        services: text("menu-mac-services")?,
+        hide: text("menu-mac-hide")?,
+        hide_others: text("menu-mac-hide-others")?,
+        show_all: text("menu-mac-show-all")?,
+        quit: text("menu-mac-quit")?,
+        window: text("menu-mac-window")?,
+        minimize: text("menu-mac-minimize")?,
+        zoom: text("menu-mac-zoom")?,
+        bring_all_to_front: text("menu-mac-bring-all-to-front")?,
+    })
 }
 
 /// The context menu of a text field (F2.11d2a, ADR-0048 AM13): Undo and Redo, then Cut, Copy and

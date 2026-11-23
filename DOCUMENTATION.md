@@ -4616,9 +4616,11 @@ Shift+7) gets their action, and only a press that matches nothing falls back to 
 
 **Fixed keys** (`Shortcut::is_fixed`, the owner's choice B). No action may take Tab, the arrows,
 Enter, Escape or Space with no modifier or with Shift alone (the widgets' navigation), F10 and
-Shift+F10, the Menu key (`NamedKey::ContextMenu`, new), and on Linux and Windows Alt+letter (the
-menus' mnemonics, F2.11d2). With *Primary* the arrows stay free (Ctrl+↑ in the score). The editing
-keys of a text field are not refused: inside a field the field wins anyway.
+Shift+F10, the Menu key (`NamedKey::ContextMenu`, new), on Linux and Windows Alt+letter (the
+menus' mnemonics, F2.11d2), and on macOS ⌘H, ⌥⌘H and ⌘M, the shortcuts of the system's own menu
+items (F2.11e2: macOS carries them out before the window sees the key, so an action given one
+would never run). With *Primary* the arrows stay free (Ctrl+↑ in the score). The editing keys of a
+text field are not refused: inside a field the field wins anyway.
 
 **The registry** (`action/registry.rs`). One `Registry` for the whole program, made for one
 `Platform` (chosen by value, so the tests on Linux build the tables of all three). It holds:
@@ -4918,7 +4920,7 @@ built by `muda` from the same menu model as the drawn bar of Linux and Windows. 
 `crates/ui/src/platform/menu/muda.rs` (macOS only) and `crates/ui/src/widget/ui/system.rs` (the
 interface's side).
 
-**A description first.** `Ui::system_menu(model, app_name)` turns the model into a `SystemMenu`:
+**A description first.** `Ui::system_menu(model, app_name, texts)` turns the model into a `SystemMenu`:
 every action's name, first shortcut and state resolved from the registry. `SystemMenu::for_macos`
 then moves the items whose role is About, Preferences or Quit into the **application menu**, the
 first one, named after the program, and tidies the menus they left (no separator at an end, never
@@ -4929,8 +4931,43 @@ two in a row, no empty submenu). The roles are on the model itself:
 .role(MenuRole::Quit);
 ```
 
-The description is plain data, so Linux CI checks what the Mac will show. The other items of the
-application menu (Services, Hide, Show all) and the Window menu come with F2.11e2.
+The description is plain data, so Linux CI checks what the Mac will show.
+
+**The system's own items** (F2.11e2). Every Mac program has the same items around ours, and
+`for_macos` adds them in Apple's order:
+
+```text
+Settings…            ⌘,    (our Preferences action, named the macOS way)
+───────────────
+Services             ▸
+───────────────
+Hide Orchestra       ⌘H
+Hide Others         ⌥⌘H
+Show All
+───────────────
+Quit Orchestra       ⌘Q    (our Quit action, with the program's name)
+```
+
+and a **Window** menu before Help (Minimize ⌘M, Zoom, a line, Bring All to Front), to which macOS
+appends the list of windows; if the model ever has its own submenu with the role Window, the
+system's items go at its start instead. These are `SystemItem::System { command, name }`: the
+system does what they do, no action of ours runs, and `muda` builds them with its predefined
+items (`PredefinedMenuItem::hide`, `minimize`, `bring_all_to_front`…), which carry macOS's own
+shortcuts. There is no About item yet: it comes as a real action with its window (F2.12).
+
+The names are ours, because macOS does not translate the items a program builds itself and
+`muda`'s defaults are English. The app reads them from the catalogues into a `SystemTexts`
+(`orchestra_app::system_texts`); the messages name the program through `{ app-name }`, so each
+language puts it where it wants:
+
+```fluent
+menu-mac-quit = Esci da { app-name }
+```
+
+(`{ app-name } beenden` in German). Fluent's isolation marks around the reference are dropped.
+The words are Apple's in each language (Firefox's macOS menus and Apple's own guides, glossary
+entries `mac_*`), including the title case of the English names ("Hide Others"), so they match
+every other Mac program.
 
 **`muda`.** On macOS the window installs the description once, when the event loop runs:
 submenus, items (check items for toggles) and separators, each action item with its state and its
@@ -4950,12 +4987,15 @@ which takes them after every batch of events (`Ui::take_menu_updates`) and tells
 editing actions change with the focused field without the registry knowing, so their states are
 compared with the ones the menu last got at the same moment.
 
-**Tests.** `crates/ui/src/platform/menu/tests.rs` checks the application menu and the tidying, and
-the shortcuts turned into macOS's modifiers and logical keys; `crates/ui/tests/system_menu.rs`
+**Tests.** `crates/ui/src/platform/menu/tests.rs` checks the application menu with the system's
+items and the renamed role items, the Window menu (before Help, last without Help, or merged into
+the model's own), the tidying, and the shortcuts turned into macOS's modifiers and logical keys; `crates/ui/tests/system_menu.rs`
 the description built by the interface, the states handed on once each (also Copy following the
 field's selection), and an action run from the system's menu. `crates/ui/tests/system_menu_macos.rs`
 builds the menu with `muda` for real on macOS CI: it has its own `main`, because AppKit's menus
 are made on the main thread, and answers `nextest`'s `--list` so it runs in `cargo xtask check`.
+`crates/app/tests/actions.rs` checks the names in the six catalogues (the program's name in Hide
+and Quit, no isolation mark, the ellipsis of Settings) and that no action has ⌘H, ⌥⌘H or ⌘M.
 
 #### The window and the event loop
 

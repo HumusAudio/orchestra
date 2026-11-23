@@ -5,14 +5,16 @@
 //! in the six catalogues, and in the demonstration window Quit and Full screen reach the window
 //! while the other actions, disabled, do nothing. Since F2.11d2a: the shortcuts written in each
 //! language and platform's style, the ellipsis of the items that open a window, and the track
-//! name field's context menu.
+//! name field's context menu. Since F2.11e2: the names of macOS's own menu items in the six
+//! catalogues, with the program's name and without Fluent's isolation marks; ⌘H, ⌥⌘H and ⌘M given
+//! to no action on macOS.
 
 #![allow(
     clippy::unwrap_used,
     reason = "test helpers: a failed unwrap fails the test"
 )]
 
-use orchestra_app::{ActionIds, Demo, SceneContext, action_texts, registry};
+use orchestra_app::{ActionIds, Demo, SceneContext, action_texts, registry, system_texts};
 use orchestra_i18n::{Locale, Localizer};
 use orchestra_ui::{
     ButtonState, Context, DisplayList, InputEvent, Key, Modifiers, NamedKey, PhysicalKey, Platform,
@@ -357,4 +359,68 @@ fn the_demonstrations_menu_bar_opens_from_the_keyboard() {
         Modifiers::default(),
     );
     assert_eq!(demo.take_window_request(), Some(WindowRequest::Close));
+}
+
+#[test]
+fn macos_names_its_own_items_in_every_language_with_the_programs_name() {
+    for locale in Locale::ALL {
+        let localizer = Localizer::new(locale).unwrap();
+        let app = localizer.format("app-name", None).unwrap();
+        let texts = system_texts(&localizer).unwrap();
+        let all = [
+            &texts.settings,
+            &texts.services,
+            &texts.hide,
+            &texts.hide_others,
+            &texts.show_all,
+            &texts.quit,
+            &texts.window,
+            &texts.minimize,
+            &texts.zoom,
+            &texts.bring_all_to_front,
+        ];
+        for name in all {
+            assert!(!name.is_empty(), "{locale:?}: an empty name");
+            // The marks Fluent puts around { app-name } are dropped (see `system_texts`).
+            assert!(
+                !name.contains(['\u{2068}', '\u{2069}']),
+                "{locale:?}: {name:?} keeps an isolation mark"
+            );
+        }
+        // Hide and Quit name the program, wherever the language puts it.
+        assert!(
+            texts.hide.contains(app.as_str()),
+            "{locale:?}: {:?}",
+            texts.hide
+        );
+        assert!(
+            texts.quit.contains(app.as_str()),
+            "{locale:?}: {:?}",
+            texts.quit
+        );
+        // Settings opens a window: it ends with the ellipsis, like Preferences (choice S2).
+        assert!(
+            texts.settings.ends_with('…'),
+            "{locale:?}: {:?}",
+            texts.settings
+        );
+    }
+}
+
+#[test]
+fn no_action_takes_a_shortcut_of_macos_own_items() {
+    let (registry, _) = registry(Platform::MacOs).unwrap();
+    let alt_primary = Modifiers {
+        alt: true,
+        ..PRIMARY
+    };
+    // ⌘H, ⌥⌘H and ⌘M are the system's (F2.11e2): the defaults leave them free, and the
+    // registry refuses them.
+    for shortcut in [ch(PRIMARY, 'h'), ch(alt_primary, 'h'), ch(PRIMARY, 'm')] {
+        assert!(shortcut.is_fixed(Platform::MacOs), "{shortcut:?}");
+        assert!(
+            registry.lookup(Context::GLOBAL, shortcut).is_none(),
+            "{shortcut:?} is an action's"
+        );
+    }
 }
