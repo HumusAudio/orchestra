@@ -2364,7 +2364,12 @@ The steps, voice by voice:
    note of the voice (in the silence after a rest; before time 0 before the first note), so the
    main note starts when it is written; appoggiaturas on the beat, half the main note (2/3 of a
    dotted one); `After` graces at the end of the note they follow, before the next note's
-   acciaccaturas.
+   acciaccaturas. The previous note is the voice's note with the latest end at or before the beat
+   **among those that start before it** (`previous_end`): the notes are not bounded yet at this
+   point (step 6), so a note with a large negative length offset can end before it starts, and
+   without that test it was taken as the previous note of an acciaccatura bars earlier (a case
+   the update's property test found on macOS CI on 2026-11-23, now a fixed test,
+   `a_note_starting_later_is_never_the_previous_note`).
 5. **Arpeggios** (N7): 1/64 between notes, upwards or downwards, all ending together.
 6. **Offsets and bounds** (N8): onset and velocity of the first notehead, the length offsets of
    all; then at least 1/1024 long.

@@ -272,3 +272,40 @@ proptest! {
         }
     }
 }
+
+/// The case found on macOS CI on 2026-11-23 (fixed the same day): after a DAW move of a note with
+/// a split at the barlines, an inserted bar and a second move, the note had a negative length
+/// before the bounds of ADR-0027 §8, ended before an acciaccatura two bars earlier and was taken as
+/// its previous note; the incremental update, which reads at most the bar before, disagreed with
+/// the full computation. Kept as a fixed case because the property test draws new cases each run.
+#[test]
+fn a_note_starting_later_is_never_the_previous_note() {
+    let seed: Vec<u8> = vec![
+        0, 49, 7, 16, 0, 22, 0, 133, 6, 0, 171, 0, 0, 219, 0, 0, 95, 0, 122, 0, 30, 0, 30, 0, 171,
+        0, 0, 135, 0, 251, 0, 0, 2, 0, 183,
+    ];
+    let ops: [(u8, u8, u8); 3] = [(58, 57, 160), (14, 65, 0), (26, 120, 0)];
+    let doc = random(
+        3,
+        &seed,
+        Extras {
+            any: true,
+            dynamics: true,
+        },
+    );
+    let mut editor = Editor::new(doc);
+    let mut path = Unrolled::new(editor.document()).unwrap();
+    let mut performance = Performance::new(editor.document(), &path).unwrap();
+    for (kind, x, y) in ops {
+        let command = command(editor.document(), kind, x, y).unwrap();
+        let changes = editor.execute(&command).unwrap();
+        let doc = editor.document();
+        path.update(doc, &changes).unwrap();
+        performance.update(doc, &path, &changes).unwrap();
+        assert_eq!(
+            performance,
+            Performance::new(doc, &path).unwrap(),
+            "after {command:?}"
+        );
+    }
+}

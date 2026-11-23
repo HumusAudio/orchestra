@@ -34,7 +34,7 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0024](0024-voice-content.md) | What a voice contains: events, note values, tuplets, ties, grace notes, markings, offsets | Accepted |
 | [0025](0025-form.md) | The form: repeats, voltas, jumps, bar repeats and pass-specific playing | Accepted |
 | [0026](0026-commands-undo-notifications.md) | Commands, one undo history, fine-grained change notifications | Accepted |
-| [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted |
+| [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted (precision §16, 2026-11-23) |
 | [0028](0028-daw-move-tolerance-threshold.md) | Moving a note from the DAW side: tolerance threshold, performance-only edits, pass offsets | Accepted |
 | [0029](0029-project-file-format-v1.md) | Project file format v1: plain JSON, a schema of its own, strict loading | Accepted |
 | [0030](0030-macos-ci-not-blocking-merges.md) | macOS CI no longer blocks merges; it still decides when work is done | Accepted |
