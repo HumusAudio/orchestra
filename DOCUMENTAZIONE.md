@@ -2529,7 +2529,12 @@ I passi, voce per voce:
    precedente della voce (nel silenzio dopo una pausa; prima dello zero prima della prima nota),
    così la nota principale parte quando è scritta; appoggiature sul tempo, metà della nota
    principale (2/3 di una puntata); abbellimenti "dopo" in fondo alla nota che seguono, prima delle
-   acciaccature della nota seguente.
+   acciaccature della nota seguente. La nota precedente è la nota della voce con la fine più tarda
+   entro il tempo **fra quelle che iniziano prima di esso** (`previous_end`): a questo punto le note
+   non sono ancora limitate (passo 6), quindi una nota con un grande scostamento di durata negativo
+   può finire prima di iniziare, e senza questo controllo veniva presa come nota precedente di
+   un'acciaccatura alcune battute prima (un caso trovato dal test di proprietà dell'aggiornamento
+   sulla CI di macOS il 2026-11-23, ora un test fisso, `a_note_starting_later_is_never_the_previous_note`).
 5. **Arpeggi** (N7): 1/64 fra una nota e l'altra, verso l'alto o verso il basso, tutte finiscono
    insieme.
 6. **Scostamenti e limiti** (N8): anticipo e velocity dalla prima testa, gli scostamenti di durata

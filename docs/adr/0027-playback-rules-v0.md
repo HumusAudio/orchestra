@@ -373,6 +373,16 @@ In force after round 2: soft accent and stress +7 in 0.2 s, accent +22 in 0.25 s
 0.3 s; *rf* 0.4 s, *sf* 0.6 s, *sffz* 0.8 s; *fp* and *pf* held 0.6 s, then 0.1 s; *sfp*/*sfpp*
 *fff* held 0.2 s, then 0.2 s.
 
+### 16. Precision of N5 found by a property test (owner, 2026-11-23)
+
+"The previous note of the voice" an acciaccatura (or a run of `After` graces) takes time from is
+the note with the latest end at or before the beat **among the notes that start before the
+beat**. The graces are placed before the bounds of §8, so a note whose length offset makes it end
+before it starts could otherwise be taken although it starts after the beat, sometimes bars
+later; the incremental update (§9, H12), which assumes a grace reads at most the bar before, then
+disagreed with a full computation. Found on macOS CI by the update's property test; fixed in
+`previous_end` with a fixed test of the case.
+
 ## Alternatives rejected
 
 - **Seconds in the played notes:** every tempo edit would recompute every note; the path already
