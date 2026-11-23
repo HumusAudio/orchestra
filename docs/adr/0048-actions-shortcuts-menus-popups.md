@@ -551,7 +551,7 @@ writing, the rest:
   and +1 s in two runs. Linux and Windows pay nothing. The cost is accepted; it is measured again
   when `muda` changes minor version.
 
-## Precisions of the implementation (F2.11e2, proposed to the owner on 2026-11-23)
+## Precisions of the implementation (F2.11e2, approved by the owner on 2026-11-23)
 
 Before writing, the owner approved four choices: no About item until it exists as an action with
 its window (F2.12), on every platform (1); macOS's names given by the application as resolved

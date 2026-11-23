@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.81, approvata dal proprietario il 2026-11-23.**
+> **Stato di questo documento: v0.82, approvata dal proprietario il 2026-11-23.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -717,9 +717,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11d2 | **Barra dei menu e menu contestuali disegnati**: modello unico dei menu, tastiera, puntatore, mnemonici nei sei cataloghi, scorciatoie scritte nei menu, accessibilità, benchmark | ✅ (F2.11d2a–b) | 0,5–1 |
 | F2.11d2a | **Menu contestuali**: modello unico dei menu, menu disegnati (tastiera, puntatore, sottomenu), menu contestuale del campo di testo, scorciatoie scritte nello stile della piattaforma e tradotte, puntini, accessibilità dei menu, benchmark | ✅ PR #85 | 0,5–1 |
 | F2.11d2b | **Barra dei menu disegnata e mnemonici**: F10, Alt da solo, Alt+lettera, frecce tra i menu, passaggio tra i titoli col puntatore, mnemonici nei sei cataloghi con il test di unicità, sottolineatura con Alt, `access_key`, la barra nella finestra, screenshot, capitolo delle guide | ✅ PR #86 | 0,5–1 |
-| F2.11e | **`muda` su macOS**: lo stesso modello dei menu, ruoli nel menu dell'app, misura di dimensione e compilazione in CI (ADR-0048 AM9, ADR-0036 B5) | 🔄 (F2.11e1 ✅, F2.11e2 ⬜) | 0,5–1 |
+| F2.11e | **`muda` su macOS**: lo stesso modello dei menu, ruoli nel menu dell'app, misura di dimensione e compilazione in CI (ADR-0048 AM9, ADR-0036 B5) | ✅ (F2.11e1–e2) | 0,5–1 |
 | F2.11e1 | **Descrizione e `muda`**: il menu di sistema descritto dal modello unico e provato su ogni piattaforma, `muda` dietro `SystemMenuHost`, voci con ruolo nel menu dell'app, scelte che tornano come azioni, stati aggiornati, test in CI su macOS, misura di dimensione e compilazione | ✅ PR #87 | 0,5 |
-| F2.11e2 | **Voci di sistema di macOS**: nel menu dell'app Servizi, Nascondi, Nascondi altri, Mostra tutto; il menu Finestra con le voci del sistema; i testi nei sei cataloghi con la ricerca terminologica | ⬜ | 0,5 |
+| F2.11e2 | **Voci di sistema di macOS**: nel menu dell'app Servizi, Nascondi, Nascondi altri, Mostra tutto; il menu Finestra con le voci del sistema; i testi nei sei cataloghi con la ricerca terminologica | ✅ PR #88 | 0,5 |
 | F2.11b | **Barra del titolo nostra** al posto delle decorazioni di `winit` su Wayland (ADR-0036 B6): ADR su dove usarla (solo Linux, o ovunque con i pulsanti nativi su macOS), trascinamento, ridimensionamento, doppio clic, temi, accessibilità | ⬜ | 1–2 |
 | F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ⬜ | 2 |
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
@@ -987,6 +987,10 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.10** Da F2.07b (scelta TB4): le funzioni per il cursore e il clic sul testo
   (`caret_x`, `hit_test`) si costruiscono sui cluster che `TextLayout` già registra (offset in byte
   UTF-8 per ogni glifo).
+- **F2.12** Da F2.11e2 (scelta 1 del proprietario, 2026-11-23): l'azione **Informazioni su
+  Orchestra** con la sua finestra, su tutte le piattaforme: ruolo *About*, quindi su macOS nel
+  menu Orchestra (`SystemMenu::for_macos` la mette già al primo posto), su Linux e Windows in
+  Aiuto.
 - **F2.12** Da ADR-0037: i nomi delle dieci coppie e le parole *Sistema / Chiaro / Scuro* nei sei
   cataloghi (con il glossario), e il **file delle impostazioni** con versione e migrazioni (CLAUDE.md
   §9) che salva coppia, modo e temi personalizzati.
@@ -1062,6 +1066,15 @@ controllo completo. Va fatta bene una volta sola.
   predefinito di `winit` spento. Misura una tantum su macOS: binario +248 KB dopo lo `strip`
   (+3,9%), circa 8 s di compilazione in più, quattro crate nuovi; costo accettato. Precisioni di
   ADR-0048 approvate dal proprietario.
+- **F2.11e2** **Fatto il 2026-11-23:** scelte 1–4 del proprietario (niente About per ora; i nomi
+  di macOS passati dall'app come testi già risolti; il menu Finestra solo nella descrizione per
+  macOS; ⌘H, ⌥⌘H e ⌘M tasti fissi su macOS). Menu dell'app nell'ordine di Apple (Impostazioni…,
+  Servizi, Nascondi, Nascondi altre, Mostra tutte, Esci da Orchestra), menu Finestra prima di
+  Aiuto, voci predefinite di `muda`; dieci messaggi `menu-mac-*` e dieci voci del glossario
+  `mac_*` (i menu di macOS di Firefox e le guide di Apple). Precisioni di ADR-0048 approvate dal
+  proprietario. Da controllare su un Mac appena possibile: i nomi nella barra e le voci che
+  AppKit aggiunge da sé (possibile doppione di Vista → Schermo intero). Con F2.11e2 è chiuso
+  F2.11e.
 - **F2.11e** Da F2.11d2a: l'interfaccia svuota a ogni frame i segni delle azioni cambiate
   (`Registry::drain_changed`); va deciso come li legge anche `muda` (per esempio l'interfaccia
   che li consegna, oppure due consumatori). **Risolto in F2.11e1:** l'interfaccia li consegna
@@ -1418,3 +1431,4 @@ raccomandato.
 | 2026-11-19 | 0.79 | F2.11d2 diviso in F2.11d2a e F2.11d2b; F2.11d2a fatto (modello unico dei menu, menu contestuali, scorciatoie nello stile della piattaforma e tradotte, puntini, "Guida per l'utente"; scelte S1–S3, menu senza ombra per scelta B del proprietario, precisioni di ADR-0048); note in F2.11d2b e F2.11e; prossimo passo F2.11d2b | proprietario |
 | 2026-11-19 | 0.80 | F2.11d2b fatto (barra dei menu disegnata, F10 e Alt da solo, Alt+lettera prima del widget con il fuoco, mnemonici nei sei cataloghi; scelte 1–6 e precisioni di ADR-0048 del proprietario); F2.11d chiuso; prossimo passo F2.11e | proprietario |
 | 2026-11-23 | 0.81 | F2.11e diviso in F2.11e1 ed F2.11e2; F2.11e1 fatto (PR #87: il menu di sistema descritto dal modello unico, `muda` dietro `SystemMenuHost`, un solo lettore delle azioni cambiate, test in CI su macOS; misura: binario +3,9% dopo lo `strip`, circa 8 s di compilazione, costo accettato; precisioni di ADR-0048); prossimo passo F2.11e2 | proprietario |
+| 2026-11-23 | 0.82 | F2.11e2 fatto (PR #88: voci di sistema del menu dell'app e menu Finestra su macOS, ⌘H ⌥⌘H ⌘M tasti fissi, nomi di Apple nei sei cataloghi; scelte 1–4 e precisioni di ADR-0048); F2.11e chiuso; nota in F2.12 (Informazioni su Orchestra); prossimo passo F2.11b | proprietario |
