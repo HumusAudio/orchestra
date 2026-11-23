@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The description of the system's menu, on every platform (F2.11e1): the items with a role
-//! moved into macOS's application menu, the menus they left tidied, and shortcuts turned into
-//! macOS's modifiers and logical keys.
+//! The description of the system's menu, on every platform (F2.11e1, F2.11e2): the items with a
+//! role moved into macOS's application menu and renamed the macOS way, the system's own items
+//! around them, the *Window* menu, the menus they left tidied, and shortcuts turned into macOS's
+//! modifiers and logical keys.
 
 #![allow(
     clippy::unwrap_used,
     reason = "test helpers: a failed unwrap fails the test"
 )]
 
-use super::{SystemItem, SystemKey, SystemMenu, SystemShortcut};
+use super::{SystemCommand, SystemItem, SystemKey, SystemMenu, SystemShortcut, SystemTexts};
 use crate::action::registry::{ActionId, ActionState, Context, Defaults, Registry};
 use crate::action::shortcut::{Platform, Shortcut, ShortcutKey};
 use crate::widget::menu::MenuRole;
@@ -60,11 +61,41 @@ fn names(items: &[SystemItem]) -> Vec<String> {
     items
         .iter()
         .map(|item| match item {
-            SystemItem::Action { name, .. } | SystemItem::Submenu { name, .. } => name.clone(),
+            SystemItem::Action { name, .. }
+            | SystemItem::Submenu { name, .. }
+            | SystemItem::System { name, .. } => name.clone(),
             SystemItem::Separator => "-".to_owned(),
         })
         .collect()
 }
+
+/// macOS's names in en-US, as the catalogues give them (with the program's name filled in).
+fn texts() -> SystemTexts {
+    SystemTexts {
+        settings: "Settings…".to_owned(),
+        services: "Services".to_owned(),
+        hide: "Hide Orchestra".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        hide_others: "Hide Others".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        show_all: "Show All".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        quit: "Quit Orchestra".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        window: "Window".to_owned(),
+        minimize: "Minimize".to_owned(),
+        zoom: "Zoom".to_owned(),
+        bring_all_to_front: "Bring All to Front".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+    }
+}
+
+/// The application menu's system items and their lines, without role items.
+const SYSTEM_APP_ITEMS: [&str; 5] = [
+    "Services",
+    "-",
+    "Hide Orchestra", // i18n-ignore: test data, the catalogues hold the real names
+    "Hide Others",    // i18n-ignore: test data, the catalogues hold the real names
+    "Show All",       // i18n-ignore: test data, the catalogues hold the real names
+];
+
+/// The *Window* menu's system items.
+const SYSTEM_WINDOW_ITEMS: [&str; 4] = ["Minimize", "Zoom", "-", "Bring All to Front"]; // i18n-ignore: test data, the catalogues hold the real names
 
 /// The items of submenu number `index` of `menu`.
 fn items_of(menu: &SystemMenu, index: usize) -> &[SystemItem] {
@@ -115,37 +146,119 @@ fn the_items_with_a_role_go_into_the_application_menu_and_the_rest_is_tidied() {
             ],
         ),
     ];
-    let menu = SystemMenu::for_macos(menus, "Orchestra");
-    assert_eq!(names(&menu.items), ["Orchestra", "File", "Edit", "Help"]);
-    // The application menu: About, then Preferences, then Quit, each group apart.
+    let menu = SystemMenu::for_macos(menus, "Orchestra", &texts());
+    // A Window menu before Help.
+    assert_eq!(
+        names(&menu.items),
+        ["Orchestra", "File", "Edit", "Window", "Help"]
+    );
+    // The application menu in Apple's order: About, Settings (Preferences renamed), Services,
+    // the three Hide/Show items, Quit with the program's name; each group apart.
     assert_eq!(
         names(items_of(&menu, 0)),
-        ["About", "-", "Preferences…", "-", "Quit"]
+        [
+            "About",
+            "-",
+            "Settings…",
+            "-",
+            "Services",
+            "-",
+            "Hide Orchestra", // i18n-ignore: test data, the catalogues hold the real names
+            "Hide Others",    // i18n-ignore: test data, the catalogues hold the real names
+            "Show All",       // i18n-ignore: test data, the catalogues hold the real names
+            "-",
+            "Quit Orchestra" // i18n-ignore: test data, the catalogues hold the real names
+        ]
     );
+    assert_eq!(names(items_of(&menu, 3)), SYSTEM_WINDOW_ITEMS);
     // File lost Quit and its separator; Edit lost Preferences, its separator and a double one.
     assert_eq!(names(items_of(&menu, 1)), ["New", "Save"]);
     assert_eq!(names(items_of(&menu, 2)), ["Undo", "-", "Copy"]);
-    // The Help menu keeps its role, for the system.
+    // The Help menu keeps its role, for the system; the Window menu has its own.
     assert!(matches!(
         menu.items.get(3),
+        Some(SystemItem::Submenu {
+            role: Some(MenuRole::Window),
+            ..
+        })
+    ));
+    assert!(matches!(
+        menu.items.get(4),
         Some(SystemItem::Submenu {
             role: Some(MenuRole::Help),
             ..
         })
     ));
-    // Every action is still somewhere, once.
+    // Every action is still somewhere, once; the system's items are not actions.
     assert_eq!(menu.actions().count(), 8);
 }
 
 #[test]
-fn without_roles_there_is_still_an_application_menu() {
+fn without_roles_the_application_menu_has_the_system_items_and_window_comes_last() {
     let id = ids(1);
     let menu = SystemMenu::for_macos(
         vec![submenu("File", None, vec![action(id[0], "New", None)])],
         "Orchestra",
+        &texts(),
     );
-    assert_eq!(names(&menu.items), ["Orchestra", "File"]);
-    assert_eq!(items_of(&menu, 0).len(), 0);
+    // No Help menu: the Window menu goes last.
+    assert_eq!(names(&menu.items), ["Orchestra", "File", "Window"]);
+    assert_eq!(names(items_of(&menu, 0)), SYSTEM_APP_ITEMS);
+    assert_eq!(names(items_of(&menu, 2)), SYSTEM_WINDOW_ITEMS);
+}
+
+#[test]
+fn a_window_menu_of_the_model_gets_the_system_items_first() {
+    let id = ids(1);
+    let menu = SystemMenu::for_macos(
+        vec![
+            submenu(
+                "Windows",
+                Some(MenuRole::Window),
+                vec![action(id[0], "Mixer", None)],
+            ),
+            submenu("Help", Some(MenuRole::Help), vec![]),
+        ],
+        "Orchestra",
+        &texts(),
+    );
+    // No second Window menu; the empty Help menu was tidied away before.
+    assert_eq!(names(&menu.items), ["Orchestra", "Windows"]);
+    assert_eq!(
+        names(items_of(&menu, 1)),
+        ["Minimize", "Zoom", "-", "Bring All to Front", "-", "Mixer"] // i18n-ignore: test data, the catalogues hold the real names
+    );
+}
+
+#[test]
+fn the_system_items_say_what_the_system_does() {
+    let menu = SystemMenu::for_macos(Vec::new(), "Orchestra", &texts());
+    let commands = |index: usize| -> Vec<SystemCommand> {
+        items_of(&menu, index)
+            .iter()
+            .filter_map(|item| match item {
+                SystemItem::System { command, .. } => Some(*command),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        commands(0),
+        [
+            SystemCommand::Services,
+            SystemCommand::Hide,
+            SystemCommand::HideOthers,
+            SystemCommand::ShowAll
+        ]
+    );
+    assert_eq!(
+        commands(1),
+        [
+            SystemCommand::Minimize,
+            SystemCommand::Zoom,
+            SystemCommand::BringAllToFront
+        ]
+    );
 }
 
 #[test]

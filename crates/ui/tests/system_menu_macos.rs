@@ -42,10 +42,12 @@ fn main() {
 fn run() {
     use orchestra_ui::{
         ActionSpec, ActionState, Context, Defaults, MenuRole, Modifiers, Platform, Registry,
-        Shortcut, ShortcutKey, SystemItem, SystemMenu,
+        Shortcut, ShortcutKey, SystemItem, SystemMenu, SystemTexts,
     };
     // The description by hand, every kind of item and shortcut the program uses: a toggle, a
-    // disabled item, a character key with ⇧, "?" and ",", F11, a nested submenu, separators.
+    // disabled item, a character key with ⇧, "?" and ",", F11, a nested submenu, separators;
+    // `for_macos` adds the system's own items and the Window menu (F2.11e2), which `muda` must
+    // accept too (an "&" in a name included).
     let mut registry = Registry::new(Platform::MacOs);
     let primary = Modifiers {
         primary: true,
@@ -108,7 +110,19 @@ fn run() {
             items: vec![action(2, ActionState::ENABLED, Some(MenuRole::Preferences))],
         },
     ];
-    let menu = SystemMenu::for_macos(menus, "Orchestra");
+    let texts = SystemTexts {
+        settings: "Settings…".to_owned(),
+        services: "Services".to_owned(),
+        hide: "Hide Orchestra".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        hide_others: "Hide Others".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        show_all: "Show All".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        quit: "Quit Orchestra".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        window: "Window & Tabs".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        minimize: "Minimize".to_owned(),
+        zoom: "Zoom".to_owned(),
+        bring_all_to_front: "Bring All to Front".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+    };
+    let menu = SystemMenu::for_macos(menus, "Orchestra", &texts);
     let built = orchestra_ui::build_system_menu(&menu).unwrap();
     assert_eq!(built, 4, "every action item was built");
     println!("system menu built with muda: {built} action items");

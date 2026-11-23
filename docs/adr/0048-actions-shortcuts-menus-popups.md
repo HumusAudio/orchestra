@@ -2,7 +2,7 @@
 
 - **Status:** Accepted (owner, 2026-11-17; outline AM1–AM15 presented first, with the owner's
   choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c, F2.11d1, F2.11d2a,
-  F2.11d2b and F2.11e1 below.
+  F2.11d2b, F2.11e1 and F2.11e2 below.
 - **Date:** 2026-11-17
 - **Implements:** ADR-0045 (retained widgets; WA3 leaves the table of window-level shortcuts to
   the menus; WB9 leaves the popups' outside click to them; WH1 overlays), ADR-0040 W5 (our own
@@ -550,3 +550,38 @@ writing, the rest:
   2.3 s, `orchestra-ui` +1.5 s), while the wall-clock difference on the shared runner was +11 s
   and +1 s in two runs. Linux and Windows pay nothing. The cost is accepted; it is measured again
   when `muda` changes minor version.
+
+## Precisions of the implementation (F2.11e2, approved by the owner on 2026-11-23)
+
+Before writing, the owner approved four choices: no About item until it exists as an action with
+its window (F2.12), on every platform (1); macOS's names given by the application as resolved
+texts (2); a Window menu built in macOS's description only (3); macOS's system shortcuts among
+the fixed keys there (4). While writing, the rest:
+- **AM9: the system's items.** A new kind of item, `SystemItem::System { command, name }`, for
+  what macOS itself carries out (`SystemCommand`: Services, Hide, Hide Others, Show All,
+  Minimize, Zoom, Bring All to Front); no action of ours runs and the registry does not know
+  them. `muda` builds each with its predefined item, named with our text and carrying macOS's
+  shortcut. They are not in the menu model: Linux and Windows have no such items.
+- **AM9: the application menu** (choice 2). `SystemMenu::for_macos(menus, app_name, texts)` puts,
+  group by group with lines between, About (when it exists), Preferences renamed
+  `texts.settings` ("Settings…", macOS 13 and later), Services, Hide / Hide Others / Show All,
+  Quit renamed `texts.quit` ("Quit Orchestra"). `SystemTexts` holds the ten names, resolved by
+  the application from the catalogues (`orchestra_app::system_texts`): the messages `menu-mac-*`
+  name the program through `{ app-name }`, placed where each language puts it, without Fluent's
+  isolation marks. The names are Apple's own in each language (glossary `mac_*`: Firefox's macOS
+  menus, Apple's guides of Motion and Pages), in title case in English as macOS writes them,
+  although our own menus use sentence case.
+- **AM9: the Window menu** (choice 3). Minimize, Zoom, a line, Bring All to Front, inserted
+  before the submenu whose role is *Help*, or last without one, and given to the system with
+  `set_as_windows_menu_for_nsapp` (which appends the window list). A submenu of the model with
+  the role *Window* is kept instead, the system's items first and its own after a line.
+- **AM8: macOS's system shortcuts** (choice 4). On macOS ⌘H, ⌥⌘H and ⌘M (with neither ⌃ nor ⇧)
+  are fixed keys: `Shortcut::is_fixed` refuses them, because the system's menu carries them out
+  before the window sees the key. No default used them; ⌘Q and ⌘, stay our actions' own.
+- **AM15: tests.** The description's tests on every platform (the two menus, the renamed role
+  items, the Window menu before Help, last, or merged into the model's own), the fixed keys, the
+  ten names in the six catalogues (the program's name in Hide and Quit, no isolation mark, the
+  ellipsis of Settings), and `muda` building the system's items on macOS CI.
+- **Not verified by hand** (no Mac, ADR-0040 W9): AppKit may add items of its own (Start
+  Dictation and Emoji & Symbols in an Edit menu, Enter Full Screen near a View menu), which could
+  duplicate View → Full screen. To be looked at the first time a Mac is available.

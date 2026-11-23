@@ -21,7 +21,7 @@
 
 use crate::action::registry::{ActionId, ActionState};
 use crate::draw::list::DisplayList;
-use crate::platform::menu::{SystemItem, SystemMenu};
+use crate::platform::menu::{SystemItem, SystemMenu, SystemTexts};
 use crate::widget::menu::{MenuItem, MenuModel};
 
 use super::Ui;
@@ -38,16 +38,21 @@ pub(super) struct SystemTracking {
 impl<M: 'static> Ui<M> {
     /// The menus of `model` as the system's menu bar shows them on macOS (F2.11e1, ADR-0048 AM9):
     /// every action's name, first shortcut and state resolved from the registry, the items with
-    /// a role moved into the application menu named `app_name` ([`SystemMenu::for_macos`]). From
-    /// then on the interface keeps the changed actions for the window
-    /// ([`Ui::take_menu_updates`]).
+    /// a role moved into the application menu named `app_name`, with macOS's own items named
+    /// with `texts` and a *Window* menu ([`SystemMenu::for_macos`], F2.11e2). From then on the
+    /// interface keeps the changed actions for the window ([`Ui::take_menu_updates`]).
     ///
     /// The application calls it when the window asks for the system's menu
     /// ([`WindowApp::system_menu`](crate::WindowApp::system_menu)), on macOS only; on Linux and
     /// Windows it draws its bar instead ([`Ui::add_menu_bar`]).
-    pub fn system_menu(&mut self, model: &MenuModel, app_name: &str) -> SystemMenu {
+    pub fn system_menu(
+        &mut self,
+        model: &MenuModel,
+        app_name: &str,
+        texts: &SystemTexts,
+    ) -> SystemMenu {
         let menus = self.system_items(&model.items);
-        let menu = SystemMenu::for_macos(menus, app_name);
+        let menu = SystemMenu::for_macos(menus, app_name, texts);
         // The editing actions the menu shows, with the state it was built with.
         let mut editing = Vec::new();
         for item in menu.actions() {

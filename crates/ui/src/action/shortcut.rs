@@ -33,7 +33,8 @@
 //! # Fixed keys (AM8, precision B of F2.11d1)
 //! [`Shortcut::is_fixed`] answers the keys an action can never take: the widgets' navigation
 //! (Tab, the arrows, Enter, Escape, Space) **with no modifier or with Shift alone**, F10 and
-//! Shift+F10, the Menu key, and on Linux and Windows Alt+letter (the menus' mnemonics). With the
+//! Shift+F10, the Menu key, on Linux and Windows Alt+letter (the menus' mnemonics), and on macOS
+//! the shortcuts of the system's own menu items, ⌘H, ⌥⌘H and ⌘M (F2.11e2). With the
 //! primary modifier the arrows stay free for actions (Ctrl+↑ in the score). The editing keys of a
 //! text field are not refused: inside a field the field wins anyway (AM4), and the shortcut
 //! editor (F2.12c) will warn about them.
@@ -168,8 +169,10 @@ impl Shortcut {
         let Modifiers {
             primary,
             secondary,
-            // Shift changes nothing here: Shift+Tab and Shift+arrows are navigation too, and
-            // Alt+Shift+letter still opens a mnemonic on Windows.
+            // Shift changes nothing for the navigation keys and the mnemonics: Shift+Tab and
+            // Shift+arrows are navigation too, and Alt+Shift+letter still opens a mnemonic on
+            // Windows. It does for macOS's system shortcuts (⇧⌘H is not ⌘H): `is_mac_system`
+            // reads it from the whole set.
             shift: _,
             alt,
         } = self.modifiers;
@@ -194,11 +197,30 @@ impl Shortcut {
             // Alt+letter opens a menu by its mnemonic on Linux and Windows (AM10, AM12); macOS has
             // no mnemonics, and ⌥ there types special characters or is a modifier like any other.
             ShortcutKey::Character(character) => {
-                alt && !primary && !secondary && has_case(character) && !is_mac(platform)
+                let mnemonic =
+                    alt && !primary && !secondary && has_case(character) && !is_mac(platform);
+                mnemonic || is_mac_system(platform, self.modifiers, character)
             }
             _ => false,
         }
     }
+}
+
+/// `true` for the shortcuts of macOS's own menu items (F2.11e2, precision of AM8): ⌘H hides the
+/// program, ⌥⌘H the others, ⌘M minimizes the window. The system's menu carries them out before
+/// the window sees the key, so an action given one of them would never run.
+const fn is_mac_system(platform: Platform, modifiers: Modifiers, character: char) -> bool {
+    let Modifiers {
+        primary,
+        secondary,
+        shift,
+        alt,
+    } = modifiers;
+    if !is_mac(platform) || !primary || secondary || shift {
+        return false;
+    }
+    // Letters are kept in lower case (see `Shortcut::new`).
+    matches!((character, alt), ('h', _) | ('m', false))
 }
 
 /// `true` on macOS.

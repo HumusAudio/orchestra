@@ -2,7 +2,8 @@
 
 //! The interface's side of the system's menu bar (F2.11e1, ADR-0048 AM2, AM9, AM13), on every
 //! platform: the description built from the model and the registry (names, shortcuts, states,
-//! the roles moved into macOS's application menu), the changed states handed to the window once
+//! the roles moved into macOS's application menu and renamed, its system items and the *Window*
+//! menu of F2.11e2), the changed states handed to the window once
 //! each (the registry's marks and the focused field's editing actions), and an action chosen in
 //! the system's menu run on the shortcuts' path.
 
@@ -17,7 +18,7 @@ use orchestra_ui::{
     ActionId, ActionSpec, ActionState, Appearance, BuiltInTheme, ButtonState, Context, Defaults,
     DisplayList, EditConvention, EditRole, Flex, InputEvent, Key, KeyNames, LayoutProps, Length,
     MenuModel, MenuRole, Modifiers, NamedKey, PhysicalKey, Platform, Rect, Registry, Shortcut,
-    ShortcutKey, Space, SystemItem, SystemMenu, TextField, Ui, WidgetId,
+    ShortcutKey, Space, SystemItem, SystemMenu, SystemTexts, TextField, Ui, WidgetId,
 };
 
 /// The messages of these tests.
@@ -162,10 +163,28 @@ fn names(items: &[SystemItem]) -> Vec<String> {
     items
         .iter()
         .map(|item| match item {
-            SystemItem::Action { name, .. } | SystemItem::Submenu { name, .. } => name.clone(),
+            SystemItem::Action { name, .. }
+            | SystemItem::Submenu { name, .. }
+            | SystemItem::System { name, .. } => name.clone(),
             SystemItem::Separator => "-".to_owned(),
         })
         .collect()
+}
+
+/// macOS's names, as the application resolves them from the catalogues (en-US).
+fn texts() -> SystemTexts {
+    SystemTexts {
+        settings: "Settings…".to_owned(),
+        services: "Services".to_owned(),
+        hide: "Hide Orchestra".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        hide_others: "Hide Others".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        show_all: "Show All".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        quit: "Quit Orchestra".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+        window: "Window".to_owned(),
+        minimize: "Minimize".to_owned(),
+        zoom: "Zoom".to_owned(),
+        bring_all_to_front: "Bring All to Front".to_owned(), // i18n-ignore: test data, the catalogues hold the real names
+    }
 }
 
 /// The items of submenu number `index`.
@@ -180,13 +199,30 @@ fn items(menu: &SystemMenu, index: usize) -> &[SystemItem] {
 fn the_description_has_the_application_menu_names_shortcuts_and_states() {
     let mut bench = Bench::new();
     let model = bench.model.clone();
-    let menu = bench.ui.system_menu(&model, "Orchestra");
-    assert_eq!(names(&menu.items), ["Orchestra", "File", "Edit", "Help"]);
-    assert_eq!(names(items(&menu, 0)), ["Settings…", "-", "Quit"]);
+    let menu = bench.ui.system_menu(&model, "Orchestra", &texts());
+    assert_eq!(
+        names(&menu.items),
+        ["Orchestra", "File", "Edit", "Window", "Help"]
+    );
+    // The registry's "Quit" becomes macOS's "Quit Orchestra"; the system's items around them. // i18n-ignore: test data, the catalogues hold the real names
+    assert_eq!(
+        names(items(&menu, 0)),
+        [
+            "Settings…",
+            "-",
+            "Services",
+            "-",
+            "Hide Orchestra", // i18n-ignore: test data, the catalogues hold the real names
+            "Hide Others",    // i18n-ignore: test data, the catalogues hold the real names
+            "Show All",       // i18n-ignore: test data, the catalogues hold the real names
+            "-",
+            "Quit Orchestra" // i18n-ignore: test data, the catalogues hold the real names
+        ]
+    );
     assert_eq!(names(items(&menu, 1)), ["Save"]);
     assert_eq!(names(items(&menu, 2)), ["Copy"]);
     assert!(matches!(
-        menu.items[3],
+        menu.items[4],
         SystemItem::Submenu {
             role: Some(MenuRole::Help),
             ..
@@ -204,7 +240,7 @@ fn the_description_has_the_application_menu_names_shortcuts_and_states() {
         shortcut.map(|shortcut| shortcut.key()),
         Some(ShortcutKey::Character('s'))
     );
-    let SystemItem::Action { shortcut, .. } = &items(&menu, 3)[0] else {
+    let SystemItem::Action { shortcut, .. } = &items(&menu, 4)[0] else {
         panic!("User guide is an action");
     };
     assert_eq!(
@@ -228,7 +264,7 @@ fn changed_states_reach_the_window_once_each() {
     bench.ui.frame(&mut bench.list);
     assert_eq!(bench.updates(), vec![]);
     let model = bench.model.clone();
-    let _ = bench.ui.system_menu(&model, "Orchestra");
+    let _ = bench.ui.system_menu(&model, "Orchestra", &texts());
     // The registry's change, once; then nothing.
     bench
         .ui
@@ -274,7 +310,7 @@ fn changed_states_reach_the_window_once_each() {
 fn an_action_chosen_in_the_system_menu_runs_like_a_shortcut() {
     let mut bench = Bench::new();
     let model = bench.model.clone();
-    let _ = bench.ui.system_menu(&model, "Orchestra");
+    let _ = bench.ui.system_menu(&model, "Orchestra", &texts());
     // Copy on the focused field: it copies the field's text, the application hears nothing.
     bench
         .ui

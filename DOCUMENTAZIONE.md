@@ -4918,8 +4918,10 @@ posizione.
 
 **Tasti fissi** (`Shortcut::is_fixed`, scelta B del proprietario). Nessuna azione può prendere
 Tab, le frecce, Invio, Esc o Spazio senza modificatori o con il solo Shift (la navigazione dei
-widget), F10 e Shift+F10, il tasto Menu (`NamedKey::ContextMenu`, nuovo), e su Linux e Windows
-Alt+lettera (i mnemonici dei menu, F2.11d2). Con *Primary* le frecce restano libere (Ctrl+↑ nella
+widget), F10 e Shift+F10, il tasto Menu (`NamedKey::ContextMenu`, nuovo), su Linux e Windows
+Alt+lettera (i mnemonici dei menu, F2.11d2), e su macOS ⌘H, ⌥⌘H e ⌘M, le scorciatoie delle voci di
+menu del sistema (F2.11e2: macOS le esegue prima che la finestra veda il tasto, quindi un'azione
+che ne ricevesse una non partirebbe mai). Con *Primary* le frecce restano libere (Ctrl+↑ nella
 partitura). I tasti di modifica di un campo di testo non vengono rifiutati: dentro un campo vince
 comunque il campo.
 
@@ -5235,7 +5237,7 @@ Windows. I file nuovi sono `crates/ui/src/platform/menu/mod.rs` (una descrizione
 piattaforma), `crates/ui/src/platform/menu/muda.rs` (solo macOS) e
 `crates/ui/src/widget/ui/system.rs` (la parte dell'interfaccia).
 
-**Prima una descrizione.** `Ui::system_menu(model, app_name)` trasforma il modello in un
+**Prima una descrizione.** `Ui::system_menu(model, app_name, texts)` trasforma il modello in un
 `SystemMenu`: nome, prima scorciatoia e stato di ogni azione presi dal registro.
 `SystemMenu::for_macos` poi sposta le voci con ruolo Informazioni, Preferenze o Esci nel **menu
 dell'applicazione**, il primo, col nome del programma, e riordina i menu che hanno lasciato (nessun
@@ -5247,9 +5249,44 @@ stesso:
 .role(MenuRole::Quit);
 ```
 
-La descrizione è fatta di dati semplici, così la CI di Linux controlla che cosa mostrerà il Mac. Le
-altre voci del menu dell'applicazione (Servizi, Nascondi, Mostra tutte) e il menu Finestra arrivano
-con F2.11e2.
+La descrizione è fatta di dati semplici, così la CI di Linux controlla che cosa mostrerà il Mac.
+
+**Le voci del sistema** (F2.11e2). Ogni programma per Mac ha le stesse voci intorno alle nostre, e
+`for_macos` le aggiunge nell'ordine di Apple:
+
+```text
+Settings…            ⌘,    (our Preferences action, named the macOS way)
+───────────────
+Services             ▸
+───────────────
+Hide Orchestra       ⌘H
+Hide Others         ⌥⌘H
+Show All
+───────────────
+Quit Orchestra       ⌘Q    (our Quit action, with the program's name)
+```
+
+e un menu **Finestra** prima di Aiuto (Contrai ⌘M, Ridimensiona, una linea, Porta tutto in primo
+piano), a cui macOS aggiunge l'elenco delle finestre; se un giorno il modello avrà un suo
+sottomenu con il ruolo Finestra, le voci del sistema andranno all'inizio di quello. Sono
+`SystemItem::System { command, name }`: le esegue il sistema, nessuna nostra azione parte, e
+`muda` le costruisce con le sue voci predefinite (`PredefinedMenuItem::hide`, `minimize`,
+`bring_all_to_front`…), che portano le scorciatoie di macOS. Non c'è ancora la voce Informazioni:
+arriva come azione vera con la sua finestra (F2.12).
+
+I nomi sono nostri, perché macOS non traduce le voci che un programma costruisce da sé e quelli
+predefiniti di `muda` sono in inglese. L'app li legge dai cataloghi in un `SystemTexts`
+(`orchestra_app::system_texts`); i messaggi nominano il programma con `{ app-name }`, così ogni
+lingua lo mette dove vuole:
+
+```fluent
+menu-mac-quit = Esci da { app-name }
+```
+
+(`{ app-name } beenden` in tedesco). I segni di isolamento di Fluent intorno al riferimento si
+tolgono. Le parole sono quelle di Apple in ogni lingua (i menu di macOS di Firefox e le guide di
+Apple, voci del glossario `mac_*`), comprese le maiuscole dei nomi inglesi ("Hide Others"), così
+coincidono con quelle di ogni altro programma per Mac.
 
 **`muda`.** Su macOS la finestra installa la descrizione una volta, quando il ciclo degli eventi
 gira: sottomenu, voci (voci con spunta per gli interruttori) e separatori, ogni voce d'azione con
@@ -5270,13 +5307,17 @@ finestra, che li ritira dopo ogni gruppo di eventi (`Ui::take_menu_updates`) e l
 sappia, quindi nello stesso momento i loro stati si confrontano con quelli che il menu ha ricevuto
 l'ultima volta.
 
-**Test.** `crates/ui/src/platform/menu/tests.rs` controlla il menu dell'applicazione e il
-riordino, e le scorciatoie tradotte nei modificatori e nei tasti logici di macOS;
+**Test.** `crates/ui/src/platform/menu/tests.rs` controlla il menu dell'applicazione con le voci
+del sistema e le voci con ruolo rinominate, il menu Finestra (prima di Aiuto, in fondo senza Aiuto,
+o unito a quello del modello), il riordino, e le scorciatoie tradotte nei modificatori e nei tasti logici di macOS;
 `crates/ui/tests/system_menu.rs` la descrizione costruita dall'interfaccia, gli stati consegnati
 una volta sola (anche Copia che segue la selezione del campo) e un'azione eseguita dal menu di
 sistema. `crates/ui/tests/system_menu_macos.rs` costruisce davvero il menu con `muda` nella CI di
 macOS: ha un `main` suo, perché i menu di AppKit si creano sul thread principale, e risponde al
 `--list` di `nextest`, così gira dentro `cargo xtask check`.
+`crates/app/tests/actions.rs` controlla i nomi nei sei cataloghi (il nome del programma in Nascondi
+ed Esci, nessun segno di isolamento, i puntini di Impostazioni) e che nessuna azione abbia ⌘H, ⌥⌘H
+o ⌘M.
 
 #### La finestra e il ciclo degli eventi
 

@@ -21,9 +21,33 @@
 //! items to them (the window list, the help search). [`SystemMenu::for_macos`] takes the action
 //! items with those roles out of the menus they are in, puts them into the application menu (in
 //! the order About, Settings, Quit, with separators between the groups), and tidies the menus they
-//! left: no separator at the start or end of a menu, never two in a row, no empty submenu. The
-//! application menu's other system items (Services, Hide, Show all) and the *Window* menu come
-//! with F2.11e2, with their names from the catalogues.
+//! left: no separator at the start or end of a menu, never two in a row, no empty submenu.
+//!
+//! # The system's own items (F2.11e2)
+//! Every Mac program's application menu has the same items around ours, in Apple's order:
+//!
+//! ```text
+//! About Orchestra            (none yet: it comes with its window, F2.12)
+//! ───────────────
+//! Settings…            ⌘,    (our Preferences action, named the macOS way)
+//! ───────────────
+//! Services             ▸
+//! ───────────────
+//! Hide Orchestra       ⌘H
+//! Hide Others         ⌥⌘H
+//! Show All
+//! ───────────────
+//! Quit Orchestra       ⌘Q    (our Quit action, with the program's name)
+//! ```
+//!
+//! and a *Window* menu before *Help*: Minimize (⌘M), Zoom, then Bring All to Front; macOS appends
+//! the list of the program's windows to it. Those items are [`SystemItem::System`]: the system
+//! does what they do (no action of ours runs), `muda` makes them with its predefined items, and
+//! their shortcuts are macOS's own, which the registry refuses to give to actions there (AM8,
+//! [`Shortcut::is_fixed`]). Their names are ours, from the catalogues ([`SystemTexts`]): macOS
+//! does not translate items a program builds itself, and `muda`'s defaults are English.
+//!
+//! On Linux and Windows none of this exists: the drawn bar has no application or Window menu.
 //!
 //! # Shortcuts (AM9)
 //! A shortcut is given to the system as its **logical** key, the character it types, exactly as
@@ -78,8 +102,61 @@ pub enum SystemItem {
         /// Its items.
         items: Vec<SystemItem>,
     },
+    /// An item the system itself carries out (see the module documentation): no action of ours
+    /// runs when it is chosen.
+    System {
+        /// What it does.
+        command: SystemCommand,
+        /// Its name, as people read it.
+        name: String,
+    },
     /// A line between groups of items.
     Separator,
+}
+
+/// What a [`SystemItem::System`] does, on macOS (each is one of `muda`'s predefined items).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemCommand {
+    /// The *Services* submenu, filled by the system.
+    Services,
+    /// Hides the program (⌘H).
+    Hide,
+    /// Hides every other program (⌥⌘H).
+    HideOthers,
+    /// Shows every program again.
+    ShowAll,
+    /// Minimizes the front window into the Dock (⌘M).
+    Minimize,
+    /// Zooms the front window (the green button's resize, not full screen).
+    Zoom,
+    /// Brings every window of the program to the front.
+    BringAllToFront,
+}
+
+/// The names macOS's own menus need, already in the user's language (see the module
+/// documentation): resolved by the application from its catalogues, so this crate holds no text.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SystemTexts {
+    /// "Settings…": the name of the *Preferences* action on macOS (macOS 13 and later).
+    pub settings: String,
+    /// "Services".
+    pub services: String,
+    /// "Hide Orchestra", with the program's name.
+    pub hide: String,
+    /// "Hide Others".
+    pub hide_others: String,
+    /// "Show All".
+    pub show_all: String,
+    /// "Quit Orchestra", with the program's name: the name of the *Quit* action on macOS.
+    pub quit: String,
+    /// "Window": the *Window* menu's title.
+    pub window: String,
+    /// "Minimize".
+    pub minimize: String,
+    /// "Zoom".
+    pub zoom: String,
+    /// "Bring All to Front".
+    pub bring_all_to_front: String,
 }
 
 impl SystemItem {
@@ -93,28 +170,65 @@ impl SystemItem {
 const APP_MENU_ROLES: [MenuRole; 3] = [MenuRole::About, MenuRole::Preferences, MenuRole::Quit];
 
 impl SystemMenu {
-    /// The menus as macOS shows them: an application menu named `app_name` first, holding the
-    /// action items whose role is *About*, *Preferences* or *Quit* (in that order, each group
-    /// apart), taken out of the menus they were in, which are then tidied (see the module
-    /// documentation). Without such items there is still an application menu, empty, because
-    /// macOS always shows the first menu under the program's name.
+    /// The menus as macOS shows them (see the module documentation):
+    /// - an application menu named `app_name` first: the action items whose role is *About*,
+    ///   then *Preferences* (renamed `texts.settings`), then Services, then Hide, Hide Others and
+    ///   Show All, then *Quit* (renamed `texts.quit`), each group apart. The role items are taken
+    ///   out of the menus they were in, which are then tidied. The system's items are always
+    ///   there, so the menu is never empty, even without role items;
+    /// - the other menus, in their order, with a *Window* menu (`texts.window`) inserted before
+    ///   the menu whose role is *Help*, or at the end without one; a submenu of the model that
+    ///   already has the role *Window* is kept instead, with the system's window items added at
+    ///   its start.
     ///
     /// # Complexity
     /// O(items) for the walk, plus a few moves.
     #[must_use]
-    pub fn for_macos(menus: Vec<SystemItem>, app_name: &str) -> Self {
+    pub fn for_macos(menus: Vec<SystemItem>, app_name: &str, texts: &SystemTexts) -> Self {
         let mut taken = Vec::new();
         let mut menus = menus;
         take_roles(&mut menus, &mut taken);
         tidy(&mut menus);
-        // The application menu: each role's items as one group, the groups apart.
-        let mut app = Vec::new();
-        for role in APP_MENU_ROLES {
-            let group: Vec<SystemItem> = taken
+        // The role items with macOS's names (the registry's are Linux's and Windows').
+        for item in &mut taken {
+            if let SystemItem::Action {
+                name,
+                role: Some(role),
+                ..
+            } = item
+            {
+                match role {
+                    MenuRole::Preferences => texts.settings.clone_into(name),
+                    MenuRole::Quit => texts.quit.clone_into(name),
+                    MenuRole::About | MenuRole::Window | MenuRole::Help => {}
+                }
+            }
+        }
+        let group = |role: MenuRole| -> Vec<SystemItem> {
+            taken
                 .iter()
                 .filter(|item| item.has_action_role(&[role]))
                 .cloned()
-                .collect();
+                .collect()
+        };
+        let system = |command: SystemCommand, name: &str| SystemItem::System {
+            command,
+            name: name.to_owned(),
+        };
+        // The application menu, group by group in Apple's order; empty groups leave no line.
+        let groups = [
+            group(MenuRole::About),
+            group(MenuRole::Preferences),
+            vec![system(SystemCommand::Services, &texts.services)],
+            vec![
+                system(SystemCommand::Hide, &texts.hide),
+                system(SystemCommand::HideOthers, &texts.hide_others),
+                system(SystemCommand::ShowAll, &texts.show_all),
+            ],
+            group(MenuRole::Quit),
+        ];
+        let mut app = Vec::new();
+        for group in groups {
             if group.is_empty() {
                 continue;
             }
@@ -123,13 +237,14 @@ impl SystemMenu {
             }
             app.extend(group);
         }
-        let mut items = Vec::with_capacity(menus.len() + 1);
+        let mut items = Vec::with_capacity(menus.len() + 2);
         items.push(SystemItem::Submenu {
             name: app_name.to_owned(),
             role: None,
             items: app,
         });
         items.extend(menus);
+        add_window_menu(&mut items, texts);
         Self { items }
     }
 
@@ -141,12 +256,57 @@ impl SystemMenu {
                 match item {
                     SystemItem::Submenu { items, .. } => stack.extend(items.iter().rev()),
                     SystemItem::Action { .. } => return Some(item),
-                    SystemItem::Separator => {}
+                    SystemItem::System { .. } | SystemItem::Separator => {}
                 }
             }
             None
         })
     }
+}
+
+/// Gives the bar `items` its *Window* menu (see [`SystemMenu::for_macos`]): the system's window
+/// items, a line, then whatever the model's own *Window* menu holds, if it has one.
+fn add_window_menu(items: &mut Vec<SystemItem>, texts: &SystemTexts) {
+    let mut window = vec![
+        SystemItem::System {
+            command: SystemCommand::Minimize,
+            name: texts.minimize.clone(),
+        },
+        SystemItem::System {
+            command: SystemCommand::Zoom,
+            name: texts.zoom.clone(),
+        },
+        SystemItem::Separator,
+        SystemItem::System {
+            command: SystemCommand::BringAllToFront,
+            name: texts.bring_all_to_front.clone(),
+        },
+    ];
+    let has_role = |item: &SystemItem, wanted: MenuRole| matches!(item, SystemItem::Submenu { role: Some(role), .. } if *role == wanted);
+    // The model's own Window menu, if any: the system's items go first, its own after a line.
+    if let Some(SystemItem::Submenu { items: own, .. }) = items
+        .iter_mut()
+        .find(|item| has_role(item, MenuRole::Window))
+    {
+        window.push(SystemItem::Separator);
+        window.append(own);
+        tidy(&mut window);
+        *own = window;
+        return;
+    }
+    // Otherwise a new one, before Help (where every Mac program has it) or last.
+    let at = items
+        .iter()
+        .position(|item| has_role(item, MenuRole::Help))
+        .unwrap_or(items.len());
+    items.insert(
+        at,
+        SystemItem::Submenu {
+            name: texts.window.clone(),
+            role: Some(MenuRole::Window),
+            items: window,
+        },
+    );
 }
 
 /// Moves out of `items` (and of their submenus, at any depth) the action items whose role goes

@@ -87,8 +87,13 @@ Maiusc per usarli.
 == La barra dei menu
 
 Su Linux e Windows i menu sono in cima alla finestra: File, Modifica, Vista e Aiuto. Su macOS
-sono nella barra dei menu in cima allo schermo, come in ogni programma per Mac, e Preferenze ed
-Esci stanno nel menu che si chiama Orchestra.
+sono nella barra dei menu in cima allo schermo, come in ogni programma per Mac. Lì il primo menu si
+chiama Orchestra e ha ciò che ha ogni programma per Mac: *Impostazioni…* (⌘,, le Preferenze), i
+*Servizi* del sistema, *Nascondi Orchestra* (⌘H), *Nascondi altre* (⌥⌘H), *Mostra tutte* ed *Esci
+da Orchestra* (⌘Q). Un menu *Finestra*, prima di Aiuto, ha *Contrai* (⌘M), *Ridimensiona* e
+*Porta tutto in primo piano*, e macOS vi aggiunge l'elenco delle finestre di Orchestra. Poiché ⌘H,
+⌥⌘H e ⌘M appartengono a questi comandi del sistema, su un Mac Orchestra non li assegna mai a un suo
+comando.
 
 - *Con il mouse*, fai clic sul nome di un menu per aprirlo e poi su un comando. Puoi anche tenere
   premuto il tasto, spostarti su un comando e rilasciarlo lì. Mentre un menu è aperto, passando con

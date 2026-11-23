@@ -246,6 +246,28 @@ fn alt_and_a_letter_are_the_mnemonics_except_on_macos() {
     assert!(!ch(ALT, ',').is_fixed(Platform::Linux));
 }
 
+#[test]
+fn the_system_menus_shortcuts_are_fixed_on_macos_only() {
+    let primary_alt = Modifiers {
+        alt: true,
+        ..PRIMARY
+    };
+    // ⌘H, ⌥⌘H and ⌘M belong to macOS's own menu items (F2.11e2).
+    assert!(ch(PRIMARY, 'h').is_fixed(Platform::MacOs));
+    assert!(ch(primary_alt, 'h').is_fixed(Platform::MacOs));
+    assert!(ch(PRIMARY, 'm').is_fixed(Platform::MacOs));
+    // ⌥⌘M, ⇧⌘H and ⌃⌘H are free; so is Ctrl+H elsewhere (Replace in many programs).
+    assert!(!ch(primary_alt, 'm').is_fixed(Platform::MacOs));
+    assert!(!ch(PRIMARY_SHIFT, 'h').is_fixed(Platform::MacOs));
+    let primary_secondary = Modifiers {
+        secondary: true,
+        ..PRIMARY
+    };
+    assert!(!ch(primary_secondary, 'h').is_fixed(Platform::MacOs));
+    assert!(!ch(PRIMARY, 'h').is_fixed(Platform::Linux));
+    assert!(!ch(PRIMARY, 'm').is_fixed(Platform::Windows));
+}
+
 // ----- The registry ----------------------------------------------------------------------------
 
 /// An action of the global context with the same defaults everywhere.

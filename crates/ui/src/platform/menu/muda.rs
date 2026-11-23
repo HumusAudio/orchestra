@@ -7,7 +7,8 @@
 //! Every submenu of the [`SystemMenu`] becomes a `Submenu` of the bar; an action item a
 //! `MenuItem`, or a `CheckMenuItem` when its action is a toggle, with the action's state and its
 //! shortcut as a `KeyAccelerator` (the logical key, see the parent module); a separator `muda`'s
-//! predefined separator. Each action item's ID is `orchestra-action-N`, N the action's index, and
+//! predefined separator; a system item (F2.11e2) the predefined item that does the same, named
+//! with our text and carrying macOS's own shortcut (⌘H, ⌥⌘H, ⌘M). Each action item's ID is `orchestra-action-N`, N the action's index, and
 //! a table from those IDs to the actions goes with the handler of `muda`'s events, so a choice
 //! comes back as an [`ActionId`].
 //!
@@ -25,7 +26,7 @@ use std::collections::HashMap;
 use muda::accelerator::{Key, KeyAccelerator, Modifiers, NamedKey as MudaKey};
 use muda::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu};
 
-use super::{SystemItem, SystemKey, SystemMenu, SystemMenuHost, SystemShortcut};
+use super::{SystemCommand, SystemItem, SystemKey, SystemMenu, SystemMenuHost, SystemShortcut};
 use crate::action::registry::{ActionId, ActionState};
 use crate::widget::menu::MenuRole;
 use crate::window::input::NamedKey;
@@ -239,6 +240,11 @@ fn fill(submenu: &Submenu, items: &[SystemItem], built: &mut Built) -> Result<()
                 fill(&inner, items, built)?;
                 submenu.append(&inner).map_err(|error| error.to_string())?;
             }
+            SystemItem::System { command, name } => {
+                submenu
+                    .append(&predefined(*command, &text(name)))
+                    .map_err(|error| error.to_string())?;
+            }
             SystemItem::Separator => {
                 submenu
                     .append(&PredefinedMenuItem::separator())
@@ -247,6 +253,23 @@ fn fill(submenu: &Submenu, items: &[SystemItem], built: &mut Built) -> Result<()
         }
     }
     Ok(())
+}
+
+/// `muda`'s predefined item that does `command`, named `name`. `muda` gives Hide, Hide Others and
+/// Minimize their usual shortcuts itself, and fills Services' submenu from the system.
+fn predefined(command: SystemCommand, name: &str) -> PredefinedMenuItem {
+    let name = Some(name);
+    match command {
+        SystemCommand::Services => PredefinedMenuItem::services(name),
+        SystemCommand::Hide => PredefinedMenuItem::hide(name),
+        SystemCommand::HideOthers => PredefinedMenuItem::hide_others(name),
+        SystemCommand::ShowAll => PredefinedMenuItem::show_all(name),
+        SystemCommand::Minimize => PredefinedMenuItem::minimize(name),
+        // `zoom` is the window's Zoom (the green button's resize); `maximize` is the same
+        // selector under Windows' name, so either would do; `zoom` says what macOS calls it.
+        SystemCommand::Zoom => PredefinedMenuItem::zoom(name),
+        SystemCommand::BringAllToFront => PredefinedMenuItem::bring_all_to_front(name),
+    }
 }
 
 /// Builds `menu`, installs it as the application's menu bar, gives the system its *Window* and

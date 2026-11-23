@@ -51,6 +51,10 @@ cubase-ai13-it = "https://steinberg.help/cubase_ai/v13/it/Cubase_AI_13_Manuale_o
 gtk-ui = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (de, fr, it, es, en_GB), messages with msgctxt 'keyboard label' (the names GTK writes in its menus' shortcuts)"
 qt-ui = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QShortcut (the names Qt and KDE write in shortcuts)"
 ms-shortcuts = "https://support.microsoft.com/<lang>/windows/keyboard-shortcuts-in-windows-dcc61a57-8ff0-cffe-9796-cb9706c75eec — Microsoft's localised list of Windows shortcuts (it-it, de-de, fr-fr, es-es), counted by occurrence"
+firefox-l10n = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/menubar.ftl (menu-application-*, menu-quit-mac, menu-window-*) and browserSets.ftl (window-minimize-command, window-zoom-command): Firefox's macOS application and Window menus, localised to match macOS (en-GB, it, fr, de, es-ES)"
+apple-motion-window = "https://support.apple.com/<locale>/guide/motion/motn11e73786/mac — 'Window menu in Motion', Apple's own names of the Window menu's items (fr-fr, de-de, es-es; en-gb shows the en-US text; no it-it edition)"
+apple-pages-settings = "https://support.apple.com/<locale>/guide/pages/tan2f9dbf1d8/mac — 'Pages > Settings' in Apple's Pages guide ('Pages > Réglages' in fr)"
+omni-it = "https://support.omnigroup.com/doc-assets//OmniOutliner-Mac/OmniOutliner-Mac-v4.5.3.0/it/EPUB/xhtml/11_menucommands.xhtml — OmniOutliner's Italian manual: Window menu 'Contrai', 'Ridimensiona', 'Porta tutto in primo piano'"
 
 # ================================================================================================
 # Notation
@@ -1291,3 +1295,132 @@ sources = ["musescore-ui"]
 note = """The menus' mnemonics (ADR-0048 AM10, F2.11d2b): the .mnemonic attribute of each menu message, the letter that opens a title with Alt or chooses an item in an open menu, underlined at the first word that starts with it, otherwise its first occurrence. Not terms but choices tied to the terms above, recorded here so a translator changes them knowingly. Research 2026-11-19 in MuseScore's shipped catalogues (the '&' Qt puts before the letter): its letters are kept where our name is the same word (it &File, &Modifica, A&iuto, Ta&glia, Seleziona &tutto, Salva &come; fr &Fichier, &Affichage, Ai&de, Co&uper, Coll&er, Enre&gistrer sous, Plein &écran; de &Datei, &Bearbeiten, &Ansicht, E&infügen, A&lles; es &Archivo, &Editar, Ay&uda, Cor&tar, Pantalla &completa). Where our word differs (it Vista, fr Éditer, de Speichern unter, es Vista, Salir) or two siblings would share a letter (it Annulla/Incolla, es Cortar/Seleccionar todo, Pegar/Preferencias), the letter is the word's first free letter. Unique among siblings in all six languages, tested (crates/app/tests/actions.rs)."""
 review = true
 
+[[term]]
+id = "mac_settings"
+category = "general"
+en-US = "Settings"
+en-GB = "Settings"
+it = "Impostazioni"
+fr = "Réglages"
+de = "Einstellungen"
+es = "Ajustes"
+sources = ["firefox-l10n", "apple-pages-settings"]
+note = """macOS's name of the Preferences command in the application menu (macOS 13 and later: 'Settings…', ⌘,), shown only in the system's menu bar on macOS (ADR-0048 AM9); on Linux and Windows the term 'preferences' stays. Firefox and Apple agree in en-GB, it, de, es; fr: Firefox 'Paramètres…' is Firefox's own settings page, Apple's apps write 'Réglages…' (Pages > Réglages, like 'Réglages Système'): Apple's. Menu item with an ellipsis, as 'preferences'. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_services"
+category = "general"
+en-US = "Services"
+en-GB = "Services"
+it = "Servizi"
+fr = "Services"
+de = "Dienste"
+es = "Servicios"
+sources = ["firefox-l10n"]
+note = """The Services submenu of macOS's application menu, filled by the system. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_hide"
+category = "general"
+en-US = "Hide Orchestra"
+en-GB = "Hide Orchestra"
+it = "Nascondi Orchestra"
+fr = "Masquer Orchestra"
+de = "Orchestra ausblenden"
+es = "Ocultar Orchestra"
+sources = ["firefox-l10n"]
+note = """Hides the program (⌘H). The catalogues write { app-name } where each language puts the name (de after the verb). Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_hide_others"
+category = "general"
+en-US = "Hide Others"
+en-GB = "Hide Others"
+it = "Nascondi altre"
+fr = "Masquer les autres"
+de = "Andere ausblenden"
+es = "Ocultar otros"
+sources = ["firefox-l10n"]
+note = """Hides every other program (⌥⌘H). Title case in English, as macOS writes its own items (our own menus use sentence case; these names must match every other Mac program). Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_show_all"
+category = "general"
+en-US = "Show All"
+en-GB = "Show All"
+it = "Mostra tutte"
+fr = "Tout afficher"
+de = "Alle einblenden"
+es = "Mostrar todo"
+sources = ["firefox-l10n"]
+note = """Shows every program again. it 'tutte' (le applicazioni), es 'todo': the systems' own forms. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_quit"
+category = "general"
+en-US = "Quit Orchestra"
+en-GB = "Quit Orchestra"
+it = "Esci da Orchestra"
+fr = "Quitter Orchestra"
+de = "Orchestra beenden"
+es = "Salir de Orchestra"
+sources = ["firefox-l10n"]
+note = """macOS's name of the Quit command, with the program's name (⌘Q); on Linux and Windows the term 'quit' stays. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_window"
+category = "general"
+en-US = "Window"
+en-GB = "Window"
+it = "Finestra"
+fr = "Fenêtre"
+de = "Fenster"
+es = "Ventana"
+sources = ["firefox-l10n", "apple-motion-window"]
+note = """The Window menu's title on macOS; the system appends the list of the program's windows to it. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "mac_minimize"
+category = "general"
+en-US = "Minimize"
+en-GB = "Minimise"
+it = "Contrai"
+fr = "Placer dans le Dock"
+de = "Im Dock ablegen"
+es = "Minimizar"
+sources = ["firefox-l10n", "apple-motion-window", "omni-it"]
+note = """Minimises the front window into the Dock (⌘M). en-GB 'Minimise' (Firefox's en-GB; macOS's British English). fr and de: Apple's Motion guide 'Placer dans le Dock', 'Im Dock ablegen' (Firefox fr 'Réduire'): Apple's. it: Firefox 'Comprimi', OmniOutliner and Apple's name of the yellow button 'Contrai': 'Contrai'. es: both 'Minimizar'. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = true
+
+[[term]]
+id = "mac_zoom"
+category = "general"
+en-US = "Zoom"
+en-GB = "Zoom"
+it = "Ridimensiona"
+fr = "Zoom"
+de = "Zoomen"
+es = "Zoom"
+sources = ["firefox-l10n", "apple-motion-window", "omni-it"]
+note = """Zooms the front window (the green button's resize, not full screen). de: Apple 'Zoomen' (Firefox 'Zoom'); es: Apple 'Zoom' (Firefox 'Tamaño'); it: Firefox and OmniOutliner 'Ridimensiona'. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = true
+
+[[term]]
+id = "mac_bring_all_to_front"
+category = "general"
+en-US = "Bring All to Front"
+en-GB = "Bring All to Front"
+it = "Porta tutto in primo piano"
+fr = "Tout ramener au premier plan"
+de = "Alle nach vorne bringen"
+es = "Traer todo al frente"
+sources = ["firefox-l10n", "apple-motion-window", "omni-it"]
+note = """Brings every window of the program to the front. fr: Apple 'Tout ramener au premier plan' (Firefox 'Tout amener à l'avant-plan'): Apple's. The others agree. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false

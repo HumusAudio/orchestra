@@ -48,6 +48,23 @@ menu-help = Ayuda
 menu-help-contents = Guía del usuario
     .mnemonic = g
 
+## macOS's own menus (F2.11e2, ADR-0048 AM9; glossary: mac_settings … mac_bring_all_to_front).
+## Shown only in the system's menu bar on macOS: the application menu (Settings, Services, Hide,
+## Hide Others, Show All, Quit) and the Window menu (Minimize, Zoom, Bring All to Front). The
+## names are Apple's own in each language, so they match every other Mac program; { app-name }
+## is the program's name, placed where the language wants it. No mnemonics: macOS has none.
+
+menu-mac-settings = Ajustes…
+menu-mac-services = Servicios
+menu-mac-hide = Ocultar { app-name }
+menu-mac-hide-others = Ocultar otros
+menu-mac-show-all = Mostrar todo
+menu-mac-quit = Salir de { app-name }
+menu-mac-window = Ventana
+menu-mac-minimize = Minimizar
+menu-mac-zoom = Zoom
+menu-mac-bring-all-to-front = Traer todo al frente
+
 ## Keys' names in shortcuts, as menus write them next to an item, joined by "+" (glossary:
 ## key_ctrl … key_numpad; ADR-0048 AM12, F2.11d2a). $number is a function key's number (1–24),
 ## $digit a digit of the numeric keypad (0–9).

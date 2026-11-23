@@ -40,7 +40,7 @@ use orchestra_ui::{
     Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui, Weight, Widget, WidgetId,
     WindowApp, WindowRequest,
 };
-use orchestra_ui::{ActionId, ActionState, MenuModel, Platform, SystemMenu};
+use orchestra_ui::{ActionId, ActionState, MenuModel, Platform, SystemMenu, SystemTexts};
 
 use crate::actions::{self, ActionIds, ActionTexts};
 
@@ -84,6 +84,8 @@ pub struct DemoTexts {
     pub ok: String,
     /// The actions' and the keys' names, for the registry (F2.11d2a).
     pub actions: ActionTexts,
+    /// The names of macOS's own menu items (F2.11e2); unused on Linux and Windows.
+    pub system: SystemTexts,
 }
 
 impl DemoTexts {
@@ -102,6 +104,35 @@ impl DemoTexts {
             restore_defaults: localizer.format("dialog-restore-defaults", None)?,
             ok: localizer.format("dialog-ok", None)?,
             actions: actions::action_texts(localizer)?,
+            system: actions::system_texts(localizer)?,
+        })
+    }
+}
+
+/// What macOS's system menu bar is built from (F2.11e1, F2.11e2): kept by the demonstration on
+/// macOS only, `None` elsewhere (the drawn bar is used there).
+#[derive(Debug)]
+struct MacMenu {
+    /// The menus: the same model as the drawn bar of Linux and Windows.
+    model: MenuModel,
+    /// The program's name, the title of the application menu.
+    app_name: String,
+    /// The names of macOS's own menu items.
+    texts: SystemTexts,
+}
+
+impl MacMenu {
+    /// On macOS, with valid actions: the bar's model, `app_name` and the system's names of
+    /// `texts`. Elsewhere, or without actions, `None`.
+    fn new(actions: Option<ActionIds>, texts: &DemoTexts, app_name: &str) -> Option<Self> {
+        if Platform::CURRENT != Platform::MacOs {
+            return None;
+        }
+        let ids = actions?;
+        Some(Self {
+            model: actions::menu_bar(&ids, &texts.actions),
+            app_name: app_name.to_owned(),
+            texts: texts.system.clone(),
         })
     }
 }
@@ -134,10 +165,8 @@ pub struct Demo {
     restore_defaults: WidgetId,
     /// The menu bar (F2.11d2b), on Linux and Windows.
     menu_bar: Option<WidgetId>,
-    /// The menus for the system's bar (macOS, F2.11e1), handed to the window when it asks.
-    system_menu: Option<MenuModel>,
-    /// The program's name, the title of macOS's application menu.
-    app_name: String,
+    /// What the system's bar needs (macOS only, F2.11e1), handed to the window when it asks.
+    mac_menu: Option<MacMenu>,
     /// The program's actions (F2.11d1), `None` if their tables were wrong (the tests prevent it).
     actions: Option<ActionIds>,
     /// What the actions asked of the window, waiting for it ([`WindowApp::take_window_request`]).
@@ -252,10 +281,7 @@ impl Demo {
             staff,
             restore_defaults,
             menu_bar,
-            system_menu: (Platform::CURRENT == Platform::MacOs)
-                .then(|| actions.map(|ids| actions::menu_bar(&ids, &texts.actions)))
-                .flatten(),
-            app_name: window_title.to_owned(),
+            mac_menu: MacMenu::new(actions, texts, window_title),
         }
     }
 
@@ -546,9 +572,10 @@ impl WindowApp for Demo {
 
     fn system_menu(&mut self) -> Option<SystemMenu> {
         // macOS only (the model exists there only): the bar at the top of the screen, with the
-        // same actions as the drawn bar of Linux and Windows (F2.11e1).
-        let model = self.system_menu.as_ref()?;
-        Some(self.ui.system_menu(model, &self.app_name))
+        // same actions as the drawn bar of Linux and Windows (F2.11e1), with macOS's own items
+        // and Window menu around them (F2.11e2).
+        let mac = self.mac_menu.as_ref()?;
+        Some(self.ui.system_menu(&mac.model, &mac.app_name, &mac.texts))
     }
 
     fn run_action(&mut self, action: ActionId, list: &mut DisplayList) {
