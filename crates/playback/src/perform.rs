@@ -976,7 +976,15 @@ fn spread(
 }
 
 /// The end of the previous note of voice `v` before `at` (the latest end at or before `at` among
-/// its chains), with its length, or `(at, None)` when there is none. O(notes).
+/// its chains **that start before `at`**), with its length, or `(at, None)` when there is none.
+/// O(notes).
+///
+/// # Why "that start before `at`"
+/// The notes here are not bounded yet (ADR-0027 §8 bounds them after the graces are placed), so a
+/// note with a large negative length offset can end before it starts. Such a note, starting after
+/// `at` but ending before it, is not "the previous note"; taking it made an acciaccatura take time
+/// from a note two bars later, so the incremental update (which assumes a grace reads at most the
+/// bar before) disagreed with a full computation (fix of 2026-11-23, a case found on macOS CI).
 fn previous_end(
     notes: &[(Chain, Slot)],
     v: usize,
@@ -985,7 +993,15 @@ fn previous_end(
     let mut best: Option<&PlayedNote> = None;
     for (chain, slot) in notes {
         let note = &slot.note;
-        if chain.links.first().is_none_or(|&(cv, _, _)| cv != v) || note.end > at {
+        // Another voice's note, one ending after `at`, or one starting at or after `at`: none is
+        // the note before `at`. The last test matters for a note whose length is still negative
+        // here (a large negative length offset, bounded only later, ADR-0027 §8): its end can
+        // fall before `at` while it starts after it, and taking it would make a grace depend on a
+        // note bars later (found by the update property test, see `previous_end`'s docs).
+        if chain.links.first().is_none_or(|&(cv, _, _)| cv != v)
+            || note.end > at
+            || note.start >= at
+        {
             continue;
         }
         if best.is_none_or(|b| note.end > b.end) {
