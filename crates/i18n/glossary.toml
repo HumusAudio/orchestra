@@ -57,6 +57,7 @@ apple-pages-settings = "https://support.apple.com/<locale>/guide/pages/tan2f9dbf
 omni-it = "https://support.omnigroup.com/doc-assets//OmniOutliner-Mac/OmniOutliner-Mac-v4.5.3.0/it/EPUB/xhtml/11_menucommands.xhtml — OmniOutliner's Italian manual: Window menu 'Contrai', 'Ridimensiona', 'Porta tutto in primo piano'"
 gtk-window-controls = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the window buttons' names of gtk/gtkwindowcontrols.c (Close, Minimize, Maximize) and the window menu's Restore of gtk/gtkwindowhandle.c"
 qt-mdi = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QMdiSubWindow (Minimize, Maximize, Restore, Close of Qt's window buttons)"
+qt-buttons = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QPlatformTheme (the standard buttons of Qt's and KDE's dialogs: OK, Cancel, Close)"
 
 # ================================================================================================
 # Notation
@@ -940,6 +941,36 @@ es = "Aceptar"
 sources = ["musescore-ui"]
 note = """Researched 2026-11-12 (F2.09c): MuseScore 'OK' → fr 'OK', de 'OK', es 'Aceptar' (also the Windows \
 convention); its Italian 'ok' in lower case is not followed: 'OK' is the Italian interface norm."""
+review = false
+
+[[term]]
+id = "cancel"
+category = "general"
+en-US = "Cancel"
+en-GB = "Cancel"
+it = "Annulla"
+fr = "Annuler"
+de = "Abbrechen"
+es = "Cancelar"
+sources = ["qt-buttons"]
+note = """A dialog's button that backs out without doing anything (ADR-0050 DG2). Research 2026-11-23 (F2.12a3a): Qt's \
+QPlatformTheme catalogues give these words in it, fr, de, es (and 'OK' → 'Aceptar' in Spanish, matching the 'ok' entry); \
+Qt has no en_GB catalogue, and British English writes 'Cancel' as US English does."""
+review = false
+
+[[term]]
+id = "dialog_close"
+category = "general"
+en-US = "Close"
+en-GB = "Close"
+it = "Chiudi"
+fr = "Fermer"
+de = "Schließen"
+es = "Cerrar"
+sources = ["qt-buttons"]
+note = """A dialog's button that closes it when there is nothing to answer (About, an information) (ADR-0050 DG2). The same \
+words as the title bar's 'window_close'; a separate entry because it is another control and another Fluent key. Research \
+2026-11-23 (F2.12a3a): Qt's QPlatformTheme catalogues."""
 review = false
 
 [[term]]

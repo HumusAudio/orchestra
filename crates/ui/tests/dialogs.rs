@@ -5,7 +5,7 @@
 //! Tab, a click outside that does nothing, a button that answers and closes, a dialog above a
 //! dialog, a menu above a dialog, the menu bar's keys and the actions' shortcuts off behind a
 //! dialog (the editing ones still on a dialog's field), the panel's size and place in a large and a
-//! small window, the veil's colour, and the accessibility tree.
+//! small window, the frame's width, and the accessibility tree.
 
 #![allow(
     clippy::unwrap_used,
@@ -17,9 +17,9 @@ use accesskit::{NodeId, Role};
 use orchestra_text::Faces;
 use orchestra_ui::{
     ActionId, ActionSpec, Appearance, BuiltInTheme, Button, ButtonKind, ButtonOrder, ButtonRole,
-    ButtonState, ColorToken, Context, DIALOG_MAX_WIDTH, DIALOG_MIN_WIDTH, Defaults, DialogKind,
-    DialogSpec, DisplayList, Flex, InputEvent, Key, LayoutProps, Length, MenuModel, Modifiers,
-    NamedKey, PhysicalKey, Platform, Point, PointerButton, Popup, PopupSide, Rect, Registry,
+    ButtonState, Context, DIALOG_MAX_WIDTH, DIALOG_MIN_WIDTH, Defaults, DialogKind, DialogSpec,
+    DisplayList, Flex, InputEvent, Key, LayoutProps, Length, MenuModel, Modifiers, NamedKey,
+    PhysicalKey, Platform, Point, PointerButton, Popup, PopupSide, Rect, Registry, ShapeToken,
     Shortcut, ShortcutKey, Space, TextField, Ui, WidgetId,
 };
 
@@ -372,14 +372,41 @@ fn size_and_place() {
     }
 }
 
-/// The veil covers the window in the theme's `scrim`, translucent in both halves of every pair.
+/// The frame is 3 logical pixels in both halves of every pair (owner's choice in F2.12a3a), and
+/// opening a dialog damages only the panel's rectangle, not the window behind (no veil).
 #[test]
-fn the_veil_is_the_scrim_colour() {
+fn a_frame_and_no_veil() {
     for theme in BuiltInTheme::ALL {
         for appearance in [Appearance::Light, Appearance::Dark] {
-            let scrim = theme.pair().instance(appearance).color(ColorToken::Scrim);
-            assert!(scrim.a > 0 && scrim.a < u8::MAX, "{theme:?} {appearance:?}");
+            let shape = theme.pair().instance(appearance).shape();
+            assert_eq!(
+                shape.get(ShapeToken::DialogFrame),
+                3,
+                "{theme:?} {appearance:?}"
+            );
         }
+    }
+    let mut bench = Bench::new(ButtonOrder::AffirmativeLast);
+    let _ = bench.list.take_damage();
+    let panel = bench.ask();
+    let panel_rect = bench.ui.rect(panel).unwrap();
+    let field = bench.ui.rect(bench.field).unwrap();
+    let damage = bench.list.take_damage();
+    assert!(!damage.is_all(), "the whole window was damaged");
+    for rect in damage.rects() {
+        // Inside the panel, or the field behind losing its focus ring (it is re-recorded; the
+        // ring is drawn outside the field, so its damage reaches a few pixels beyond).
+        let inside = |outer: Rect| {
+            let margin = 8.0;
+            rect.x0 >= outer.x0 - margin
+                && rect.y0 >= outer.y0 - margin
+                && rect.x1 <= outer.x1 + margin
+                && rect.y1 <= outer.y1 + margin
+        };
+        assert!(
+            inside(panel_rect) || inside(field),
+            "{rect:?} outside the panel and the field"
+        );
     }
 }
 
@@ -410,7 +437,7 @@ fn accessibility() {
         .find(|(_, node)| node.role() == Role::Window)
         .map(|(_, node)| node)
         .unwrap();
-    assert_eq!(window.children().len(), 2, "the root and the dialog's veil");
+    assert_eq!(window.children().len(), 2, "the root and the dialog's root");
 
     let error = DialogSpec::new(DialogKind::Error, "Cannot save", "The disk is full.").button(
         "OK",

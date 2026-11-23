@@ -1788,12 +1788,16 @@ fn question() -> orchestra_ui::DialogSpec<()> {
 }
 
 // Opening a question over the panel of 200 widgets and drawing it: the widgets built, the texts
-// shaped, the veil and the panel recorded and rendered (the whole window is damaged by the veil).
+// shaped, the panel and its frame recorded and rendered (only the panel's rectangle is damaged:
+// no veil, owner's choice in F2.12a3a).
 // Once per dialog, never on a frame's path; the budget is the 50 ms of an input (CLAUDE.md §5).
 #[library_benchmark]
 #[bench::panel(shown())]
 fn dialog_open(mut panel: Panel) -> Panel {
-    let id = panel.ui.open_dialog(black_box(question()), &mut panel.list).unwrap();
+    let id = panel
+        .ui
+        .open_dialog(black_box(question()), &mut panel.list)
+        .unwrap();
     draw(&mut panel);
     black_box(id);
     panel

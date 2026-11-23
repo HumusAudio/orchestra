@@ -33,17 +33,12 @@ const SHADOW_LIGHT: Color = Color::rgba(0x0000_002e);
 const SHADOW_DARK: Color = Color::rgba(0x0000_0080);
 /// No shadow at all: alpha 0 (ADR-0037 T3, for the pairs built on lines).
 const NO_SHADOW: Color = Color::rgba(0x0000_0000);
-/// The veil under a dialog in the light instances (ADR-0050 DG2, choice C6 of F2.12a3a): black at
-/// 102/255 = 40% coverage, enough to set the dialog apart and keep the window behind readable as
-/// context. The same in every pair, the pairs built on lines included: a dialog is never drawn
-/// without it.
-const SCRIM_LIGHT: Color = Color::rgba(0x0000_0066);
-/// The veil in the dark instances: black at 140/255 ≈ 55% (a dark window needs more to look
-/// set back, as the shadow does).
-const SCRIM_DARK: Color = Color::rgba(0x0000_008c);
 
 /// The shape of a pair: its corners and line width; the focus ring is 2 px everywhere (ADR-0037
-/// T3, the thickness WCAG 2.4.13 asks for), the shadow 18 px of blur moved 6 px down, or nothing.
+/// T3, the thickness WCAG 2.4.13 asks for), the shadow 18 px of blur moved 6 px down, or nothing;
+/// the frame around a dialog 3 px everywhere (owner's choice in F2.12a3a, after screenshots of the
+/// veil and of the frame: thick enough to set the panel apart from the window behind on every
+/// pair, the black-and-white ones included).
 const fn shape(corner_radius: u8, line_width: u8, shadow: bool) -> Shape {
     Shape {
         corner_radius,
@@ -51,6 +46,7 @@ const fn shape(corner_radius: u8, line_width: u8, shadow: bool) -> Shape {
         focus_width: 2,
         shadow_blur: if shadow { 18 } else { 0 },
         shadow_offset: if shadow { 6 } else { 0 },
+        dialog_frame: 3,
     }
 }
 
@@ -182,7 +178,6 @@ const ABSOLUTE: ThemePair = ThemePair {
             warning: c(0x8a5300),
             success: c(0x1a7431),
             shadow: NO_SHADOW,
-            scrim: SCRIM_LIGHT,
         },
         shape(0, 1, false),
     ),
@@ -212,7 +207,6 @@ const ABSOLUTE: ThemePair = ThemePair {
             warning: c(0xffb340),
             success: c(0x4cd07d),
             shadow: NO_SHADOW,
-            scrim: SCRIM_DARK,
         },
         shape(0, 1, false),
     ),
@@ -246,7 +240,6 @@ const GRAPHITE: ThemePair = ThemePair {
             warning: c(0x7a4b00),
             success: c(0x1d6b33),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(2, 1, true),
     ),
@@ -276,7 +269,6 @@ const GRAPHITE: ThemePair = ThemePair {
             warning: c(0xf2b84b),
             success: c(0x5fd38a),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(2, 1, true),
     ),
@@ -310,7 +302,6 @@ const SIGNAL: ThemePair = ThemePair {
             warning: c(0x7d4d00),
             success: c(0x1a6e30),
             shadow: NO_SHADOW,
-            scrim: SCRIM_LIGHT,
         },
         shape(0, 2, false),
     ),
@@ -340,7 +331,6 @@ const SIGNAL: ThemePair = ThemePair {
             warning: c(0xffb340),
             success: c(0x4cd07d),
             shadow: NO_SHADOW,
-            scrim: SCRIM_DARK,
         },
         shape(0, 2, false),
     ),
@@ -374,7 +364,6 @@ const PARCHMENT: ThemePair = ThemePair {
             warning: c(0x80520f),
             success: c(0x3f6b1e),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(4, 1, true),
     ),
@@ -404,7 +393,6 @@ const PARCHMENT: ThemePair = ThemePair {
             warning: c(0xf0c060),
             success: c(0x9ad16a),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(4, 1, true),
     ),
@@ -438,7 +426,6 @@ const SLATE: ThemePair = ThemePair {
             warning: c(0x8a5200),
             success: c(0x1f7a3d),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(6, 1, true),
     ),
@@ -468,7 +455,6 @@ const SLATE: ThemePair = ThemePair {
             warning: c(0xf0b44c),
             success: c(0x5fce88),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(6, 1, true),
     ),
@@ -502,7 +488,6 @@ const STUDIO: ThemePair = ThemePair {
             warning: c(0x7a4f00),
             success: c(0x2b6b2b),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(3, 1, true),
     ),
@@ -532,7 +517,6 @@ const STUDIO: ThemePair = ThemePair {
             warning: c(0xffc04d),
             success: c(0x6ad46a),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(3, 1, true),
     ),
@@ -566,7 +550,6 @@ const FOREST: ThemePair = ThemePair {
             warning: c(0x7c5200),
             success: c(0x2f6b3f),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(8, 1, true),
     ),
@@ -596,7 +579,6 @@ const FOREST: ThemePair = ThemePair {
             warning: c(0xe8c060),
             success: c(0x7fc28e),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(8, 1, true),
     ),
@@ -630,7 +612,6 @@ const LAGOON: ThemePair = ThemePair {
             warning: c(0x7a5000),
             success: c(0x1f6f3a),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(4, 1, true),
     ),
@@ -660,7 +641,6 @@ const LAGOON: ThemePair = ThemePair {
             warning: c(0xf2c25c),
             success: c(0x6fd49a),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(4, 1, true),
     ),
@@ -694,7 +674,6 @@ const NOCTURNE: ThemePair = ThemePair {
             warning: c(0x7d4f00),
             success: c(0x26703f),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(10, 1, true),
     ),
@@ -724,7 +703,6 @@ const NOCTURNE: ThemePair = ThemePair {
             warning: c(0xf0bf5a),
             success: c(0x6fd394),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(10, 1, true),
     ),
@@ -758,7 +736,6 @@ const SNOW: ThemePair = ThemePair {
             warning: c(0x7a4f00),
             success: c(0x25703c),
             shadow: SHADOW_LIGHT,
-            scrim: SCRIM_LIGHT,
         },
         shape(12, 2, true),
     ),
@@ -788,7 +765,6 @@ const SNOW: ThemePair = ThemePair {
             warning: c(0xf2c25c),
             success: c(0x6fd49a),
             shadow: SHADOW_DARK,
-            scrim: SCRIM_DARK,
         },
         shape(12, 2, true),
     ),

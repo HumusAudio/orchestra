@@ -58,9 +58,9 @@ fn every_builtin_instance_passes_every_pair() {
 fn counts_match_the_adr() {
     assert_eq!(BuiltInTheme::ALL.len(), 10);
     assert_eq!(CONTRAST_PAIRS.len(), 31);
-    // 24 of ADR-0037 T3 and `scrim`, added by ADR-0050 DG2.
-    assert_eq!(ColorToken::ALL.len(), 25);
-    assert_eq!(ShapeToken::ALL.len(), 5);
+    assert_eq!(ColorToken::ALL.len(), 24);
+    // 5 of ADR-0037 T3 and `dialog-frame`, added in F2.12a3a (ADR-0050 DG2 as amended).
+    assert_eq!(ShapeToken::ALL.len(), 6);
 }
 
 /// T5, second point: no token can be forgotten. Every colour token is a foreground or a background
@@ -95,13 +95,12 @@ fn pairs_are_distinct() {
 }
 
 /// Backgrounds of pairs are opaque in every built-in instance, as `Color::over` and
-/// `contrast_ratio` assume; in fact every built-in colour is opaque except the shadow and the
-/// dialogs' veil (ADR-0050 DG2), which are translucent by design.
+/// `contrast_ratio` assume; in fact every built-in colour is opaque except the shadow.
 #[test]
-fn builtin_colours_are_opaque_except_the_shadow_and_the_veil() {
+fn builtin_colours_are_opaque_except_the_shadow() {
     for (label, theme) in every_instance() {
         for &token in ColorToken::ALL {
-            if !matches!(token, ColorToken::Shadow | ColorToken::Scrim) {
+            if token != ColorToken::Shadow {
                 assert!(
                     theme.color(token).is_opaque(),
                     "{label}: {} is translucent",

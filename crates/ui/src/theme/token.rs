@@ -54,7 +54,7 @@ macro_rules! color_tokens {
 
             /// The token with this stable name, or `None` if no token has it.
             ///
-            /// O(n) in the number of tokens (25): a linear scan of [`Self::ALL`]. It runs only
+            /// O(n) in the number of tokens (24): a linear scan of [`Self::ALL`]. It runs only
             /// when a custom theme is read from the settings file, never per frame, so a hash
             /// table would be overhead for nothing.
             #[must_use]
@@ -143,9 +143,6 @@ color_tokens! {
     /// The colour of the shadow under overlays, usually translucent black; alpha 0 means no
     /// shadow. Exempt from the contrast pairs: depth is not information.
     Shadow => shadow, "shadow";
-    /// The veil over the window under a dialog (ADR-0050 DG2), translucent black. Exempt from the
-    /// contrast pairs: it carries no text, it only sets the window back.
-    Scrim => scrim, "scrim";
 }
 
 /// A shape token: a size in **logical pixels**, multiplied by the window's scale factor when
@@ -164,6 +161,9 @@ pub enum ShapeToken {
     ShadowBlur,
     /// Vertical offset of the overlay shadow (downwards).
     ShadowOffset,
+    /// Width of the frame around a dialog's panel, drawn in the accent (ADR-0050 DG2 as amended
+    /// in F2.12a3a: a frame instead of a veil over the window).
+    DialogFrame,
 }
 
 impl ShapeToken {
@@ -174,6 +174,7 @@ impl ShapeToken {
         Self::FocusWidth,
         Self::ShadowBlur,
         Self::ShadowOffset,
+        Self::DialogFrame,
     ];
 
     /// The token's stable name (kebab case), the key of a custom theme's override; never shown
@@ -186,10 +187,11 @@ impl ShapeToken {
             Self::FocusWidth => "focus-width",
             Self::ShadowBlur => "shadow-blur",
             Self::ShadowOffset => "shadow-offset",
+            Self::DialogFrame => "dialog-frame",
         }
     }
 
-    /// The token with this stable name, or `None`. O(n) over 5 tokens, as
+    /// The token with this stable name, or `None`. O(n) over 6 tokens, as
     /// [`ColorToken::from_name`].
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
@@ -200,7 +202,7 @@ impl ShapeToken {
 /// The shape tokens of one theme instance, in logical pixels (see [`ShapeToken`]).
 ///
 /// Public with public fields: it is plain data that a renderer reads all at once (a button needs
-/// the radius, the line width and the focus width together), and five bytes copy for free.
+/// the radius, the line width and the focus width together), and six bytes copy for free.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Shape {
     /// [`ShapeToken::CornerRadius`].
@@ -213,6 +215,8 @@ pub struct Shape {
     pub shadow_blur: u8,
     /// [`ShapeToken::ShadowOffset`].
     pub shadow_offset: u8,
+    /// [`ShapeToken::DialogFrame`].
+    pub dialog_frame: u8,
 }
 
 impl Shape {
@@ -225,6 +229,7 @@ impl Shape {
             ShapeToken::FocusWidth => self.focus_width,
             ShapeToken::ShadowBlur => self.shadow_blur,
             ShapeToken::ShadowOffset => self.shadow_offset,
+            ShapeToken::DialogFrame => self.dialog_frame,
         }
     }
 
@@ -236,6 +241,7 @@ impl Shape {
             ShapeToken::FocusWidth => self.focus_width = value,
             ShapeToken::ShadowBlur => self.shadow_blur = value,
             ShapeToken::ShadowOffset => self.shadow_offset = value,
+            ShapeToken::DialogFrame => self.dialog_frame = value,
         }
     }
 }
@@ -246,7 +252,7 @@ impl Shape {
 /// Widgets never store a colour of their own: they ask the active instance at draw time, so
 /// switching colours is a full redraw and nothing more (ADR-0037 T6); switching the text tokens
 /// re-lays out the texts (ADR-0044 TX9). Reading a token is O(1) and allocation-free; the whole
-/// instance is about 25 × 4 + 5 + 10 + 1 = 116 bytes, `Copy`.
+/// instance is about 24 × 4 + 5 + 10 + 1 = 112 bytes, `Copy`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// The colour tokens.

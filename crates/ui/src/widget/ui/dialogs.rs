@@ -5,15 +5,15 @@
 //! changes the routing itself.
 //!
 //! # A layer of the popup stack (DG1, C1)
-//! A dialog is a subtree with a root of its own, the veil (`DialogVeil`), like a menu (F2.11c),
+//! A dialog is a subtree with a root of its own (`DialogRoot`, invisible), like a menu (F2.11c),
 //! in the **same stack of layers**: it takes the next layer up, so a menu opened from inside it
 //! (a field's context menu) goes above it, and a dialog opened from a dialog goes above the first.
 //! When the last menu closes, the next menu's layer goes back to just above the topmost dialog,
 //! never below it.
 //!
 //! # Modal (WA4, WB9)
-//! The veil's root is also pushed as a **modal layer**: the pointer reaches only the dialog (the
-//! veil consumes what falls outside the panel), Tab cycles inside it, the keys go to its focused
+//! The root is also pushed as a **modal layer**: the pointer reaches only the dialog (the root
+//! consumes what falls outside the panel), Tab cycles inside it, the keys go to its focused
 //! widget and bubble up to the panel (Enter, Escape). The **menu bar and the actions'
 //! shortcuts** are off while a dialog is open, except the standard editing actions on a focused
 //! field (Copy in a dialog's field still copies; ADR-0048 AM13): Ctrl+S must not save behind a
@@ -38,7 +38,7 @@ use crate::draw::list::DisplayList;
 use crate::theme::text::{FamilyToken, SizeToken, Weight};
 use crate::theme::token::ColorToken;
 use crate::widget::button::{Button, ButtonKind};
-use crate::widget::dialog::{DialogPanel, DialogSpec, DialogVeil};
+use crate::widget::dialog::{DialogPanel, DialogRoot, DialogSpec};
 use crate::widget::label::Label;
 use crate::widget::layout::{Constraints, Flex, LayoutProps, Length, Size, Space};
 use crate::widget::scroll::ScrollArea;
@@ -49,7 +49,7 @@ use super::{FIRST_MENU_LAYER, TOOLTIP_LAYER, Ui, UiError};
 /// One open dialog (see the module documentation).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DialogLayer {
-    /// The veil's slot, the root of the dialog's subtree.
+    /// The root's slot (`DialogRoot`), the root of the dialog's subtree.
     pub(super) root: usize,
     /// The panel's slot, whose ID the application holds.
     pub(super) panel: usize,
@@ -151,7 +151,7 @@ impl<M: Clone + std::fmt::Debug + 'static> Ui<M> {
 
     /// Opens a dialog whose panel is `panel`, with no content yet, and answers the panel's ID:
     /// the application adds the content with [`Ui::add`] (the Preferences, F2.12a4). The panel
-    /// is centred on the veil like a question's; the focus goes to its first focusable widget at
+    /// is centred in the window like a question's; the focus goes to its first focusable widget at
     /// the next [`Ui::frame`] the application asks for after adding it ([`Ui::focus_first`]).
     ///
     /// # Errors
@@ -169,7 +169,7 @@ impl<M: Clone + std::fmt::Debug + 'static> Ui<M> {
 }
 
 impl<M: 'static> Ui<M> {
-    /// Closes the dialog whose panel is `id` (or whose veil is), with everything above it, and
+    /// Closes the dialog whose panel is `id` (or whose root is), with everything above it, and
     /// gives the focus back to where it was before it opened.
     ///
     /// # Errors
@@ -240,7 +240,7 @@ impl<M: 'static> Ui<M> {
         }
     }
 
-    /// Lays the open dialogs out: each veil spans the whole window and centres its panel.
+    /// Lays the open dialogs out: each root spans the whole window and centres its panel.
     /// O(open dialogs) when nothing changed (cached measures; arranging skips what did not move).
     pub(super) fn lay_out_dialogs(&mut self) {
         let window = Size::new(self.bounds.width(), self.bounds.height());
@@ -263,12 +263,12 @@ impl<M: 'static> Ui<M> {
         }
     }
 
-    /// Inserts a veil with `panel` in it as a new layer, above the open menus' layers, and
+    /// Inserts a root with `panel` in it as a new layer, above the open menus' layers, and
     /// answers the two slots. Not yet modal: [`Ui::open_pushed_dialog`] does the rest.
     fn push_dialog(&mut self, panel: Box<dyn Widget<M>>) -> (usize, usize) {
         let root = self
             .tree
-            .insert(None, Box::new(DialogVeil), LayoutProps::default());
+            .insert(None, Box::new(DialogRoot), LayoutProps::default());
         let panel = self.tree.insert(Some(root), panel, LayoutProps::default());
         // The next layer up, as a menu takes it; never the tooltip's.
         let layer = self.next_layer.min(TOOLTIP_LAYER - 1);

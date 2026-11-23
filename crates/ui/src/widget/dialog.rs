@@ -7,11 +7,12 @@
 //! - [`DialogSpec`]: what the application asks: the kind (a question or an error), a title, a
 //!   message, an optional detail, and the buttons, each with its [`ButtonRole`] and the message it
 //!   sends. [`Ui::open_dialog`](crate::Ui::open_dialog) turns it into widgets.
-//! - `DialogVeil`: the root of a dialog's layer. It covers the **whole window** with the `scrim`
-//!   colour (DG2), centres its one child, the panel, and **consumes** every press, release and
-//!   move that reaches it: a click outside the panel does nothing (ADR-0045 WB9; unlike a menu, a
-//!   dialog is never closed by a stray click).
-//! - `DialogPanel`: the box itself, `surface-overlay` with the menus' corner and line, laid out as
+//! - `DialogRoot`: the root of a dialog's layer. It spans the **whole window** but draws
+//!   nothing, centres its one child, the panel, and **consumes** every press, release and move that
+//!   reaches it: a click outside the panel does nothing (ADR-0045 WB9; unlike a menu, a dialog is
+//!   never closed by a stray click).
+//! - `DialogPanel`: the box itself, `surface-overlay` with the menus' corner and a **frame in the
+//!   accent** as wide as the `dialog-frame` shape token (3 logical pixels in every pair), laid out as
 //!   a column: the texts (title, message, detail) in a vertical scroll area, then the row of
 //!   buttons, right-aligned, always visible. It handles **Enter** and **Escape** when no child did
 //!   (C4): Enter sends the default button's message, Escape the cancel button's (or the only
@@ -28,10 +29,17 @@
 //! affirmative, destructive, others, cancel; affirmative last (macOS, GNOME): destructive, others,
 //! cancel, affirmative. Within a role the buttons keep the order they were given.
 //!
-//! # No shadow, no icon
-//! The panel has no shadow, like the menus (owner's choice B in F2.11d2a): the veil already sets it
-//! apart. There is no icon for an error yet (no icon set exists, C6): an error is told by its role
-//! for assistive technologies and by its words on screen.
+//! # A frame, no veil, no shadow, no icon
+//! ADR-0050 DG2 first put a translucent veil over the whole window under a dialog. Measured in
+//! F2.12a3a, blending it cost about 43 instructions per pixel in `tiny-skia` (about 47 M
+//! instructions to open a dialog in a 1000 × 1000 window, about 90 M at 1080p, against a frame's
+//! budget of 33 M). After screenshots of both, the owner chose a thick frame in the accent instead
+//! and no veil: only the panel's rectangle is drawn, so opening a dialog costs the same in any
+//! window (about 13 M instructions, the panel's texts and glyphs included). The window behind stays
+//! as it is; the frame, the default button in the accent and the focus inside tell where the
+//! keyboard is. The panel has no shadow, like the menus (owner's choice B in F2.11d2a). There is no
+//! icon for an error yet (no icon set exists, C6): an error is told by its role for assistive
+//! technologies and by its words on screen.
 //!
 //! # Size (C2)
 //! At most [`MAX_WIDTH`] logical pixels wide, at least [`MIN_WIDTH`] (less when the window is
@@ -188,13 +196,13 @@ impl<M> DialogSpec<M> {
     }
 }
 
-/// The root of a dialog's layer: the veil over the window, centring the panel (see the module
-/// documentation).
+/// The root of a dialog's layer: invisible, over the whole window, centring the panel (see the
+/// module documentation).
 #[derive(Debug, Default)]
-pub(crate) struct DialogVeil;
+pub(crate) struct DialogRoot;
 
-impl<M: 'static> Widget<M> for DialogVeil {
-    /// The whole window: the interface measures the veil with the window's tight size.
+impl<M: 'static> Widget<M> for DialogRoot {
+    /// The whole window: the interface measures the root with the window's tight size.
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
         let margin = cx.spacing().gap_l;
         let room = Size::new(
@@ -219,11 +227,11 @@ impl<M: 'static> Widget<M> for DialogVeil {
         cx.place_child(0, Rect::new(x, y, x + size.width, y + size.height));
     }
 
-    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
-        recorder.fill_rect(cx.rect, ColorToken::Scrim);
-    }
+    /// Nothing: the root is invisible (no veil, see the module documentation). Its segment stays
+    /// empty, so it damages no pixel of the window behind.
+    fn record(&self, _cx: &RecordCx, _recorder: &mut Recorder<'_>) {}
 
-    /// Every pointer event that reaches the veil is consumed: outside the panel nothing happens.
+    /// Every pointer event that reaches the root is consumed: outside the panel nothing happens.
     fn event(&mut self, _cx: &mut EventCx<'_, M>, event: &WidgetEvent<'_>) -> Handled {
         match event {
             WidgetEvent::PointerButton { .. }
@@ -344,17 +352,19 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for DialogPanel<M> {
         let rect = cx.rect;
         let radius = f32::from(cx.shape.corner_radius);
         recorder.fill_rounded_rect(RoundedRect::new(rect, radius), ColorToken::SurfaceOverlay);
-        // The border inside the box's edge, as the menus draw theirs.
-        let width = f32::from(cx.shape.line_width.max(1));
+        // The frame in the accent, inside the box's edge (as the menus draw their border), as
+        // wide as the `dialog-frame` token; at least one pixel, so a custom theme that sets it
+        // to 0 still shows the panel's edge.
+        let width = f32::from(cx.shape.dialog_frame.max(1));
         recorder.stroke_rounded_rect(
             RoundedRect::new(rect.inflate(-width / 2.0), (radius - width / 2.0).max(0.0)),
             StrokeStyle::new(width),
-            ColorToken::Border,
+            ColorToken::Accent,
         );
     }
 
     /// Enter and Escape that no child handled (C4): the default's or the cancel button's message,
-    /// then the dialog closes. Every other key is left to bubble to the veil, which ignores it:
+    /// then the dialog closes. Every other key is left to bubble to the root, which ignores it:
     /// nothing reaches the window behind.
     fn event(&mut self, cx: &mut EventCx<'_, M>, event: &WidgetEvent<'_>) -> Handled {
         let WidgetEvent::Key {
@@ -401,9 +411,10 @@ mod tests {
 
     /// A dialog with the three usual answers, added in an arbitrary order.
     fn save_question() -> DialogSpec<u8> {
-        DialogSpec::new(DialogKind::Question, "Save?", "Save the changes?")
+        // i18n-ignore: test data, a dialog's texts come from the catalogues
+        DialogSpec::new(DialogKind::Question, "Save?", "Save the changes?") // i18n-ignore: test data
             .button("Cancel", ButtonRole::Cancel, 0)
-            .button("Don't save", ButtonRole::Destructive, 1)
+            .button("Don't save", ButtonRole::Destructive, 1) // i18n-ignore: test data
             .button("Save", ButtonRole::Affirmative, 2)
     }
 

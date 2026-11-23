@@ -489,8 +489,9 @@ impl<M: 'static> Ui<M> {
         for menu in &mut self.menus {
             menu.owner = alive(menu.owner, tree);
         }
-        // A removed dialog is no longer open (its veil went).
-        self.dialogs.retain(|dialog| tree.slot(dialog.root).is_some());
+        // A removed dialog is no longer open (its root went).
+        self.dialogs
+            .retain(|dialog| tree.slot(dialog.root).is_some());
         if self.menus.is_empty() {
             self.next_layer = self.layer_floor();
         }
@@ -2075,7 +2076,7 @@ impl<M: 'static> Ui<M> {
         let full = !self.access_sent;
         let mut update = empty_update(self.access_focus(), full);
         if full || self.access_window {
-            // The open dialogs (their veils) and then the open menus, in their layers' order.
+            // The open dialogs (their roots) and then the open menus, in their layers' order.
             let dialogs = self.dialogs.iter().map(|dialog| dialog.root);
             let menus = self.menus.iter().map(|menu| menu.root);
             let layers = dialogs.chain(menus).filter_map(|slot| self.id_of(slot));

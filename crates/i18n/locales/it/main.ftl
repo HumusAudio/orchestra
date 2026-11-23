@@ -120,7 +120,9 @@ playback-metronome-volume = Volume del metronomo
 playback-track-name = Nome traccia
 playback-track-name-placeholder = Senza nome
 
-## Dialog buttons (glossary: restore_defaults, ok)
+## Dialog buttons (glossary: restore_defaults, ok, cancel, dialog_close)
 
 dialog-restore-defaults = Ripristina predefiniti
 dialog-ok = OK
+dialog-cancel = Annulla
+dialog-close = Chiudi

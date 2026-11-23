@@ -110,7 +110,10 @@ pub use widget::access::{
     ScrollInfo, TextInfo,
 };
 pub use widget::button::{Button, ButtonKind};
-pub use widget::dialog::{ButtonRole, DialogButton, DialogKind, DialogSpec, MAX_WIDTH as DIALOG_MAX_WIDTH, MIN_WIDTH as DIALOG_MIN_WIDTH};
+pub use widget::dialog::{
+    ButtonRole, DialogButton, DialogKind, DialogSpec, MAX_WIDTH as DIALOG_MAX_WIDTH,
+    MIN_WIDTH as DIALOG_MIN_WIDTH,
+};
 pub use widget::edit::keys::{Direction, EditAction, EditConvention, Unit, edit_action};
 pub use widget::edit::{EditResponse, TextEditor};
 pub use widget::field::TextField;

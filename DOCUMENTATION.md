@@ -3165,10 +3165,10 @@ whole code base. There is no window yet, no dependency and no platform code: jus
 formula and their tests.
 
 **Tokens, not colours.** A widget never says "grey"; it says "muted text" or "the edge of a
-control", and asks the active theme what colour that is. These roles are the *tokens*: 25 colour
+control", and asks the active theme what colour that is. These roles are the *tokens*: 24 colour
 tokens (surfaces, lines, text, accent, controls, selection and focus, error/warning/success, the
-shadow, and since F2.12a3a the `scrim` veil under a dialog, ADR-0050 DG2) and 5 shape tokens in logical pixels (corner radius, line width, focus-ring width, shadow
-blur and offset). The colour tokens are listed **once**, in a macro in `token.rs`, which generates
+shadow) and 6 shape tokens in logical pixels (corner radius, line width, focus-ring width, shadow
+blur and offset, and since F2.12a3a the width of a dialog's frame, `dialog-frame`). The colour tokens are listed **once**, in a macro in `token.rs`, which generates
 the public enum `ColorToken`, the stable names (`surface-raised`, `on-accent`…) and a private
 struct with one field per token. The built-in themes fill that struct with a literal, so a theme
 that forgets a token does not compile. Reading a token is a `match` turned into a jump table:
@@ -5226,10 +5226,9 @@ checked by hand.
 #### Dialogs
 
 **What a dialog is** (ADR-0050 DG1–DG3, SCALETTA F2.12a3a). A question the program asks
-("Save the changes?") or an error it reports, drawn by us inside the main window: a veil over
-the whole window in the theme's new `scrim` colour, and in the middle a panel with a title, a
-message, an optional detail and a row of buttons. The application describes it and the interface
-builds it:
+("Save the changes?") or an error it reports, drawn by us inside the main window: in the middle,
+a panel with a thick frame in the accent colour, a title, a message, an optional detail and a row
+of buttons. The application describes it and the interface builds it:
 
 ```rust
 let spec = DialogSpec::new(DialogKind::Question, title, message)
@@ -5244,10 +5243,11 @@ let panel = ui.open_dialog(spec, &mut list)?;
 `Error`, an *alert* for assistive technologies), the texts already translated, and the buttons,
 each with a `ButtonRole`: *affirmative* (the first one is the default, drawn in the accent),
 *destructive* (never the default), *cancel* (the first one answers Escape; a lone button answers
-it whatever its role) and *other*. Two private widgets draw it: `DialogVeil`, the root, which
-fills the window with `scrim`, centres the panel on whole pixels and consumes every pointer event
-that reaches it; and `DialogPanel`, the box in `surface-overlay` with the menus' corner and line
-and no shadow (like the menus), which lays out the texts in a vertical scroll area (a low window
+it whatever its role) and *other*. Two private widgets draw it: `DialogRoot`, the root, which
+spans the window but draws nothing, centres the panel on whole pixels and consumes every pointer
+event that reaches it; and `DialogPanel`, the box in `surface-overlay` with the menus' corner, a
+frame in the `accent` as wide as the new shape token `dialog-frame` (3 logical pixels in every
+pair) and no shadow (like the menus), which lays out the texts in a vertical scroll area (a low window
 scrolls them and keeps the buttons) and the buttons right-aligned at the bottom, between 320 and
 480 logical pixels wide. When no child handled Enter or Escape, the panel sends the default's or
 the cancel button's message and closes the dialog.
@@ -5261,9 +5261,9 @@ desktops last (*Don't save, Cancel, Save*). On Linux the desktop is read from
 arguments, so the tests check every system everywhere.
 
 **In the interface** (`crates/ui/src/widget/ui/dialogs.rs`). A dialog is a layer of the same stack
-as the menus: its veil is a root of its own with the next layer number, so a menu opened from
+as the menus: it has a root of its own with the next layer number, so a menu opened from
 inside it goes above it, and a dialog opened from a dialog goes above the first; when the last
-menu closes, the next menu's layer goes back to just above the topmost dialog. The veil is also
+menu closes, the next menu's layer goes back to just above the topmost dialog. The root is also
 pushed as a modal layer (WA4, WB9): Tab cycles inside it, keys go to its focused button and
 bubble to the panel, and the pointer reaches nothing behind it. At the opening the open menus
 close, the tooltip hides and the focus goes to the default button (or the cancel one, or the
@@ -5276,32 +5276,44 @@ queued when the dialog goes. `Ui::close_dialog` closes one from the program, `Ui
 the open ones, and `Ui::open_dialog_with` opens a panel of the caller's for the Preferences
 (F2.12a4). For assistive technologies the panel is a modal `Dialog` (or `AlertDialog`), named by
 its title and described by its message (two new fields of `AccessInfo`, `description` and
-`modal`), and the veils are children of the window node, after the root and before the menus.
+`modal`), and the dialogs' roots are children of the window node, after the main root and before
+the menus.
+
+**Why a frame and no veil** (owner's choice, an amendment of ADR-0050 DG2). The first version
+dimmed the whole window under a dialog with a translucent veil (a colour token `scrim`). The
+benchmark measured about 47 M instructions to open a dialog in a 1000 × 1000 window, almost all of
+it `tiny-skia` blending the veil over every pixel (about 43 instructions per pixel; about 90 M at
+1080p), over the frame's budget of 33 M. After screenshots of the veil and of the frame, the owner
+chose the frame: only the panel's rectangle is drawn, so opening costs the same in any window. The
+window behind is not dimmed; the frame, the default button and the focus tell where to look.
 
 **What the user sees, and does not yet.** Nothing in the program opens a dialog in this step: the
 first one the user can open is *About Orchestra* (F2.12a3b), which brings the screenshot and the
-guides' chapter (owner's choice C8).
+guides' chapter (owner's choice C8). The buttons' words *OK*, *Cancel* and *Close* are in the six
+catalogues (`dialog-ok`, `dialog-cancel`, `dialog-close`), checked in Qt's catalogues of the
+standard buttons (glossary: `ok`, `cancel`, `dialog_close`).
 
 **Tests and benchmarks.** `crates/ui/tests/dialogs.rs`: the order on both conventions and the
 focus on the default button; Enter, Escape (also with the focus on another button), Tab cycling
 inside; a focused button pressed by Enter, a click outside that does nothing and a click on a
 button; an error above a question, closed by Escape alone, with the focus back on the question;
 a menu above a dialog; Ctrl+S and F10 doing nothing behind a dialog; the panel's size and place
-in a large and in a small window; the veil's colour in every pair; the accessibility nodes. A
+in a large and in a small window; the frame's width in every pair and the damage of an opening limited to the panel
+(and to the focus ring of the field behind); the accessibility nodes. A
 bug injected on purpose (shortcuts running behind a dialog) was caught. `widgets_no_alloc.rs`
-checks that Tab, keys, the pointer and a click on the veil inside an open dialog allocate
+checks that Tab, keys, the pointer and a click outside the panel of an open dialog allocate
 nothing. The benchmarks of `benches/widgets.rs` (group `dialogs`), on the panel of 200 widgets in
 a 1000 × 1000 window:
 
 ```text
 benchmark                       instructions
-dialog_open (open + draw)         47 042 498
-dialog_tab  (Tab + draw)             868 104
+dialog_open (open + draw)         13 219 421
+dialog_tab  (Tab + draw)             582 300
 ```
 
-Building the dialog costs about 2 M instructions; almost all the rest of `dialog_open` is the
-translucent veil blended over the whole window by `tiny-skia` (about 43 instructions per pixel).
-That is over the frame's budget of 33 M (F2.07c): see "Open decisions" in `ROADMAP.md`.
+Building the dialog costs about 2 M instructions, the rest is drawing the panel: its frame, its
+buttons and its texts, whose glyphs are new to the cache. Within the frame's budget of 33 M
+(F2.07c), and independent of the window's size.
 
 #### The window and the event loop
 
