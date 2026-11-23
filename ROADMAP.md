@@ -1513,9 +1513,10 @@ the demonstration's title bar (`Demo::with_decorations`), four messages `window-
 entries `window_*` (GTK's words, checked against Qt's), the example `decorations_probe`. Tests:
 the decision (3), `tests/title_bar.rs` (9; two injected bugs caught), a no-allocation test, the
 demonstration with `Decorations::Own`. The sandbox refuses Unix sockets; the owner ran the probe
-on KDE Plasma (Wayland): "server-side", 1.5–3.1 ms per question (debug build). **Open:** the
-owner's check by hand on KDE (`ORCHESTRA_DECORATIONS=own`, and without it the KDE frame) and X11,
-the precisions of ADR-0049; then
+on KDE Plasma (Wayland): "server-side", 1.5–3.1 ms per question (debug build). Checked by hand by
+the owner on KDE Plasma (Wayland) on 2026-11-23, with `ORCHESTRA_DECORATIONS=own` (our bar:
+dragging, double click, window menu, menus, full screen, Close) and without it (KDE's frame): all
+working. **Open:** the precisions of ADR-0049; then
 F2.11b3 on the same branch. Still **to check on GNOME** (a virtual machine) before the pull
 request is merged, if possible: the probe answering "client".
 
