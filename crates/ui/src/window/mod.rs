@@ -185,6 +185,45 @@ pub enum WindowRequest {
         /// Where, logical pixels.
         at: crate::Point,
     },
+    /// Resize the window from `edge` with the pointer until the primary button is released (the
+    /// edges of our own frame, ADR-0049 TB7, F2.11b3). Must follow that press closely, like
+    /// [`WindowRequest::Drag`]. Ignored where the system draws the frame.
+    Resize(ResizeEdge),
+}
+
+/// An edge or a corner of the window, to resize it from ([`WindowRequest::Resize`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResizeEdge {
+    /// The top edge.
+    North,
+    /// The bottom edge.
+    South,
+    /// The right edge.
+    East,
+    /// The left edge.
+    West,
+    /// The top-right corner.
+    NorthEast,
+    /// The top-left corner.
+    NorthWest,
+    /// The bottom-right corner.
+    SouthEast,
+    /// The bottom-left corner.
+    SouthWest,
+}
+
+impl ResizeEdge {
+    /// The pointer's shape over this edge or corner.
+    #[must_use]
+    pub const fn pointer_shape(self) -> pointer::PointerShape {
+        use pointer::PointerShape;
+        match self {
+            Self::East | Self::West => PointerShape::ResizeHorizontal,
+            Self::North | Self::South => PointerShape::ResizeVertical,
+            Self::NorthWest | Self::SouthEast => PointerShape::ResizeNorthWestSouthEast,
+            Self::NorthEast | Self::SouthWest => PointerShape::ResizeNorthEastSouthWest,
+        }
+    }
 }
 
 /// How to open the window.

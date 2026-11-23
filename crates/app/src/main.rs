@@ -77,7 +77,18 @@ fn main() -> ExitCode {
     // The density, text and shape tokens of Studio (the same in both halves); the colours follow
     // the system through the window.
     let theme = *options.pair.instance(orchestra_ui::Appearance::Light);
-    let demo = Demo::with_decorations(&options.faces, &theme, &options.title, &texts, decorations);
+    // GNOME's choice of title bar buttons, read once, only where our title bar is drawn (F2.11b3).
+    let button_layout = (decorations == orchestra_ui::Decorations::Own)
+        .then(orchestra_ui::button_layout)
+        .flatten();
+    let demo = Demo::with_decorations(
+        &options.faces,
+        &theme,
+        &options.title,
+        &texts,
+        decorations,
+        button_layout.as_deref(),
+    );
     match orchestra_ui::run(demo, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

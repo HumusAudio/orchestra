@@ -165,7 +165,48 @@ pub const SCENES: &[Scene] = &[
         height: 370.0,
         record: record_demo_menu_bar,
     },
+    Scene {
+        name: "title-bar",
+        width: 640.0,
+        height: TITLE_BAR_HEIGHT,
+        record: record_title_bar,
+    },
 ];
+
+/// The height of the title bar's strip (F2.11b3): the bar (a control's height at Studio's
+/// density) and the resize band under it, with the frame's line around.
+const TITLE_BAR_HEIGHT: f32 = 36.0;
+
+/// Our own title bar alone (F2.11b3, ADR-0049 TB11, owner's choice: a strip, not the whole
+/// window): the program's four menus, its name, and the three buttons of GNOME's
+/// `appmenu:minimize,maximize,close`, in the frame of a window that is neither maximised nor in
+/// full screen. The pointer rests on nothing, so the picture shows the bar at rest.
+fn record_title_bar(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    use orchestra_ui::{Flex, Platform, Space, TitleBarSpec, Ui};
+    let mut ui: Ui<crate::DemoMessage> = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        context.faces.clone(),
+    );
+    ui.set_title(&context.app_name);
+    // The program's own actions and menus, with their names (Linux: the platform the bar is for).
+    let Ok((mut registry, ids)) = crate::actions::registry(Platform::Linux) else {
+        return;
+    };
+    context.demo.actions.apply(&mut registry);
+    ui.set_actions(registry, crate::DemoMessage::Action);
+    let model = crate::actions::menu_bar(&ids, &context.demo.actions);
+    let spec = TitleBarSpec::from_setting(
+        Some("appmenu:minimize,maximize,close"),
+        context.app_name.clone(),
+        context.demo.window_buttons.clone(),
+    );
+    let root = ui.root();
+    if ui.add_title_bar(root, &model, &spec).is_err() {
+        return;
+    }
+    ui.layout(bounds, list);
+}
 
 /// The demonstration window with the menu bar used from the keyboard (F2.11d2b, ADR-0048 AM12):
 /// F10 puts the keyboard on *File*, Enter opens its menu; its first enabled item (*Quit*) is

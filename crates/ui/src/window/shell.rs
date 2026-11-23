@@ -444,6 +444,14 @@ impl<A: WindowApp> Shell<A> {
                         open.window.set_minimized(true);
                     }
                 }
+                WindowRequest::Resize(edge) => {
+                    if let Some(open) = self.open.as_ref()
+                        && self.options.decorations == crate::Decorations::Own
+                    {
+                        // Refused like a drag when its press is too old (the compositor's rule).
+                        let _refused = open.window.drag_resize_window(resize_direction(edge));
+                    }
+                }
                 WindowRequest::ShowWindowMenu { at } => {
                     if let Some(open) = self.open.as_ref() {
                         open.window.show_window_menu(LogicalPosition::new(
@@ -713,5 +721,21 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
 fn surface_error(error: &softbuffer::SoftBufferError) -> WindowError {
     WindowError::Surface {
         detail: error.to_string(),
+    }
+}
+
+/// Our edge as `winit`'s resize direction (the same eight).
+const fn resize_direction(edge: super::ResizeEdge) -> winit::window::ResizeDirection {
+    use super::ResizeEdge;
+    use winit::window::ResizeDirection;
+    match edge {
+        ResizeEdge::North => ResizeDirection::North,
+        ResizeEdge::South => ResizeDirection::South,
+        ResizeEdge::East => ResizeDirection::East,
+        ResizeEdge::West => ResizeDirection::West,
+        ResizeEdge::NorthEast => ResizeDirection::NorthEast,
+        ResizeEdge::NorthWest => ResizeDirection::NorthWest,
+        ResizeEdge::SouthEast => ResizeDirection::SouthEast,
+        ResizeEdge::SouthWest => ResizeDirection::SouthWest,
     }
 }

@@ -32,6 +32,14 @@ pub enum PointerShape {
     /// The text beam (an I-bar): over text that can be edited or selected, such as a text field
     /// (ADR-0047 TF4, F2.10b2).
     Text,
+    /// Resizing the window from its left or right edge (our own frame, ADR-0049 TB7, F2.11b3).
+    ResizeHorizontal,
+    /// Resizing the window from its top or bottom edge.
+    ResizeVertical,
+    /// Resizing the window from its top-left or bottom-right corner.
+    ResizeNorthWestSouthEast,
+    /// Resizing the window from its top-right or bottom-left corner.
+    ResizeNorthEastSouthWest,
 }
 
 /// `winit`'s cursor for `shape`.
@@ -52,6 +60,12 @@ pub(crate) const fn to_winit(shape: PointerShape) -> CursorIcon {
         // `Text` is the I-beam everywhere: `IDC_IBEAM` on Windows, `IBeamCursor` on macOS, the
         // cursor theme's `text` (aliased `xterm`) on X11 and Wayland.
         PointerShape::Text => CursorIcon::Text,
+        // The two-headed arrows every cursor theme has for a window's edges and corners
+        // (`ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`), the system's own frames' too.
+        PointerShape::ResizeHorizontal => CursorIcon::EwResize,
+        PointerShape::ResizeVertical => CursorIcon::NsResize,
+        PointerShape::ResizeNorthWestSouthEast => CursorIcon::NwseResize,
+        PointerShape::ResizeNorthEastSouthWest => CursorIcon::NeswResize,
     }
 }
 
@@ -66,6 +80,19 @@ mod tests {
         assert_eq!(to_winit(PointerShape::ResizeColumn), CursorIcon::ColResize);
         assert_eq!(to_winit(PointerShape::ResizeRow), CursorIcon::RowResize);
         assert_eq!(to_winit(PointerShape::Text), CursorIcon::Text);
+        assert_eq!(
+            to_winit(PointerShape::ResizeHorizontal),
+            CursorIcon::EwResize
+        );
+        assert_eq!(to_winit(PointerShape::ResizeVertical), CursorIcon::NsResize);
+        assert_eq!(
+            to_winit(PointerShape::ResizeNorthWestSouthEast),
+            CursorIcon::NwseResize
+        );
+        assert_eq!(
+            to_winit(PointerShape::ResizeNorthEastSouthWest),
+            CursorIcon::NeswResize
+        );
         assert_eq!(PointerShape::default(), PointerShape::Default);
     }
 }

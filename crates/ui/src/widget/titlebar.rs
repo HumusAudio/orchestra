@@ -115,6 +115,23 @@ impl TitleBarSpec {
             names,
         }
     }
+
+    /// The bar for GNOME's `button-layout` text `setting` (F2.11b3), as
+    /// [`button_layout`](crate::button_layout) read it: `None` (not readable) gives
+    /// [`TitleBarSpec::gnome_default`].
+    #[must_use]
+    pub fn from_setting(setting: Option<&str>, title: String, names: WindowButtonNames) -> Self {
+        let Some(setting) = setting else {
+            return Self::gnome_default(title, names);
+        };
+        let (leading, trailing) = crate::platform::decorations::layout::parse(setting);
+        Self {
+            title,
+            leading,
+            trailing,
+            names,
+        }
+    }
 }
 
 /// The colour of the title and of the buttons' symbols: `text`, or `text-muted` while the window
@@ -546,5 +563,117 @@ impl<M: 'static> Widget<M> for WindowButtonWidget {
     fn access_info(&self, info: &mut AccessInfo) {
         info.label = Some(self.name().to_owned());
         info.clickable = true;
+    }
+}
+
+/// The width of the resize band along the window's edges, logical pixels (ADR-0049 TB7): inside
+/// the window, since `softbuffer` cannot draw outside it yet.
+pub(crate) const BAND: f32 = 6.0;
+
+/// The length of a corner's resize area along each edge, logical pixels (ADR-0049 TB7): a press
+/// this close to a corner, inside the band, resizes from the corner.
+pub(crate) const CORNER: f32 = 16.0;
+
+/// The edge or corner of `bounds` (the window, logical pixels) under `point`, if it lies in the
+/// resize band (ADR-0049 TB7, owner's choice of F2.11b3: the band is inside the window on every
+/// side; at the top it lies over the title bar's highest pixels instead of above it).
+///
+/// A corner wins over its two edges within [`CORNER`] of it, so the diagonal resize is easy to
+/// hit although the band is thin. Outside the window, `None`.
+///
+/// # Complexity
+/// A few comparisons.
+pub(crate) fn band_edge(bounds: Rect, point: Point) -> Option<crate::ResizeEdge> {
+    use crate::ResizeEdge;
+    if !contains(bounds, point) {
+        return None;
+    }
+    let (left, right) = (point.x - bounds.x0, bounds.x1 - point.x);
+    let (top, bottom) = (point.y - bounds.y0, bounds.y1 - point.y);
+    let in_band = left < BAND || right < BAND || top < BAND || bottom < BAND;
+    if !in_band {
+        return None;
+    }
+    // Near which ends of each axis, for the corners.
+    let west = left < CORNER;
+    let east = right < CORNER;
+    let north = top < CORNER;
+    let south = bottom < CORNER;
+    Some(match (north, south, west, east) {
+        (true, _, true, _) => ResizeEdge::NorthWest,
+        (true, _, _, true) => ResizeEdge::NorthEast,
+        (_, true, true, _) => ResizeEdge::SouthWest,
+        (_, true, _, true) => ResizeEdge::SouthEast,
+        // Not near a corner: the edge whose band holds the point.
+        _ if top < BAND => ResizeEdge::North,
+        _ if bottom < BAND => ResizeEdge::South,
+        _ if left < BAND => ResizeEdge::West,
+        _ => ResizeEdge::East,
+    })
+}
+
+/// The window's own frame while our title bar draws it and the window is neither maximised nor
+/// in full screen (ADR-0049 TB7): a line of `border` along its four edges, so the window stands
+/// apart from a window or desktop of the same colour. A root of its own in the widget arena,
+/// recorded after the interface on its layer (so above the content, below every menu), never hit
+/// by the pointer: the band it outlines is handled by the interface itself.
+#[derive(Debug, Default)]
+pub(crate) struct WindowFrame {
+    /// The frame is drawn (windowed, not maximised, not in full screen).
+    pub(crate) shown: bool,
+}
+
+impl<M: 'static> Widget<M> for WindowFrame {
+    fn measure(&mut self, _cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
+        constraints.max
+    }
+
+    fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>) {
+        if !self.shown {
+            return;
+        }
+        // One physical pixel would need the scale here; the theme's line width is what every
+        // other line of the interface uses (1 logical pixel at the default density).
+        let width = f32::from(cx.shape.line_width.max(1));
+        let rect = cx.rect.inflate(-width / 2.0);
+        recorder.stroke_rect(rect, StrokeStyle::new(width), ColorToken::Border);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BAND, CORNER, band_edge};
+    use crate::ResizeEdge;
+    use crate::draw::geometry::{Point, Rect};
+
+    /// The window of these tests, logical pixels.
+    const WINDOW: Rect = Rect::new(0.0, 0.0, 800.0, 600.0);
+
+    #[test]
+    fn the_band_has_four_edges_and_four_corners() {
+        let at = |x, y| band_edge(WINDOW, Point::new(x, y));
+        // The middle of each edge, inside the band.
+        assert_eq!(at(400.0, 1.0), Some(ResizeEdge::North));
+        assert_eq!(at(400.0, 598.0), Some(ResizeEdge::South));
+        assert_eq!(at(1.0, 300.0), Some(ResizeEdge::West));
+        assert_eq!(at(798.0, 300.0), Some(ResizeEdge::East));
+        // Near the corners, within CORNER of them along the band.
+        assert_eq!(at(2.0, 2.0), Some(ResizeEdge::NorthWest));
+        assert_eq!(at(CORNER - 1.0, 1.0), Some(ResizeEdge::NorthWest));
+        assert_eq!(at(1.0, CORNER - 1.0), Some(ResizeEdge::NorthWest));
+        assert_eq!(at(798.0, 1.0), Some(ResizeEdge::NorthEast));
+        assert_eq!(at(1.0, 598.0), Some(ResizeEdge::SouthWest));
+        assert_eq!(at(798.0, 598.0), Some(ResizeEdge::SouthEast));
+        // Just past the corner's length, the edge again.
+        assert_eq!(at(CORNER + 1.0, 1.0), Some(ResizeEdge::North));
+    }
+
+    #[test]
+    fn outside_the_band_or_the_window_nothing() {
+        let at = |x, y| band_edge(WINDOW, Point::new(x, y));
+        assert_eq!(at(400.0, 300.0), None);
+        assert_eq!(at(BAND + 0.5, BAND + 0.5), None);
+        assert_eq!(at(-1.0, 300.0), None);
+        assert_eq!(at(800.0, 300.0), None);
     }
 }

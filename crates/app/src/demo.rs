@@ -195,13 +195,15 @@ impl Demo {
     /// renderer anyway (ADR-0039 D3), so only density, text and shapes come from here.
     #[must_use]
     pub fn new(faces: &Faces, theme: &Theme, window_title: &str, texts: &DemoTexts) -> Self {
-        Self::with_decorations(faces, theme, window_title, texts, Decorations::System)
+        Self::with_decorations(faces, theme, window_title, texts, Decorations::System, None)
     }
 
     /// [`Demo::new`] for a window whose frame `decorations` draws (F2.11b2, ADR-0049 TB1): with
     /// [`Decorations::Own`] the menus go into our own title bar, with the window's buttons,
     /// instead of a menu bar under the system's frame. The window must be opened with the same
-    /// answer ([`WindowOptions::decorations`](orchestra_ui::WindowOptions)).
+    /// answer ([`WindowOptions::decorations`](orchestra_ui::WindowOptions)). `button_layout` is
+    /// GNOME's setting as [`orchestra_ui::button_layout`] read it (`None`: only Close); the
+    /// program reads it, so the tests and the screenshots never depend on the desktop.
     #[must_use]
     pub fn with_decorations(
         faces: &Faces,
@@ -209,12 +211,13 @@ impl Demo {
         window_title: &str,
         texts: &DemoTexts,
         decorations: Decorations,
+        button_layout: Option<&str>,
     ) -> Self {
         // The menu bar (F2.11d2b), or our title bar holding it (F2.11b2), above the content.
         let mut ui = Ui::new(Flex::column(Space::None, Space::None), theme, faces.clone());
         ui.set_title(window_title);
         let content = LayoutProps::default();
-        let frame = Frame::new(texts, window_title, decorations);
+        let frame = Frame::new(texts, window_title, decorations, button_layout);
         let (actions, menu_bar, root) = frame_window(&mut ui, &frame);
         // `add` fails only for an unknown parent; every parent here was just created, so a
         // failure would leave the demonstration incomplete, never crash it.
@@ -439,15 +442,24 @@ struct Frame<'a> {
     title: &'a str,
     /// Who draws the window's frame (ADR-0049 TB1).
     decorations: Decorations,
+    /// GNOME's `button-layout`, if the program read it (F2.11b3).
+    button_layout: Option<&'a str>,
 }
 
 impl<'a> Frame<'a> {
-    /// The frame of a window titled `title` with `texts`, whose frame `decorations` draws.
-    const fn new(texts: &'a DemoTexts, title: &'a str, decorations: Decorations) -> Self {
+    /// The frame of a window titled `title` with `texts`, whose frame `decorations` draws, with
+    /// the buttons of `button_layout` in our title bar.
+    const fn new(
+        texts: &'a DemoTexts,
+        title: &'a str,
+        decorations: Decorations,
+        button_layout: Option<&'a str>,
+    ) -> Self {
         Self {
             texts,
             title,
             decorations,
+            button_layout,
         }
     }
 }
@@ -466,10 +478,13 @@ fn add_menu_bar(
     let model = actions::menu_bar(actions?, &frame.texts.actions);
     let root = ui.root();
     // Where the system draws no frame, the menus go into our own title bar (ADR-0049 TB5), with
-    // GNOME's default buttons (only Close) until the layout is read from the system (F2.11b3).
-    if frame.decorations == Decorations::Own {
-        let spec =
-            TitleBarSpec::gnome_default(frame.title.to_owned(), frame.texts.window_buttons.clone());
+    // the buttons GNOME's `button-layout` asks for (F2.11b3; only Close by default).
+    if let Decorations::Own = frame.decorations {
+        let spec = TitleBarSpec::from_setting(
+            frame.button_layout,
+            frame.title.to_owned(),
+            frame.texts.window_buttons.clone(),
+        );
         return ui.add_title_bar(root, &model, &spec).ok();
     }
     ui.add_menu_bar(

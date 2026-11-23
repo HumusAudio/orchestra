@@ -5379,13 +5379,49 @@ i pulsanti spariscono mentre i menu restano. Il fuoco della finestra attenua il 
 `Button` con i nomi dei cataloghi (`window-close`, `window-maximize`, `window-restore`,
 `window-minimize`, le parole di GTK, voci del glossario `window_*`), fuori dal giro del Tab.
 
-**Test.** `crates/ui/src/platform/decorations/tests.rs` (la decisione e la variabile),
-`crates/ui/tests/title_bar.rs` (9 test: disposizione con i pulsanti ai due lati, trascinamento solo
-dopo uno spostamento, doppio clic, menu della finestra, pulsanti al rilascio, i menu che si aprono
-ancora, schermo intero, l'albero dell'accessibilità, il Tab), un test senza allocazioni in
-`widgets_no_alloc.rs`, e in `crates/app/tests/demo.rs` la finestra di prova con `Decorations::Own`.
-Due errori iniettati (nessuna soglia di trascinamento, Chiudi che chiede di ridurre a icona) sono
-stati colti. La sonda vera ha bisogno di un compositore: si prova a mano.
+**I bordi** (F2.11b3, ADR-0049 TB7). `softbuffer` ancora non disegna fuori dalla finestra, quindi
+la fascia di ridimensionamento sta **dentro**: 6 pixel logici lungo i bordi sinistro, destro e
+inferiore, che il contenuto lascia liberi (`Ui::content_bounds`), e lungo quello superiore, dove
+si sovrappone ai pixel più alti della barra del titolo invece di starle sopra (scelta del
+proprietario). Entro 16 pixel da un angolo vince l'angolo. `band_edge` risponde su quale bordo sta
+un punto; l'interfaccia lo chiede prima che un widget veda il puntatore: sulla fascia il puntatore
+prende la forma del bordo (quattro `PointerShape` nuove, `ew-resize`, `ns-resize`, `nwse-resize`,
+`nesw-resize` del tema dei cursori), e una pressione chiede alla finestra
+`WindowRequest::Resize(edge)`, che chiama `drag_resize_window` di `winit`. Un menu aperto si prende
+invece la pressione (e si chiude). Una linea `border` di un pixel intorno alla finestra la disegna
+`WindowFrame`, una radice a sé nell'arena dei widget registrata dopo l'interfaccia sul suo livello:
+sopra il contenuto, sotto ogni menu. Ingrandita o a schermo intero, fascia e linea spariscono e il
+contenuto si riprende tutta la finestra.
+
+**La disposizione dei pulsanti** (TB4). `orchestra_ui::button_layout()` legge una volta
+l'impostazione di GNOME `org.gnome.desktop.wm.preferences button-layout` attraverso il portale del
+desktop (`ReadOne`, poi il più vecchio `Read`), su un thread suo, aspettato al massimo 250 ms;
+`TitleBarSpec::from_setting` trasforma il testo nei due elenchi di pulsanti:
+
+```rust
+assert_eq!(parse("appmenu:minimize,maximize,close"), (vec![], vec![Minimize, Maximize, Close]));
+```
+
+I nomi che la nostra barra non ha (`appmenu`, `icon`, `spacer`) si saltano, un pulsante nominato
+due volte compare una volta, senza i due punti va tutto in testa. Il programma la legge in `main`
+solo quando la barra è nostra e la passa a `Demo::with_decorations`, così i test e gli screenshot
+non dipendono mai dal desktop su cui girano.
+
+**Misurato.** `title_bar_focus_change` (in `benches/widgets.rs`): il pannello vero di 200 widget
+sotto la nostra barra con tre pulsanti, la finestra che perde il fuoco: 0,39 M istruzioni, sotto
+gli 0,5 M di un evento. La striscia `title-bar.png` delle guide la disegna la scena `title-bar` di
+`cargo xtask screenshots` (i menu del programma, tre pulsanti, 640 × 36 pixel logici).
+
+**Test.** `crates/ui/src/platform/decorations/tests.rs` (la decisione, la variabile e la
+disposizione dei pulsanti), quelli di `titlebar.rs` (i bordi e gli angoli della fascia),
+`crates/ui/tests/title_bar.rs` (13 test: disposizione con i pulsanti ai due lati, trascinamento
+solo dopo uno spostamento, doppio clic, menu della finestra, pulsanti al rilascio, i menu che si
+aprono ancora, schermo intero, l'albero dell'accessibilità, il Tab; da F2.11b3 la fascia da ogni
+bordo e angolo, la sua parte alta sopra la barra, niente fascia da ingrandita o a schermo intero,
+un menu aperto che si prende la pressione), un test senza allocazioni in `widgets_no_alloc.rs`, e
+in `crates/app/tests/demo.rs` la finestra di prova con `Decorations::Own`. Tre errori iniettati
+(nessuna soglia di trascinamento, Chiudi che chiede di ridurre a icona, la fascia che ridimensiona
+sotto un menu aperto) sono stati colti. La sonda vera ha bisogno di un compositore: si prova a mano.
 
 #### La finestra e il ciclo degli eventi
 

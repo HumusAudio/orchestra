@@ -240,7 +240,7 @@ own decision; it is not part of this ADR.
 - The probe and the bar are checked by hand on GNOME, KDE Wayland and X11 by the owner (CI has
   no compositor).
 
-## Precisions of the implementation (F2.11b2, proposed to the owner on 2026-11-23)
+## Precisions of the implementation (F2.11b2, approved by the owner on 2026-11-23)
 
 Before writing, the owner approved: F2.11b2 and F2.11b3 merged in one pull request, so `main`
 never loses the mouse resizing that `sctk-adwaita` gave on GNOME (choice a); a `TitleBar` widget
@@ -277,3 +277,35 @@ as window requests; the probe run before the window exists. While writing, the r
 - **TB10: the words.** GTK's, from its catalogues (`gtkwindowcontrols.c`, `gtkwindowhandle.c`),
   checked against Qt's (`QMdiSubWindow`): they agree except French Maximise, GTK "Maximiser", Qt
   "Agrandir"; our bar is drawn only on GNOME, so GTK's.
+
+## Precisions of the implementation (F2.11b3, proposed to the owner on 2026-11-23)
+
+Before writing, the owner chose: the band inside the window on the left, the right and the
+bottom, and **over** the title bar's highest pixels at the top rather than above them (choice 1);
+GNOME's `button-layout` read once at start-up, a change seen at the next start (choice 2); the
+guides' picture a strip of the bar alone (choice 3). While writing, the rest:
+- **TB7: the band.** 6 logical pixels, corners of 16 along each edge (`band_edge`). The interface
+  asks it before routing the pointer to any widget: over the band no widget is hovered and the
+  pointer takes the edge's shape (four new `PointerShape`s: `ew-resize`, `ns-resize`,
+  `nwse-resize`, `nesw-resize`); a primary press asks `WindowRequest::Resize(ResizeEdge)`, which
+  the window turns into `winit`'s `drag_resize_window` (ignored with the system's frame). While a
+  menu is open the press belongs to the menu (it closes it). Maximised or in full screen there is
+  no band: the content takes the whole window again. `winit` does not report GNOME's tiled
+  states, so a window tiled to half the screen keeps its band (a known, minor limit).
+- **TB7: the line.** One `line-width` of `border` around the window, drawn by a `WindowFrame`, a
+  root of its own in the widget arena recorded after the interface on layer 0: above the content
+  (inset, so it never covers it), below every menu. Never hit by the pointer.
+- **TB4: reading the layout.** `orchestra_ui::button_layout()` asks the desktop portal
+  (`ReadOne`, then the older `Read`) on a thread of its own and waits at most 250 ms (ADR-0038
+  S5's bound); KDE's portal does not expose GNOME's namespace, so there the answer is `None` and
+  the bar uses GNOME's default. The parser skips `appmenu`, `menu`, `icon`, `spacer` and unknown
+  names, keeps a repeated button once, and puts everything on the leading side without a colon,
+  as GTK does; `:` alone hides every button, as in GTK. The program reads the setting in `main`,
+  only for `Decorations::Own`, and passes it to the interface it builds, so tests and screenshots
+  never depend on the desktop.
+- **TB12: measured.** `title_bar_focus_change`, the panel of 200 widgets under our bar with three
+  buttons, the window losing the focus: 0.39 M instructions (target 0.5 M).
+- **TB11: the picture.** A scene `title-bar` of `cargo xtask screenshots`, 640 × 36 logical
+  pixels: the program's four menus, its name, the three buttons of
+  `appmenu:minimize,maximize,close`, in the frame. The guides still show placeholders for all
+  their pictures; this one is named in its placeholder like the others.

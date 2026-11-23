@@ -14,12 +14,15 @@
 //! [`InputEvent::Focus`]: crate::InputEvent::Focus
 //! [`InputEvent::WindowState`]: crate::InputEvent::WindowState
 
-use crate::WindowRequest;
+use crate::draw::geometry::{Point, Rect};
 use crate::widget::layout::{LayoutProps, Length};
 use crate::widget::menu::MenuModel;
-use crate::widget::titlebar::{TitleBar, TitleBarSpec, WindowButtonWidget};
+use crate::widget::titlebar::{
+    BAND, TitleBar, TitleBarSpec, WindowButtonWidget, WindowFrame, band_edge,
+};
 use crate::widget::tree::WidgetId;
 use crate::window::input::WindowState;
+use crate::{ResizeEdge, WindowRequest};
 
 use super::{Ui, UiError};
 
@@ -30,6 +33,8 @@ pub(super) struct TitleBarState {
     root: usize,
     /// Its window buttons' slots.
     buttons: Vec<usize>,
+    /// The window's frame (the line around it, ADR-0049 TB7): a root of its own.
+    frame: usize,
     /// The window has the keyboard focus (it starts focused: it opens in front).
     focused: bool,
     /// The window's state as last told.
@@ -80,9 +85,18 @@ impl<M: 'static> Ui<M> {
             buttons.extend(self.tree.slot_of(id));
         }
         let root = self.tree.slot_of(bar).ok_or(UiError::UnknownWidget(bar))?;
+        // The frame: a root of its own, on the interface's layer, recorded after it (TB7).
+        let frame = self.tree.insert(
+            None,
+            Box::new(WindowFrame { shown: true }),
+            LayoutProps::default(),
+        );
+        // The content now leaves room for the resize band.
+        self.tree.invalidate_layout(super::ROOT);
         self.title_bar = Some(TitleBarState {
             root,
             buttons,
+            frame,
             focused: true,
             window: WindowState::default(),
         });
@@ -129,6 +143,44 @@ impl<M: 'static> Ui<M> {
         self.sync_title_bar();
     }
 
+    /// `true` while the resize band and the frame are there (ADR-0049 TB7): with our title bar,
+    /// while the window is neither maximised nor in full screen.
+    pub(super) fn band_active(&self) -> bool {
+        self.title_bar
+            .as_ref()
+            .is_some_and(|state| !state.window.maximized && !state.window.fullscreen)
+    }
+
+    /// Where the interface's content goes in the window's `bounds`: all of it, or, while the band
+    /// is there, inset by it on the left, the right and the bottom (at the top the band lies over
+    /// the title bar's highest pixels, owner's choice of F2.11b3).
+    pub(super) fn content_bounds(&self, bounds: Rect) -> Rect {
+        if self.band_active() {
+            Rect::new(
+                bounds.x0 + BAND,
+                bounds.y0,
+                (bounds.x1 - BAND).max(bounds.x0 + BAND),
+                (bounds.y1 - BAND).max(bounds.y0),
+            )
+        } else {
+            bounds
+        }
+    }
+
+    /// The edge of the window under `point` that resizes it, if the band is there and no menu is
+    /// open (a press then belongs to the menu: it closes it).
+    pub(super) fn band_at(&self, point: Point) -> Option<ResizeEdge> {
+        if !self.band_active() || !self.menus.is_empty() {
+            return None;
+        }
+        band_edge(self.bounds, point)
+    }
+
+    /// The frame's slot, if our title bar exists.
+    pub(super) fn frame_slot(&self) -> Option<usize> {
+        self.title_bar.as_ref().map(|state| state.frame)
+    }
+
     /// Hands the window's state to the bar and to each button, recording, laying out again or
     /// rebuilding the accessible node of only those that changed.
     ///
@@ -138,7 +190,20 @@ impl<M: 'static> Ui<M> {
         let Some(state) = self.title_bar.as_ref() else {
             return;
         };
-        let (root, focused, window) = (state.root, state.focused, state.window);
+        let (root, focused, window, frame) = (state.root, state.focused, state.window, state.frame);
+        // The band and the frame come and go with maximising and full screen: the content is laid
+        // out again in its new room, the frame recorded again (TB7).
+        let shown = self.band_active();
+        let toggled = self
+            .tree
+            .slot_mut(frame)
+            .and_then(|slot| slot.widget.as_deref_mut())
+            .and_then(|widget| widget.as_any_mut().downcast_mut::<WindowFrame>())
+            .is_some_and(|widget| std::mem::replace(&mut widget.shown, shown) != shown);
+        if toggled {
+            self.tree.invalidate_layout(super::ROOT);
+            self.mark(frame, true, false, false);
+        }
         let changed = self
             .tree
             .slot_mut(root)

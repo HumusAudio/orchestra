@@ -32,6 +32,13 @@ enum Msg {
 /// The window's width in these tests, logical pixels.
 const WIDTH: f32 = 800.0;
 
+/// The window's height in these tests, logical pixels.
+const HEIGHT: f32 = 600.0;
+
+/// The resize band of our frame (ADR-0049 TB7): the content leaves it free on the left, the
+/// right and the bottom while the window is neither maximised nor in full screen.
+const BAND: f32 = 6.0;
+
 /// An interface with our title bar: a File menu, the buttons of `spec`, a button under the bar.
 struct Bench {
     ui: Ui<Msg>,
@@ -91,7 +98,7 @@ impl Bench {
             )
             .unwrap();
         let mut list = DisplayList::new();
-        ui.layout(Rect::new(0.0, 0.0, WIDTH, 600.0), &mut list);
+        ui.layout(Rect::new(0.0, 0.0, WIDTH, HEIGHT), &mut list);
         Self {
             ui,
             list,
@@ -160,7 +167,8 @@ const THREE: [WindowButton; 3] = [
 fn the_bar_spans_the_window_with_the_menus_at_the_start_and_the_buttons_at_the_end() {
     let bench = Bench::new(&[], &THREE);
     let bar = bench.ui.rect(bench.bar).unwrap();
-    assert_eq!((bar.x0, bar.x1), (0.0, WIDTH));
+    // Edge to edge but for the resize band at the sides; at the very top (the band lies over it).
+    assert_eq!((bar.x0, bar.x1, bar.y0), (BAND, WIDTH - BAND, 0.0));
     // The content starts under the bar: one row, the menus inside it (ADR-0049 TB5).
     let content = bench.ui.rect(bench.content).unwrap();
     assert!((content.y0 - bar.y1).abs() < 0.01);
@@ -173,8 +181,8 @@ fn the_bar_spans_the_window_with_the_menus_at_the_start_and_the_buttons_at_the_e
         .map(|&id| bench.ui.rect(id).unwrap())
         .collect();
     assert_eq!(buttons.len(), 3);
-    // Minimise, Maximise, Close, left to right, Close at the edge; square, the bar's height.
-    assert!((buttons[2].x1 - WIDTH).abs() < 0.01);
+    // Minimise, Maximise, Close, left to right, Close at the bar's end; square, its height.
+    assert!((buttons[2].x1 - bar.x1).abs() < 0.01);
     assert!(buttons[0].x1 <= buttons[1].x0 && buttons[1].x1 <= buttons[2].x0);
     for button in &buttons {
         assert!((button.width() - bar.height()).abs() < 0.01, "{button:?}");
@@ -190,8 +198,8 @@ fn leading_buttons_come_before_the_menus() {
         .rect(bench.ui.menu_bar_titles().next().unwrap())
         .unwrap();
     assert!(
-        close.x0.abs() < 0.01,
-        "Close at the leading edge: {close:?}"
+        (close.x0 - BAND).abs() < 0.01,
+        "Close at the bar's leading edge: {close:?}"
     );
     assert!(file.x0 >= close.x1, "File after it: {file:?}");
 }
@@ -350,4 +358,105 @@ fn tab_never_stops_at_the_window_buttons() {
             "Tab reached a window button"
         );
     }
+}
+
+// ----- The frame's resize band (F2.11b3, ADR-0049 TB7) -----------------------------------------
+
+#[test]
+fn the_band_resizes_from_every_edge_and_corner() {
+    use orchestra_ui::ResizeEdge;
+    let mut bench = Bench::new(&[], &THREE);
+    // The content leaves the band free at the sides and the bottom.
+    let content = bench.ui.rect(bench.content).unwrap();
+    assert_eq!(
+        (content.x0, content.x1, content.y1),
+        (BAND, WIDTH - BAND, HEIGHT - BAND)
+    );
+    for (at, edge) in [
+        (Point::new(400.0, 1.0), ResizeEdge::North),
+        (Point::new(400.0, HEIGHT - 1.0), ResizeEdge::South),
+        (Point::new(1.0, 300.0), ResizeEdge::West),
+        (Point::new(WIDTH - 1.0, 300.0), ResizeEdge::East),
+        (Point::new(2.0, HEIGHT - 2.0), ResizeEdge::SouthWest),
+        (Point::new(WIDTH - 2.0, 2.0), ResizeEdge::NorthEast),
+    ] {
+        // Over it: its resize shape; pressed: resize from it, and no widget gets the press.
+        bench.move_to(at);
+        assert_eq!(bench.ui.pointer_shape(), edge.pointer_shape(), "{edge:?}");
+        bench.button(PointerButton::Left, ButtonState::Pressed, at, 1);
+        bench.button(PointerButton::Left, ButtonState::Released, at, 1);
+        assert_eq!(bench.requests(), vec![WindowRequest::Resize(edge)]);
+    }
+    // Back over the content: the arrow again.
+    bench.move_to(Point::new(400.0, 300.0));
+    assert_eq!(
+        bench.ui.pointer_shape(),
+        orchestra_ui::PointerShape::Default
+    );
+}
+
+#[test]
+fn the_top_of_the_band_lies_over_the_title_bar_not_above_it() {
+    let mut bench = Bench::new(&[], &[WindowButton::Close]);
+    // Just below the band the bar's free space drags as before.
+    let at = Point::new(400.0, BAND + 2.0);
+    bench.move_to(at);
+    bench.button(PointerButton::Left, ButtonState::Pressed, at, 1);
+    bench.move_to(Point::new(420.0, BAND + 2.0));
+    assert_eq!(bench.requests(), vec![WindowRequest::Drag]);
+}
+
+#[test]
+fn maximised_or_in_full_screen_there_is_no_band() {
+    let mut bench = Bench::new(&[], &THREE);
+    for state in [
+        WindowState {
+            maximized: true,
+            fullscreen: false,
+        },
+        WindowState {
+            maximized: false,
+            fullscreen: true,
+        },
+    ] {
+        bench
+            .ui
+            .input(&InputEvent::WindowState(state), &mut bench.list);
+        // The content takes the whole window again.
+        let content = bench.ui.rect(bench.content).unwrap();
+        assert_eq!((content.x0, content.x1), (0.0, WIDTH), "{state:?}");
+        let at = Point::new(1.0, 300.0);
+        bench.move_to(at);
+        assert_eq!(
+            bench.ui.pointer_shape(),
+            orchestra_ui::PointerShape::Default
+        );
+        bench.button(PointerButton::Left, ButtonState::Pressed, at, 1);
+        bench.button(PointerButton::Left, ButtonState::Released, at, 1);
+        assert_eq!(bench.requests(), vec![], "{state:?}");
+    }
+    // Restored: the band again.
+    bench.ui.input(
+        &InputEvent::WindowState(WindowState::default()),
+        &mut bench.list,
+    );
+    let content = bench.ui.rect(bench.content).unwrap();
+    assert_eq!(content.x0, BAND);
+}
+
+#[test]
+fn an_open_menu_takes_the_press_on_the_band() {
+    let mut bench = Bench::new(&[], &[WindowButton::Close]);
+    let file = bench.ui.menu_bar_titles().next().unwrap();
+    let at = bench.centre(file);
+    bench.move_to(at);
+    bench.button(PointerButton::Left, ButtonState::Pressed, at, 1);
+    bench.button(PointerButton::Left, ButtonState::Released, at, 1);
+    assert_eq!(bench.ui.menu_bar_open(), Some(0));
+    // A press on the band closes the menu instead of resizing.
+    let band = Point::new(1.0, 300.0);
+    bench.move_to(band);
+    bench.button(PointerButton::Left, ButtonState::Pressed, band, 1);
+    assert_eq!(bench.requests(), vec![]);
+    assert_eq!(bench.ui.menu_bar_open(), None);
 }

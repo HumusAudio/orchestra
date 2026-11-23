@@ -93,8 +93,16 @@ commands, Orchestra never gives them to one of its own commands on a Mac.
 On GNOME the system draws no title bar around a program's window, so Orchestra draws its own,
 with the menus in it to leave more room for the score. Drag its empty part to move the window,
 double-click it to maximise or restore the window, and right-click it for the system's window
-menu. The button on the right closes the window. On every other desktop the window keeps the
-title bar of the system, with the menus under it.
+menu. The buttons on the right close, maximise and minimise the window: which of them appear,
+and on which side, follows the choice you made in GNOME's settings (only Close, by default). Drag
+the window's edges or corners to resize it. On every other desktop the window keeps the title bar
+of the system, with the menus under it.
+
+#screenshot-placeholder(
+  [Screenshot: Orchestra's own title bar on GNOME (title-bar.png)],
+  [The title bar Orchestra draws on GNOME: the menus, the program's name, the window buttons.],
+  height: 1.5cm,
+)
 
 - *With the mouse*, click a menu's name to open it, and click a command. You can also keep the
   button pressed, move onto a command and release it there. While a menu is open, moving the

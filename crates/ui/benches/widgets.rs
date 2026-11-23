@@ -101,6 +101,10 @@
 //!   pointer moves onto *Edit*: File's menu closes, Edit's opens (its widgets built, laid out,
 //!   recorded and drawn), both titles re-recorded, the accessibility update. The cost of opening
 //!   a menu where none was drawn before, as `context_menu_open fresh`.
+//! - `title_bar_focus_change` (F2.11b3, ADR-0049 TB12): the real panel (200 widgets) under our
+//!   own title bar (the four menus, the title, three window buttons) in its frame; the window
+//!   loses the focus: the bar and its three buttons re-recorded in `text-muted`, their area drawn
+//!   again, nothing else laid out or recorded. Target: an event's 0.5 M.
 //!
 //! # Targets (ADR-0045, SCALETTA F2.09; F2.09d, choice WF2)
 //! An event that touches a few widgets under 0.5 M instructions with drawing (the spike's
@@ -1682,6 +1686,92 @@ library_benchmark_group!(
     benchmarks = [context_menu_open, menu_highlight_move, bar_menu_switch]
 );
 
+// The real panel under our own title bar (F2.11b3): the bar first, with the four menus of the
+// program and three buttons, then the 40 rows; laid out in its frame, drawn once, its
+// accessibility tree handed out once.
+fn titled_shown() -> Real {
+    use orchestra_ui::{TitleBarSpec, WindowButton, WindowButtonNames};
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme(),
+        faces.clone(),
+    );
+    ui.set_title("Benchmark");
+    let root = ui.root();
+    let names = WindowButtonNames {
+        close: "Close".to_owned(),
+        maximize: "Maximize".to_owned(),
+        restore: "Restore".to_owned(),
+        minimize: "Minimize".to_owned(),
+    };
+    let spec = TitleBarSpec {
+        title: "Orchestra".to_owned(),
+        leading: Vec::new(),
+        trailing: vec![
+            WindowButton::Minimize,
+            WindowButton::Maximize,
+            WindowButton::Close,
+        ],
+        names,
+    };
+    let mut model = MenuModel::new();
+    for title in ["File", "Edit", "View", "Help"] {
+        model = model.submenu(title, None, MenuModel::new());
+    }
+    ui.add_title_bar(root, &model, &spec).unwrap();
+    let mut buttons = Vec::new();
+    for row_index in 0..40 {
+        let row = ui
+            .add(
+                root,
+                Flex::row(Space::S, Space::None),
+                LayoutProps::default(),
+            )
+            .unwrap();
+        ui.add(
+            row,
+            Label::new(format!("Track {row_index}: Violin I")),
+            LayoutProps::default(),
+        )
+        .unwrap();
+        for column in 0..4 {
+            buttons.push(
+                ui.add(
+                    row,
+                    Button::new(format!("Action {column}"), row_index * 4 + column),
+                    LayoutProps::default(),
+                )
+                .unwrap(),
+            );
+        }
+    }
+    let mut real = Real {
+        ui,
+        list: DisplayList::new(),
+        renderer: CpuRenderer::new(faces),
+        image: Image::new(1000, 1600).unwrap(),
+        buttons,
+    };
+    real.ui
+        .layout(Rect::new(0.0, 0.0, 1000.0, 1600.0), &mut real.list);
+    real_draw(&mut real);
+    let _ = real.ui.take_access_update();
+    real
+}
+
+#[library_benchmark]
+#[bench::panel(titled_shown())]
+fn title_bar_focus_change(mut real: Real) -> Real {
+    real.ui
+        .input(black_box(&InputEvent::Focus(false)), &mut real.list);
+    real_draw(&mut real);
+    black_box(real.ui.take_access_update());
+    real
+}
+
+library_benchmark_group!(name = frame, benchmarks = [title_bar_focus_change]);
+
 main!(
     library_benchmark_groups = core,
     controls,
@@ -1689,5 +1779,6 @@ main!(
     editing,
     popups,
     actions,
-    menus
+    menus,
+    frame
 );

@@ -236,6 +236,7 @@ fn without_the_systems_frame_the_menus_are_in_our_title_bar_and_close_reaches_th
         "Orchestra",
         &context.demo,
         Decorations::Own,
+        None,
     );
     let mut list = DisplayList::new();
     framed.layout(Rect::from_origin_size(0.0, 0.0, 640.0, 370.0), &mut list);

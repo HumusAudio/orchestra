@@ -27,10 +27,15 @@
 //! Any other value is ignored (the probe decides). On Windows and macOS the variable is ignored
 //! too: their frame is always the system's (TB13).
 //!
+//! # The buttons
+//! Which buttons our title bar shows, and where, is GNOME's own setting, read by `layout` through
+//! the desktop portal (ADR-0049 TB4, F2.11b3).
+//!
 //! # Cost
 //! Two round trips to the compositor on Wayland, once per program run, measured in F2.11b2 (see
 //! `DOCUMENTATION.md`); nothing elsewhere.
 
+pub(crate) mod layout;
 #[cfg(target_os = "linux")]
 mod wayland;
 
@@ -84,6 +89,15 @@ pub fn decorations() -> Decorations {
     } else {
         Decorations::System
     }
+}
+
+/// GNOME's `button-layout` setting, read once from the desktop portal (ADR-0049 TB4, F2.11b3), for
+/// [`TitleBarSpec::from_setting`](crate::TitleBarSpec::from_setting); `None` when it cannot be
+/// read (another desktop, no portal, no answer within 250 ms, not Linux). Call it once, at
+/// start-up, and only when [`decorations`] answered [`Decorations::Own`]: it may wait that long.
+#[must_use]
+pub fn button_layout() -> Option<String> {
+    layout::read()
 }
 
 /// The decision of the module documentation, from the override's value (if the variable is set)

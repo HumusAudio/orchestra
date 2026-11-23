@@ -5053,12 +5053,47 @@ menus stay. The window's focus dims the title and the symbols (`text-muted`).
 nodes with their names from the catalogues (`window-close`, `window-maximize`, `window-restore`,
 `window-minimize`, GTK's words, glossary entries `window_*`), outside the Tab chain.
 
-**Tests.** `crates/ui/src/platform/decorations/tests.rs` (the decision and the override),
-`crates/ui/tests/title_bar.rs` (9 tests: layout with buttons at either edge, drag only after a
+**The edges** (F2.11b3, ADR-0049 TB7). `softbuffer` cannot draw outside the window yet, so the
+resize band is **inside** it: 6 logical pixels along the left, right and bottom edges, which the
+content leaves free (`Ui::content_bounds`), and along the top, where it lies over the title bar's
+highest pixels instead of above them (owner's choice). Within 16 pixels of a corner the corner
+wins. `band_edge` answers which edge a point is on; the interface asks it before any widget sees
+the pointer: over the band the pointer takes the edge's shape (four new `PointerShape`s, the
+cursor theme's `ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`), and a press asks the
+window `WindowRequest::Resize(edge)`, which calls `winit`'s `drag_resize_window`. An open menu
+takes the press instead (it closes). A one-pixel `border` line around the window is drawn by
+`WindowFrame`, a root of its own in the widget arena recorded after the interface on its layer:
+above the content, below every menu. Maximised or in full screen, band and line go and the
+content takes the whole window again.
+
+**The buttons' layout** (TB4). `orchestra_ui::button_layout()` reads GNOME's
+`org.gnome.desktop.wm.preferences button-layout` once through the desktop portal (`ReadOne`,
+then the older `Read`), on a thread of its own, waited for at most 250 ms; `TitleBarSpec::
+from_setting` turns the text into the two lists of buttons:
+
+```rust
+assert_eq!(parse("appmenu:minimize,maximize,close"), (vec![], vec![Minimize, Maximize, Close]));
+```
+
+Names our bar does not have (`appmenu`, `icon`, `spacer`) are skipped, a button named twice
+appears once, without a colon everything goes on the leading side. The program reads it in
+`main` only when our bar is drawn and passes it to `Demo::with_decorations`, so the tests and the
+screenshots never depend on the desktop they run on.
+
+**Measured.** `title_bar_focus_change` (in `benches/widgets.rs`): the real panel of 200 widgets
+under our bar with three buttons, the window losing the focus: 0.39 M instructions, under an
+event's 0.5 M. The guides' strip `title-bar.png` is rendered by the scene `title-bar` of
+`cargo xtask screenshots` (the program's menus, three buttons, 640 × 36 logical pixels).
+
+**Tests.** `crates/ui/src/platform/decorations/tests.rs` (the decision, the override and the
+buttons' layout), `titlebar.rs`'s own (the band's edges and corners),
+`crates/ui/tests/title_bar.rs` (13 tests: layout with buttons at either edge, drag only after a
 move, double click, window menu, buttons on release, the menus still opening, full screen, the
-accessibility tree, Tab), a no-allocation test in `widgets_no_alloc.rs`, and in
-`crates/app/tests/demo.rs` the demonstration with `Decorations::Own`. Two injected bugs (no drag
-threshold, Close asking to minimise) were caught. The probe itself needs a compositor: it is
+accessibility tree, Tab; since F2.11b3 the band from every edge and corner, its top over the bar,
+no band when maximised or in full screen, an open menu taking the press), a no-allocation test
+in `widgets_no_alloc.rs`, and in `crates/app/tests/demo.rs` the demonstration with
+`Decorations::Own`. Three injected bugs (no drag threshold, Close asking to minimise, the band
+resizing under an open menu) were caught. The probe itself needs a compositor: it is
 checked by hand.
 
 #### The window and the event loop

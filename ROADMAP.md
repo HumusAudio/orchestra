@@ -1516,7 +1516,21 @@ demonstration with `Decorations::Own`. The sandbox refuses Unix sockets; the own
 on KDE Plasma (Wayland): "server-side", 1.5–3.1 ms per question (debug build). Checked by hand by
 the owner on KDE Plasma (Wayland) on 2026-11-23, with `ORCHESTRA_DECORATIONS=own` (our bar:
 dragging, double click, window menu, menus, full screen, Close) and without it (KDE's frame): all
-working. **Open:** the precisions of ADR-0049; then
+working. The owner approved the precisions of ADR-0049 for F2.11b2.
+
+Step **F2.11b3**, the edges and the buttons' layout (same branch, 2026-11-23). The owner chose: the
+band inside the window, over the title bar at the top (1), `button-layout` read once (2), the
+guides' picture a strip of the bar (3). Written: `band_edge`, `WindowFrame`, the content inset by
+the band (`Ui::content_bounds`), the band handled before any widget (shape, `WindowRequest::Resize`
+and `ResizeEdge`, `drag_resize_window`), four resize `PointerShape`s, `platform/decorations/
+layout.rs` (the parser and the portal read with a 250 ms bound), `orchestra_ui::button_layout`,
+`TitleBarSpec::from_setting`, `main` passing the setting to `Demo::with_decorations`, the
+benchmark `title_bar_focus_change` (0.39 M), the screenshot scene `title-bar`, the guides'
+paragraph and placeholder. Tests: the parser (4), the band's edges (2), `tests/title_bar.rs` 13
+(4 new; a third injected bug caught). **Open:** the owner's check by hand of the resizing on KDE
+(`ORCHESTRA_DECORATIONS=own`), the precisions of ADR-0049 for F2.11b3, SCALETTA, then the pull
+request of F2.11b2–b3.
+ then
 F2.11b3 on the same branch. Still **to check on GNOME** (a virtual machine) before the pull
 request is merged, if possible: the probe answering "client".
 
