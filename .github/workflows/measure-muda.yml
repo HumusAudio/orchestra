@@ -96,6 +96,9 @@ jobs:
             comm -13 "$RUNNER_TEMP/tree-base" "$RUNNER_TEMP/tree-head"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # The same table in the log too: the summary page is not readable through the REST API,
+          # the log is (`gh run view --log`).
+          cat "$GITHUB_STEP_SUMMARY"
           mkdir -p "$RUNNER_TEMP/timings/base" "$RUNNER_TEMP/timings/head"
           cp "$RUNNER_TEMP"/t-base/cargo-timings/cargo-timing.html "$RUNNER_TEMP/timings/base/"
           cp "$RUNNER_TEMP"/t-head/cargo-timings/cargo-timing.html "$RUNNER_TEMP/timings/head/"

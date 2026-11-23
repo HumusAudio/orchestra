@@ -6066,6 +6066,23 @@ annulla l'esecuzione precedente. Il nome dell'evento fa parte del gruppo di annu
 (`ci-${{ github.ref }}-${{ github.event_name }}`), così un merge in `main` e il run settimanale non
 si annullano mai a vicenda.
 
+**Temporaneo: `measure-muda.yml` (F2.11e1).** Finché F2.11e1 è aperto, un secondo workflow parte
+solo sui push in `feature/f2-11e1-muda`, su macOS: la misura una tantum di quanto costa `muda`
+(ADR-0036 B5, CLAUDE.md §5). Compila due volte da zero il binario `orchestra` in release, ognuna in
+una cartella di compilazione vuota e senza cache: alla base comune con `main` (senza `muda`) e al
+commit inviato (con `muda`). La pagina di riepilogo del job mostra i due tempi di compilazione, le
+due dimensioni del binario così com'è e dopo `strip`, e i crate che la compilazione di testa ha e
+quella di base no:
+
+```bash
+comm -13 "$RUNNER_TEMP/tree-base" "$RUNNER_TEMP/tree-head"
+```
+
+I report `--timings` di cargo (il tempo di compilazione di ogni crate) si caricano come artefatto
+`muda-timings`. I tempi misurati con l'orologio su un runner condiviso danno solo un ordine di
+grandezza; le dimensioni sono esatte. Il workflow si cancella prima del merge della pull request, e
+i suoi numeri finiscono in ADR-0048.
+
 ## Le guide per l'utente
 
 Le guide per l'utente sono scritte in Typst. `docs/guide/template.typ` definisce tutto l'aspetto

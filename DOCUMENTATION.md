@@ -5718,6 +5718,21 @@ the older run. The event name is part of the cancellation group
 (`ci-${{ github.ref }}-${{ github.event_name }}`), so a merge into `main` and the weekly run never
 cancel each other.
 
+**Temporary: `measure-muda.yml` (F2.11e1).** While F2.11e1 is open, a second workflow runs only
+on pushes to `feature/f2-11e1-muda`, on macOS: the one-off measure of what `muda` costs
+(ADR-0036 B5, CLAUDE.md §5). It builds the `orchestra` binary in release twice from scratch, each
+in an empty target directory and with no cache: at the merge base with `main` (no `muda`) and at
+the pushed commit (with it). The job's summary page shows the two build times, the two binary
+sizes as built and after `strip`, and the crates the head build has that the base does not:
+
+```bash
+comm -13 "$RUNNER_TEMP/tree-base" "$RUNNER_TEMP/tree-head"
+```
+
+Cargo's `--timings` reports (per-crate build times) are uploaded as the `muda-timings` artifact.
+Wall-clock times on a shared runner are only an order of magnitude; the sizes are exact. The
+workflow is deleted before the pull request is merged, and its numbers go into ADR-0048.
+
 ## The user guides
 
 The user guides are written in Typst. `docs/guide/template.typ` defines the whole look once: an
