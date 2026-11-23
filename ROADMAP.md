@@ -1601,6 +1601,12 @@ for a runner (a macOS job that ran and failed still blocks); after a merge, the 
 
 ## Open decisions and open items
 
+- **The dialog veil's cost (F2.12a3a, 2026-11-23, waiting for the owner):** opening a dialog on a
+  1000 × 1000 window costs about 47 M instructions, over the frame's budget of 33 M: building it is
+  about 2 M, the rest is `tiny-skia` blending the translucent `scrim` over every pixel (about 43
+  instructions per pixel; about 90 M at 1080p). A blend of our own for a translucent solid
+  rectangle measured about 5 instructions per pixel in a throwaway benchmark. Options proposed to
+  the owner before going on; the branch `feature/f2-12a3a-dialogs` holds the rest of the step.
 - **Pointer shapes (F2.09d, 2026-11-13): done in F2.09e** (the resize shape over the splitter's
   divider), checked by hand by the owner on Linux; Windows and macOS are only built by the CI.
 - **Text field limits (ADR-0047, 2026-11-13):** one line only; left to right; words of complex
