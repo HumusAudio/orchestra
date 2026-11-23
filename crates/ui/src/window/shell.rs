@@ -15,7 +15,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::{Fullscreen, Window, WindowId};
 
 use super::appearance::{ShellEvent, ThemeState, appearance_from_winit};
-use super::input::{self, ButtonState, InputEvent, Modifiers};
+use super::input::{self, ButtonState, InputEvent, Modifiers, WindowState};
 use super::order::open_in_order;
 use super::pointer::{self, PointerShape};
 use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
@@ -47,6 +47,9 @@ struct Open {
     /// with it off (`winit`'s default), so this starts as `None` and the system is called only
     /// when the app's answer differs.
     ime: Option<crate::TextInput>,
+    /// The window's state last told to the app (ADR-0049 TB6, F2.11b2): `None` until it is
+    /// told the first time, right after the window opens.
+    state: Option<WindowState>,
 }
 
 /// The handler of the event loop.
@@ -163,6 +166,9 @@ impl<A: WindowApp> Shell<A> {
                 f64::from(self.options.width),
                 f64::from(self.options.height),
             ))
+            // Where the system draws no frame the app draws its own title bar (ADR-0049 TB1): the
+            // window then asks for none, so no frame of winit's own is drawn around ours.
+            .with_decorations(self.options.decorations == crate::Decorations::System)
             .with_visible(false);
         let (window, surface) = open_in_order(
             || {
@@ -215,9 +221,28 @@ impl<A: WindowApp> Shell<A> {
             access,
             shape: PointerShape::Default,
             ime: None,
+            state: None,
         });
         self.resize(size)?;
         Ok(())
+    }
+
+    /// Tells the app the window's state (ADR-0049 TB6, TB8) if it changed since it was last told:
+    /// maximised, full screen. `winit` has no event for either, but both change the window's size,
+    /// so this runs after every resize (and the first one, when the window opens).
+    fn sync_window_state(&mut self) {
+        let Some(open) = self.open.as_mut() else {
+            return;
+        };
+        let state = WindowState {
+            maximized: open.window.is_maximized(),
+            fullscreen: open.window.fullscreen().is_some(),
+        };
+        if open.state == Some(state) {
+            return;
+        }
+        open.state = Some(state);
+        self.deliver(&InputEvent::WindowState(state));
     }
 
     /// Adapts to a new size or scale (W6): reallocates the frame, resizes the surface, asks the
@@ -250,6 +275,8 @@ impl<A: WindowApp> Shell<A> {
         // the caret with its field.
         self.sync_pointer();
         self.sync_text_input();
+        // Maximising and full screen show as a resize (no event of their own in winit).
+        self.sync_window_state();
         Ok(())
     }
 
@@ -393,6 +420,44 @@ impl<A: WindowApp> Shell<A> {
                         let full = open.window.fullscreen().is_some();
                         open.window
                             .set_fullscreen((!full).then_some(Fullscreen::Borderless(None)));
+                    }
+                }
+                // Our title bar's requests (ADR-0049 TB6). Where the system draws the frame the
+                // app has no title bar and never asks; a request anyway does what the system's
+                // own buttons do, except dragging, which belongs to the system's title bar.
+                WindowRequest::Drag => {
+                    if let Some(open) = self.open.as_ref()
+                        && self.options.decorations == crate::Decorations::Own
+                    {
+                        // Refused when the press it belongs to is too old or already released
+                        // (the compositor's rule): then the window simply does not move.
+                        let _refused = open.window.drag_window();
+                    }
+                }
+                WindowRequest::ToggleMaximized => {
+                    if let Some(open) = self.open.as_ref() {
+                        open.window.set_maximized(!open.window.is_maximized());
+                    }
+                }
+                WindowRequest::Minimize => {
+                    if let Some(open) = self.open.as_ref() {
+                        open.window.set_minimized(true);
+                    }
+                }
+                WindowRequest::Resize(edge) => {
+                    if let Some(open) = self.open.as_ref()
+                        && self.options.decorations == crate::Decorations::Own
+                    {
+                        // Refused like a drag when its press is too old (the compositor's rule).
+                        let _refused = open.window.drag_resize_window(resize_direction(edge));
+                    }
+                }
+                WindowRequest::ShowWindowMenu { at } => {
+                    if let Some(open) = self.open.as_ref() {
+                        open.window.show_window_menu(LogicalPosition::new(
+                            f64::from(at.x),
+                            f64::from(at.y),
+                        ));
                     }
                 }
             }
@@ -656,5 +721,21 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
 fn surface_error(error: &softbuffer::SoftBufferError) -> WindowError {
     WindowError::Surface {
         detail: error.to_string(),
+    }
+}
+
+/// Our edge as `winit`'s resize direction (the same eight).
+const fn resize_direction(edge: super::ResizeEdge) -> winit::window::ResizeDirection {
+    use super::ResizeEdge;
+    use winit::window::ResizeDirection;
+    match edge {
+        ResizeEdge::North => ResizeDirection::North,
+        ResizeEdge::South => ResizeDirection::South,
+        ResizeEdge::East => ResizeDirection::East,
+        ResizeEdge::West => ResizeDirection::West,
+        ResizeEdge::NorthEast => ResizeDirection::NorthEast,
+        ResizeEdge::NorthWest => ResizeDirection::NorthWest,
+        ResizeEdge::SouthEast => ResizeDirection::SouthEast,
+        ResizeEdge::SouthWest => ResizeDirection::SouthWest,
     }
 }

@@ -66,6 +66,8 @@ pub enum AccessRole {
     Menu,
     /// The menu bar (F2.11d2b): its titles are menu items that open menus.
     MenuBar,
+    /// Our title bar (F2.11b2, ADR-0049 TB9): it holds the menu bar and the window's buttons.
+    TitleBar,
     /// An item of a menu.
     MenuItem,
     /// An item of a menu with a check (a toggle), its state in [`AccessInfo::toggled`].
@@ -406,6 +408,7 @@ const fn role_of(role: AccessRole) -> Role {
         AccessRole::TextInput => Role::TextInput,
         AccessRole::Menu => Role::Menu,
         AccessRole::MenuBar => Role::MenuBar,
+        AccessRole::TitleBar => Role::TitleBar,
         AccessRole::MenuItem => Role::MenuItem,
         AccessRole::MenuItemCheckBox => Role::MenuItemCheckBox,
     }

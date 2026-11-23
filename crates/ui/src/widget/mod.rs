@@ -29,6 +29,7 @@ pub(crate) mod popup;
 pub(crate) mod scroll;
 pub(crate) mod slider;
 pub(crate) mod splitter;
+pub(crate) mod titlebar;
 pub(crate) mod toggle;
 pub(crate) mod tooltip;
 pub(crate) mod tree;

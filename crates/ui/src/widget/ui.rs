@@ -136,6 +136,7 @@ use super::popup::{self, Popup, PopupSide};
 mod bar;
 mod menus;
 mod system;
+mod title;
 
 use super::tooltip::Tooltip;
 use super::tree::{
@@ -254,6 +255,14 @@ pub struct Ui<M> {
     access_window: bool,
     /// The menu bar, once added ([`Ui::add_menu_bar`], F2.11d2b).
     bar: Option<BarState>,
+    /// Our title bar, once added ([`Ui::add_title_bar`], F2.11b2, ADR-0049).
+    title_bar: Option<title::TitleBarState>,
+    /// The edge of our frame's resize band under the pointer, if any (F2.11b3, ADR-0049 TB7):
+    /// the pointer shows its resize shape and reaches no widget there.
+    band_hover: Option<crate::ResizeEdge>,
+    /// What widgets asked of the window, oldest first, until the application takes them
+    /// ([`Ui::take_window_request`], F2.11b2).
+    window_requests: std::collections::VecDeque<crate::WindowRequest>,
     /// What the interface keeps for the system's menu, once asked for one ([`Ui::system_menu`],
     /// F2.11e1).
     system: Option<SystemTracking>,
@@ -337,7 +346,7 @@ pub struct TextInput {
 }
 
 /// The root slot (always 0).
-const ROOT: usize = 0;
+pub(super) const ROOT: usize = 0;
 
 impl<M: 'static> Ui<M> {
     /// An interface whose root is `root` (usually a container), laid out with `theme`'s density
@@ -364,6 +373,9 @@ impl<M: 'static> Ui<M> {
             changed_actions: Vec::new(),
             access_window: false,
             bar: None,
+            title_bar: None,
+            band_hover: None,
+            window_requests: std::collections::VecDeque::new(),
             system: None,
             alt_alone: false,
             bounds: Rect::EMPTY,
@@ -594,6 +606,10 @@ impl<M: 'static> Ui<M> {
         if let Some(captured) = self.captured {
             return ask(captured).unwrap_or_default();
         }
+        // Over our frame's resize band, its edge's shape (F2.11b3).
+        if let Some(edge) = self.band_hover {
+            return edge.pointer_shape();
+        }
         let layer = self.modals.last().map(|&(layer, _)| layer);
         let mut current = self.hovered;
         while let Some(index) = current {
@@ -716,9 +732,17 @@ impl<M: 'static> Ui<M> {
         // The bar's titles and the menus' underlined letters follow the state (F2.11d2b).
         self.sync_menu_looks();
         if self.tree.slot(ROOT).is_some_and(|root| root.needs_layout) {
-            let size = Size::new(self.bounds.width(), self.bounds.height());
+            // The content's room: the window, less the resize band of our own frame (F2.11b3).
+            let content = self.content_bounds(self.bounds);
+            let size = Size::new(content.width(), content.height());
             self.tree.measure(ROOT, Constraints::tight(size));
-            self.tree.arrange(ROOT, self.bounds);
+            self.tree.arrange(ROOT, content);
+            // The frame spans the whole window (ADR-0049 TB7).
+            if let Some(frame) = self.frame_slot() {
+                let whole = Size::new(self.bounds.width(), self.bounds.height());
+                self.tree.measure(frame, Constraints::tight(whole));
+                self.tree.arrange(frame, self.bounds);
+            }
         }
         // Drained in order of request; a slot asked twice is arranged twice, which is harmless
         // (the second time nothing moves) and rarer than the cost of deduplicating.
@@ -767,6 +791,10 @@ impl<M: 'static> Ui<M> {
     /// whatever the order segments are first recorded in (a precision of ADR-0039 D1).
     fn record(&mut self, list: &mut DisplayList) {
         self.record_from(ROOT, 0, list);
+        // Our frame's line, above the content on its layer, below every menu (ADR-0049 TB7).
+        if let Some(frame) = self.frame_slot() {
+            self.record_from(frame, 0, list);
+        }
         for index in 0..self.menus.len() {
             if let Some(menu) = self.menus.get(index) {
                 let root = menu.root;
@@ -943,7 +971,12 @@ impl<M: 'static> Ui<M> {
                         },
                         false,
                     );
+                } else if let Some(edge) = self.band_at(*position) {
+                    // Over our frame's resize band (F2.11b3): its shape, and no widget hovered.
+                    self.band_hover = Some(edge);
+                    self.set_hover(None);
                 } else {
+                    self.band_hover = None;
                     let target = self.hit(*position);
                     self.set_hover(target);
                     if let Some(target) = target {
@@ -968,6 +1001,7 @@ impl<M: 'static> Ui<M> {
                 if self.captured.is_none() {
                     self.set_hover(None);
                 }
+                self.band_hover = None;
                 // Out of the window: no tooltip, and none waiting.
                 self.hide_tooltip();
                 self.tooltip.pending = None;
@@ -1033,6 +1067,12 @@ impl<M: 'static> Ui<M> {
                 self.tooltip.pending = None;
             }
             InputEvent::Focus(true) => {}
+            // The window's own state, for our title bar (F2.11b2, ADR-0049 TB6, TB8).
+            InputEvent::WindowState(state) => self.title_bar_window(*state),
+        }
+        // The window's focus changes the colour of our title bar (TB8).
+        if let InputEvent::Focus(focused) = event {
+            self.title_bar_focus(*focused);
         }
         self.frame(list);
     }
@@ -1267,6 +1307,17 @@ impl<M: 'static> Ui<M> {
         if state == ButtonState::Pressed {
             self.dismiss_tooltip();
         }
+        // A press of the primary button on our frame's resize band resizes the window from that
+        // edge (F2.11b3, ADR-0049 TB7) and reaches no widget.
+        if state == ButtonState::Pressed
+            && button == PointerButton::Left
+            && self.captured.is_none()
+            && let Some(edge) = self.band_at(position)
+        {
+            self.window_requests
+                .push_back(crate::WindowRequest::Resize(edge));
+            return;
+        }
         let widget_event = WidgetEvent::PointerButton {
             button,
             state,
@@ -1371,8 +1422,13 @@ impl<M: 'static> Ui<M> {
             wakeup: WakeRequest::Keep,
             clipboard: self.clipboard.as_mut(),
             ime_reset: false,
+            window: None,
         };
         let handled = widget.event(&mut cx, event);
+        if let Some(request) = cx.window {
+            // Handed to the window by the application, in order ([`Ui::take_window_request`]).
+            self.window_requests.push_back(request);
+        }
         if cx.ime_reset {
             // A new request: the window sees the count change and resets the input method
             // ([`Ui::text_input`]). Wrapping, because only a change matters, never the value.

@@ -95,6 +95,22 @@ da Orchestra* (⌘Q). Un menu *Finestra*, prima di Aiuto, ha *Contrai* (⌘M), *
 ⌥⌘H e ⌘M appartengono a questi comandi del sistema, su un Mac Orchestra non li assegna mai a un suo
 comando.
 
+Su GNOME il sistema non disegna la barra del titolo intorno alla finestra di un programma, quindi
+Orchestra disegna la sua, con dentro i menu per lasciare più spazio alla partitura. Trascina la
+parte vuota per spostare la finestra, fai doppio clic per ingrandirla o ripristinarla, e un clic
+destro per il menu della finestra del sistema. I pulsanti a destra chiudono, ingrandiscono e
+riducono a icona la finestra: quali compaiono, e da che lato, segue la scelta fatta nelle
+impostazioni di GNOME (solo Chiudi, normalmente). Trascina i bordi o gli angoli della finestra per
+ridimensionarla. Su ogni altro desktop la finestra tiene la barra del titolo del sistema, con i
+menu sotto.
+
+#screenshot-placeholder(
+  [Screenshot: la barra del titolo di Orchestra su GNOME (title-bar.png)],
+  [La barra del titolo che Orchestra disegna su GNOME: i menu, il nome del programma, i pulsanti
+  della finestra.],
+  height: 1.5cm,
+)
+
 - *Con il mouse*, fai clic sul nome di un menu per aprirlo e poi su un comando. Puoi anche tenere
   premuto il tasto, spostarti su un comando e rilasciarlo lì. Mentre un menu è aperto, passando con
   il puntatore sul nome di un altro menu si apre quello; un nuovo clic sul nome del menu aperto lo

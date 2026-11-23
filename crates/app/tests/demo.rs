@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! The demonstration window (F2.09c, WD5): its widgets work together through messages, and its
-//! accessibility tree names every control; its divider shows the resize shape (F2.09e).
+//! accessibility tree names every control; its divider shows the resize shape (F2.09e). Where
+//! the system draws no frame, the menus go into our title bar, whose Close reaches the window
+//! (F2.11b2, ADR-0049).
 
 #![allow(
     clippy::unwrap_used,
@@ -12,8 +14,8 @@
 use accesskit::Role;
 use orchestra_app::{Demo, SceneContext};
 use orchestra_ui::{
-    ButtonState, DisplayList, InputEvent, Key, Modifiers, NamedKey, Point, PointerButton,
-    PointerShape, Rect, WidgetId, WindowApp,
+    ButtonState, Decorations, DisplayList, InputEvent, Key, Modifiers, NamedKey, Point,
+    PointerButton, PointerShape, Rect, WidgetId, WindowApp, WindowRequest,
 };
 
 /// The demonstration, laid out in a 640 × 370 window.
@@ -223,4 +225,38 @@ fn narrowed_restore_defaults_has_its_whole_text_as_a_tooltip() {
         tooltip.x0 >= 0.0 && tooltip.x1 <= width,
         "inside the window"
     );
+}
+
+#[test]
+fn without_the_systems_frame_the_menus_are_in_our_title_bar_and_close_reaches_the_window() {
+    let context = SceneContext::new().unwrap();
+    let mut framed = Demo::with_decorations(
+        &context.faces,
+        &orchestra_app::theme(),
+        "Orchestra",
+        &context.demo,
+        Decorations::Own,
+        None,
+    );
+    let mut list = DisplayList::new();
+    framed.layout(Rect::from_origin_size(0.0, 0.0, 640.0, 370.0), &mut list);
+    // On Linux and Windows (macOS gives its menus to the system and has no drawn bar).
+    if orchestra_ui::Platform::CURRENT == orchestra_ui::Platform::MacOs {
+        return;
+    }
+    assert!(framed.ui().title_bar().is_some());
+    assert_eq!(
+        framed.ui().menu_bar_titles().count(),
+        4,
+        "File, Edit, View, Help"
+    );
+    // GNOME's default: only Close, named from the catalogue.
+    let buttons: Vec<WidgetId> = framed.ui().title_bar_buttons().collect();
+    assert_eq!(buttons.len(), 1);
+    click(&mut framed, &mut list, buttons[0]);
+    assert_eq!(framed.take_window_request(), Some(WindowRequest::Close));
+    assert_eq!(framed.take_window_request(), None);
+    // With the system's frame there is no title bar.
+    let (plain, _) = demo();
+    assert!(plain.ui().title_bar().is_none());
 }

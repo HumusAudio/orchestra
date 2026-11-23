@@ -37,6 +37,9 @@ softbuffer.workspace = true
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus.workspace = true
 futures-lite.workspace = true
+# The probe of the Wayland compositor's decorations (ADR-0049 TB2, F2.11b2), Linux only.
+wayland-client.workspace = true
+wayland-protocols.workspace = true
 
 # The system menu bar on macOS (ADR-0036 B5, ADR-0048 AM9, F2.11e1): never compiled elsewhere.
 [target.'cfg(target_os = "macos")'.dependencies]

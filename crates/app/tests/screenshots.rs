@@ -85,8 +85,10 @@ fn every_scene_renders_opaque_and_deterministic() {
     }
 }
 
-/// The screenshots use Studio's dark half, whatever the system says (ADR-0041 S3): the corner
-/// pixel of every scene is the dark surface.
+/// The screenshots use Studio's dark half, whatever the system says (ADR-0041 S3): a pixel near
+/// the corner of every scene is the dark surface. Not the corner itself: the title bar's strip
+/// (F2.11b3) has the window's frame line there; 3 logical pixels in, inside its resize band, is
+/// the surface in every scene.
 #[test]
 fn screenshots_use_studio_dark() {
     let dark = *BuiltInTheme::Studio.pair().instance(Appearance::Dark);
@@ -99,7 +101,7 @@ fn screenshots_use_studio_dark() {
         )
         .unwrap();
         assert_eq!(
-            image.pixel(0, 0).unwrap(),
+            image.pixel(6, 6).unwrap(),
             [surface.r, surface.g, surface.b, 255],
             "scene `{}`",
             scene.name

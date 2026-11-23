@@ -55,6 +55,8 @@ firefox-l10n = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/
 apple-motion-window = "https://support.apple.com/<locale>/guide/motion/motn11e73786/mac — 'Window menu in Motion', Apple's own names of the Window menu's items (fr-fr, de-de, es-es; en-gb shows the en-US text; no it-it edition)"
 apple-pages-settings = "https://support.apple.com/<locale>/guide/pages/tan2f9dbf1d8/mac — 'Pages > Settings' in Apple's Pages guide ('Pages > Réglages' in fr)"
 omni-it = "https://support.omnigroup.com/doc-assets//OmniOutliner-Mac/OmniOutliner-Mac-v4.5.3.0/it/EPUB/xhtml/11_menucommands.xhtml — OmniOutliner's Italian manual: Window menu 'Contrai', 'Ridimensiona', 'Porta tutto in primo piano'"
+gtk-window-controls = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the window buttons' names of gtk/gtkwindowcontrols.c (Close, Minimize, Maximize) and the window menu's Restore of gtk/gtkwindowhandle.c"
+qt-mdi = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QMdiSubWindow (Minimize, Maximize, Restore, Close of Qt's window buttons)"
 
 # ================================================================================================
 # Notation
@@ -1423,4 +1425,56 @@ de = "Alle nach vorne bringen"
 es = "Traer todo al frente"
 sources = ["firefox-l10n", "apple-motion-window", "omni-it"]
 note = """Brings every window of the program to the front. fr: Apple 'Tout ramener au premier plan' (Firefox 'Tout amener à l'avant-plan'): Apple's. The others agree. Research 2026-11-23 (F2.11e2): Firefox's macOS menus and Apple's own guides."""
+review = false
+
+[[term]]
+id = "window_close"
+category = "general"
+en-US = "Close"
+en-GB = "Close"
+it = "Chiudi"
+fr = "Fermer"
+de = "Schließen"
+es = "Cerrar"
+sources = ["gtk-window-controls", "qt-mdi"]
+note = """The close button of our title bar (ADR-0049 TB10). GTK and Qt agree in every language. Research 2026-11-23 (F2.11b2): GTK 4's and Qt's catalogues."""
+review = false
+
+[[term]]
+id = "window_maximize"
+category = "general"
+en-US = "Maximize"
+en-GB = "Maximise"
+it = "Massimizza"
+fr = "Maximiser"
+de = "Maximieren"
+es = "Maximizar"
+sources = ["gtk-window-controls", "qt-mdi"]
+note = """The maximise button of our title bar. en-GB 'Maximise' (GTK's en_GB). fr: GTK 'Maximiser', Qt 'Agrandir'; our bar is drawn only on GNOME, so GTK's. The others agree. Research 2026-11-23 (F2.11b2): GTK 4's and Qt's catalogues."""
+review = false
+
+[[term]]
+id = "window_restore"
+category = "general"
+en-US = "Restore"
+en-GB = "Restore"
+it = "Ripristina"
+fr = "Restaurer"
+de = "Wiederherstellen"
+es = "Restaurar"
+sources = ["gtk-window-controls", "qt-mdi"]
+note = """The maximise button's name while the window is maximised (GTK's window menu, Qt's window buttons). GTK and Qt agree. Research 2026-11-23 (F2.11b2): GTK 4's and Qt's catalogues."""
+review = false
+
+[[term]]
+id = "window_minimize"
+category = "general"
+en-US = "Minimize"
+en-GB = "Minimise"
+it = "Minimizza"
+fr = "Réduire"
+de = "Minimieren"
+es = "Minimizar"
+sources = ["gtk-window-controls", "qt-mdi"]
+note = """The minimise button of our title bar. en-GB 'Minimise' (GTK's en_GB). GTK and Qt agree. A different entry from 'mac_minimize' (macOS's Window menu, F2.11e2): different systems, different words. Research 2026-11-23 (F2.11b2): GTK 4's and Qt's catalogues."""
 review = false

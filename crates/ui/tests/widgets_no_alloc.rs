@@ -7,6 +7,8 @@
 //! splitter's divider, and since F2.09e for asking the pointer's shape after each event.
 //! Since F2.09f it also holds while the divider narrows real labels, toggles and buttons below
 //! their texts' widths: shortening a text with an ellipsis uses the shaper's own working memory.
+//! Since F2.11b2 it holds for our title bar too: the window's focus and state, a drag of the free
+//! space, the pointer over its buttons (ADR-0049 TB12).
 //!
 //! This file is its own test binary with the counting allocator installed (ADR-0016 §5).
 
@@ -548,4 +550,89 @@ fn moving_inside_an_open_menu_never_allocates() {
     round(&mut ui, &mut list);
     assert_no_allocations(|| round(&mut ui, &mut list));
     assert_eq!(ui.menus().count(), 1, "the menu stayed open the whole time");
+}
+
+#[test]
+fn our_title_bar_never_allocates() {
+    use orchestra_ui::{MenuModel, TitleBarSpec, WindowButton, WindowButtonNames, WindowState};
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui: Ui<()> = Ui::new(
+        Flex::column(Space::None, Space::None),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    let root = ui.root();
+    let spec = TitleBarSpec {
+        title: "Orchestra".to_owned(),
+        leading: Vec::new(),
+        trailing: vec![
+            WindowButton::Minimize,
+            WindowButton::Maximize,
+            WindowButton::Close,
+        ],
+        names: WindowButtonNames::default(),
+    };
+    ui.add_title_bar(root, &MenuModel::new(), &spec).unwrap();
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 800.0, 600.0), &mut list);
+    let free = Point::new(300.0, 10.0);
+    let round = |ui: &mut Ui<()>, list: &mut DisplayList| {
+        // The window loses and regains the focus, is maximised and restored.
+        for focused in [false, true] {
+            ui.input(&InputEvent::Focus(focused), list);
+        }
+        for maximized in [true, false] {
+            ui.input(
+                &InputEvent::WindowState(WindowState {
+                    maximized,
+                    fullscreen: false,
+                }),
+                list,
+            );
+        }
+        // A drag of the free space: press, move past the threshold, release.
+        ui.input(&InputEvent::PointerMoved { position: free }, list);
+        ui.input(
+            &InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state: ButtonState::Pressed,
+                position: free,
+                clicks: 1,
+            },
+            list,
+        );
+        ui.input(
+            &InputEvent::PointerMoved {
+                position: Point::new(free.x + 20.0, free.y),
+            },
+            list,
+        );
+        ui.input(
+            &InputEvent::PointerButton {
+                button: PointerButton::Left,
+                state: ButtonState::Released,
+                position: free,
+                clicks: 1,
+            },
+            list,
+        );
+        // Over the buttons and away.
+        ui.input(
+            &InputEvent::PointerMoved {
+                position: Point::new(790.0, 10.0),
+            },
+            list,
+        );
+        ui.input(&InputEvent::PointerLeft, list);
+        // The drag really was asked for (a round that asked nothing would prove nothing).
+        let mut dragged = false;
+        while let Some(request) = ui.take_window_request() {
+            dragged |= request == orchestra_ui::WindowRequest::Drag;
+        }
+        assert!(dragged);
+        black_box(list.take_damage());
+    };
+    round(&mut ui, &mut list);
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
 }

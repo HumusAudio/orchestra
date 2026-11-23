@@ -40,7 +40,10 @@ use orchestra_ui::{
     Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui, Weight, Widget, WidgetId,
     WindowApp, WindowRequest,
 };
-use orchestra_ui::{ActionId, ActionState, MenuModel, Platform, SystemMenu, SystemTexts};
+use orchestra_ui::{
+    ActionId, ActionState, Decorations, MenuModel, Platform, SystemMenu, SystemTexts, TitleBarSpec,
+    WindowButtonNames,
+};
 
 use crate::actions::{self, ActionIds, ActionTexts};
 
@@ -86,6 +89,9 @@ pub struct DemoTexts {
     pub actions: ActionTexts,
     /// The names of macOS's own menu items (F2.11e2); unused on Linux and Windows.
     pub system: SystemTexts,
+    /// The names of our title bar's window buttons (F2.11b2), used only where the system draws
+    /// no frame.
+    pub window_buttons: WindowButtonNames,
 }
 
 impl DemoTexts {
@@ -105,6 +111,12 @@ impl DemoTexts {
             ok: localizer.format("dialog-ok", None)?,
             actions: actions::action_texts(localizer)?,
             system: actions::system_texts(localizer)?,
+            window_buttons: WindowButtonNames {
+                close: localizer.format("window-close", None)?,
+                maximize: localizer.format("window-maximize", None)?,
+                restore: localizer.format("window-restore", None)?,
+                minimize: localizer.format("window-minimize", None)?,
+            },
         })
     }
 }
@@ -183,11 +195,30 @@ impl Demo {
     /// renderer anyway (ADR-0039 D3), so only density, text and shapes come from here.
     #[must_use]
     pub fn new(faces: &Faces, theme: &Theme, window_title: &str, texts: &DemoTexts) -> Self {
-        // The root stacks the menu bar (edge to edge, F2.11d2b) above the padded content.
+        Self::with_decorations(faces, theme, window_title, texts, Decorations::System, None)
+    }
+
+    /// [`Demo::new`] for a window whose frame `decorations` draws (F2.11b2, ADR-0049 TB1): with
+    /// [`Decorations::Own`] the menus go into our own title bar, with the window's buttons,
+    /// instead of a menu bar under the system's frame. The window must be opened with the same
+    /// answer ([`WindowOptions::decorations`](orchestra_ui::WindowOptions)). `button_layout` is
+    /// GNOME's setting as [`orchestra_ui::button_layout`] read it (`None`: only Close); the
+    /// program reads it, so the tests and the screenshots never depend on the desktop.
+    #[must_use]
+    pub fn with_decorations(
+        faces: &Faces,
+        theme: &Theme,
+        window_title: &str,
+        texts: &DemoTexts,
+        decorations: Decorations,
+        button_layout: Option<&str>,
+    ) -> Self {
+        // The menu bar (F2.11d2b), or our title bar holding it (F2.11b2), above the content.
         let mut ui = Ui::new(Flex::column(Space::None, Space::None), theme, faces.clone());
         ui.set_title(window_title);
         let content = LayoutProps::default();
-        let (actions, menu_bar, root) = frame_window(&mut ui, &texts.actions);
+        let frame = Frame::new(texts, window_title, decorations, button_layout);
+        let (actions, menu_bar, root) = frame_window(&mut ui, &frame);
         // `add` fails only for an unknown parent; every parent here was just created, so a
         // failure would leave the demonstration incomplete, never crash it.
         let title = ui
@@ -387,10 +418,11 @@ impl Demo {
 /// column.
 fn frame_window(
     ui: &mut Ui<DemoMessage>,
-    texts: &ActionTexts,
+    frame: &Frame<'_>,
 ) -> (Option<ActionIds>, Option<WidgetId>, WidgetId) {
+    let texts = &frame.texts.actions;
     let actions = attach_actions(ui, texts);
-    let menu_bar = add_menu_bar(ui, actions.as_ref(), texts);
+    let menu_bar = add_menu_bar(ui, actions.as_ref(), frame);
     let fill = LayoutProps::default()
         .width(Length::Fill(1.0))
         .height(Length::Fill(1.0));
@@ -402,19 +434,59 @@ fn frame_window(
     (actions, menu_bar, root)
 }
 
+/// What frames the demonstration's window: its texts, its title, who draws its frame.
+struct Frame<'a> {
+    /// The demonstration's texts.
+    texts: &'a DemoTexts,
+    /// The window's title (the program's name).
+    title: &'a str,
+    /// Who draws the window's frame (ADR-0049 TB1).
+    decorations: Decorations,
+    /// GNOME's `button-layout`, if the program read it (F2.11b3).
+    button_layout: Option<&'a str>,
+}
+
+impl<'a> Frame<'a> {
+    /// The frame of a window titled `title` with `texts`, whose frame `decorations` draws, with
+    /// the buttons of `button_layout` in our title bar.
+    const fn new(
+        texts: &'a DemoTexts,
+        title: &'a str,
+        decorations: Decorations,
+        button_layout: Option<&'a str>,
+    ) -> Self {
+        Self {
+            texts,
+            title,
+            decorations,
+            button_layout,
+        }
+    }
+}
+
 /// Adds the menu bar at the top of the window (F2.11d2b), on Linux and Windows only: macOS shows
 /// the system's bar through `muda` (F2.11e), and until then the demonstration has none there.
 /// `None` without the actions or on macOS.
 fn add_menu_bar(
     ui: &mut Ui<DemoMessage>,
     actions: Option<&ActionIds>,
-    texts: &ActionTexts,
+    frame: &Frame<'_>,
 ) -> Option<WidgetId> {
     if Platform::CURRENT == Platform::MacOs {
         return None;
     }
-    let model = actions::menu_bar(actions?, texts);
+    let model = actions::menu_bar(actions?, &frame.texts.actions);
     let root = ui.root();
+    // Where the system draws no frame, the menus go into our own title bar (ADR-0049 TB5), with
+    // the buttons GNOME's `button-layout` asks for (F2.11b3; only Close by default).
+    if let Decorations::Own = frame.decorations {
+        let spec = TitleBarSpec::from_setting(
+            frame.button_layout,
+            frame.title.to_owned(),
+            frame.texts.window_buttons.clone(),
+        );
+        return ui.add_title_bar(root, &model, &spec).ok();
+    }
     ui.add_menu_bar(
         root,
         &model,
@@ -589,8 +661,11 @@ impl WindowApp for Demo {
     }
 
     fn take_window_request(&mut self) -> Option<WindowRequest> {
+        // Our title bar's requests first (F2.11b2): a drag must follow its press closely. Then
         // Quit and Full screen, in the order their shortcuts were pressed (F2.11d1).
-        self.requests.pop_front()
+        self.ui
+            .take_window_request()
+            .or_else(|| self.requests.pop_front())
     }
 }
 

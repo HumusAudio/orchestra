@@ -1,7 +1,8 @@
 # ADR-0049 — Our own title bar, only where the system draws none
 
 - **Status:** Accepted (owner, 2026-11-23; outline TB1–TB13 presented first, with the owner's
-  choices on TB1, TB4, TB5, TB11 and on a Preferences option, then this text).
+  choices on TB1, TB4, TB5, TB11 and on a Preferences option, then this text). Precisions of
+  F2.11b2 and F2.11b3 below.
 - **Date:** 2026-11-23
 - **Implements:** ADR-0036 B6 and B7 (Wayland decorations: `winit`'s own for now, our title bar
   later; the second `tiny-skia`), ADR-0040 (the window and the event loop; W3 the proxy, W5 our
@@ -239,3 +240,73 @@ own decision; it is not part of this ADR.
 - Four new messages and glossary entries; one more screenshot in the guides.
 - The probe and the bar are checked by hand on GNOME, KDE Wayland and X11 by the owner (CI has
   no compositor).
+
+## Precisions of the implementation (F2.11b2, approved by the owner on 2026-11-23)
+
+Before writing, the owner approved: F2.11b2 and F2.11b3 merged in one pull request, so `main`
+never loses the mouse resizing that `sctk-adwaita` gave on GNOME (choice a); a `TitleBar` widget
+holding the existing menu bar; the window's state as an input event and the title bar's wishes
+as window requests; the probe run before the window exists. While writing, the rest:
+- **TB2: who asks, and when.** The application asks `orchestra_ui::decorations()` once, before
+  building its interface, and passes the answer both to the window (`WindowOptions::decorations`;
+  with `Own` the window is created with `with_decorations(false)`) and to the interface it builds
+  (`Demo::with_decorations`), so the two always agree. The probe opens its own short connection
+  with `wayland-client` 0.31.15 and `wayland-protocols` 0.32.13 (`client`, `unstable`), the
+  versions already in the lock file: nothing new is compiled. **Measured** by the owner on KDE
+  Plasma (Wayland) with `cargo run -p orchestra-ui --example decorations_probe` (a debug build):
+  answer "server-side", 1.5–3.1 ms per question over ten runs, within the start-up budget of
+  ADR-0007 (3 s) by three orders of magnitude.
+- **TB5: the menus in the bar.** The menu bar of ADR-0048 gains a **compact** form, as wide as its
+  titles and drawing nothing of its own, which the `TitleBar` places after the leading buttons.
+  The title is centred on the whole window when it fits in the free space there, otherwise in the
+  free space; when even the free space is narrower than the title it is not drawn (no ellipsis:
+  the window's name stays the bar's accessible name).
+- **TB6: dragging.** A press on the free space starts the drag only after the pointer moved more
+  than 4 logical pixels, not at the press: a drag taken by the compositor at the press would
+  swallow the second click of a double click (GTK does the same).
+- **TB6: full screen.** The title and the buttons disappear and the free space does nothing, but
+  **the menus stay**, as the menu bar under a system frame stays in full screen (TB6 said the bar
+  was not drawn; drawing nothing would leave the menus reachable only from the keyboard).
+- **TB6, TB8: the window's side.** A widget asks the window through its event context
+  (`EventCx::request_window`); the interface queues the requests and the application hands them on
+  first (`Ui::take_window_request`), then its own Quit and Full screen. New `WindowRequest`s:
+  `Drag`, `ToggleMaximized`, `Minimize`, `ShowWindowMenu { at }` (it loses `Eq`: the point is made
+  of `f32`s). The window tells the application `InputEvent::WindowState { maximized, fullscreen }`
+  when it opens and after every resize that changes it (`winit` has no event of its own for
+  either).
+- **TB9: tooltips.** The buttons' tooltips are their names, as GNOME's buttons have them.
+- **TB10: the words.** GTK's, from its catalogues (`gtkwindowcontrols.c`, `gtkwindowhandle.c`),
+  checked against Qt's (`QMdiSubWindow`): they agree except French Maximise, GTK "Maximiser", Qt
+  "Agrandir"; our bar is drawn only on GNOME, so GTK's.
+
+## Precisions of the implementation (F2.11b3, approved by the owner on 2026-11-23)
+
+Before writing, the owner chose: the band inside the window on the left, the right and the
+bottom, and **over** the title bar's highest pixels at the top rather than above them (choice 1);
+GNOME's `button-layout` read once at start-up, a change seen at the next start (choice 2); the
+guides' picture a strip of the bar alone (choice 3). While writing, the rest:
+- **TB7: the band.** 6 logical pixels, corners of 16 along each edge (`band_edge`). The interface
+  asks it before routing the pointer to any widget: over the band no widget is hovered and the
+  pointer takes the edge's shape (four new `PointerShape`s: `ew-resize`, `ns-resize`,
+  `nwse-resize`, `nesw-resize`); a primary press asks `WindowRequest::Resize(ResizeEdge)`, which
+  the window turns into `winit`'s `drag_resize_window` (ignored with the system's frame). While a
+  menu is open the press belongs to the menu (it closes it). Maximised or in full screen there is
+  no band: the content takes the whole window again. `winit` does not report GNOME's tiled
+  states, so a window tiled to half the screen keeps its band (a known, minor limit).
+- **TB7: the line.** One `line-width` of `border` around the window, drawn by a `WindowFrame`, a
+  root of its own in the widget arena recorded after the interface on layer 0: above the content
+  (inset, so it never covers it), below every menu. Never hit by the pointer.
+- **TB4: reading the layout.** `orchestra_ui::button_layout()` asks the desktop portal
+  (`ReadOne`, then the older `Read`) on a thread of its own and waits at most 250 ms (ADR-0038
+  S5's bound); KDE's portal does not expose GNOME's namespace, so there the answer is `None` and
+  the bar uses GNOME's default. The parser skips `appmenu`, `menu`, `icon`, `spacer` and unknown
+  names, keeps a repeated button once, and puts everything on the leading side without a colon,
+  as GTK does; `:` alone hides every button, as in GTK. The program reads the setting in `main`,
+  only for `Decorations::Own`, and passes it to the interface it builds, so tests and screenshots
+  never depend on the desktop.
+- **TB12: measured.** `title_bar_focus_change`, the panel of 200 widgets under our bar with three
+  buttons, the window losing the focus: 0.39 M instructions (target 0.5 M).
+- **TB11: the picture.** A scene `title-bar` of `cargo xtask screenshots`, 640 × 36 logical
+  pixels: the program's four menus, its name, the three buttons of
+  `appmenu:minimize,maximize,close`, in the frame. The guides still show placeholders for all
+  their pictures; this one is named in its placeholder like the others.

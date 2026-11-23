@@ -161,14 +161,69 @@ pub trait WindowApp {
     }
 }
 
-/// Something the app asks of its window ([`WindowApp::take_window_request`]).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Something the app asks of its window ([`WindowApp::take_window_request`]). `PartialEq` only:
+/// the window menu's position is a point of `f32`s.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum WindowRequest {
     /// Close the window and end the event loop (Quit).
     Close,
     /// Enter full screen when windowed, leave it when in full screen (Full screen). Borderless
     /// on the current monitor: the system's video mode is never changed.
     ToggleFullScreen,
+    /// Move the window with the pointer until the primary button is released (our title bar,
+    /// ADR-0049 TB6). Must follow a press of that button closely: the compositor checks the
+    /// press it belongs to. Ignored where the system draws the frame.
+    Drag,
+    /// Maximise the window when it is not, restore it when it is (the title bar's button and its
+    /// double click, ADR-0049 TB6).
+    ToggleMaximized,
+    /// Minimise the window (the title bar's button, ADR-0049 TB6).
+    Minimize,
+    /// Show the system's window menu (move, resize, always on top…) at `at`, logical pixels from
+    /// the window's top left (a secondary click on our title bar, ADR-0049 TB6).
+    ShowWindowMenu {
+        /// Where, logical pixels.
+        at: crate::Point,
+    },
+    /// Resize the window from `edge` with the pointer until the primary button is released (the
+    /// edges of our own frame, ADR-0049 TB7, F2.11b3). Must follow that press closely, like
+    /// [`WindowRequest::Drag`]. Ignored where the system draws the frame.
+    Resize(ResizeEdge),
+}
+
+/// An edge or a corner of the window, to resize it from ([`WindowRequest::Resize`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResizeEdge {
+    /// The top edge.
+    North,
+    /// The bottom edge.
+    South,
+    /// The right edge.
+    East,
+    /// The left edge.
+    West,
+    /// The top-right corner.
+    NorthEast,
+    /// The top-left corner.
+    NorthWest,
+    /// The bottom-right corner.
+    SouthEast,
+    /// The bottom-left corner.
+    SouthWest,
+}
+
+impl ResizeEdge {
+    /// The pointer's shape over this edge or corner.
+    #[must_use]
+    pub const fn pointer_shape(self) -> pointer::PointerShape {
+        use pointer::PointerShape;
+        match self {
+            Self::East | Self::West => PointerShape::ResizeHorizontal,
+            Self::North | Self::South => PointerShape::ResizeVertical,
+            Self::NorthWest | Self::SouthEast => PointerShape::ResizeNorthWestSouthEast,
+            Self::NorthEast | Self::SouthWest => PointerShape::ResizeNorthEastSouthWest,
+        }
+    }
 }
 
 /// How to open the window.
@@ -190,6 +245,11 @@ pub struct WindowOptions {
     /// for the glyphs it draws (ADR-0044 TB2, TC1). The application keeps its own copy (a
     /// reference-count increment) to lay its texts out with the same faces.
     pub faces: orchestra_text::Faces,
+    /// Who draws the window's frame (ADR-0049 TB1): usually what [`decorations`](crate::decorations)
+    /// answered before the application built its interface, so both agree. With
+    /// [`Decorations::Own`](crate::Decorations::Own) the window is created without decorations
+    /// and the application draws its title bar.
+    pub decorations: crate::Decorations,
 }
 
 /// Why the window could not run. Exhaustive (ADR-0034 D2). The details are the libraries'

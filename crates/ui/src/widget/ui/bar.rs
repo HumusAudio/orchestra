@@ -114,7 +114,18 @@ impl<M: 'static> Ui<M> {
         model: &MenuModel,
         props: LayoutProps,
     ) -> Result<WidgetId, UiError> {
-        let bar = self.add(parent, MenuBar, props)?;
+        self.add_bar(parent, model, props, false)
+    }
+
+    /// [`Ui::add_menu_bar`], spanning the window or `compact` inside our title bar (F2.11b2).
+    pub(super) fn add_bar(
+        &mut self,
+        parent: WidgetId,
+        model: &MenuModel,
+        props: LayoutProps,
+        compact: bool,
+    ) -> Result<WidgetId, UiError> {
+        let bar = self.add(parent, MenuBar { compact }, props)?;
         let root = self.tree.slot_of(bar).ok_or(UiError::UnknownWidget(bar))?;
         let mut titles = Vec::new();
         let mut menus = Vec::new();

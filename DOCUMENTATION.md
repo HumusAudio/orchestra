@@ -4997,6 +4997,105 @@ are made on the main thread, and answers `nextest`'s `--list` so it runs in `car
 `crates/app/tests/actions.rs` checks the names in the six catalogues (the program's name in Hide
 and Quit, no isolation mark, the ellipsis of Settings) and that no action has ⌘H, ⌥⌘H or ⌘M.
 
+#### Our own title bar (Wayland without the compositor's frame)
+
+Step F2.11b2 (ADR-0049) draws our own title bar **only where the system draws no frame**: on
+Wayland when the compositor gives no decorations (GNOME); X11, KDE and sway on Wayland, Windows
+and macOS keep the system's frame. The new files are `crates/ui/src/platform/decorations/`
+(the decision and the Wayland probe), `crates/ui/src/widget/titlebar.rs` (the bar and its
+buttons) and `crates/ui/src/widget/ui/title.rs` (the interface's side).
+
+**Who draws the frame.** `winit` does not say whether the compositor accepted to draw the frame,
+so before the window exists `orchestra_ui::decorations()` asks it: a second, short connection
+(`wayland-client`, `wayland-protocols`, already in the tree through `winit`) creates a toplevel
+that never gets a buffer, asks for server-side decorations and reads the mode the compositor
+answers. Server-side, or no Wayland at all (X11): `Decorations::System`. Client-side, no
+protocol, no answer or any failure: `Decorations::Own`, because a window without a frame could
+not be moved or closed. The decision is a small function tested with made-up answers:
+
+```rust
+match probe() {
+    ProbeAnswer::NotWayland | ProbeAnswer::ServerSide => Decorations::System,
+    ProbeAnswer::ClientSide
+    | ProbeAnswer::NoManager
+    | ProbeAnswer::NoAnswer
+    | ProbeAnswer::Failed => Decorations::Own,
+}
+```
+
+`ORCHESTRA_DECORATIONS=own` (or `=system`) skips the question: that is how our bar is seen on KDE.
+`cargo run -p orchestra-ui --example decorations_probe` prints the answer and how long it took: on
+KDE Plasma (Wayland), "server-side" in 1.5–3.1 ms per question (debug build).
+The program passes the answer both to the window (`WindowOptions::decorations`, the window is
+then created with `with_decorations(false)`) and to the interface it builds, so the two agree.
+`winit`'s own Wayland decorations (`sctk-adwaita`) are gone, and with them the second `tiny-skia`.
+
+**The bar.** `Ui::add_title_bar(parent, model, spec)` adds a `TitleBar` whose children are the
+leading window buttons, the menu bar of ADR-0048 in a **compact** form (as wide as its titles,
+drawing no background of its own), then the trailing buttons; the title goes in the free space,
+centred on the window when it fits. `TitleBarSpec::gnome_default` has only Close, GNOME's
+default; reading the user's layout from the system comes with F2.11b3.
+
+**What it asks of the window.** A widget can now ask something of the window through its event
+context (`EventCx::request_window`); the interface queues it and the application hands it on
+(`Ui::take_window_request`, before its own Quit and Full screen). Four new `WindowRequest`s:
+`Drag` (a press on the free space and a move of more than 4 logical pixels, so a double click
+is still possible), `ToggleMaximized` (a double click, the Maximise button), `Minimize`, and
+`ShowWindowMenu { at }` (a secondary click). Close is the existing `WindowRequest::Close`, the
+same path as the system's close button. The window carries them out right after the event.
+
+**The window's state.** A new input event, `InputEvent::WindowState { maximized, fullscreen }`,
+sent when the window opens and after every resize that changes it: Maximise becomes Restore (also
+for assistive technologies), and in full screen the title and the buttons disappear while the
+menus stay. The window's focus dims the title and the symbols (`text-muted`).
+
+**Accessibility.** The bar is a `TitleBar` node named after the window; the buttons are `Button`
+nodes with their names from the catalogues (`window-close`, `window-maximize`, `window-restore`,
+`window-minimize`, GTK's words, glossary entries `window_*`), outside the Tab chain.
+
+**The edges** (F2.11b3, ADR-0049 TB7). `softbuffer` cannot draw outside the window yet, so the
+resize band is **inside** it: 6 logical pixels along the left, right and bottom edges, which the
+content leaves free (`Ui::content_bounds`), and along the top, where it lies over the title bar's
+highest pixels instead of above them (owner's choice). Within 16 pixels of a corner the corner
+wins. `band_edge` answers which edge a point is on; the interface asks it before any widget sees
+the pointer: over the band the pointer takes the edge's shape (four new `PointerShape`s, the
+cursor theme's `ew-resize`, `ns-resize`, `nwse-resize`, `nesw-resize`), and a press asks the
+window `WindowRequest::Resize(edge)`, which calls `winit`'s `drag_resize_window`. An open menu
+takes the press instead (it closes). A one-pixel `border` line around the window is drawn by
+`WindowFrame`, a root of its own in the widget arena recorded after the interface on its layer:
+above the content, below every menu. Maximised or in full screen, band and line go and the
+content takes the whole window again.
+
+**The buttons' layout** (TB4). `orchestra_ui::button_layout()` reads GNOME's
+`org.gnome.desktop.wm.preferences button-layout` once through the desktop portal (`ReadOne`,
+then the older `Read`), on a thread of its own, waited for at most 250 ms; `TitleBarSpec::
+from_setting` turns the text into the two lists of buttons:
+
+```rust
+assert_eq!(parse("appmenu:minimize,maximize,close"), (vec![], vec![Minimize, Maximize, Close]));
+```
+
+Names our bar does not have (`appmenu`, `icon`, `spacer`) are skipped, a button named twice
+appears once, without a colon everything goes on the leading side. The program reads it in
+`main` only when our bar is drawn and passes it to `Demo::with_decorations`, so the tests and the
+screenshots never depend on the desktop they run on.
+
+**Measured.** `title_bar_focus_change` (in `benches/widgets.rs`): the real panel of 200 widgets
+under our bar with three buttons, the window losing the focus: 0.39 M instructions, under an
+event's 0.5 M. The guides' strip `title-bar.png` is rendered by the scene `title-bar` of
+`cargo xtask screenshots` (the program's menus, three buttons, 640 × 36 logical pixels).
+
+**Tests.** `crates/ui/src/platform/decorations/tests.rs` (the decision, the override and the
+buttons' layout), `titlebar.rs`'s own (the band's edges and corners),
+`crates/ui/tests/title_bar.rs` (13 tests: layout with buttons at either edge, drag only after a
+move, double click, window menu, buttons on release, the menus still opening, full screen, the
+accessibility tree, Tab; since F2.11b3 the band from every edge and corner, its top over the bar,
+no band when maximised or in full screen, an open menu taking the press), a no-allocation test
+in `widgets_no_alloc.rs`, and in `crates/app/tests/demo.rs` the demonstration with
+`Decorations::Own`. Three injected bugs (no drag threshold, Close asking to minimise, the band
+resizing under an open menu) were caught. The probe itself needs a compositor: it is
+checked by hand.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of
@@ -5080,10 +5179,10 @@ hand by the owner on Linux, Wayland and X11). Without a display the program stop
 ("Could not find wayland compositor") instead of a panic.
 
 **Dependencies.** `winit` 0.30.13 and `softbuffer` 0.4.8, with the features of ADR-0036 (X11 and
-Wayland loaded at run time, Wayland decorations drawn by `winit` until our own title bar in
-F2.11b). They bring older copies of some crates (`rustix`, `windows-sys`, `objc2`, `bitflags`,
-`getrandom`, `thiserror`, and `tiny-skia` 0.11 for the decorations), listed in `deny.toml` with
-their exit: `winit` 0.31, or our title bar. The release binary of the demonstration is 7.0 MB.
+Wayland loaded at run time; since F2.11b2 no Wayland decorations of `winit`'s own, ADR-0049 TB3).
+They bring older copies of some crates (`rustix`, `windows-sys`, `objc2`, `bitflags`,
+`getrandom`, `thiserror`), listed in `deny.toml` with their exit, `winit` 0.31; the `tiny-skia`
+0.11 of `winit`'s decorations left with our title bar. The release binary of the demonstration is 7.0 MB.
 
 **Tests.** `window/tests.rs` (13 tests) runs on the three platforms without a display: the primary
 modifier on macOS and elsewhere, keys, buttons and wheels, the `0RGB` conversion, copying a region

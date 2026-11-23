@@ -83,6 +83,9 @@ pub use draw::list::{DisplayList, PathBuilder, Recorder, SegmentId};
 pub use draw::paint::{FillRule, LineCap, LineJoin, Paint, StrokeStyle};
 pub use draw::skia::CpuRenderer;
 
+// Who draws the window's frame (ADR-0049 TB1, TB2, F2.11b2): the system or our title bar.
+pub use platform::decorations::{Decorations, button_layout, decorations};
+
 // The system's menu bar (ADR-0048 AM9, F2.11e1): a description on every platform, `muda` on macOS.
 #[cfg(target_os = "macos")]
 pub use platform::menu::build_system_menu;
@@ -117,6 +120,7 @@ pub use widget::popup::{Popup, PopupSide};
 pub use widget::scroll::ScrollArea;
 pub use widget::slider::Slider;
 pub use widget::splitter::Splitter;
+pub use widget::titlebar::{TitleBarSpec, WindowButton, WindowButtonNames};
 pub use widget::toggle::{Toggle, ToggleKind};
 pub use widget::tree::{
     AsAny, EventCx, Handled, LayoutCx, RecordCx, ScrollDirection, Widget, WidgetEvent, WidgetId,
@@ -124,10 +128,10 @@ pub use widget::tree::{
 pub use widget::ui::{TextInput, Ui, UiError};
 pub use window::input::{
     ButtonState, ImeEvent, InputEvent, Key, Modifiers, NamedKey, PhysicalKey, PointerButton,
-    WheelDelta,
+    WheelDelta, WindowState,
 };
 pub use window::pointer::PointerShape;
-pub use window::{WindowApp, WindowError, WindowOptions, WindowRequest, run};
+pub use window::{ResizeEdge, WindowApp, WindowError, WindowOptions, WindowRequest, run};
 
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
 pub use platform::appearance::{
