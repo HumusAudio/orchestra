@@ -3,6 +3,7 @@
 - **Status:** Accepted (owner, 2026-11-23; outline DG1–DG10 presented first, the owner followed
   every recommendation, then this text, accepted with its three points: the buttons' order on KDE
   corrected, the logo converted by our own code, the playback values as the user's settings).
+  Precisions of F2.12a2 below.
 - **Date:** 2026-11-23
 - **Implements:** ADR-0045 WA4 and WB9 (modal layers: the focus trapped, the pointer blocked),
   ADR-0048 AM7 (the user's shortcuts in the settings file), AM9 (the *About* role), AM11 (the
@@ -276,7 +277,7 @@ F6).
   title instead of the close button's dot; two processes writing the settings file, the last one
   wins; the language applies at the next start until F2.13.
 
-## Precisions of the implementation (F2.12a2, proposed to the owner on 2026-11-23)
+## Precisions of the implementation (F2.12a2, approved by the owner on 2026-11-23)
 
 Choices S1–S9 were approved by the owner before the code (all as recommended). Writing it gave
 these precisions:
