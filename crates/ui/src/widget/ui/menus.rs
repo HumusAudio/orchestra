@@ -802,6 +802,8 @@ impl<M: 'static> Ui<M> {
         let mut changed = std::mem::take(&mut self.changed_actions);
         changed.clear();
         actions.registry.drain_changed(|id| changed.push(id));
+        // The system's menu gets them too, through the window (F2.11e1, the module `system`).
+        self.keep_for_system(&changed);
         if !changed.is_empty() {
             for menu in 0..self.menus.len() {
                 let count = self

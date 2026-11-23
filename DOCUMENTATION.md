@@ -4910,6 +4910,53 @@ from the keyboard with the letters underlined. The benchmark `bar_menu_switch` m
 pointer from File to Edit with File's menu open (one menu closed, the other opened where none was
 drawn before): 6.7 M instructions.
 
+#### The system's menu bar (macOS)
+
+Step F2.11e1 (ADR-0048 AM9, ADR-0036 B5) gives macOS its own menu bar, at the top of the screen,
+built by `muda` from the same menu model as the drawn bar of Linux and Windows. The new files are
+`crates/ui/src/platform/menu/mod.rs` (a description of the menus, on every platform),
+`crates/ui/src/platform/menu/muda.rs` (macOS only) and `crates/ui/src/widget/ui/system.rs` (the
+interface's side).
+
+**A description first.** `Ui::system_menu(model, app_name)` turns the model into a `SystemMenu`:
+every action's name, first shortcut and state resolved from the registry. `SystemMenu::for_macos`
+then moves the items whose role is About, Preferences or Quit into the **application menu**, the
+first one, named after the program, and tidies the menus they left (no separator at an end, never
+two in a row, no empty submenu). The roles are on the model itself:
+
+```rust
+.action(ids.quit)
+.role(MenuRole::Quit);
+```
+
+The description is plain data, so Linux CI checks what the Mac will show. The other items of the
+application menu (Services, Hide, Show all) and the Window menu come with F2.11e2.
+
+**`muda`.** On macOS the window installs the description once, when the event loop runs:
+submenus, items (check items for toggles) and separators, each action item with its state and its
+shortcut as a `KeyAccelerator`, the **logical** key, so ⌘? is the character "?" and works on every
+layout. The Help menu is given to the system. `winit`'s own default menu is switched off
+(`with_default_menu(false)`), or the two would fight over the bar. Elsewhere `install` answers
+`None`.
+
+**Choosing an item.** `muda` calls back on the main thread; the window sends
+`ShellEvent::MenuAction` through its proxy (ADR-0040 W3) and the app runs it with
+`Ui::run_action`, on the shortcuts' path: Copy goes to the focused field (AM13), Quit becomes the
+application's message.
+
+**States** (choice 3a). The registry's marks of changed actions keep one reader, the interface,
+which drains them at every frame; once a system menu exists it also keeps them for the window,
+which takes them after every batch of events (`Ui::take_menu_updates`) and tells `muda`. The six
+editing actions change with the focused field without the registry knowing, so their states are
+compared with the ones the menu last got at the same moment.
+
+**Tests.** `crates/ui/src/platform/menu/tests.rs` checks the application menu and the tidying, and
+the shortcuts turned into macOS's modifiers and logical keys; `crates/ui/tests/system_menu.rs`
+the description built by the interface, the states handed on once each (also Copy following the
+field's selection), and an action run from the system's menu. `crates/ui/tests/system_menu_macos.rs`
+builds the menu with `muda` for real on macOS CI: it has its own `main`, because AppKit's menus
+are made on the main thread, and answers `nextest`'s `--list` so it runs in `cargo xtask check`.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

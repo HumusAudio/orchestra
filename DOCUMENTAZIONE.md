@@ -5227,6 +5227,57 @@ mnemonici nelle sei lingue e la barra della finestra di prova dalla tastiera. La
 `bar_menu_switch` misura lo spostamento del puntatore da File a Modifica con il menu File aperto
 (un menu chiuso, l'altro aperto dove non ne era mai stato disegnato uno): 6,7 M istruzioni.
 
+#### La barra dei menu di sistema (macOS)
+
+Il passo F2.11e1 (ADR-0048 AM9, ADR-0036 B5) dà a macOS la sua barra dei menu, in cima allo
+schermo, costruita da `muda` con lo stesso modello dei menu della barra disegnata di Linux e
+Windows. I file nuovi sono `crates/ui/src/platform/menu/mod.rs` (una descrizione dei menu, su ogni
+piattaforma), `crates/ui/src/platform/menu/muda.rs` (solo macOS) e
+`crates/ui/src/widget/ui/system.rs` (la parte dell'interfaccia).
+
+**Prima una descrizione.** `Ui::system_menu(model, app_name)` trasforma il modello in un
+`SystemMenu`: nome, prima scorciatoia e stato di ogni azione presi dal registro.
+`SystemMenu::for_macos` poi sposta le voci con ruolo Informazioni, Preferenze o Esci nel **menu
+dell'applicazione**, il primo, col nome del programma, e riordina i menu che hanno lasciato (nessun
+separatore a un'estremità, mai due di fila, nessun sottomenu vuoto). I ruoli stanno nel modello
+stesso:
+
+```rust
+.action(ids.quit)
+.role(MenuRole::Quit);
+```
+
+La descrizione è fatta di dati semplici, così la CI di Linux controlla che cosa mostrerà il Mac. Le
+altre voci del menu dell'applicazione (Servizi, Nascondi, Mostra tutte) e il menu Finestra arrivano
+con F2.11e2.
+
+**`muda`.** Su macOS la finestra installa la descrizione una volta, quando il ciclo degli eventi
+gira: sottomenu, voci (voci con spunta per gli interruttori) e separatori, ogni voce d'azione con
+il suo stato e la sua scorciatoia come `KeyAccelerator`, cioè il tasto **logico**, così ⌘? è il
+carattere "?" e funziona su ogni disposizione di tastiera. Il menu Aiuto è affidato al sistema. Il
+menu predefinito di `winit` è spento (`with_default_menu(false)`), altrimenti i due si
+contenderebbero la barra. Altrove `install` risponde `None`.
+
+**Scegliere una voce.** `muda` richiama sul thread principale; la finestra manda
+`ShellEvent::MenuAction` attraverso il suo proxy (ADR-0040 W3) e l'app la esegue con
+`Ui::run_action`, sulla strada delle scorciatoie: Copia va al campo con il fuoco (AM13), Esci
+diventa il messaggio dell'applicazione.
+
+**Gli stati** (scelta 3a). I segni delle azioni cambiate nel registro restano con un solo lettore,
+l'interfaccia, che li svuota a ogni frame; quando esiste un menu di sistema li conserva anche per la
+finestra, che li ritira dopo ogni gruppo di eventi (`Ui::take_menu_updates`) e li comunica a
+`muda`. Le sei azioni di modifica cambiano con il campo che ha il fuoco senza che il registro lo
+sappia, quindi nello stesso momento i loro stati si confrontano con quelli che il menu ha ricevuto
+l'ultima volta.
+
+**Test.** `crates/ui/src/platform/menu/tests.rs` controlla il menu dell'applicazione e il
+riordino, e le scorciatoie tradotte nei modificatori e nei tasti logici di macOS;
+`crates/ui/tests/system_menu.rs` la descrizione costruita dall'interfaccia, gli stati consegnati
+una volta sola (anche Copia che segue la selezione del campo) e un'azione eseguita dal menu di
+sistema. `crates/ui/tests/system_menu_macos.rs` costruisce davvero il menu con `muda` nella CI di
+macOS: ha un `main` suo, perché i menu di AppKit si creano sul thread principale, e risponde al
+`--list` di `nextest`, così gira dentro `cargo xtask check`.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

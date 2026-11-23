@@ -1,8 +1,8 @@
 # ADR-0048 — Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer
 
 - **Status:** Accepted (owner, 2026-11-17; outline AM1–AM15 presented first, with the owner's
-  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c, F2.11d1, F2.11d2a
-  and F2.11d2b below.
+  choices on AM5, AM8, AM9 and AM14, then the text). Precisions of F2.11c, F2.11d1, F2.11d2a,
+  F2.11d2b and F2.11e1 below.
 - **Date:** 2026-11-17
 - **Implements:** ADR-0045 (retained widgets; WA3 leaves the table of window-level shortcuts to
   the menus; WB9 leaves the popups' outside click to them; WH1 overlays), ADR-0040 W5 (our own
@@ -506,3 +506,47 @@ top of the window. While writing, the rest:
 - **AM15, measured:** moving the pointer from File to Edit with File's menu open, 6.7 M
   instructions (one menu closed, the other opened where none was drawn before).
 
+## Precisions of the implementation (F2.11e1, approved by the owner on 2026-11-23)
+
+Before writing, the owner split F2.11e in F2.11e1 (the description, `muda`, the states, CI) and
+F2.11e2 (the application menu's system items and the Window menu with their texts) and approved
+points 1–8 of the step, with no check by hand on a Mac for now (CI only, ADR-0040 W9). While
+writing, the rest:
+- **AM9: two layers.** The menus as the system shows them are first a **description** in plain
+  data, `SystemMenu`, built by `Ui::system_menu` from the one menu model and the registry, with
+  every name, shortcut and state already resolved; it is built and tested on every platform, so
+  Linux CI checks what the Mac will show. The system's menu itself is behind the trait
+  `SystemMenuHost` in `platform/menu/`: `muda` on macOS (compiled there only), nothing elsewhere
+  (`install` answers `None`, the drawn bar is used).
+- **AM9: the items with a role.** `SystemMenu::for_macos` moves the action items with the roles
+  About, Preferences and Quit, from wherever they are, into the application menu named after the
+  program, in that order with separators between the groups, and tidies the menus they left: no
+  separator at the start or end of a menu, never two in a row, no empty submenu. `winit`'s default
+  menu is off (`with_default_menu(false)`): until F2.11e2 the application menu holds only our
+  items (no Services, Hide, Show all, no Window menu).
+- **AM9: choosing an item.** `muda` calls its handler on the main thread; the handler sends the
+  action through the event loop's proxy (behind a mutex, because `muda` asks for a `Send + Sync`
+  handler) as `ShellEvent::MenuAction`, which reaches `Ui::run_action`: the same path as a
+  shortcut and the drawn menus (AM13 included); a drawn menu still open closes first. The system's
+  menu is installed once, in `resumed`, when macOS's application object exists.
+- **AM2, AM13: the states.** The registry's marks of changed actions keep **one** reader, the
+  interface (choice 3a): once a system menu was asked for, it keeps the actions it drained at each
+  frame until the window takes them with `take_menu_updates` after every batch of events, and the
+  window tells `SystemMenuHost::update`. The six editing actions (Cut, Copy, Paste, Select all,
+  Undo, Redo) depend on the focused field without the registry knowing, so the interface also
+  compares their states with those the system's menu last got and hands on the ones that differ.
+- **AM5, AM9: shortcuts.** `muda` 0.21 takes **logical** keys (`KeyAccelerator`, a character), as
+  AM5 stores them: the feared limit to physical keys does not exist. The modifiers become macOS's:
+  *Primary* is ⌘, *Secondary* is ⌃, Alt is ⌥. The system's menu shows only an action's **first**
+  shortcut (a menu item has one key equivalent); the others keep working through the window.
+- **AM15: tests.** The description has unit tests and `tests/system_menu.rs` on every platform;
+  `tests/system_menu_macos.rs` (its own `main`, answering `nextest`'s listing) builds the menu for
+  real with `muda` on macOS's main thread in CI.
+- **ADR-0036 B5, measured** (a one-off CI workflow on macOS, removed afterwards): the `orchestra`
+  release binary grows by 313 808 bytes (7 220 432 → 7 534 240, +4.3%), by 248 032 once stripped
+  (6 382 800 → 6 630 832, +3.9%). `muda` brings four new crates (`muda` 0.21.2,
+  `crossbeam-channel`, `crossbeam-utils`, `keyboard-types`; `objc2` was already there); Cargo's
+  per-crate times add about 8 s of work to a clean release build (`muda` 5.2 s, the other three
+  2.3 s, `orchestra-ui` +1.5 s), while the wall-clock difference on the shared runner was +11 s
+  and +1 s in two runs. Linux and Windows pay nothing. The cost is accepted; it is measured again
+  when `muda` changes minor version.

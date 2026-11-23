@@ -87,7 +87,8 @@ Maiusc per usarli.
 == La barra dei menu
 
 Su Linux e Windows i menu sono in cima alla finestra: File, Modifica, Vista e Aiuto. Su macOS
-saranno nella barra dei menu in cima allo schermo, come in ogni programma per Mac.
+sono nella barra dei menu in cima allo schermo, come in ogni programma per Mac, e Preferenze ed
+Esci stanno nel menu che si chiama Orchestra.
 
 - *Con il mouse*, fai clic sul nome di un menu per aprirlo e poi su un comando. Puoi anche tenere
   premuto il tasto, spostarti su un comando e rilasciarlo lì. Mentre un menu è aperto, passando con
