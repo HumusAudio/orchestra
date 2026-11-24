@@ -501,3 +501,6 @@ DG5). Choices 1–6 of F2.12a5a approved as recommended:
 - **6, the texts** (`file-untitled`, `file-filter-project`, `file-open-title`, `file-save-title`,
   `file-chooser-unavailable-title`, `file-chooser-unavailable-message`) are in the six catalogues;
   the glossary gains *project* and *untitled*.
+
+The owner checked a real chooser by hand on KDE Plasma, on Wayland and on X11, on 2026-11-24: it
+works.
