@@ -219,6 +219,28 @@ impl Shortcut {
     }
 }
 
+/// The name of the modifier of fine adjustment `fine` in `platform`'s style (the Preferences'
+/// Keyboard section, F2.12a4b1): Apple's symbol on macOS (⌘, ⇧, ⌥, as in its menus' shortcuts),
+/// the key's name from `names` elsewhere ("Ctrl", "Maiusc", "Alt"…).
+#[must_use]
+pub fn modifier_label(fine: crate::FineModifier, platform: Platform, names: &KeyNames) -> String {
+    use crate::FineModifier;
+    if platform == Platform::MacOs {
+        let symbol = match fine {
+            FineModifier::Primary => MAC_COMMAND,
+            FineModifier::Shift => MAC_SHIFT,
+            FineModifier::Alt => MAC_OPTION,
+        };
+        return symbol.to_string();
+    }
+    let key = match fine {
+        FineModifier::Primary => KeyName::Ctrl,
+        FineModifier::Shift => KeyName::Shift,
+        FineModifier::Alt => KeyName::Alt,
+    };
+    names.get(key).to_owned()
+}
+
 /// Writes the key of a shortcut (see the module documentation).
 fn write_key(key: ShortcutKey, platform: Platform, names: &KeyNames, out: &mut String) {
     match key {

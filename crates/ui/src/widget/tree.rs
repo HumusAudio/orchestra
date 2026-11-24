@@ -542,6 +542,8 @@ pub struct EventCx<'a, M> {
     pub(crate) choices: Option<ChoicesRequest>,
     /// Whether the caret blinks ([`Ui::set_caret_blink`](crate::Ui::set_caret_blink)).
     pub(crate) caret_blink: bool,
+    /// The modifier of fine adjustment ([`Ui::set_fine_modifier`](crate::Ui::set_fine_modifier)).
+    pub(crate) fine_modifier: crate::FineModifier,
 }
 
 /// What a widget asked about its list of values (F2.12a4a): a drop-down opens it below itself
@@ -610,6 +612,19 @@ impl<M> EventCx<'_, M> {
     /// owner is not told: it asked.
     pub fn close_choices(&mut self) {
         self.choices = Some(ChoicesRequest::Close);
+    }
+
+    /// The modifier of fine adjustment the user chose (ADR-0046 V3, F2.12a4b1).
+    #[must_use]
+    pub const fn fine_modifier(&self) -> crate::FineModifier {
+        self.fine_modifier
+    }
+
+    /// `true` while the modifier of fine adjustment is held (ADR-0046 V3): a value control then
+    /// moves one step and drags a tenth as fast.
+    #[must_use]
+    pub const fn fine(&self) -> bool {
+        self.modifiers.holds(self.fine_modifier)
     }
 
     /// Whether a text caret blinks (ADR-0047 TF8): the user's choice in the Preferences

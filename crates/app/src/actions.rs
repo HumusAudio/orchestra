@@ -455,6 +455,13 @@ impl ActionTexts {
         });
     }
 
+    /// The keys' names, for writing modifiers as the platform does (the Preferences' Keyboard
+    /// section, F2.12a4b1).
+    #[must_use]
+    pub const fn keys(&self) -> &KeyNames {
+        &self.keys
+    }
+
     /// The name and the mnemonic of the bar's title number `title` ([`TITLES`]).
     #[must_use]
     pub fn title(&self, title: usize) -> (&str, Option<char>) {

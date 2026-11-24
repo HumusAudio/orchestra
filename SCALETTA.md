@@ -1038,8 +1038,8 @@ controllo completo. Va fatta bene una volta sola.
   in uso nell'elenco, `Ui::set_caret_blink`, `Ui::open_large_dialog`, solo la sezione Aspetto, nomi
   delle coppie approvati). Aprire le Preferenze costa circa 10,4 M istruzioni, aprire l'elenco del
   menu a tendina circa 10,3 M. La sveglia del file delle impostazioni è agganciata alla finestra.
-  Precisioni in ADR-0050, ADR-0040 e ADR-0048. Da provare a mano: il cambio di tema nella finestra
-  vera (KDE, GNOME).
+  Precisioni in ADR-0050, ADR-0040 e ADR-0048. Il cambio di tema nella finestra vera è stato
+  provato a mano dal proprietario il 2026-11-24: funziona.
 - **F2.12a4b** (resta da F2.12a2 e F2.12a4a): applicare le scorciatoie salvate al registro della
   finestra (`apply_settings_shortcuts`); lingua e modificatore fine letti dal file; screenshot
   `preferences-dialog` e capitolo delle guide.

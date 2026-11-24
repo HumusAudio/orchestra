@@ -210,6 +210,94 @@ fn the_preferences_apply_at_once_and_their_shortcut_closes_them() {
     assert_eq!(demo.preferences(), None);
 }
 
+/// The settings applied when the program hands them in (F2.12a4b1): a saved shortcut replaces
+/// the default (Quit on Ctrl+Shift+Q, so Ctrl+Q does nothing), the fine modifier and the blink
+/// reach the interface, and an unreadable shortcut is reported, not fatal.
+#[test]
+fn the_saved_settings_apply_when_handed_in() {
+    use orchestra_io::settings::{FineModifier, Settings, ShortcutEntry};
+    let (mut demo, mut list) = demo();
+    let settings = Settings {
+        shortcuts: vec![
+            ShortcutEntry {
+                action: "file.quit".to_owned(),
+                keys: vec!["Primary+Shift+q".to_owned()],
+            },
+            ShortcutEntry {
+                action: "file.new".to_owned(),
+                keys: vec!["Nonsense+".to_owned()],
+            },
+        ],
+        fine_modifier: FineModifier::Alt,
+        caret_blink: false,
+        ..Settings::default()
+    };
+    let problems = demo.attach_settings(orchestra_app::SettingsStore::with(settings, None));
+    assert_eq!(problems.len(), 1, "{problems:?}");
+    assert_eq!(demo.ui().fine_modifier(), orchestra_ui::FineModifier::Alt);
+    assert!(!demo.ui().caret_blink());
+    press(&mut demo, &mut list, &Key::Character("q".into()), PRIMARY);
+    assert_eq!(demo.take_window_request(), None);
+    let primary_shift = Modifiers {
+        shift: true,
+        ..PRIMARY
+    };
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Character("q".into()),
+        primary_shift,
+    );
+    assert_eq!(demo.take_window_request(), Some(WindowRequest::Close));
+    // The shortcut's text in the menus follows (Linux's style on Linux, ⇧⌘Q on macOS).
+    let ids = demo.actions().unwrap();
+    let text = demo
+        .ui()
+        .actions()
+        .unwrap()
+        .shortcut_text(ids.quit)
+        .to_owned();
+    assert!(text.contains('Q'), "{text}");
+    assert_ne!(text, "Ctrl+Q");
+}
+
+/// The list of sections changes the pane (F2.12a4b1): Down shows Language (its drop-down of
+/// seven values), Down again Keyboard; a language chosen is saved for the next start.
+#[test]
+fn the_sections_change_the_pane() {
+    use orchestra_ui::DropDown;
+    let (mut demo, mut list) = demo();
+    let ids = demo.actions().unwrap();
+    demo.run_action(ids.preferences, &mut list);
+    // The focus starts on the list of sections; Down chooses Language.
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::ArrowDown),
+        Modifiers::default(),
+    );
+    // Tab to the language's drop-down, Enter opens it on the value in use, Down and Enter
+    // choose the next value (English (US)).
+    for key in [
+        NamedKey::Tab,
+        NamedKey::Enter,
+        NamedKey::ArrowDown,
+        NamedKey::Enter,
+    ] {
+        press(&mut demo, &mut list, &Key::Named(key), Modifiers::default());
+    }
+    let focused = demo.ui().focused().unwrap();
+    let drop = demo
+        .ui()
+        .widget::<DropDown<orchestra_app::DemoMessage>>(focused)
+        .expect("the language's drop-down has the focus");
+    assert_eq!(drop.selected(), 1);
+    assert_eq!(
+        demo.settings().settings().language,
+        orchestra_io::settings::Language::Tag("en-US".to_owned())
+    );
+}
+
 #[test]
 fn disabled_actions_do_nothing() {
     let (mut demo, mut list) = demo();

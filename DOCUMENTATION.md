@@ -5475,6 +5475,36 @@ drop_down_open   (Enter + draw)      10 276 661
 
 Both once per user action, within the frame's budget of 33 M.
 
+**Language and Keyboard** (F2.12a4b1, owner's choices 1–6). The list of sections now holds
+three: choosing one replaces the pane on the right (`preferences::show_section`, which removes the
+pane's widgets and builds the section's grid; the list keeps the focus).
+- **Language**: a drop-down of *System language* and the six languages, each written in its own
+  language and identical in every catalogue ("English (US)", "Italiano"…), with the muted note
+  "Applies the next time Orchestra starts.": `main.rs` now creates the `Localizer` in the
+  settings' language (*System language* is en-US until F2.13 detects the system's).
+- **Keyboard**: the modifier of **fine adjustment** (ADR-0046 V3), a group of three options named
+  as the platform writes the keys (`modifier_label`: "Ctrl", "Shift", "Alt" in the catalogue's
+  words, ⌘ ⇧ ⌥ on macOS). The interface has a new `FineModifier` (`Ui::set_fine_modifier`,
+  `EventCx::fine()`, `Modifiers::holds`), which the slider and the splitter read instead of the
+  primary modifier. With **Shift** chosen, Shift+wheel over a slider adjusts finely instead of
+  scrolling the area around it (a precision of ADR-0046 V5, choice 3).
+- **At start-up** `Demo::attach_settings` applies what the settings hold besides the theme: the
+  blink, the fine modifier and the user's **shortcuts** (`apply_settings_shortcuts` on the
+  registry, whose shortcut texts, and so the menus, follow); what cannot be used comes back as
+  `SettingsProblem`s, which `main.rs` writes to the standard error.
+
+```rust
+for problem in demo.attach_settings(store) {
+    eprintln!("orchestra: settings: {problem}");
+}
+```
+
+Tests: the fine modifier chosen in `crates/ui/tests/controls.rs`; in `preferences.rs` the language
+and the modifier written into the settings; in `crates/app/tests/actions.rs` the saved settings
+applied (Quit moved to Ctrl+Shift+Q, the modifier, the blink, an unreadable shortcut reported) and
+the sections changing the pane (Language chosen and saved). Screenshot scenes
+`preferences-language` and `preferences-keyboard`.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

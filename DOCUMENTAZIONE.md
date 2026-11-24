@@ -5831,6 +5831,36 @@ drop_down_open   (Enter + draw)      10 276 661
 
 Entrambi una volta per azione dell'utente, dentro il budget del fotogramma di 33 M.
 
+**Lingua e Tastiera** (F2.12a4b1, scelte 1–6 del proprietario). L'elenco delle sezioni ora ne
+ha tre: sceglierne una sostituisce il riquadro a destra (`preferences::show_section`, che toglie i
+widget del riquadro e costruisce la griglia della sezione; l'elenco tiene il fuoco).
+- **Lingua**: un menu a tendina con *Lingua del sistema* e le sei lingue, ognuna scritta nella
+  propria lingua e uguale in tutti i cataloghi ("English (US)", "Italiano"…), con la nota
+  attenuata "Vale dal prossimo avvio di Orchestra.": `main.rs` ora crea il `Localizer` nella lingua
+  delle impostazioni (*Lingua del sistema* è en-US finché F2.13 non rileva quella del sistema).
+- **Tastiera**: il modificatore della **regolazione fine** (ADR-0046 V3), un gruppo di tre opzioni
+  con i nomi che la piattaforma dà ai tasti (`modifier_label`: "Ctrl", "Maiusc", "Alt" con le
+  parole del catalogo, ⌘ ⇧ ⌥ su macOS). L'interfaccia ha un nuovo `FineModifier`
+  (`Ui::set_fine_modifier`, `EventCx::fine()`, `Modifiers::holds`), che il cursore e il divisore
+  leggono al posto del modificatore primario. Con **Maiusc** scelto, Maiusc+rotella su un cursore
+  regola fine invece di far scorrere l'area intorno (precisione di ADR-0046 V5, scelta 3).
+- **All'avvio** `Demo::attach_settings` applica ciò che le impostazioni contengono oltre al tema:
+  il lampeggio, il modificatore fine e le **scorciatoie** dell'utente (`apply_settings_shortcuts`
+  sul registro, i cui testi delle scorciatoie, e quindi i menu, seguono); ciò che non si può usare
+  torna come `SettingsProblem`, che `main.rs` scrive sull'uscita degli errori.
+
+```rust
+for problem in demo.attach_settings(store) {
+    eprintln!("orchestra: settings: {problem}");
+}
+```
+
+Test: il modificatore fine scelto in `crates/ui/tests/controls.rs`; in `preferences.rs` la lingua
+e il modificatore scritti nelle impostazioni; in `crates/app/tests/actions.rs` le impostazioni
+salvate applicate (Esci spostato su Ctrl+Maiusc+Q, il modificatore, il lampeggio, una scorciatoia
+illeggibile segnalata) e le sezioni che cambiano il riquadro (Lingua scelta e salvata). Scene degli
+screenshot `preferences-language` e `preferences-keyboard`.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

@@ -241,6 +241,8 @@ pub struct Ui<M> {
     choices_requested: Vec<(usize, ChoicesRequest)>,
     /// Whether the text caret blinks ([`Ui::set_caret_blink`]).
     caret_blink: bool,
+    /// The modifier of fine adjustment ([`Ui::set_fine_modifier`]).
+    fine_modifier: crate::FineModifier,
     /// The order of the dialogs' buttons (ADR-0050 DG2), set by the application.
     button_order: crate::ButtonOrder,
     /// The display-list layer the next menu opens in: one above the last, back to the first when
@@ -382,6 +384,7 @@ impl<M: 'static> Ui<M> {
             dialogs_to_close: Vec::new(),
             choices_requested: Vec::new(),
             caret_blink: true,
+            fine_modifier: crate::FineModifier::Primary,
             button_order: crate::ButtonOrder::AffirmativeLast,
             tooltip: TooltipState::default(),
             swallow_release: false,
@@ -733,6 +736,19 @@ impl<M: 'static> Ui<M> {
     #[must_use]
     pub const fn caret_blink(&self) -> bool {
         self.caret_blink
+    }
+
+    /// The modifier of fine adjustment of every value control (ADR-0046 V3; the Preferences'
+    /// choice, ADR-0050 DG9, F2.12a4b1). The primary modifier by default. A drag in progress
+    /// re-anchors at the next modifier change, as when the modifier is pressed or released.
+    pub const fn set_fine_modifier(&mut self, fine: crate::FineModifier) {
+        self.fine_modifier = fine;
+    }
+
+    /// The modifier of fine adjustment in use.
+    #[must_use]
+    pub const fn fine_modifier(&self) -> crate::FineModifier {
+        self.fine_modifier
     }
 
     /// Names the window for assistive technologies (its title, already localised).
@@ -1512,6 +1528,7 @@ impl<M: 'static> Ui<M> {
             close_dialog: false,
             choices: None,
             caret_blink: self.caret_blink,
+            fine_modifier: self.fine_modifier,
         };
         let handled = widget.event(&mut cx, event);
         if let Some(request) = cx.window {

@@ -262,7 +262,7 @@ impl<M> Splitter<M> {
         self.drag = Some(Drag {
             pointer: at,
             fraction: self.effective(self.space),
-            fine: cx.modifiers().primary,
+            fine: cx.fine(),
             last: at,
         });
         cx.request_record();
@@ -273,7 +273,7 @@ impl<M> Splitter<M> {
     /// speed, re-anchored when the modifier changes (V3).
     fn drag_to(&mut self, cx: &mut EventCx<'_, M>, mut drag: Drag, point: Point) {
         let at = self.along(point);
-        let fine = cx.modifiers().primary;
+        let fine = cx.fine();
         if fine != drag.fine {
             drag = Drag {
                 pointer: drag.last,
@@ -464,10 +464,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Splitter<M> {
             WidgetEvent::Key {
                 key: Key::Named(key),
                 state: ButtonState::Pressed,
-                modifiers,
                 ..
             } if self.focused => {
-                let notch = Self::notch(modifiers.primary);
+                let notch = Self::notch(cx.fine());
                 let (low, high) = self.limits(self.space);
                 let current = self.effective(self.space);
                 let target = match key {

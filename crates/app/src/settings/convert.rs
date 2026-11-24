@@ -25,8 +25,8 @@ use orchestra_io::settings::{
     ThemeOverride,
 };
 use orchestra_ui::{
-    BuiltInTheme, ColorToken, CustomTheme, Density, Family, FamilyToken, LoadWarning, Override,
-    Registry, ShapeToken, Shortcut, ShortcutTextError, SizeToken, ThemeMode, ThemePair,
+    BuiltInTheme, ColorToken, CustomTheme, Density, Family, FamilyToken, FineModifier, LoadWarning,
+    Override, Registry, ShapeToken, Shortcut, ShortcutTextError, SizeToken, ThemeMode, ThemePair,
 };
 
 /// A setting the interface could not use as written. Logged, never shown as an error (DG6).
@@ -225,6 +225,26 @@ pub const fn mode_to_settings(mode: ThemeMode) -> Mode {
         ThemeMode::System => Mode::System,
         ThemeMode::Light => Mode::Light,
         ThemeMode::Dark => Mode::Dark,
+    }
+}
+
+/// The modifier of fine adjustment the settings choose (ADR-0046 V3, DG9, F2.12a4b1).
+#[must_use]
+pub const fn fine_modifier_from_settings(fine: file::FineModifier) -> FineModifier {
+    match fine {
+        file::FineModifier::Primary => FineModifier::Primary,
+        file::FineModifier::Shift => FineModifier::Shift,
+        file::FineModifier::Alt => FineModifier::Alt,
+    }
+}
+
+/// The interface's modifier of fine adjustment as the file's.
+#[must_use]
+pub const fn fine_modifier_to_settings(fine: FineModifier) -> file::FineModifier {
+    match fine {
+        FineModifier::Primary => file::FineModifier::Primary,
+        FineModifier::Shift => file::FineModifier::Shift,
+        FineModifier::Alt => file::FineModifier::Alt,
     }
 }
 

@@ -165,3 +165,21 @@ theme-forest = Foresta
 theme-lagoon = Laguna
 theme-nocturne = Notturno
 theme-snow = Neve
+
+## The Preferences' Language and Keyboard sections (F2.12a4b1; glossary: language, keyboard,
+## system_language, fine_adjustment, language_names). The languages' names are each written in
+## its own language, the same in every catalogue (owner's choice 1 of F2.12a4b1). Until F2.13 a
+## new language applies at the next start, which the note beside the choice says.
+
+prefs-section-language = Lingua
+prefs-section-keyboard = Tastiera
+prefs-language = Lingua
+prefs-language-system = Lingua del sistema
+prefs-language-restart = Vale dal prossimo avvio di { app-name }.
+prefs-fine-modifier = Regolazione fine
+language-en-us = English (US)
+language-en-gb = English (UK)
+language-it = Italiano
+language-fr = Français
+language-de = Deutsch
+language-es = Español
