@@ -47,8 +47,11 @@ use orchestra_ui::{
 
 use crate::about::{AboutTexts, about_dialog};
 use crate::actions::{self, ActionIds, ActionTexts};
-use crate::preferences::{self, Effect, PreferencesMessage, PreferencesTexts};
+use crate::preferences::{self, Effect, PreferencesMessage, PreferencesTexts, PreferencesView};
 use crate::settings::SettingsStore;
+use crate::settings::convert::{
+    SettingsProblem, apply_settings_shortcuts, fine_modifier_from_settings,
+};
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +115,8 @@ impl DemoTexts {
     /// # Errors
     /// The localizer's error if a message is missing (the catalogues' parity tests prevent it).
     pub fn new(localizer: &Localizer) -> Result<Self, I18nError> {
+        // The actions' texts first: the Preferences write the modifiers' names with their keys.
+        let actions = actions::action_texts(localizer)?;
         Ok(Self {
             title: localizer.format("playback-title", None)?,
             metronome: localizer.format("playback-metronome", None)?,
@@ -121,7 +126,7 @@ impl DemoTexts {
             track_name_placeholder: localizer.format("playback-track-name-placeholder", None)?,
             restore_defaults: localizer.format("dialog-restore-defaults", None)?,
             ok: localizer.format("dialog-ok", None)?,
-            actions: actions::action_texts(localizer)?,
+            actions: actions.clone(),
             system: actions::system_texts(localizer)?,
             window_buttons: WindowButtonNames {
                 close: localizer.format("window-close", None)?,
@@ -130,7 +135,7 @@ impl DemoTexts {
                 minimize: localizer.format("window-minimize", None)?,
             },
             about: AboutTexts::new(localizer)?,
-            preferences: PreferencesTexts::new(localizer)?,
+            preferences: PreferencesTexts::new(localizer, Platform::CURRENT, actions.keys())?,
         })
     }
 }
@@ -201,8 +206,8 @@ pub struct Demo {
     about: AboutTexts,
     /// The Preferences' texts, for `edit.preferences` (F2.12a4a).
     preferences_texts: PreferencesTexts,
-    /// The open Preferences' panel, while they are open.
-    preferences: Option<WidgetId>,
+    /// The open Preferences, while they are open.
+    preferences: Option<PreferencesView>,
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
@@ -378,11 +383,23 @@ impl Demo {
     }
 
     /// Hands the program's settings store in (ADR-0050 DG6, F2.12a4a): the Preferences change
-    /// it, and the window wakes to write it ([`WindowApp::next_wakeup`]). Its cursor blink applies
-    /// at once; its theme was given to the window when it opened.
-    pub fn attach_settings(&mut self, store: SettingsStore) {
-        self.ui.set_caret_blink(store.settings().caret_blink);
+    /// it, and the window wakes to write it ([`WindowApp::next_wakeup`]). What it holds applies at
+    /// once (F2.12a4b1): the cursor's blink, the modifier of fine adjustment and the user's
+    /// shortcuts (ADR-0048 AM7; the menus and their shortcuts' texts follow the registry). Its
+    /// theme was given to the window when it opened, its language to the texts before this.
+    /// Answers what in the settings could not be used (a shortcut that cannot be read, a conflict),
+    /// for the program to report (choice S4 of F2.12a2: the standard error, no log yet).
+    pub fn attach_settings(&mut self, store: SettingsStore) -> Vec<SettingsProblem> {
+        let settings = store.settings();
+        self.ui.set_caret_blink(settings.caret_blink);
+        self.ui
+            .set_fine_modifier(fine_modifier_from_settings(settings.fine_modifier));
+        let mut problems = Vec::new();
+        if let Some(registry) = self.ui.actions_mut() {
+            apply_settings_shortcuts(&settings.shortcuts, registry, &mut problems);
+        }
         self.settings = store;
+        problems
     }
 
     /// Takes the settings store back (at exit, to close it: `SettingsStore::close`), leaving
@@ -402,8 +419,8 @@ impl Demo {
 
     /// The open Preferences' panel, while they are open.
     #[must_use]
-    pub const fn preferences(&self) -> Option<WidgetId> {
-        self.preferences
+    pub fn preferences(&self) -> Option<WidgetId> {
+        self.preferences.map(|view| view.panel)
     }
 
     /// A change in the Preferences (DG8): written into the settings (the store writes them half a
@@ -431,6 +448,21 @@ impl Demo {
                 self.ui.frame(list);
             }
             Effect::CaretBlink(on) => self.ui.set_caret_blink(on),
+            Effect::FineModifier(fine) => self.ui.set_fine_modifier(fine),
+            Effect::Section(section) => {
+                if let Some(view) = self.preferences {
+                    // Fails only if the interface's own tree is inconsistent: the pane then keeps
+                    // what it showed.
+                    let _ = preferences::show_section(
+                        &mut self.ui,
+                        view,
+                        section,
+                        &self.preferences_texts,
+                        self.settings.settings(),
+                        list,
+                    );
+                }
+            }
         }
     }
 

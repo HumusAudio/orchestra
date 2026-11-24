@@ -713,6 +713,47 @@ fn the_wheel_moves_a_slider_under_the_pointer() {
     assert_eq!(ui.take_messages().count(), 0);
 }
 
+/// The modifier of fine adjustment is the user's choice (ADR-0046 V3, F2.12a4b1): with Shift
+/// chosen, Shift+wheel and Shift+arrow move one step (and the primary modifier no longer does);
+/// with Alt, Alt does.
+#[test]
+fn the_fine_modifier_is_the_users_choice() {
+    let (mut ui, id, mut list) =
+        single(orchestra_ui::Slider::new(0.0, 100.0, 1.0, 50.0, Set::Value));
+    let r = ui.rect(id).unwrap();
+    ui.input(
+        &InputEvent::PointerMoved {
+            position: Point::new(f32::midpoint(r.x0, r.x1), f32::midpoint(r.y0, r.y1)),
+        },
+        &mut list,
+    );
+    ui.set_fine_modifier(orchestra_ui::FineModifier::Shift);
+    let shift = Modifiers {
+        shift: true,
+        ..Modifiers::default()
+    };
+    // Shift+wheel now adjusts finely instead of leaving the wheel to the area around (V5).
+    hold(&mut ui, &mut list, shift);
+    wheel(&mut ui, &mut list, notches(1.0));
+    assert_eq!(value_of(&ui, id), 51.0);
+    // The primary modifier is no longer fine: the coarse step.
+    hold(&mut ui, &mut list, PRIMARY);
+    wheel(&mut ui, &mut list, notches(1.0));
+    assert_eq!(value_of(&ui, id), 53.0);
+    // Alt chosen: Alt+wheel is fine.
+    ui.set_fine_modifier(orchestra_ui::FineModifier::Alt);
+    hold(
+        &mut ui,
+        &mut list,
+        Modifiers {
+            alt: true,
+            ..Modifiers::default()
+        },
+    );
+    wheel(&mut ui, &mut list, notches(-1.0));
+    assert_eq!(value_of(&ui, id), 52.0);
+}
+
 /// The coarse step is at least one step, and rounded to whole steps.
 #[test]
 fn the_coarse_step_is_whole_steps() {

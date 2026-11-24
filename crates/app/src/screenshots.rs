@@ -183,7 +183,60 @@ pub const SCENES: &[Scene] = &[
         height: 600.0,
         record: record_preferences_dialog,
     },
+    Scene {
+        name: "preferences-language",
+        width: 960.0,
+        height: 600.0,
+        record: record_preferences_language,
+    },
+    Scene {
+        name: "preferences-keyboard",
+        width: 960.0,
+        height: 600.0,
+        record: record_preferences_keyboard,
+    },
 ];
+
+/// The Preferences open on their section number `down` (F2.12a4b1): opened as their menu item
+/// opens them, then Down pressed `down` times in the list of sections, which has the focus.
+fn record_preferences_section(
+    bounds: Rect,
+    list: &mut DisplayList,
+    context: &SceneContext,
+    down: usize,
+) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    if let Some(ids) = demo.actions() {
+        demo.run_action(ids.preferences, list);
+    }
+    for _ in 0..down {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            demo.input(
+                &InputEvent::Key {
+                    key: Key::Named(NamedKey::ArrowDown),
+                    physical: orchestra_ui::PhysicalKey::Other,
+                    state,
+                    repeat: false,
+                    modifiers: Modifiers::default(),
+                },
+                list,
+            );
+        }
+    }
+}
+
+/// The Preferences' Language section (F2.12a4b1): the drop-down on *System language* and the
+/// note that a new language applies at the next start.
+fn record_preferences_language(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    record_preferences_section(bounds, list, context, 1);
+}
+
+/// The Preferences' Keyboard section (F2.12a4b1): the modifier of fine adjustment, as Linux
+/// names the keys (the scenes are rendered on Linux).
+fn record_preferences_keyboard(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    record_preferences_section(bounds, list, context, 2);
+}
 
 /// The demonstration window with the Preferences open (F2.12a4a, ADR-0050 DG8–DG9), as their menu
 /// item opens them, in the window's default size: the list of sections (Appearance), the theme's

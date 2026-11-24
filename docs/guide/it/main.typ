@@ -13,3 +13,4 @@
 )
 
 #include "chapters/01-introduction.typ"
+#include "chapters/02-preferences.typ"

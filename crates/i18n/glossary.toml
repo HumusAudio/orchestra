@@ -63,6 +63,7 @@ gtk-about = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalog
 gnome-settings = "https://gitlab.gnome.org/GNOME/gnome-control-center/-/tree/main/po — GNOME Settings' catalogues (it, fr, de, es, en_GB): the Appearance panel ('Appearance', 'Style')"
 firefox-appearance = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/preferences/preferences.ftl: the appearance choices of Firefox's settings (System, Light, Dark) in it, fr, de, es-ES, en-GB"
 musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the Appearance page of MuseScore Studio's Preferences ('Appearance', 'Theme', 'Follow system theme')"
+musescore-preferences = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: MuseScore Studio's Preferences ('Language', 'Keyboard', 'Shortcuts', 'Restart required')"
 
 # ================================================================================================
 # Notation
@@ -1721,4 +1722,69 @@ de = "Absolut, Graphit, Signal, Pergament, Schiefer, Studio, Wald, Lagune, Noctu
 es = "Absoluto, Grafito, Señal, Pergamino, Pizarra, Estudio, Bosque, Laguna, Nocturno, Nieve"
 sources = ["wikipedia"]
 note = """The names of the ten built-in theme pairs of ADR-0037 T1 (theme-absolute … theme-snow), owner's choice 8 of F2.12a4a, approved 2026-11-24: translated where they are common words, 'Studio' kept as the loanword it is in it, fr and de (es 'Estudio'); 'Nocturne' is the musical genre's name, kept in fr and de, 'Notturno' and 'Nocturno' in it and es. The identifiers stay English in the settings file."""
+review = false
+
+[[term]]
+id = "language"
+category = "general"
+en-US = "language"
+en-GB = "language"
+it = "lingua"
+fr = "langue"
+de = "Sprache"
+es = "idioma"
+sources = ["musescore-preferences", "gnome-settings"]
+note = """The Preferences' Language section and its label (ADR-0050 DG9, F2.12a4b1). MuseScore's Preferences and GNOME Settings agree. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "keyboard"
+category = "general"
+en-US = "keyboard"
+en-GB = "keyboard"
+it = "tastiera"
+fr = "clavier"
+de = "Tastatur"
+es = "teclado"
+sources = ["musescore-preferences", "gnome-settings"]
+note = """The Preferences' Keyboard section (F2.12a4b1): the computer's keyboard. de: MuseScore's catalogue translates 'Keyboard' as 'Tasteninstrument' (the instrument, another context); GNOME Settings' 'Tastatur' is the computer's. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "system_language"
+category = "general"
+en-US = "system language"
+en-GB = "system language"
+it = "lingua del sistema"
+fr = "langue du système"
+de = "Systemsprache"
+es = "idioma del sistema"
+sources = ["gnome-settings"]
+note = """The first value of the language's drop-down: follow the system's language (F2.13 detects it; until then en-US). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "fine_adjustment"
+category = "general"
+en-US = "fine adjustment"
+en-GB = "fine adjustment"
+it = "regolazione fine"
+fr = "réglage fin"
+de = "Feineinstellung"
+es = "ajuste fino"
+sources = ["gnome-settings"]
+note = """The label of the choice of the modifier that makes value controls move by one step and drag a tenth as fast (ADR-0046 V3, F2.12a4b1); its values are the keys' names (key_ctrl, key_shift, key_alt) or Apple's symbols on macOS. The usual technical phrase in each language (audio software: 'Feineinstellung', 'réglage fin', 'ajuste fino'). Research 2026-11-24."""
+review = true
+
+[[term]]
+id = "language_names"
+category = "general"
+en-US = "English (US), English (UK), Italiano, Français, Deutsch, Español"
+en-GB = "as en-US"
+it = "as en-US"
+fr = "as en-US"
+de = "as en-US"
+es = "as en-US"
+sources = ["musescore-preferences"]
+note = """The six interface languages, each named in its own language and identical in every catalogue (owner's choice 1 of F2.12a4b1), as language pickers do (MuseScore, Firefox, GNOME) so a user lost in a foreign language finds their own. The British variant is 'English (UK)', the name people recognise."""
 review = false

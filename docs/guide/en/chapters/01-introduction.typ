@@ -180,21 +180,6 @@ Enter or Escape to go back to work.
   [The About Orchestra dialog: the logo, the version, the licences, the source code.],
 )
 
-== Preferences
-
-Open the Preferences with *Edit → Preferences…* or with Ctrl+, (on macOS with *Orchestra →
-Settings…* or ⌘,). On the left is the list of sections, on the right the settings of the chosen
-section. Every change applies at once and is remembered the next time you open Orchestra: there is
-nothing to confirm. Close the window with *Close*, with Escape or with Ctrl+, again.
-
-For now there is the *Appearance* section:
-- *Theme* chooses one of Orchestra's ten colour pairs, each with a light and a dark half;
-- *Mode* chooses which half to use: *System* follows your system's light or dark setting, *Light*
-  and *Dark* fix it;
-- *Blinking cursor* turns off the blinking of the cursor in text boxes.
-
-The Language, Playback and Keyboard sections will come in the next steps.
-
 == Status of this guide
 
 Orchestra is at a very early stage of development. This preview edition explains the ideas

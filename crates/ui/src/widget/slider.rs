@@ -242,7 +242,7 @@ impl<M> Slider<M> {
             self.change(cx, self.default);
             return;
         }
-        let fine = cx.modifiers().primary;
+        let fine = cx.fine();
         if !fine {
             // A plain press jumps to the pointer; a fine one keeps the value (V3).
             self.change(cx, self.value_at(rect, control, x));
@@ -263,7 +263,7 @@ impl<M> Slider<M> {
         let Some(mut drag) = self.drag else {
             return;
         };
-        let fine = cx.modifiers().primary;
+        let fine = cx.fine();
         if fine != drag.fine {
             // The modifier changed: anchor again where the pointer was at the last move, at the
             // value reached, so the new speed applies from there on (no jump, and this move
@@ -287,13 +287,15 @@ impl<M> Slider<M> {
     /// with Shift it is left to the scroll area around (V5).
     fn wheel(&mut self, cx: &mut EventCx<'_, M>, delta: WheelDelta) -> Handled {
         let modifiers = cx.modifiers();
-        if modifiers.shift {
-            // Shift+wheel scrolls the area around the slider (V5).
+        // Shift+wheel scrolls the area around the slider (V5), unless Shift is the modifier of
+        // fine adjustment the user chose (F2.12a4b1): then it adjusts finely, and the area scrolls
+        // with the wheel outside the slider.
+        if modifiers.shift && cx.fine_modifier() != crate::FineModifier::Shift {
             return Handled::No;
         }
         let notches = self.notches(delta);
         if notches != 0.0 {
-            let target = self.value + f64::from(notches) * self.notch(modifiers.primary);
+            let target = self.value + f64::from(notches) * self.notch(cx.fine());
             self.change(cx, target);
         }
         // Handled even at the ends of the range: the area around must not scroll under a slider
@@ -433,10 +435,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for Slider<M> {
             WidgetEvent::Key {
                 key: Key::Named(key),
                 state: ButtonState::Pressed,
-                modifiers,
                 ..
             } => {
-                let notch = self.notch(modifiers.primary);
+                let notch = self.notch(cx.fine());
                 let target = match key {
                     NamedKey::ArrowRight | NamedKey::ArrowUp => self.value + notch,
                     NamedKey::ArrowLeft | NamedKey::ArrowDown => self.value - notch,

@@ -412,3 +412,25 @@ choices 1–8 as recommended:
 
 Measured: opening the Preferences over the benchmark panel about 10.4 M instructions, opening the
 drop-down's list about 10.3 M, both within the frame's budget.
+
+## Precisions of the implementation (F2.12a4b1, owner's choices of 2026-11-24)
+
+The owner split F2.12a4b in F2.12a4b1 (Language, Keyboard, the saved settings at start-up, the
+guides' chapter) and F2.12a4b2 (Playback: the values of ADR-0027 as a configuration of the
+`playback` crate), and approved choices 1–6 as recommended:
+
+- **1, the languages' names** are in the six catalogues, each written in its own language and the
+  same in all (`language-en-us` … `language-es`), after *System language*; a drop-down, with the
+  muted note that a new language applies at the next start (until F2.13). `main.rs` reads the
+  language from the settings for the texts.
+- **2, the Keyboard section** holds the modifier of fine adjustment only (a group of three options,
+  the keys named as the platform writes them: the catalogue's names, Apple's symbols on macOS);
+  the shortcut editor joins it with F2.12c.
+- **3, Shift as the fine modifier**: Shift+wheel over a value control then adjusts finely; the area
+  around scrolls with the wheel outside the control (a precision of ADR-0046 V5).
+- **4, at start-up** the settings' blink, fine modifier and shortcuts apply when the program hands
+  the store to its view; what cannot be used is reported on the standard error (S4 of F2.12a2).
+- **5, the guides** have a chapter *Preferences* with placeholders for the pictures (ADR-0041 S7:
+  the demonstration's window stays out of the guides); the scenes `preferences-dialog`,
+  `preferences-language` and `preferences-keyboard` exist for when the pictures come in.
+- **6**: the theme's change at run time (F2.12a4a) was checked by hand by the owner on 2026-11-24.

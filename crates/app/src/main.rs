@@ -28,15 +28,15 @@
 
 use std::process::ExitCode;
 
-use orchestra_app::{Demo, DemoTexts, SettingsStore, theme_from_settings};
+use orchestra_app::{Demo, DemoTexts, SettingsStore, language_from_settings, theme_from_settings};
 use orchestra_i18n::{Locale, Localizer};
 use orchestra_ui::WindowOptions;
 
 /// Program entry point: opens the demonstration window of ADR-0040 W8 until the real interface
 /// exists.
 ///
-/// The title is the localised application name (CLAUDE.md §7; the language is fixed to en-US
-/// until F2.13 detects the system's). The theme comes from the **settings file** (ADR-0050 DG6,
+/// The title is the localised application name (CLAUDE.md §7), in the language of the settings
+/// file (F2.12a4b1; *System language* is en-US until F2.13 detects the system's). The theme comes from the **settings file** (ADR-0050 DG6,
 /// F2.12a2): the pair (or custom theme) and the mode saved there, Studio in the *System* mode by
 /// default; in *System* the window reads the system's light/dark preference and follows its
 /// changes (ADR-0038). What the settings could not use is written to the standard error (choice
@@ -49,10 +49,14 @@ fn main() -> ExitCode {
     }
     let mut problems = Vec::new();
     let (pair, mode) = theme_from_settings(&store.settings().theme, &mut problems);
+    // The language of the settings (F2.12a4b1), applied from the start; the system's language is
+    // en-US until F2.13 detects it.
+    let locale =
+        language_from_settings(&store.settings().language, &mut problems).unwrap_or(Locale::EnUs);
     for problem in &problems {
         eprintln!("orchestra: settings: {problem}");
     }
-    let texts = Localizer::new(Locale::EnUs).and_then(|localizer| {
+    let texts = Localizer::new(locale).and_then(|localizer| {
         Ok((
             localizer.format("app-name", None)?,
             DemoTexts::new(&localizer)?,
@@ -109,7 +113,9 @@ fn main() -> ExitCode {
         .set_button_order(orchestra_ui::system_button_order());
     // The settings go into the demonstration: the Preferences change them and the window wakes to
     // write them (F2.12a4a); they come back at exit to be closed.
-    demo.attach_settings(store);
+    for problem in demo.attach_settings(store) {
+        eprintln!("orchestra: settings: {problem}");
+    }
     let result = orchestra_ui::run(&mut demo, options);
     let store = demo.take_settings();
     // What is still waiting is written, and the writer thread is waited for (DG6).

@@ -269,7 +269,34 @@ pub struct Modifiers {
     pub alt: bool,
 }
 
+/// The modifier of fine adjustment (ADR-0046 V3, ADR-0050 DG9; the Preferences' choice,
+/// F2.12a4b1): held, a value control moves one step instead of the coarse step and drags a tenth
+/// as fast. The primary modifier by default, as V3 decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FineModifier {
+    /// Ctrl on Linux and Windows, ⌘ on macOS.
+    #[default]
+    Primary,
+    /// Shift. Shift+wheel over a value control then adjusts finely instead of scrolling the area
+    /// around it (a precision of ADR-0046 V5, F2.12a4b1): the area scrolls with the wheel outside
+    /// the control.
+    Shift,
+    /// Alt on Linux and Windows, ⌥ Option on macOS.
+    Alt,
+}
+
 impl Modifiers {
+    /// `true` while `fine` is held: the fine adjustment (ADR-0046 V3). Other keys held with it do
+    /// not matter, as before the choice existed.
+    #[must_use]
+    pub const fn holds(self, fine: FineModifier) -> bool {
+        match fine {
+            FineModifier::Primary => self.primary,
+            FineModifier::Shift => self.shift,
+            FineModifier::Alt => self.alt,
+        }
+    }
+
     /// The modifiers from `winit`'s state, with the primary modifier of the platform this program
     /// was built for.
     #[must_use]

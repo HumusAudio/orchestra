@@ -116,3 +116,11 @@ its focus ring is drawn again too); a drag move stays at 0.22 M.
 - **V5 in a vertical scroll area**: Shift turns a vertical wheel movement into a horizontal one only
   in an area that scrolls horizontally. In an area that only scrolls vertically, Shift+wheel stays
   vertical, so it scrolls the panel when the pointer rests on a control, which is V5's purpose.
+
+## Precisions of F2.12a4b1 (owner, 2026-11-24)
+
+- **The fine modifier is the user's choice** (ADR-0050 DG9): *Primary* (the default, V3),
+  *Shift* or *Alt*, read by every value control through the interface (`Ui::set_fine_modifier`).
+- **V5 with Shift as the fine modifier**: Shift+wheel over a value control adjusts it finely
+  instead of leaving the wheel to the scroll area around; that area still scrolls with the wheel
+  outside the control.

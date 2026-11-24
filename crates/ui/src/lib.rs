@@ -96,7 +96,7 @@ pub use platform::menu::{SystemCommand, SystemItem, SystemMenu, SystemTexts};
 pub use platform::clipboard::{ClipboardError, ClipboardSource, MemoryClipboard};
 
 // Actions and shortcuts (ADR-0048, F2.11d1).
-pub use action::label::{KeyName, KeyNames};
+pub use action::label::{KeyName, KeyNames, modifier_label};
 pub use action::registry::{
     ActionId, ActionSpec, ActionState, Context, Defaults, EditRole, LoadWarning, Registry,
     RegistryError,
@@ -136,8 +136,8 @@ pub use widget::tree::{
 };
 pub use widget::ui::{TextInput, Ui, UiError};
 pub use window::input::{
-    ButtonState, ImeEvent, InputEvent, Key, Modifiers, NamedKey, PhysicalKey, PointerButton,
-    WheelDelta, WindowState,
+    ButtonState, FineModifier, ImeEvent, InputEvent, Key, Modifiers, NamedKey, PhysicalKey,
+    PointerButton, WheelDelta, WindowState,
 };
 pub use window::pointer::PointerShape;
 pub use window::{ResizeEdge, WindowApp, WindowError, WindowOptions, WindowRequest, run};
