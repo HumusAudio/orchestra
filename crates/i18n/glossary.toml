@@ -819,6 +819,32 @@ note = "File menu command (file.save-as). it: both sources say 'Salva come' (Mic
 review = true
 
 [[term]]
+id = "project"
+category = "daw"
+en-US = "project"
+en-GB = "project"
+it = "progetto"
+fr = "projet"
+de = "Projekt"
+es = "proyecto"
+sources = ["musescore-ui", "logic-guide", "cubase-it"]
+note = "What Orchestra saves in a .orchestra file (ADR-0029): score, tracks and media together, as a DAW project. MuseScore Studio's 'Project properties' gives 'progetto' (it), 'Projekt' (de), 'proyecto' (es) and en-GB as en-US; its fr catalogue writes 'partition' there, because MuseScore's object is the score, not ours. Logic Pro's guide in fr-fr, de-de, es-es and Cubase's Italian manual use 'projet', 'Projekt', 'proyecto', 'progetto' for a DAW's project. Already used in prefs-playback-intro (F2.12a4b2); entered here with the file choosers (F2.12a5a). The filter's name puts the program's name with it: 'Progetto Orchestra', 'Projet Orchestra', 'Orchestra-Projekt' (the compound, as MuseScore's 'MuseScore-Datei'), 'Proyecto de Orchestra' (as 'Archivo de MuseScore'). Research 2026-11-24 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "untitled"
+category = "general"
+en-US = "Untitled"
+en-GB = "Untitled"
+it = "Senza titolo"
+fr = "Sans titre"
+de = "Unbenannt"
+es = "Sin título"
+sources = ["musescore-ui"]
+note = "The name of a project never saved (ADR-0050 DG4–DG5: Save as proposes it, the window title shows it). MuseScore Studio's 'Untitled' gives exactly these five translations, and en-GB as en-US. Capitalised: it stands alone as a name. Not 'Unnamed' (playback-track-name-placeholder: a track without a name, 'Senza nome'), which is a placeholder, not a document's name. Research 2026-11-24 on the shipped catalogues."
+review = false
+
+[[term]]
 id = "quit"
 category = "general"
 en-US = "Quit"

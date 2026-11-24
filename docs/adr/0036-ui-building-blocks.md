@@ -4,6 +4,8 @@
   window, text and file dialog work; B6 completed with the plan for our own title bar).
   **B10 answered by ADR-0042** (2026-11-11): no GPU path for now. (Its addition of `vello_cpu`
   to B1 was reverted by ADR-0043: the blocks are unchanged.)
+  **`rfd` is 0.18.0 by ADR-0050 DG4** (measured in F2.12a5a, its precisions there), with the
+  `wayland` feature besides `xdg-portal`, so the chooser has our window as parent on Wayland.
 - **Date:** 2026-11-09
 - **Amends:** ADR-0012, the table "Building block (to be confirmed with an ADR amendment when
   first added)". The decision of ADR-0012 (no toolkit, our own interface on low-level blocks,
@@ -85,7 +87,8 @@ muda = { version = "0.21.2", default-features = false }
 - `skrifa`: no `autohint_shaping`. Autohinting is not used: we draw unhinted outlines, the same
   on every platform (ADR-0006).
 - `accesskit_winit`: the `async-io` executor, not `tokio`.
-- `rfd`: the XDG portal only, never GTK.
+- `rfd`: the XDG portal only, never GTK. (From F2.12a5a also `wayland`, for the chooser's parent
+  window on Wayland: ADR-0050's precisions.)
 
 ### B3 — `skrifa` only, `ttf-parser` removed
 

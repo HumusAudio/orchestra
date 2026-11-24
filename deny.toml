@@ -109,6 +109,9 @@ skip = [
     # arboard uses objc2-app-kit 0.3 on macOS; winit 0.30 and accesskit_macos are still on 0.2
     # (with objc2 0.5, already listed above). Exit: winit 0.31 and the AccessKit that follows it.
     { crate = "objc2-app-kit@0.2.2", reason = "winit 0.30 and accesskit_macos, next to arboard's 0.3 (macOS); exit: winit 0.31 (ADR-0036 B7)" },
+    # rfd 0.18 (the file choosers, ADR-0050 DG4, F2.12a5a) uses block2 0.6 on macOS for AppKit's
+    # completion blocks; winit 0.30's objc2-foundation 0.2 is still on block2 0.5. Same exit.
+    { crate = "block2@0.5.1", reason = "objc2-foundation 0.2 of winit 0.30, next to rfd's 0.6 (macOS); exit: winit 0.31 (ADR-0036 B7)" },
 ]
 skip-tree = []
 deny = []

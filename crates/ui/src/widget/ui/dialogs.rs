@@ -258,10 +258,12 @@ impl<M: 'static> Ui<M> {
         Ok(())
     }
 
-    /// The open dialogs' panel IDs, lowest first.
+    /// The open dialogs' panel IDs, lowest first. The layer that blocks the interface while a
+    /// file chooser is open ([`Ui::choose_file`]) is not one of them: it has no panel to show.
     pub fn dialogs(&self) -> impl Iterator<Item = WidgetId> + '_ {
         self.dialogs
             .iter()
+            .filter(|dialog| Some(dialog.root) != self.file_layer)
             .filter_map(|dialog| self.id_of(dialog.panel))
     }
 
@@ -337,7 +339,7 @@ impl<M: 'static> Ui<M> {
 
     /// Inserts a root with `panel` in it as a new layer, above the open menus' layers, and
     /// answers the two slots. Not yet modal: [`Ui::open_pushed_dialog`] does the rest.
-    fn push_dialog(&mut self, panel: Box<dyn Widget<M>>) -> (usize, usize) {
+    pub(super) fn push_dialog(&mut self, panel: Box<dyn Widget<M>>) -> (usize, usize) {
         let root = self
             .tree
             .insert(None, Box::new(DialogRoot), LayoutProps::default());
@@ -359,7 +361,12 @@ impl<M: 'static> Ui<M> {
 
     /// Makes the pushed dialog `root` modal: the menus close, the tooltip hides, the focus moves
     /// to `focus` (or to the first focusable widget inside), and a frame runs.
-    fn open_pushed_dialog(&mut self, root: usize, focus: Option<usize>, list: &mut DisplayList) {
+    pub(super) fn open_pushed_dialog(
+        &mut self,
+        root: usize,
+        focus: Option<usize>,
+        list: &mut DisplayList,
+    ) {
         self.close_menus_from(0, list, true);
         self.hide_tooltip();
         self.tooltip.pending = None;
@@ -381,7 +388,7 @@ impl<M: 'static> Ui<M> {
 
     /// Closes the dialogs from `position` upwards, topmost first: the menus above them close too,
     /// each dialog's focus goes back, and its subtree and segments are removed.
-    fn close_dialogs_from(&mut self, position: usize, list: &mut DisplayList) {
+    pub(super) fn close_dialogs_from(&mut self, position: usize, list: &mut DisplayList) {
         self.close_menus_from(0, list, true);
         while self.dialogs.len() > position {
             let Some(dialog) = self.dialogs.pop() else {

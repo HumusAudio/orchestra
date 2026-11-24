@@ -135,6 +135,7 @@ use super::popup::{self, Popup, PopupSide};
 
 mod bar;
 mod dialogs;
+mod files;
 mod menus;
 mod system;
 mod title;
@@ -236,6 +237,13 @@ pub struct Ui<M> {
     /// Widgets that asked to close their dialog during this input, carried out at the next frame
     /// (`EventCx::close_dialog`). Reused.
     dialogs_to_close: Vec<usize>,
+    /// The file chooser the application asked for, until the window takes it
+    /// ([`Ui::take_file_request`], ADR-0050 DG4, F2.12a5a; the module `files`).
+    file_request: Option<crate::FileRequest>,
+    /// The root slot of the layer that blocks the interface while a file chooser is open, from
+    /// [`Ui::choose_file`] to [`Ui::file_chosen`]; one of the [`Ui::dialogs`]' layers, without a
+    /// panel to show.
+    file_layer: Option<usize>,
     /// Lists of values the widgets asked to open or close during this input, carried out at the
     /// next frame (`EventCx::open_choices`, F2.12a4a), with the asking widget's slot. Reused.
     choices_requested: Vec<(usize, ChoicesRequest)>,
@@ -382,6 +390,8 @@ impl<M: 'static> Ui<M> {
             next_layer: FIRST_MENU_LAYER,
             dialogs: Vec::new(),
             dialogs_to_close: Vec::new(),
+            file_request: None,
+            file_layer: None,
             choices_requested: Vec::new(),
             caret_blink: true,
             fine_modifier: crate::FineModifier::Primary,
@@ -503,6 +513,9 @@ impl<M: 'static> Ui<M> {
         // A removed dialog is no longer open (its root went).
         self.dialogs
             .retain(|dialog| tree.slot(dialog.root).is_some());
+        // The file chooser's blocking layer too, if it went with a dialog below it: the chooser's
+        // answer will then find no layer to remove (`Ui::file_chosen`).
+        self.file_layer = alive(self.file_layer, tree);
         if self.menus.is_empty() {
             self.next_layer = self.layer_floor();
         }
@@ -2144,7 +2157,12 @@ impl<M: 'static> Ui<M> {
         let mut update = empty_update(self.access_focus(), full);
         if full || self.access_window {
             // The open dialogs (their roots) and then the open menus, in their layers' order.
-            let dialogs = self.dialogs.iter().map(|dialog| dialog.root);
+            // The file chooser's blocking layer is no dialog for them: the system's chooser is.
+            let dialogs = self
+                .dialogs
+                .iter()
+                .map(|dialog| dialog.root)
+                .filter(|&root| Some(root) != self.file_layer);
             let menus = self.menus.iter().map(|menu| menu.root);
             let layers = dialogs.chain(menus).filter_map(|slot| self.id_of(slot));
             update

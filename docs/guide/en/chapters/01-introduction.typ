@@ -180,6 +180,26 @@ Enter or Escape to go back to work.
   [The About Orchestra dialog: the logo, the version, the licences, the source code.],
 )
 
+=== Choosing a file
+
+*File → Open…* (Ctrl+O, ⌘O on a Mac) and *File → Save as…* (Ctrl+Shift+S, ⇧⌘S) open your
+system's own window for choosing a file, the one every other program on your computer uses: the
+standard one on Windows and macOS, your desktop's on Linux (KDE's, GNOME's…). It shows only
+Orchestra projects (files ending in `.orchestra`); when you save a project for the first time it
+proposes the name *Untitled*.
+
+While that window is open, Orchestra waits for it: nothing in Orchestra's own window reacts, and
+it cannot be closed until you choose a file or cancel.
+
+#tip("Note")[
+  In this preview a chosen file is not opened or saved yet: that comes in the next version.
+]
+
+On Linux the window for choosing files comes from a service of the desktop, the *XDG desktop
+portal*. If your system has none, Orchestra tells you so instead of doing nothing: install the
+package `xdg-desktop-portal` together with the one for your desktop (for example
+`xdg-desktop-portal-kde` on KDE Plasma or `xdg-desktop-portal-gnome` on GNOME), then try again.
+
 == Status of this guide
 
 Orchestra is at a very early stage of development. This preview edition explains the ideas

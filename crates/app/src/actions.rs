@@ -9,11 +9,12 @@
 //! *About Orchestra* (F2.12a3b, ADR-0050 DG10), fifteen in all:
 //! - **working:** Quit and Full screen (they ask the window, [`orchestra_ui::WindowRequest`]),
 //!   About (it opens the About dialog, [`crate::about`]), Preferences (F2.12a4a,
-//!   [`crate::preferences`]), and the six editing actions on a focused text field (AM13: the
-//!   interface sends them to the field itself);
-//! - **registered but disabled** until what they do exists: New, Open, Save, Save as (the project
-//!   file in the interface), Help (the guides), and the editing actions outside a field (there is
-//!   no document view yet to undo in or select from).
+//!   [`crate::preferences`]), Open and Save as (F2.12a5a: they open the system's file chooser,
+//!   [`crate::files`]; the chosen path is used from F2.12a5b), and the six editing actions on a
+//!   focused text field (AM13: the interface sends them to the field itself);
+//! - **registered but disabled** until what they do exists: New and Save (the open project,
+//!   F2.12a5b), Help (the guides), and the editing actions outside a field (there is no document
+//!   view yet to undo in or select from).
 //!
 //! # Names (AM10)
 //! An action's name is the Fluent key of its menu item (`menu-edit-undo`), so the menus of
@@ -416,8 +417,16 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
     };
     // What does not exist yet is disabled (choice E). The editing actions are enabled by the
     // focused field itself when it has the focus (AM13); outside it there is nothing to edit.
+    let working = [
+        ids.quit,
+        ids.full_screen,
+        ids.about,
+        ids.preferences,
+        ids.open,
+        ids.save_as,
+    ];
     for id in ids.all() {
-        if id != ids.quit && id != ids.full_screen && id != ids.about && id != ids.preferences {
+        if !working.contains(&id) {
             registry.set_state(id, ActionState::DISABLED)?;
         }
     }

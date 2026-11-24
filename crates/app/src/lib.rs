@@ -36,6 +36,7 @@
 mod about;
 mod actions;
 mod demo;
+mod files;
 mod preferences;
 mod screenshots;
 mod settings;
@@ -46,6 +47,7 @@ pub use actions::{
     system_texts,
 };
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
+pub use files::{FileTexts, open_request, save_request, unavailable_dialog};
 pub use preferences::{
     Effect, FINE_MODIFIERS, MODES, PlaybackTexts, PreferencesMessage, PreferencesTexts,
     PreferencesView, SECTIONS, Section, apply as apply_preference, open_preferences,

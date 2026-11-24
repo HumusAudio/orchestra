@@ -22,6 +22,7 @@ use super::present::{CopyPlan, copy_region, copy_whole, softbuffer_rect};
 use super::{WindowApp, WindowError, WindowOptions, WindowRequest};
 use crate::draw::device::DeviceRegions;
 use crate::platform::appearance::{Reporter, SystemObservation, observe_system};
+use crate::platform::file_chooser::{FileChooser, system::SystemChooser};
 use crate::platform::menu::{SystemMenuHost, install as install_system_menu};
 use crate::{AppearanceWatch, CpuRenderer, DisplayList, Image, Point, Rect, Renderer};
 
@@ -92,6 +93,12 @@ pub(crate) struct Shell<A> {
     system_menu: Option<Box<dyn SystemMenuHost>>,
     /// The changed states the app hands on after a batch, reused from batch to batch.
     menu_updates: Vec<(crate::ActionId, crate::ActionState)>,
+    /// Who starts the system's file choosers (ADR-0050 DG4, F2.12a5a).
+    chooser: Box<dyn FileChooser>,
+    /// `true` from the start of a file chooser until its answer arrives: the window then starts
+    /// no other one and ignores the requests to close it (choice 4 of F2.12a5a; see
+    /// `crate::platform::file_chooser`).
+    choosing: bool,
 }
 
 impl<A: WindowApp> Shell<A> {
@@ -116,6 +123,8 @@ impl<A: WindowApp> Shell<A> {
             error: None,
             system_menu: None,
             menu_updates: Vec::new(),
+            chooser: Box::new(SystemChooser),
+            choosing: false,
         }
     }
 
@@ -420,7 +429,14 @@ impl<A: WindowApp> Shell<A> {
     fn apply_requests(&mut self, event_loop: &ActiveEventLoop) {
         while let Some(request) = self.app.take_window_request() {
             match request {
-                WindowRequest::Close => event_loop.exit(),
+                // Not while a file chooser is open (choice 4 of F2.12a5a): its answer would have
+                // nobody to go to. The interface's blocking layer keeps Quit from being chosen
+                // then anyway; this guards the other ways.
+                WindowRequest::Close => {
+                    if !self.choosing {
+                        event_loop.exit();
+                    }
+                }
                 WindowRequest::ToggleFullScreen => {
                     if let Some(open) = self.open.as_ref() {
                         // Borderless on the window's monitor (`None`): no change of video mode.
@@ -554,6 +570,34 @@ impl<A: WindowApp> Shell<A> {
         }
     }
 
+    /// Starts the file chooser the app asks for, if any (ADR-0050 DG4, F2.12a5a): with our window
+    /// as its parent, its answer sent back through the proxy as [`ShellEvent::FileChosen`]. One
+    /// at a time: a request while one is open is dropped (the app's blocking layer prevents it),
+    /// and so is one before the window exists (there is no parent, and no input could have asked
+    /// for it).
+    fn start_file_chooser(&mut self) {
+        let Some(request) = self.app.take_file_request() else {
+            return;
+        };
+        let Some(open) = self.open.as_ref() else {
+            return;
+        };
+        if self.choosing {
+            return;
+        }
+        self.choosing = true;
+        let proxy = self.proxy.clone();
+        self.chooser.start(
+            request,
+            &open.window,
+            Box::new(move |choice| {
+                // Fails only when the event loop has already ended (the program is closing):
+                // nobody is left to receive the path.
+                let _closed = proxy.send_event(ShellEvent::FileChosen(choice));
+            }),
+        );
+    }
+
     /// The scale in effect, 1 before the window exists.
     fn scale(&self) -> f64 {
         self.open.as_ref().map_or(1.0, |open| open.scale)
@@ -584,6 +628,9 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
     /// (a key that restarted the caret's blink) is in effect before the loop sleeps.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.sync_system_menu();
+        // After every batch, so a chooser asked by any event of it (a shortcut, a menu item, an
+        // assistive technology's action, the system's menu) starts before the loop sleeps.
+        self.start_file_chooser();
         let flow = self
             .app
             .next_wakeup()
@@ -627,7 +674,13 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
         }
         let scale = self.scale();
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            // Not while a file chooser is open (choice 4 of F2.12a5a; see `WindowRequest::Close`):
+            // Windows and macOS keep the chooser's parent from closing anyway.
+            WindowEvent::CloseRequested => {
+                if !self.choosing {
+                    event_loop.exit();
+                }
+            }
             WindowEvent::Resized(size) => {
                 if let Err(error) = self.resize(size) {
                     self.fail(event_loop, error);
@@ -734,23 +787,38 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
         }
     }
 
-    /// Our own events, sent through the proxy (ADR-0040 W3): today the system's preference.
+    /// Our own events, sent through the proxy (ADR-0040 W3): the system's preference, AccessKit's
+    /// requests, the system menu's actions, a file chooser's answer.
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellEvent) {
         match event {
             ShellEvent::SystemAppearance(system) => self.apply_system_appearance(system),
             ShellEvent::Access(event) => self.handle_access(event),
             ShellEvent::MenuAction(action) => {
                 self.app.run_action(action, &mut self.list);
-                self.sync_pointer();
-                self.sync_text_input();
-                self.apply_requests(event_loop);
-                if !self.list.damage().is_empty()
-                    && let Some(open) = self.open.as_ref()
-                {
-                    open.window.request_redraw();
-                    self.push_access(false);
-                }
+                self.after_app_event(event_loop);
             }
+            ShellEvent::FileChosen(choice) => {
+                self.choosing = false;
+                self.app.file_chosen(choice, &mut self.list);
+                self.after_app_event(event_loop);
+            }
+        }
+    }
+}
+
+impl<A: WindowApp> Shell<A> {
+    /// What follows an app's reaction to one of our own events (a system menu's action, a file
+    /// chooser's answer): the pointer and the input method follow what changed, the app's window
+    /// requests are carried out, and a frame is asked for if anything is damaged.
+    fn after_app_event(&mut self, event_loop: &ActiveEventLoop) {
+        self.sync_pointer();
+        self.sync_text_input();
+        self.apply_requests(event_loop);
+        if !self.list.damage().is_empty()
+            && let Some(open) = self.open.as_ref()
+        {
+            open.window.request_redraw();
+            self.push_access(false);
         }
     }
 }

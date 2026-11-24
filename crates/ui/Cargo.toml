@@ -26,6 +26,8 @@ accesskit.workspace = true
 accesskit_winit.workspace = true
 # The system clipboard, behind `platform::clipboard::ClipboardSource` (ADR-0047 TF12).
 arboard.workspace = true
+# The system's file choosers, behind `platform::file_chooser` (ADR-0050 DG4, F2.12a5a).
+rfd.workspace = true
 # The CPU backend of the drawing abstraction (ADR-0039 D9), on every platform.
 tiny-skia.workspace = true
 # The window, the event loop, input, and presenting pixels (ADR-0040), on every platform.

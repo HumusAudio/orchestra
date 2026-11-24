@@ -159,6 +159,25 @@ pub trait WindowApp {
     fn take_menu_updates(&mut self, out: &mut Vec<(crate::ActionId, crate::ActionState)>) {
         let _ = out;
     }
+
+    /// A file chooser the app wants opened (ADR-0050 DG4, F2.12a5a), usually
+    /// [`Ui::take_file_request`](crate::Ui::take_file_request). Asked after every batch of events;
+    /// `None` (the default) when there is none. The window starts one chooser at a time: a
+    /// request while one is open is dropped (the interface's blocking layer keeps it from
+    /// happening).
+    ///
+    /// # Cost
+    /// Called once per batch: answer from a stored slot, without allocating.
+    fn take_file_request(&mut self) -> Option<crate::FileRequest> {
+        None
+    }
+
+    /// The answer of the chooser started for the last request (F2.12a5a), re-recording what
+    /// changed: an app built on [`Ui`](crate::Ui) calls [`Ui::file_chosen`](crate::Ui::file_chosen)
+    /// to remove its blocking layer, then acts on the answer. Ignored by default.
+    fn file_chosen(&mut self, choice: crate::FileChoice, list: &mut DisplayList) {
+        let _ = (choice, list);
+    }
 }
 
 /// A borrowed app is an app ([`run`] borrows it): every method is forwarded unchanged.
@@ -213,6 +232,14 @@ impl<A: WindowApp + ?Sized> WindowApp for &mut A {
 
     fn take_menu_updates(&mut self, out: &mut Vec<(crate::ActionId, crate::ActionState)>) {
         (**self).take_menu_updates(out);
+    }
+
+    fn take_file_request(&mut self) -> Option<crate::FileRequest> {
+        (**self).take_file_request()
+    }
+
+    fn file_chosen(&mut self, choice: crate::FileChoice, list: &mut DisplayList) {
+        (**self).file_chosen(choice, list);
     }
 }
 

@@ -5903,6 +5903,116 @@ sconosciuti), `playback.rs` (i testi dei valori, i messaggi), e in `crates/app/t
 cursore mosso da una freccia, la sua etichetta e le impostazioni, poi *Ripristina predefiniti*.
 Scena degli screenshot `preferences-playback`.
 
+#### Le finestre di scelta dei file
+
+**Che cosa vede l'utente** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Apri…* (Ctrl+O, ⌘O) e *File
+→ Salva come…* (Ctrl+Maiusc+S, ⇧⌘S) aprono la finestra **del sistema** per scegliere un file: i
+dialoghi nativi su Windows e macOS (lì un foglio attaccato alla finestra), quella del portale XDG
+del desktop su Linux (la finestra di scelta di KDE o di GNOME, quella che il desktop fornisce). Il
+titolo è *Apri progetto* o *Salva progetto come*, mostra i file `*.orchestra` sotto il filtro
+*Progetto Orchestra*, e *Salva come* propone `Senza titolo.orchestra`. In questo passo il percorso
+scelto viene solo conservato: aprire e salvare il progetto arrivano con F2.12a5b. Mentre la scelta
+è aperta la nostra finestra continua a ridisegnarsi, ma niente al suo interno reagisce e non la si
+può chiudere. Su un Linux senza alcuna finestra di scelta, l'utente riceve un errore, *Impossibile
+scegliere i file*, che dice di installare `xdg-desktop-portal` e il pacchetto del desktop.
+
+**I pezzi** (`crates/ui/src/platform/file_chooser/`). `FileRequest` è ciò che l'applicazione chiede:
+aprire o salvare, il titolo, il nome del filtro e le estensioni, il nome proposto quando si salva,
+la cartella di partenza (per ora nessuna: il sistema apre allora l'ultima usata). `FileChoice` è la
+risposta: `Chosen(path)`, `Cancelled` o `Unavailable`. La finestra avvia la scelta attraverso il
+trait privato del crate `FileChooser`, la cui unica implementazione, `system.rs`, è l'unico file
+che nomina `rfd` (0.18.0, con le funzionalità `xdg-portal` e `wayland`: la seconda è quella che dà
+al portale la nostra finestra come genitore su Wayland). Il percorso:
+
+1. l'applicazione chiama `Ui::choose_file(request, list)`, che mette sopra la finestra un livello
+   modale vuoto e conserva la richiesta;
+2. dopo ogni gruppo di eventi la finestra chiede `WindowApp::take_file_request()` e, se ce n'è una,
+   avvia la scelta con la nostra finestra come genitore (`set_parent`, letto sul thread principale
+   mentre la finestra esiste di sicuro);
+3. un thread di lavoro, `orchestra-file-chooser`, aspetta la risposta, così il thread
+   dell'interfaccia resta libero;
+4. la risposta torna attraverso il proxy del ciclo degli eventi come `ShellEvent::FileChosen` e
+   arriva a `WindowApp::file_chosen`, dove l'applicazione toglie il livello (`Ui::file_chosen`) e
+   agisce:
+
+```rust
+// The application asks (an action's handler, `crates/app/src/demo.rs`):
+let _ = self.ui.choose_file(open_request(&self.files), list);
+
+// The window answers later, through the proxy (`WindowApp::file_chosen`):
+fn file_chosen(&mut self, choice: FileChoice, list: &mut DisplayList) {
+    self.ui.file_chosen(list); // the blocking layer goes
+    match choice {
+        FileChoice::Chosen(path) => self.chosen = Some(path),
+        FileChoice::Cancelled => {}
+        FileChoice::Unavailable => { /* the error dialog */ }
+    }
+}
+```
+
+**Dove nasce la finestra di scelta.** Le finestre di `rfd` fanno il loro lavoro quando il loro future
+viene *creato*, non quando viene interrogato la prima volta. Su macOS questo vuol dire chiamare
+`AppKit`, cosa che va fatta sul thread principale: il future si crea in `SystemChooser::start`,
+chiamato dal ciclo degli eventi, e il foglio non blocca. Su Windows la creazione avvia il thread di
+`rfd` con la finestra del sistema, di proprietà della nostra. Su Linux la creazione chiama subito il
+portale, quindi lì avviene sul thread di lavoro, dopo la sonda descritta sotto. Il thread di lavoro
+aspetta con `block_on`, una dozzina di righe nostre su `std::task::Wake` (il waker risveglia il
+thread, che dorme tra un'interrogazione e l'altra): qui `futures-lite` e `zbus` sono dipendenze
+solo di Linux e `pollster` arriva solo con la funzionalità Linux di `rfd`, quindi un crate nuovo
+per Windows e macOS non valeva la pena. Se il sistema rifiuta il thread di lavoro, la risposta è
+`Unavailable`, mai il silenzio.
+
+**Annullato o fallito?** (`portal.rs`, Linux). `rfd` risponde `None` sia quando l'utente annulla
+sia quando non si è potuto aprire nulla (nessun portale FileChooser, poi nessun `zenity` come
+ripiego). Perciò, prima di mostrare qualcosa, il thread di lavoro legge la proprietà `version` di
+`org.freedesktop.portal.FileChooser` con `org.freedesktop.DBus.Properties.Get`, su una connessione
+`zbus` tutta sua con le chiamate limitate a 5 s: la chiamata riesce esattamente quando un back end
+del portale implementa la scelta dei file. Se fallisce, `program_in_path` cerca `zenity` nelle
+cartelle del `PATH`. Senza nessuno dei due, la risposta è subito `Unavailable`; altrimenti `rfd`
+parte e il suo `None` vuol dire `Cancelled`. La decisione vera e propria, `decide(available,
+show)`, riceve le due parti del sistema come chiusure, così i test provano ogni caso. Un caso
+resta silenzioso ed è annotato (ADR-0050, `docs/native-deps.md`): un portale che risponde su un
+sistema senza libdbus-1 e senza `zenity`.
+
+**Il livello che blocca** (`crates/ui/src/widget/ui/files.rs`). Un livello della pila dei dialoghi
+il cui pannello è `Blocker`, un widget senza dimensioni che non disegna nulla: la finestra resta
+com'era, ma la radice del livello consuma il puntatore, nessun widget al suo interno può prendere il
+fuoco (quindi tasti, testo digitato e Tab non raggiungono nulla), e la barra dei menu e le
+scorciatoie sono spente come sotto qualunque dialogo: un secondo Ctrl+O non può aprire una seconda
+scelta. Non è uno dei `Ui::dialogs`, e il nodo della finestra non lo elenca per le tecnologie
+assistive, che devono leggere invece la finestra di scelta del sistema. `Ui::choose_file` risponde
+`false` finché una scelta è in attesa, `Ui::choosing_file` dice se ce n'è una, e la shell
+(`crates/ui/src/window/shell.rs`) tiene un suo indicatore `choosing`: finché è acceso non avvia
+altre scelte e ignora le richieste di chiusura (il pulsante del sistema, Alt+F4, Esci), come fanno
+Windows e macOS con il genitore di un dialogo modale.
+
+**Nell'applicazione** (`crates/app/src/files.rs`). `FileTexts` legge le sei chiavi nuove dei
+cataloghi (`file-untitled`, `file-filter-project`, `file-open-title`, `file-save-title`,
+`file-chooser-unavailable-title`, `file-chooser-unavailable-message`), togliendo i segni di
+isolamento che Fluent mette intorno al nome del programma. `open_request` e `save_request`
+costruiscono le due richieste con l'estensione `orchestra_io::PROJECT_EXTENSION` (una costante nuova
+di `io`, ADR-0029 S14, così il programma la scrive in un posto solo), e `unavailable_dialog`
+l'errore con il suo pulsante *OK*. Le azioni `file.open` e `file.save-as` adesso sono attive;
+`file.new` e `file.save` aspettano F2.12a5b. Il glossario ha due termini nuovi, *project* e
+*untitled*, cercati nei cataloghi di MuseScore Studio e nei manuali tradotti di Logic Pro e Cubase.
+
+**Quanto costa.** Su Linux il binario release dopo lo `strip` cresce di 181 248 byte (+1,4%,
+compresi il codice e i testi di questo passo) e `rfd` aggiunge circa 7 s di lavoro a una
+compilazione release da zero; crate nuovi: `rfd` e `pollster` su Linux, `rfd` su Windows, `rfd`,
+`block2` 0.6, `dispatch2` e `objc2-uniform-type-identifiers` su macOS (`block2` 0.6 è elencato in
+`deny.toml` accanto allo 0.5 di winit). La sonda costa una connessione e una chiamata per ogni
+scelta, sul thread di lavoro.
+
+**Test.** `platform/file_chooser/tests.rs`: la decisione nei suoi tre casi (la finestra di scelta
+mai mostrata quando nulla può comparire), la ricerca nel `PATH`, le due richieste, `block_on` con un
+future già pronto e con uno risvegliato da un altro thread. `crates/ui/tests/file_chooser.rs`: una
+richiesta alla volta, il livello che blocca la digitazione, Tab, un clic, le scorciatoie e F10, il
+fuoco che torna dopo la risposta, una scelta sopra un dialogo, nessun dialogo per le tecnologie
+assistive. `widgets_no_alloc.rs`: l'input dietro il livello non alloca nulla.
+`crates/app/tests/files.rs`: Ctrl+O e Ctrl+Maiusc+S con i loro testi e il filtro, un secondo Ctrl+O
+rifiutato, un percorso scelto conservato, *Cancelled*, la finestra di errore per *Unavailable*, i
+testi nelle sei lingue. Una finestra di scelta vera ha bisogno di un desktop: si prova a mano.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

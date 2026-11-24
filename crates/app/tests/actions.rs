@@ -17,8 +17,8 @@
 use orchestra_app::{ActionIds, Demo, SceneContext, action_texts, registry, system_texts};
 use orchestra_i18n::{Locale, Localizer};
 use orchestra_ui::{
-    ButtonState, Context, DisplayList, InputEvent, Key, Modifiers, NamedKey, PhysicalKey, Platform,
-    Rect, Shortcut, ShortcutKey, WindowApp, WindowRequest,
+    ButtonState, Context, DisplayList, FileRequestKind, InputEvent, Key, Modifiers, NamedKey,
+    PhysicalKey, Platform, Rect, Shortcut, ShortcutKey, WindowApp, WindowRequest,
 };
 
 /// *Primary*.
@@ -61,12 +61,19 @@ fn the_registry_builds_on_every_platform_with_its_defaults() {
             registry.lookup(Context::GLOBAL, f11),
             (platform != Platform::MacOs).then_some(ids.full_screen)
         );
-        // Choice E: only Quit, Full screen, About (F2.12a3b) and Preferences (F2.12a4a) are
-        // enabled outside a field.
+        // Choice E: only Quit, Full screen, About (F2.12a3b), Preferences (F2.12a4a), Open and
+        // Save as (F2.12a5a) are enabled outside a field.
         for id in ids.all() {
             let enabled = registry.state(id).unwrap().enabled;
-            let expected =
-                id == ids.quit || id == ids.full_screen || id == ids.about || id == ids.preferences;
+            let expected = [
+                ids.quit,
+                ids.full_screen,
+                ids.about,
+                ids.preferences,
+                ids.open,
+                ids.save_as,
+            ]
+            .contains(&id);
             assert_eq!(enabled, expected, "{id:?}");
         }
         // About has no shortcut on any platform (ADR-0050 DG10).
@@ -546,7 +553,8 @@ fn the_demonstrations_menu_bar_opens_from_the_keyboard() {
         return;
     }
     assert!(demo.menu_bar().is_some());
-    // F10, then Enter: File's menu, New highlighted (disabled, so the first enabled: Quit).
+    // F10, then Enter: File's menu, New highlighted (disabled, so the first enabled: Open…,
+    // F2.12a5a).
     press(
         &mut demo,
         &mut list,
@@ -565,15 +573,17 @@ fn the_demonstrations_menu_bar_opens_from_the_keyboard() {
     // New, Open…, Save, Save as…, a separator, Quit.
     let items: Vec<_> = demo.ui().menu_items(menus[0]).collect();
     assert_eq!(items.len(), 6);
-    assert_eq!(demo.ui().highlighted_menu_item(), Some(items[5]));
-    // Enter quits (on Linux; on Windows Quit has no shortcut but still works from the menu).
+    assert_eq!(demo.ui().highlighted_menu_item(), Some(items[1]));
+    // Enter asks for the file chooser of *Open* (F2.12a5a).
     press(
         &mut demo,
         &mut list,
         &Key::Named(NamedKey::Enter),
         Modifiers::default(),
     );
-    assert_eq!(demo.take_window_request(), Some(WindowRequest::Close));
+    let request = demo.take_file_request().unwrap();
+    assert_eq!(request.kind, FileRequestKind::Open);
+    assert!(demo.ui().choosing_file());
 }
 
 #[test]

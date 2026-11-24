@@ -53,7 +53,7 @@ workspace. Each crate arrives in its own SCALETTA step (ADR-0036 B1).
 ### libdbus-1 (via `rfd`)
 
 - **Used by:** `orchestra-ui` (native file dialogs on Linux, from F2.12).
-- **What for:** `rfd` 0.17 sends the "open file"/"save file" request to the XDG desktop portal,
+- **What for:** `rfd` (0.18 since F2.12a5a, ADR-0050 DG4) sends the "open file"/"save file" request to the XDG desktop portal,
   a D-Bus service, through `libdbus-1`.
 - **Why no Rust alternative:** there is one, `zbus` (through `ashpd`, used by `rfd` ≤ 0.16), and
   it was measured. It costs +0.9 MB and +29 crates more than `rfd` 0.17 (ADR-0036 B4).
@@ -61,7 +61,12 @@ workspace. Each crate arrives in its own SCALETTA step (ADR-0036 B1).
 - **License:** AFL-2.1 OR GPL-2.0-or-later. Compatible with GPL-3.0-or-later through the
   GPL-2.0-or-later option. Only loaded at run time, never shipped by us.
 - **Platforms:** Linux only, loaded with dlopen (`libdbus-1.so.3`). If it is missing, rfd tries
-  `zenity`, otherwise the dialog does not open; Orchestra must then show its own error (F2.12).
+  `zenity`, otherwise the dialog does not open. Since F2.12a5a Orchestra first asks the portal
+  itself (with `zbus`) whether its FileChooser answers, and looks for `zenity` when it does not:
+  with neither, it shows its own error, naming the packages to install. One case stays silent, a
+  recorded limit (ADR-0050, precisions of F2.12a5a): a portal that answers on a system without
+  libdbus-1 and without `zenity`, which a desktop running the portal (a D-Bus service) does not
+  have in practice.
   Windows · macOS: not used (system dialogs).
 - **Build requirements:** none.
 - **Binary size / compile time impact:** none from the library.
