@@ -5736,6 +5736,101 @@ about_open (open + draw)          24 068 635
 Circa 11 M più di una domanda, quasi tutti per `tiny-skia` che riempie i tracciati del logo: una
 volta per apertura, dentro il budget del fotogramma di 33 M.
 
+#### Le Preferenze
+
+**Cosa vede l'utente** (ADR-0050 DG8–DG9, SCALETTA F2.12a4a). *Modifica → Preferenze…* (Ctrl+,,
+oppure *Impostazioni…* ⌘, nel menu dell'applicazione su macOS) apre una finestra di dialogo
+grande: l'elenco delle sezioni a sinistra, la sezione scelta a destra, un solo pulsante *Chiudi*.
+Oggi c'è una sezione sola, **Aspetto** (scelta 7 del proprietario; Lingua, Riproduzione e Tastiera
+arrivano con F2.12a4b): il **Tema** (un menu a tendina con le dieci coppie con i loro nomi
+tradotti, più il tema personalizzato in uso se le impostazioni ne avevano scelto uno), la
+**Modalità** (*Sistema / Chiaro / Scuro*, un gruppo di opzioni) e **Cursore lampeggiante** (una
+casella di spunta). Ogni modifica si applica subito e si salva mezzo secondo dopo; non c'è OK né
+Annulla (DG8). Esc, *Chiudi* e di nuovo Ctrl+, chiudono la finestra.
+
+**Cambiare il tema mentre il programma gira** (scelta 1 del proprietario). La finestra riceveva
+coppia e modo una volta sola, all'apertura. Ora l'app può chiedere `WindowRequest::SetTheme { pair,
+mode }`: lo `ThemeState` della finestra prende la scelta nuova (`set_choice`, che ricorda anche
+l'ultima risposta del sistema, così tornando a *Sistema* compare subito la metà giusta), ridisegna
+tutto quando ciò che mostra è cambiato e dice a `winit` la metà forzata (`set_theme(Some(…))` per
+Chiaro e Scuro, `None` per Sistema, così la barra del titolo di Windows e macOS si accorda;
+tornando a Sistema il tema della finestra viene passato al reporter, perché il sistema non
+segnalava nulla mentre una metà era forzata). Un modo scelto a mano nelle impostazioni si applica
+allo stesso modo all'apertura della finestra. Densità, testi e forme della coppia l'app li applica
+da sé con `Ui::set_theme`.
+
+**Le impostazioni dentro la dimostrazione** (scelta 2 del proprietario). `orchestra_ui::run` ora
+prende `&mut app` (anche un `&mut A` è un `WindowApp`, grazie a un'implementazione che inoltra), così
+`main.rs` tiene la dimostrazione e riprende le impostazioni dopo il ciclo:
+
+```rust
+demo.attach_settings(store);
+let result = orchestra_ui::run(&mut demo, options);
+let store = demo.take_settings();
+for failure in store.close() {
+    eprintln!("orchestra: settings: {failure}");
+}
+```
+
+Il `next_wakeup` della dimostrazione è il più vicino tra quello dell'interfaccia e quello
+dell'archivio, e il suo `advance` passa l'ora all'archivio, così una modifica viene scritta mezzo
+secondo dopo l'ultima.
+
+**Tre widget nuovi** (`crates/ui/src/widget/choice.rs`, scelta 3 del proprietario). `DropDown` ha
+l'aspetto di un pulsante con il valore scelto e una freccia, largo quanto il suo valore più largo;
+un clic, Invio, Spazio o Giù aprono il suo elenco sotto di lui, un menu dell'interfaccia fatto di
+voci `MenuItem::Choice` (nuove): il valore in uso ha il segno di spunta ed è evidenziato quando
+l'elenco si apre dalla tastiera, e la scelta chiude l'elenco e torna al menu a tendina come
+`WidgetEvent::Chosen(index)` (nuovo), che manda all'applicazione il suo messaggio. Il widget chiede
+l'elenco con `EventCx::open_choices` (o lo chiude con `close_choices`); l'interfaccia lo apre al
+fotogramma successivo (`Ui::open_requested_choices`). `RadioGroup` disegna i valori come segmenti
+in un riquadro unico, quello scelto nel colore d'accento; è una sola fermata di Tab, le frecce, Home
+e Fine scelgono subito. `ListBox` è una colonna di righe, quella selezionata nel colore d'accento,
+mossa dalle frecce. Tutti e tre sono un solo nodo per l'accessibilità (`ComboBox`, `RadioGroup`,
+`ListBox`, ruoli nuovi, con il valore scelto nel nuovo `AccessInfo::value_text`); i valori
+dell'elenco sono voci `MenuItemRadio`.
+
+**La finestra di dialogo grande** (scelta 6 del proprietario). `Ui::open_large_dialog(LargeDialog
+{ title, close_text, close_message, closed_by }, list)` apre un riquadro di 720 × 520 pixel logici
+(`DIALOG_LARGE_SIZE`) dentro la finestra, mai sotto 480 × 320 finché la finestra lo consente, con
+il titolo, una colonna di contenuto vuota che riempie lo spazio (il suo ID viene restituito, l'app
+vi aggiunge i suoi widget) e *Chiudi*. L'azione `closed_by` (Preferenze) è l'unica eccezione a
+"nessuna scorciatoia dietro una finestra di dialogo": finché quella finestra è in cima, la sua
+scorciatoia preme l'Esc del riquadro (DG8).
+
+**Il lampeggio del cursore** (scelta 5 del proprietario). `Ui::set_caret_blink(false)` tiene fisso
+il cursore di un campo e ne ferma i risvegli (`EventCx::caret_blink`, letto dal campo); un
+risveglio già in attesa arriva ancora una volta e mostra il cursore.
+
+**Le Preferenze vere e proprie** (`crates/app/src/preferences.rs`). `PreferencesTexts` legge i
+testi, `open_preferences` costruisce il contenuto della finestra sulle impostazioni correnti e
+`apply` scrive una modifica nelle impostazioni e restituisce il suo `Effect` (una coppia e un modo
+da disegnare, oppure il lampeggio), che la dimostrazione passa alla finestra e all'interfaccia.
+`edit.preferences` ora è abilitata.
+
+**Testi.** Nove messaggi per le Preferenze e i nomi delle dieci coppie nei sei cataloghi, dopo la
+ricerca nei cataloghi di GNOME Impostazioni, di Firefox e di MuseScore; i nomi sono stati approvati
+dal proprietario (scelta 8: tradotti dove sono parole comuni, *Studio* invariato, *Nocturne*
+invariato in francese e in tedesco). Nove termini nel glossario; il tedesco *Darstellung* per il
+tema è segnato da rivedere.
+
+**Test e benchmark.** `crates/ui/tests/choices.rs` (8 test: il menu a tendina con il clic e con la
+tastiera, Esc e un secondo clic che chiudono l'elenco, il gruppo e l'elenco con tasti e clic, la
+dimensione e l'area di contenuto della finestra grande, i suoi tre modi di chiudersi, il cursore
+senza risvegli); un test di `ThemeState::set_choice`; i test di `preferences.rs`; in
+`crates/app/tests/actions.rs` il giro completo: Ctrl+, apre, Tab e Fine scelgono Scuro (una
+richiesta `SetTheme` e le impostazioni cambiate), Spazio spegne il lampeggio, Ctrl+, chiude. La
+scena `preferences-dialog` degli screenshot. I benchmark (gruppo `dialogs`, riquadro di 200
+widget, finestra di 1000 × 1000):
+
+```text
+benchmark                          instructions
+preferences_open (open + draw)       10 432 946
+drop_down_open   (Enter + draw)      10 276 661
+```
+
+Entrambi una volta per azione dell'utente, dentro il budget del fotogramma di 33 M.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

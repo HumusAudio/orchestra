@@ -140,3 +140,28 @@ about-logo-notice = Das Logo ist © 2026 Emanuele Rainoldi, alle Rechte vorbehal
 about-source = Quellcode: { $url }
 about-fonts = Mitgelieferte Schriften: Inter, Bravura und JetBrains Mono, unter der SIL Open Font License 1.1.
 about-logo = { app-name }-Logo
+
+## The Preferences (F2.12a4a, ADR-0050 DG8–DG9; glossary: preferences, preferences_section,
+## appearance, theme, theme_mode, system_mode, light, dark, blinking_cursor, theme_pairs). The
+## title has no ellipsis (the menu item has one). The pairs' names are the ten built-in themes
+## of ADR-0037 T1, translated where they are common words (owner's choice 8 of F2.12a4a).
+
+prefs-title = Einstellungen
+prefs-sections = Bereiche
+prefs-section-appearance = Erscheinungsbild
+prefs-theme = Darstellung
+prefs-mode = Modus
+prefs-mode-system = System
+prefs-mode-light = Hell
+prefs-mode-dark = Dunkel
+prefs-caret-blink = Blinkender Cursor
+theme-absolute = Absolut
+theme-graphite = Graphit
+theme-signal = Signal
+theme-parchment = Pergament
+theme-slate = Schiefer
+theme-studio = Studio
+theme-forest = Wald
+theme-lagoon = Lagune
+theme-nocturne = Nocturne
+theme-snow = Schnee

@@ -197,3 +197,13 @@ key stays the one widgets read; the physical one is for the action registry. `Na
 (borderless on the current monitor, `Fullscreen::Borderless(None)`: the system's video mode never
 changes). The window asks after every window event, until the answer is `None`, so requests are
 carried out in the order the actions ran (Quit and Full screen, ADR-0048 AM6).
+
+## Precisions of the implementation (F2.12a4a, approved by the owner on 2026-11-24)
+
+- **The theme changes at run time.** `WindowRequest::SetTheme { pair, mode }` asks the window to
+  draw with another pair or mode (the Preferences, ADR-0050 DG9): a full redraw when what it draws
+  changed, `winit`'s `set_theme` with the forced half (or none for *System*). Details in ADR-0050's
+  precisions of F2.12a4a.
+- **`run` borrows the app.** `run(&mut app, options)`: the caller keeps the app and what it owns
+  (the settings file, closed after the loop). A `&mut A` is itself a `WindowApp`, forwarding every
+  method.

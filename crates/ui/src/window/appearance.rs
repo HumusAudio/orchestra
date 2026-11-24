@@ -66,6 +66,9 @@ pub(crate) struct ThemeState {
     pair: ThemePair,
     /// The user's mode: *System*, *Light* or *Dark*.
     mode: ThemeMode,
+    /// The system's last answer (`None` before it gave one, or when it has no preference), kept
+    /// so that a change of mode back to *System* resolves at once (F2.12a4a).
+    system: Option<Appearance>,
     /// The half in use, `mode.resolve(system)`.
     appearance: Appearance,
 }
@@ -77,8 +80,32 @@ impl ThemeState {
         Self {
             pair,
             mode,
+            system: None,
             appearance: mode.resolve(None),
         }
+    }
+
+    /// Takes the user's new choice of pair and mode (the Preferences, ADR-0050 DG9, F2.12a4a).
+    /// Returns `true` when what is drawn changed (another pair, or another half), so the whole
+    /// window must be redrawn (ADR-0037 T6).
+    ///
+    /// The half is resolved with the system's last answer: back to *System*, the window shows the
+    /// system's half at once, without waiting for the system to speak again.
+    ///
+    /// # Complexity
+    /// O(1) plus the comparison of two pairs (a few hundred bytes of tokens).
+    pub(crate) fn set_choice(&mut self, pair: ThemePair, mode: ThemeMode) -> bool {
+        let appearance = mode.resolve(self.system);
+        let changed = appearance != self.appearance || pair != self.pair;
+        self.pair = pair;
+        self.mode = mode;
+        self.appearance = appearance;
+        changed
+    }
+
+    /// The user's mode.
+    pub(crate) const fn mode(&self) -> ThemeMode {
+        self.mode
     }
 
     /// Takes a new answer of the system. Returns `true` when the half to draw with changed, so
@@ -91,6 +118,7 @@ impl ThemeState {
     /// # Complexity
     /// O(1): one `match` and one comparison of two-valued enums.
     pub(crate) fn set_system(&mut self, system: Option<Appearance>) -> bool {
+        self.system = system;
         let next = self.mode.resolve(system);
         let changed = next != self.appearance;
         self.appearance = next;

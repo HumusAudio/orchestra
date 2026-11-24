@@ -47,6 +47,8 @@ use orchestra_ui::{
 
 use crate::about::{AboutTexts, about_dialog};
 use crate::actions::{self, ActionIds, ActionTexts};
+use crate::preferences::{self, Effect, PreferencesMessage, PreferencesTexts};
+use crate::settings::SettingsStore;
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +70,8 @@ pub enum DemoMessage {
     /// The About dialog's *Close* was pressed (F2.12a3b): the dialog closes by itself, nothing
     /// else to do.
     AboutClosed,
+    /// A control of the Preferences changed, or they closed (F2.12a4a).
+    Preferences(PreferencesMessage),
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -98,6 +102,8 @@ pub struct DemoTexts {
     pub window_buttons: WindowButtonNames,
     /// The About dialog's texts (F2.12a3b).
     pub about: AboutTexts,
+    /// The Preferences' texts (F2.12a4a).
+    pub preferences: PreferencesTexts,
 }
 
 impl DemoTexts {
@@ -124,6 +130,7 @@ impl DemoTexts {
                 minimize: localizer.format("window-minimize", None)?,
             },
             about: AboutTexts::new(localizer)?,
+            preferences: PreferencesTexts::new(localizer)?,
         })
     }
 }
@@ -192,6 +199,13 @@ pub struct Demo {
     requests: VecDeque<WindowRequest>,
     /// The About dialog's texts, for `help.about` (F2.12a3b).
     about: AboutTexts,
+    /// The Preferences' texts, for `edit.preferences` (F2.12a4a).
+    preferences_texts: PreferencesTexts,
+    /// The open Preferences' panel, while they are open.
+    preferences: Option<WidgetId>,
+    /// The settings of the session (ADR-0050 DG6): the program hands its store in with
+    /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
+    settings: SettingsStore,
 }
 
 impl Demo {
@@ -285,21 +299,7 @@ impl Demo {
             )
             .unwrap_or_else(|_| ui.root());
         let track_name = track_name_row(&mut ui, options, texts, actions.as_ref());
-        let buttons = ui
-            .add(options, Flex::row(Space::S, Space::None), content)
-            .unwrap_or_else(|_| ui.root());
-        let restore_defaults = ui
-            .add(
-                buttons,
-                Button::new(texts.restore_defaults.clone(), DemoMessage::RestoreDefaults),
-                content,
-            )
-            .unwrap_or_else(|_| ui.root());
-        let _ = ui.add(
-            buttons,
-            Button::new(texts.ok.clone(), DemoMessage::Ok).kind(ButtonKind::Primary),
-            content,
-        );
+        let restore_defaults = buttons_row(&mut ui, options, texts);
         let staff = ui
             .add(
                 staff_area,
@@ -314,6 +314,9 @@ impl Demo {
             actions,
             requests: VecDeque::new(),
             about: texts.about.clone(),
+            preferences_texts: texts.preferences.clone(),
+            preferences: None,
+            settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             title,
             metronome,
             count_in,
@@ -374,16 +377,77 @@ impl Demo {
         self.restore_defaults
     }
 
+    /// Hands the program's settings store in (ADR-0050 DG6, F2.12a4a): the Preferences change
+    /// it, and the window wakes to write it ([`WindowApp::next_wakeup`]). Its cursor blink applies
+    /// at once; its theme was given to the window when it opened.
+    pub fn attach_settings(&mut self, store: SettingsStore) {
+        self.ui.set_caret_blink(store.settings().caret_blink);
+        self.settings = store;
+    }
+
+    /// Takes the settings store back (at exit, to close it: `SettingsStore::close`), leaving
+    /// defaults that are never written.
+    pub fn take_settings(&mut self) -> SettingsStore {
+        std::mem::replace(
+            &mut self.settings,
+            SettingsStore::with(orchestra_io::settings::Settings::default(), None),
+        )
+    }
+
+    /// The settings of the session.
+    #[must_use]
+    pub const fn settings(&self) -> &SettingsStore {
+        &self.settings
+    }
+
+    /// The open Preferences' panel, while they are open.
+    #[must_use]
+    pub const fn preferences(&self) -> Option<WidgetId> {
+        self.preferences
+    }
+
+    /// A change in the Preferences (DG8): written into the settings (the store writes them half a
+    /// second later, DG6) and applied at once: a theme to the window (its colours) and to the
+    /// interface (density, text and shape tokens), the cursor's blink to the interface.
+    fn preference_changed(&mut self, message: PreferencesMessage, list: &mut DisplayList) {
+        if message == PreferencesMessage::Closed {
+            self.preferences = None;
+            return;
+        }
+        let now = self.ui.now();
+        let mut effect = Effect::None;
+        self.settings.update(now, |settings| {
+            effect = preferences::apply(settings, message);
+        });
+        match effect {
+            Effect::None => {}
+            Effect::Theme(pair, mode) => {
+                self.requests
+                    .push_back(WindowRequest::SetTheme { pair, mode });
+                // The tokens of the light half: the same in both halves of every built-in pair
+                // (see `main.rs`); the colours follow the mode through the window.
+                self.ui
+                    .set_theme(pair.instance(orchestra_ui::Appearance::Light));
+                self.ui.frame(list);
+            }
+            Effect::CaretBlink(on) => self.ui.set_caret_blink(on),
+        }
+    }
+
     /// Acts on the widgets' messages (ADR-0045 WA7): *Restore defaults* puts the options back,
     /// a committed track name is written above the staff.
     fn handle_messages(&mut self, list: &mut DisplayList) {
         let mut restore = false;
         let mut name = None;
         let mut about = false;
+        let mut open_preferences = false;
+        // The Preferences' changes, applied after the queue is drained (it borrows the interface).
+        let mut changes = Vec::new();
         for message in self.ui.take_messages() {
             match message {
                 DemoMessage::RestoreDefaults => restore = true,
                 DemoMessage::TrackName(text) => name = Some(text),
+                DemoMessage::Preferences(message) => changes.push(message),
                 // Quit and Full screen ask the window (F2.11d1), About opens its dialog
                 // (F2.12a3b); the other actions are disabled until they exist, so their messages
                 // never come.
@@ -395,11 +459,16 @@ impl Demo {
                             self.requests.push_back(WindowRequest::ToggleFullScreen);
                         } else if id == ids.about {
                             about = true;
+                        } else if id == ids.preferences {
+                            open_preferences = true;
                         }
                     }
                 }
                 _ => {}
             }
+        }
+        for change in changes {
+            self.preference_changed(change, list);
         }
         // A dialog blocks the menus and the shortcuts while it is open (ADR-0050 DG1), so About
         // cannot be asked twice; `open_dialog` fails only if the interface's own tree is
@@ -408,6 +477,19 @@ impl Demo {
             let _ = self
                 .ui
                 .open_dialog(about_dialog(&self.about, DemoMessage::AboutClosed), list);
+        }
+        // The Preferences (F2.12a4a): open once at a time; their own shortcut closes them while
+        // they are open (the interface turns it into their Escape), so it never comes here then.
+        if open_preferences && self.preferences.is_none() {
+            let closed_by = self.actions.map(|ids| ids.preferences);
+            self.preferences = preferences::open_preferences(
+                &mut self.ui,
+                &self.preferences_texts,
+                self.settings.settings(),
+                closed_by,
+                list,
+            )
+            .ok();
         }
         if let Some(name) = name {
             if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.staff) {
@@ -432,6 +514,29 @@ impl Demo {
             self.ui.frame(list);
         }
     }
+}
+
+/// The row of the options' buttons, *Restore defaults* and *OK*, at the end of `options`; returns
+/// *Restore defaults* (its tooltip is a screenshot's example, F2.11c). As in [`Demo::new`], `add`
+/// fails only for an unknown parent: a failure would leave the row incomplete, never crash.
+fn buttons_row(ui: &mut Ui<DemoMessage>, options: WidgetId, texts: &DemoTexts) -> WidgetId {
+    let content = LayoutProps::default();
+    let buttons = ui
+        .add(options, Flex::row(Space::S, Space::None), content)
+        .unwrap_or_else(|_| ui.root());
+    let restore_defaults = ui
+        .add(
+            buttons,
+            Button::new(texts.restore_defaults.clone(), DemoMessage::RestoreDefaults),
+            content,
+        )
+        .unwrap_or_else(|_| ui.root());
+    let _ = ui.add(
+        buttons,
+        Button::new(texts.ok.clone(), DemoMessage::Ok).kind(ButtonKind::Primary),
+        content,
+    );
+    restore_defaults
 }
 
 /// The window's frame (F2.11d2b): the program's actions handed to `ui` first (the text field's
@@ -650,12 +755,18 @@ impl WindowApp for Demo {
     }
 
     fn advance(&mut self, now: Instant, list: &mut DisplayList) {
-        // The field's caret blinks with the interface's wake-ups (F2.10b2).
+        // The field's caret blinks with the interface's wake-ups (F2.10b2); the settings are
+        // written when their delay is over (ADR-0050 DG6, F2.12a4a).
         self.ui.advance(now, list);
+        self.settings.advance(now);
     }
 
     fn next_wakeup(&self) -> Option<Instant> {
-        self.ui.next_wakeup()
+        // The earlier of the interface's wake-up and the settings' write.
+        match (self.ui.next_wakeup(), self.settings.next_wakeup()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     fn text_input(&self) -> Option<TextInput> {

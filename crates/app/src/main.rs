@@ -107,7 +107,11 @@ fn main() -> ExitCode {
     // and KDE Plasma, last on macOS and GNOME (`XDG_CURRENT_DESKTOP`), read once here.
     demo.ui_mut()
         .set_button_order(orchestra_ui::system_button_order());
-    let result = orchestra_ui::run(demo, options);
+    // The settings go into the demonstration: the Preferences change them and the window wakes to
+    // write them (F2.12a4a); they come back at exit to be closed.
+    demo.attach_settings(store);
+    let result = orchestra_ui::run(&mut demo, options);
+    let store = demo.take_settings();
     // What is still waiting is written, and the writer thread is waited for (DG6).
     for failure in store.close() {
         eprintln!("orchestra: settings: {failure}");

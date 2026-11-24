@@ -5388,6 +5388,93 @@ about_open (open + draw)          24 068 635
 About 11 M more than a question, almost all of it `tiny-skia` filling the logo's paths: once per
 opening, within the frame's budget of 33 M.
 
+#### The Preferences
+
+**What the user sees** (ADR-0050 DG8–DG9, SCALETTA F2.12a4a). *Edit → Preferences…* (Ctrl+,, or
+*Settings…* ⌘, in macOS's application menu) opens a large dialog: the list of sections on the
+left, the chosen section on the right, one *Close* button. Today there is one section,
+**Appearance** (owner's choice 7; Language, Playback and Keyboard come with F2.12a4b): the
+**Theme** (a drop-down of the ten pairs by their translated names, plus the custom theme in use if
+the settings chose one), the **Mode** (*System / Light / Dark*, a group of options) and **Blinking
+cursor** (a check box). Every change applies at once and is saved half a second later; there is no
+OK or Cancel (DG8). Escape, *Close* and Ctrl+, again close the dialog.
+
+**Changing the theme while the program runs** (owner's choice 1). The window received its pair
+and mode once, when it opened. Now the app can ask `WindowRequest::SetTheme { pair, mode }`: the
+window's `ThemeState` takes the new choice (`set_choice`, which also remembers the system's last
+answer, so back to *System* the right half shows at once), redraws everything when what it shows
+changed, and tells `winit` the forced half (`set_theme(Some(…))` for Light and Dark, `None` for
+System, so the title bar of Windows and macOS matches; back to System the window's own theme is fed
+to the reporter, because the system did not report while a half was forced). A mode chosen by hand
+in the settings is applied the same way when the window opens. The app applies the pair's density,
+text and shape tokens itself with `Ui::set_theme`.
+
+**The settings inside the demonstration** (owner's choice 2). `orchestra_ui::run` now takes
+`&mut app` (a `&mut A` is a `WindowApp` too, by a forwarding implementation), so `main.rs` keeps
+the demonstration and gets its settings back after the loop:
+
+```rust
+demo.attach_settings(store);
+let result = orchestra_ui::run(&mut demo, options);
+let store = demo.take_settings();
+for failure in store.close() {
+    eprintln!("orchestra: settings: {failure}");
+}
+```
+
+The demonstration's `next_wakeup` is the earlier of the interface's and the store's, and its
+`advance` hands the store the time, so a change is written half a second after the last one.
+
+**Three new widgets** (`crates/ui/src/widget/choice.rs`, owner's choice 3). `DropDown` looks like
+a button with the chosen value and a chevron, as wide as its widest value; a click, Enter, Space or
+Down opens its list below it, a menu of the interface built from `MenuItem::Choice` items (new):
+the value in use has a check mark and is highlighted when the list is opened from the keyboard, and
+choosing closes the list and comes back to the drop-down as `WidgetEvent::Chosen(index)` (new),
+which sends the application its message. The widget asks for the list with
+`EventCx::open_choices` (or closes it with `close_choices`); the interface opens it at the next
+frame (`Ui::open_requested_choices`). `RadioGroup` draws its values as segments in one box, the
+chosen one in the accent; it is one Tab stop, the arrows, Home and End choose at once. `ListBox` is
+a column of rows, the selected one in the accent, moved by the arrows. All three are one
+accessibility node (`ComboBox`, `RadioGroup`, `ListBox`, new roles, with the chosen value in the
+new `AccessInfo::value_text`); the list's values are `MenuItemRadio` items.
+
+**The large dialog** (owner's choice 6). `Ui::open_large_dialog(LargeDialog { title, close_text,
+close_message, closed_by }, list)` opens a panel of 720 × 520 logical pixels (`DIALOG_LARGE_SIZE`)
+within the window, never below 480 × 320 while the window allows it, with the title, an empty
+content column that fills the room (its ID is answered, the app adds its widgets there) and
+*Close*. The action `closed_by` (Preferences) is the one exception to "no shortcut behind a
+dialog": while that dialog is on top its shortcut presses the panel's Escape (DG8).
+
+**The cursor's blink** (owner's choice 5). `Ui::set_caret_blink(false)` keeps a field's caret
+solid and stops its wake-ups (`EventCx::caret_blink`, read by the field); a wake-up already waiting
+comes once more and shows the caret.
+
+**The Preferences themselves** (`crates/app/src/preferences.rs`). `PreferencesTexts` reads the
+texts, `open_preferences` builds the dialog's content on the current settings, and `apply` writes a
+change into the settings and answers its `Effect` (a pair and a mode to draw, or the blink), which
+the demonstration hands to the window and the interface. `edit.preferences` is now enabled.
+
+**Texts.** Nine messages for the Preferences and the ten pairs' names in the six catalogues, after
+research in GNOME Settings', Firefox's and MuseScore's catalogues; the names were approved by the
+owner (choice 8: translated where they are common words, *Studio* kept, *Nocturne* kept in French
+and German). Nine glossary terms; the German *Darstellung* for the theme is marked for review.
+
+**Tests and benchmarks.** `crates/ui/tests/choices.rs` (8 tests: the drop-down by click and by
+keyboard, Escape and a second click closing its list, the group and the list by keys and clicks,
+the large dialog's size and content area, its three ways of closing, the caret without wake-ups);
+a test of `ThemeState::set_choice`; `preferences.rs`' own tests; in `crates/app/tests/actions.rs`
+the whole round: Ctrl+, opens, Tab and End choose Dark (a `SetTheme` request and the settings
+changed), Space turns the blink off, Ctrl+, closes. The screenshot scene `preferences-dialog`. The
+benchmarks (group `dialogs`, panel of 200 widgets, 1000 × 1000 window):
+
+```text
+benchmark                          instructions
+preferences_open (open + draw)       10 432 946
+drop_down_open   (Enter + draw)      10 276 661
+```
+
+Both once per user action, within the frame's budget of 33 M.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

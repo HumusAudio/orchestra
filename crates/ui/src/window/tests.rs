@@ -327,6 +327,31 @@ fn a_forced_mode_ignores_the_system() {
     }
 }
 
+/// The Preferences change the pair and the mode (F2.12a4a): a redraw only when what is drawn
+/// changes, and back to *System* the system's last answer is used at once.
+#[test]
+fn a_new_choice_redraws_only_when_the_drawing_changes() {
+    let studio = *BuiltInTheme::Studio.pair();
+    let forest = *BuiltInTheme::Forest.pair();
+    let mut state = ThemeState::new(studio, ThemeMode::System);
+    assert!(state.set_system(Some(Appearance::Light)));
+    // The same choice: nothing.
+    assert!(!state.set_choice(studio, ThemeMode::System));
+    // Light by hand while the system is light: the same half, nothing to redraw.
+    assert!(!state.set_choice(studio, ThemeMode::Light));
+    assert_eq!(state.mode(), ThemeMode::Light);
+    // Dark by hand: another half.
+    assert!(state.set_choice(studio, ThemeMode::Dark));
+    assert_eq!(state.theme(), &studio.dark);
+    // The system turns dark while forced: no redraw, but it is remembered…
+    assert!(!state.set_system(Some(Appearance::Dark)));
+    // …so back to System the half is already the system's (dark): nothing to redraw.
+    assert!(!state.set_choice(studio, ThemeMode::System));
+    // Another pair: always a redraw.
+    assert!(state.set_choice(forest, ThemeMode::System));
+    assert_eq!(state.theme(), &forest.dark);
+}
+
 #[test]
 fn physical_keys_name_letters_digits_and_the_keypad() {
     use super::input::{PhysicalKey, physical_key};
