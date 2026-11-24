@@ -110,8 +110,10 @@ pub use widget::access::{
     ScrollInfo, TextInfo,
 };
 pub use widget::button::{Button, ButtonKind};
+pub use widget::choice::{DropDown, ListBox, RadioGroup};
 pub use widget::dialog::{
-    ButtonRole, DialogButton, DialogKind, DialogSpec, LOGO_SIDE as DIALOG_LOGO_SIDE,
+    ButtonRole, DialogButton, DialogKind, DialogSpec, LARGE_MIN_SIZE as DIALOG_LARGE_MIN_SIZE,
+    LARGE_SIZE as DIALOG_LARGE_SIZE, LOGO_SIDE as DIALOG_LOGO_SIDE, LargeDialog,
     MAX_WIDTH as DIALOG_MAX_WIDTH, MIN_WIDTH as DIALOG_MIN_WIDTH,
 };
 pub use widget::edit::keys::{Direction, EditAction, EditConvention, Unit, edit_action};

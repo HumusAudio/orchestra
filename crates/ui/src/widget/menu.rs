@@ -110,6 +110,18 @@ pub enum MenuItem {
     },
     /// A line between groups of items.
     Separator,
+    /// One of the values of a choice (F2.12a4a): a drop-down's list ([`DropDown`](crate::DropDown)).
+    /// Choosing it closes the menus and tells the menu's owner
+    /// ([`WidgetEvent::Chosen`](crate::WidgetEvent::Chosen)) instead of running an action; the
+    /// value in use has a check mark. Never part of the system's menus (macOS).
+    Choice {
+        /// Its name, already localised by the application (CLAUDE.md §7).
+        name: String,
+        /// `true` for the value in use: drawn with a check mark.
+        checked: bool,
+        /// What the owner is told when it is chosen: the value's index in the owner's list.
+        value: usize,
+    },
 }
 
 /// A menu: its items, in order (ADR-0048 AM9). Built by the application, opened by the
@@ -144,8 +156,20 @@ impl MenuModel {
             Some(MenuItem::Action { role: own, .. } | MenuItem::Submenu { role: own, .. }) => {
                 *own = Some(role);
             }
-            Some(MenuItem::Separator) | None => {}
+            Some(MenuItem::Separator | MenuItem::Choice { .. }) | None => {}
         }
+        self
+    }
+
+    /// The same menu with the value `value` of a choice, named `name` (already localised), added
+    /// at the end; `checked` for the value in use (F2.12a4a).
+    #[must_use]
+    pub fn choice(mut self, name: impl Into<String>, checked: bool, value: usize) -> Self {
+        self.items.push(MenuItem::Choice {
+            name: name.into(),
+            checked,
+            value,
+        });
         self
     }
 
@@ -247,6 +271,14 @@ pub(crate) enum EntryKind {
     },
     /// A separator.
     Separator,
+    /// One value of a choice (F2.12a4a): its index for the owner, and whether it is the one in
+    /// use (a check mark).
+    Choice {
+        /// The value's index in the owner's list.
+        value: usize,
+        /// `true` for the value in use.
+        checked: bool,
+    },
 }
 
 /// One item of a drawn menu (see the module documentation). Built and changed by the interface
@@ -326,7 +358,7 @@ impl MenuEntry {
     pub(crate) const fn selectable(&self) -> bool {
         match &self.kind {
             EntryKind::Action { state, .. } => state.enabled,
-            EntryKind::Submenu { .. } => true,
+            EntryKind::Submenu { .. } | EntryKind::Choice { .. } => true,
             EntryKind::Separator => false,
         }
     }
@@ -494,7 +526,8 @@ impl<M: 'static> Widget<M> for MenuEntry {
                     ..
                 },
             ..
-        } = self.kind
+        }
+        | EntryKind::Choice { checked: true, .. } = self.kind
         {
             // A check mark in its column: two strokes, like "✓", inside a square as tall as
             // the text's line.
@@ -550,6 +583,7 @@ impl<M: 'static> Widget<M> for MenuEntry {
                 ..
             } => AccessRole::MenuItemCheckBox,
             EntryKind::Action { .. } | EntryKind::Submenu { .. } => AccessRole::MenuItem,
+            EntryKind::Choice { .. } => AccessRole::MenuItemRadio,
             EntryKind::Separator => AccessRole::Separator,
         }
     }
@@ -569,6 +603,7 @@ impl<M: 'static> Widget<M> for MenuEntry {
         match &self.kind {
             EntryKind::Action { state, .. } => info.toggled = state.checked,
             EntryKind::Submenu { open, .. } => info.expanded = Some(*open),
+            EntryKind::Choice { checked, .. } => info.toggled = Some(*checked),
             EntryKind::Separator => {}
         }
     }

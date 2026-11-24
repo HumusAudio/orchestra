@@ -141,7 +141,8 @@ mod title;
 
 use super::tooltip::Tooltip;
 use super::tree::{
-    EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId, WidgetTree,
+    ChoicesRequest, EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId,
+    WidgetTree,
 };
 use bar::BarState;
 use menus::{MenuChain, ModelMenu, SubmenuTimer};
@@ -235,6 +236,11 @@ pub struct Ui<M> {
     /// Widgets that asked to close their dialog during this input, carried out at the next frame
     /// (`EventCx::close_dialog`). Reused.
     dialogs_to_close: Vec<usize>,
+    /// Lists of values the widgets asked to open or close during this input, carried out at the
+    /// next frame (`EventCx::open_choices`, F2.12a4a), with the asking widget's slot. Reused.
+    choices_requested: Vec<(usize, ChoicesRequest)>,
+    /// Whether the text caret blinks ([`Ui::set_caret_blink`]).
+    caret_blink: bool,
     /// The order of the dialogs' buttons (ADR-0050 DG2), set by the application.
     button_order: crate::ButtonOrder,
     /// The display-list layer the next menu opens in: one above the last, back to the first when
@@ -374,6 +380,8 @@ impl<M: 'static> Ui<M> {
             next_layer: FIRST_MENU_LAYER,
             dialogs: Vec::new(),
             dialogs_to_close: Vec::new(),
+            choices_requested: Vec::new(),
+            caret_blink: true,
             button_order: crate::ButtonOrder::AffirmativeLast,
             tooltip: TooltipState::default(),
             swallow_release: false,
@@ -713,6 +721,20 @@ impl<M: 'static> Ui<M> {
         }
     }
 
+    /// Whether the text caret blinks (ADR-0047 TF8; the Preferences' choice, ADR-0050 DG9,
+    /// F2.12a4a). Turned off, a field's caret stays solid and asks no wake-ups: a blink already
+    /// waiting comes once more and shows the caret. Turned on, it blinks again from the next key,
+    /// click or focus. `true` by default.
+    pub const fn set_caret_blink(&mut self, blink: bool) {
+        self.caret_blink = blink;
+    }
+
+    /// Whether the text caret blinks.
+    #[must_use]
+    pub const fn caret_blink(&self) -> bool {
+        self.caret_blink
+    }
+
     /// Names the window for assistive technologies (its title, already localised).
     pub fn set_title(&mut self, title: &str) {
         if title != self.title {
@@ -756,6 +778,9 @@ impl<M: 'static> Ui<M> {
     pub fn frame(&mut self, list: &mut DisplayList) {
         // The dialogs whose buttons were pressed close first (ADR-0050 DG2): what follows lays
         // out and records the interface without them.
+        if !self.choices_requested.is_empty() {
+            self.open_requested_choices(list);
+        }
         if !self.dialogs_to_close.is_empty() {
             self.close_requested(list);
         }
@@ -1277,8 +1302,25 @@ impl<M: 'static> Ui<M> {
         };
         let role = actions.registry.spec(id).and_then(|spec| spec.edit);
         // While a dialog is open only the standard editing actions run, on its focused field
-        // (ADR-0050 DG2): no other action may act behind a question.
+        // (ADR-0050 DG2): no other action may act behind a question. The exception is the action
+        // that opened the topmost large dialog (DG8: Ctrl+, closes the Preferences): it closes it
+        // as Escape does, through the panel's own Escape (its message, then the closing).
         if role.is_none() && !self.dialogs.is_empty() {
+            if let Some(top) = self.dialogs.last()
+                && top.closed_by == Some(id)
+            {
+                let panel = top.panel;
+                self.call(
+                    panel,
+                    &WidgetEvent::Key {
+                        key: &Key::Named(NamedKey::Escape),
+                        state: ButtonState::Pressed,
+                        repeat: false,
+                        modifiers: Modifiers::default(),
+                    },
+                );
+                return true;
+            }
             return false;
         }
         if let Some(role) = role
@@ -1468,6 +1510,8 @@ impl<M: 'static> Ui<M> {
             ime_reset: false,
             window: None,
             close_dialog: false,
+            choices: None,
+            caret_blink: self.caret_blink,
         };
         let handled = widget.event(&mut cx, event);
         if let Some(request) = cx.window {
@@ -1478,6 +1522,7 @@ impl<M: 'static> Ui<M> {
             // Closed at the next frame, which ends every input (`dialogs::close_requested`).
             self.dialogs_to_close.push(index);
         }
+        let choices = cx.choices.take();
         if cx.ime_reset {
             // A new request: the window sees the count change and resets the input method
             // ([`Ui::text_input`]). Wrapping, because only a change matters, never the value.
@@ -1516,6 +1561,11 @@ impl<M: 'static> Ui<M> {
         }
         if focus {
             self.set_focus_slot(Some(index));
+        }
+        // A drop-down's list (F2.12a4a): opened or closed at the next frame, which ends every
+        // input and has the display list the menus need (`Ui::open_requested_choices`).
+        if let Some(request) = choices {
+            self.choices_requested.push((index, request));
         }
         (handled, parent)
     }

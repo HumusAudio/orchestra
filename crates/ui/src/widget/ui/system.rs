@@ -76,27 +76,31 @@ impl<M: 'static> Ui<M> {
     fn system_items(&self, items: &[MenuItem]) -> Vec<SystemItem> {
         items
             .iter()
-            .map(|item| match item {
-                MenuItem::Action { action, role } => SystemItem::Action {
-                    action: *action,
-                    name: self
-                        .actions()
-                        .map(|registry| registry.name_text(*action).to_owned())
-                        .unwrap_or_default(),
-                    shortcut: self
-                        .actions()
-                        .and_then(|registry| registry.shortcuts(*action).first().copied()),
-                    state: self.action_state(*action).unwrap_or(ActionState::DISABLED),
-                    role: *role,
-                },
-                MenuItem::Submenu {
-                    name, role, items, ..
-                } => SystemItem::Submenu {
-                    name: name.clone(),
-                    role: *role,
-                    items: self.system_items(&items.items),
-                },
-                MenuItem::Separator => SystemItem::Separator,
+            .filter_map(|item| {
+                Some(match item {
+                    MenuItem::Action { action, role } => SystemItem::Action {
+                        action: *action,
+                        name: self
+                            .actions()
+                            .map(|registry| registry.name_text(*action).to_owned())
+                            .unwrap_or_default(),
+                        shortcut: self
+                            .actions()
+                            .and_then(|registry| registry.shortcuts(*action).first().copied()),
+                        state: self.action_state(*action).unwrap_or(ActionState::DISABLED),
+                        role: *role,
+                    },
+                    MenuItem::Submenu {
+                        name, role, items, ..
+                    } => SystemItem::Submenu {
+                        name: name.clone(),
+                        role: *role,
+                        items: self.system_items(&items.items),
+                    },
+                    MenuItem::Separator => SystemItem::Separator,
+                    // A choice belongs to a drop-down's list, never to the system's bar.
+                    MenuItem::Choice { .. } => return None,
+                })
             })
             .collect()
     }

@@ -250,6 +250,10 @@ pub enum WidgetEvent<'a> {
     /// which of its titles was open. A menu closed by [`Ui::close_menu`](crate::Ui::close_menu)
     /// sends nothing: the caller already knows.
     MenuClosed(WidgetId),
+    /// A value of a choice was chosen in a menu this widget owns ([`MenuItem::Choice`](crate::MenuItem),
+    /// F2.12a4a): its index. The menus are already closed. Sent to the owner alone, without
+    /// bubbling: a drop-down takes the value and sends its message.
+    Chosen(usize),
     /// A standard editing action ran while this widget had the focus and said it can carry it
     /// out ([`Widget::edit_state`], ADR-0048 AM13): a text field cuts, copies, pastes, selects,
     /// undoes or redoes on its own text and its local undo. Sent to the focused widget alone,
@@ -533,6 +537,27 @@ pub struct EventCx<'a, M> {
     pub(crate) window: Option<crate::WindowRequest>,
     /// The widget asked to close the dialog it is in ([`EventCx::close_dialog`]).
     pub(crate) close_dialog: bool,
+    /// The widget asked to open or close its list of values ([`EventCx::open_choices`],
+    /// [`EventCx::close_choices`]).
+    pub(crate) choices: Option<ChoicesRequest>,
+    /// Whether the caret blinks ([`Ui::set_caret_blink`](crate::Ui::set_caret_blink)).
+    pub(crate) caret_blink: bool,
+}
+
+/// What a widget asked about its list of values (F2.12a4a): a drop-down opens it below itself
+/// or closes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ChoicesRequest {
+    /// Open this menu of choices below the widget, owned by it; with the first value highlighted
+    /// when it was opened from the keyboard.
+    Open {
+        /// The values ([`MenuItem::Choice`](crate::MenuItem) items).
+        model: crate::MenuModel,
+        /// Opened from the keyboard.
+        from_keyboard: bool,
+    },
+    /// Close every open menu (the drop-down was pressed again while its list was open).
+    Close,
 }
 
 impl<M> EventCx<'_, M> {
@@ -567,6 +592,31 @@ impl<M> EventCx<'_, M> {
     /// that contains the widget at the end of the input; nothing happens outside a dialog.
     pub const fn close_dialog(&mut self) {
         self.close_dialog = true;
+    }
+
+    /// Opens `model`, a list of values ([`MenuModel::choice`](crate::MenuModel::choice)), below
+    /// this widget and owned by it (F2.12a4a): the interface's menus then take the keys and the
+    /// pointer, and the chosen value comes back as [`WidgetEvent::Chosen`]; a list closed without
+    /// a choice comes back as [`WidgetEvent::MenuClosed`]. With `from_keyboard` the value marked
+    /// as in use, or the first, is highlighted at once.
+    pub fn open_choices(&mut self, model: crate::MenuModel, from_keyboard: bool) {
+        self.choices = Some(ChoicesRequest::Open {
+            model,
+            from_keyboard,
+        });
+    }
+
+    /// Closes the open menus (a drop-down pressed again while its list is open, F2.12a4a). Its
+    /// owner is not told: it asked.
+    pub fn close_choices(&mut self) {
+        self.choices = Some(ChoicesRequest::Close);
+    }
+
+    /// Whether a text caret blinks (ADR-0047 TF8): the user's choice in the Preferences
+    /// ([`Ui::set_caret_blink`](crate::Ui::set_caret_blink), F2.12a4a). `true` by default.
+    #[must_use]
+    pub const fn caret_blink(&self) -> bool {
+        self.caret_blink
     }
 
     /// Sends `message` to the application (WA7), after the event.

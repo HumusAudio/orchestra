@@ -8,11 +8,12 @@
 //! The fourteen of ADR-0048 AM6's table, so that the menus of F2.11d2 have real items, and
 //! *About Orchestra* (F2.12a3b, ADR-0050 DG10), fifteen in all:
 //! - **working:** Quit and Full screen (they ask the window, [`orchestra_ui::WindowRequest`]),
-//!   About (it opens the About dialog, [`crate::about`]), and the six editing actions on a focused
-//!   text field (AM13: the interface sends them to the field itself);
+//!   About (it opens the About dialog, [`crate::about`]), Preferences (F2.12a4a,
+//!   [`crate::preferences`]), and the six editing actions on a focused text field (AM13: the
+//!   interface sends them to the field itself);
 //! - **registered but disabled** until what they do exists: New, Open, Save, Save as (the project
-//!   file in the interface), Preferences (F2.12), Help (the guides), and the editing actions
-//!   outside a field (there is no document view yet to undo in or select from).
+//!   file in the interface), Help (the guides), and the editing actions outside a field (there is
+//!   no document view yet to undo in or select from).
 //!
 //! # Names (AM10)
 //! An action's name is the Fluent key of its menu item (`menu-edit-undo`), so the menus of
@@ -416,7 +417,7 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
     // What does not exist yet is disabled (choice E). The editing actions are enabled by the
     // focused field itself when it has the focus (AM13); outside it there is nothing to edit.
     for id in ids.all() {
-        if id != ids.quit && id != ids.full_screen && id != ids.about {
+        if id != ids.quit && id != ids.full_screen && id != ids.about && id != ids.preferences {
             registry.set_state(id, ActionState::DISABLED)?;
         }
     }

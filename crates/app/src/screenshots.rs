@@ -177,7 +177,24 @@ pub const SCENES: &[Scene] = &[
         height: ABOUT_SCENE_HEIGHT,
         record: record_about_dialog,
     },
+    Scene {
+        name: "preferences-dialog",
+        width: 960.0,
+        height: 600.0,
+        record: record_preferences_dialog,
+    },
 ];
+
+/// The demonstration window with the Preferences open (F2.12a4a, ADR-0050 DG8–DG9), as their menu
+/// item opens them, in the window's default size: the list of sections (Appearance), the theme's
+/// drop-down, the mode's group, the blinking cursor's check box, *Close*; the focus on the list.
+fn record_preferences_dialog(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    if let Some(ids) = demo.actions() {
+        demo.run_action(ids.preferences, list);
+    }
+}
 
 /// The height of the About dialog's scene (F2.12a3b), logical pixels: the demonstration window
 /// made tall enough for the whole dialog (logo, title, version, four details, *Close*) to show

@@ -74,7 +74,7 @@ use crate::draw::list::DisplayList;
 use crate::widget::layout::LayoutProps;
 use crate::widget::menu::{EntryKind, MenuEntry, MenuItem, MenuModel, MenuPanel};
 use crate::widget::popup::{Popup, PopupSide};
-use crate::widget::tree::{Widget, WidgetId};
+use crate::widget::tree::{ChoicesRequest, Widget, WidgetId};
 use crate::window::input::{ButtonState, Key, Modifiers, NamedKey, PointerButton};
 
 use super::{MenuLayer, Ui, UiError};
@@ -171,6 +171,44 @@ impl<M: 'static> Ui<M> {
             .ok_or(UiError::UnknownWidget(WidgetId::placeholder()))
     }
 
+    /// Carries out the lists of values the widgets asked for during this input (F2.12a4a): each
+    /// request closes the open menus first (one chain at a time), then an opening pushes the
+    /// list below its widget, owned by it, and marks the value in use (or the first) as
+    /// highlighted when it was opened from the keyboard. A widget removed meanwhile is skipped.
+    pub(super) fn open_requested_choices(&mut self, list: &mut DisplayList) {
+        let requests = std::mem::take(&mut self.choices_requested);
+        for (slot, request) in requests {
+            let Some(rect) = self.tree.slot(slot).map(|slot| slot.rect) else {
+                continue;
+            };
+            self.close_menus_from(0, list, false);
+            if let ChoicesRequest::Open {
+                model,
+                from_keyboard,
+            } = request
+            {
+                let popup = Popup {
+                    anchor: rect,
+                    side: PopupSide::Below,
+                    owner: self.id_of(slot),
+                };
+                self.push_model_menu(&model, popup, Some(slot), false, None);
+                if from_keyboard {
+                    // The value in use, so Enter at once keeps it, as GTK's and Windows' lists do.
+                    let checked = model
+                        .items
+                        .iter()
+                        .position(|item| matches!(item, MenuItem::Choice { checked: true, .. }));
+                    let top = self.menus.len().saturating_sub(1);
+                    match checked {
+                        Some(entry) => self.set_highlight(top, Some(entry)),
+                        None => self.step(top, Step::First),
+                    }
+                }
+            }
+        }
+    }
+
     /// The items of the open menu `menu` built from a model, in order (separators included), for
     /// tests and the screenshots' scenes; nothing for another widget.
     pub fn menu_items(&self, menu: WidgetId) -> impl Iterator<Item = WidgetId> + '_ {
@@ -217,7 +255,9 @@ impl<M: 'static> Ui<M> {
             MenuItem::Action { action, .. } => self
                 .action_state(*action)
                 .is_some_and(|state| state.checked.is_some()),
-            _ => false,
+            // A choice's list always shows which value is in use.
+            MenuItem::Choice { .. } => true,
+            MenuItem::Submenu { .. } | MenuItem::Separator => false,
         });
         let count = model
             .items
@@ -294,6 +334,19 @@ impl<M: 'static> Ui<M> {
             MenuItem::Separator => {
                 MenuEntry::new(EntryKind::Separator, String::new(), String::new(), None)
             }
+            MenuItem::Choice {
+                name,
+                checked,
+                value,
+            } => MenuEntry::new(
+                EntryKind::Choice {
+                    value: *value,
+                    checked: *checked,
+                },
+                name.clone(),
+                String::new(),
+                None,
+            ),
         }
     }
 
@@ -442,6 +495,17 @@ impl<M: 'static> Ui<M> {
                 self.invoke(action);
             }
             EntryKind::Submenu { .. } => self.open_submenu(menu, entry, from_keyboard, list),
+            EntryKind::Choice { value, .. } => {
+                let value = *value;
+                // The chain's owner (the drop-down that opened it) is told after the menus close,
+                // so it can take the focus back and record its new value (F2.12a4a).
+                let owner = self.menus.first().and_then(|layer| layer.owner);
+                self.close_menus_from(0, list, false);
+                self.bar_reset();
+                if let Some(owner) = owner {
+                    self.call(owner, &crate::WidgetEvent::Chosen(value));
+                }
+            }
             EntryKind::Separator => {}
         }
     }
@@ -676,7 +740,7 @@ impl<M: 'static> Ui<M> {
     }
 
     /// A release at `position` while menus are open and nothing captured the pointer (AM12): over
-    /// an enabled action of an armed menu it chooses it; anywhere inside a menu built from a model
+    /// an enabled action or a value of a choice (F2.12a4a) of an armed menu it chooses it; anywhere inside a menu built from a model
     /// it is consumed (`true`).
     pub(super) fn menu_release(&mut self, position: Point, list: &mut DisplayList) -> bool {
         let Some((menu, entry)) = self.hit(position).and_then(|slot| self.model_menu_of(slot))
@@ -688,7 +752,9 @@ impl<M: 'static> Ui<M> {
             && self
                 .entry_slot(menu, entry)
                 .and_then(|slot| self.entry(slot))
-                .is_some_and(|widget| widget.action().is_some())
+                .is_some_and(|widget| {
+                    widget.action().is_some() || matches!(widget.kind(), EntryKind::Choice { .. })
+                })
         {
             self.activate(menu, entry, false, list);
         }

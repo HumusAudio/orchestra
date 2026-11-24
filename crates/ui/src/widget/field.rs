@@ -656,7 +656,13 @@ impl<M> TextField<M> {
             self.caret_on = true;
         }
         cx.request_overlay();
-        cx.request_wakeup(now + BLINK);
+        // The blink turned off in the Preferences (ADR-0047 TF8, ADR-0050 DG9, F2.12a4a): the
+        // caret stays solid and the window is never woken for it.
+        if cx.caret_blink() {
+            cx.request_wakeup(now + BLINK);
+        } else {
+            cx.cancel_wakeup();
+        }
     }
 
     /// The wake-up came (TF8): the caret takes the half of the blink the time is in, and the next
@@ -670,7 +676,9 @@ impl<M> TextField<M> {
             return;
         }
         let elapsed = cx.now().saturating_duration_since(self.blink_from);
-        if elapsed >= BLINK_STOP {
+        // Stopped by the time (10 s), or turned off meanwhile (a wake-up asked before the change
+        // still comes once): visible, with no more wake-ups.
+        if elapsed >= BLINK_STOP || !cx.caret_blink() {
             // Stopped, visible: no more wake-ups, so the window can sleep.
             if !self.caret_on {
                 self.caret_on = true;

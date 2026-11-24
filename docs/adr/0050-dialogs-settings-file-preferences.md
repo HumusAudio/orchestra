@@ -372,3 +372,43 @@ action `help.about` has the *About* role and no shortcut on any platform; `main.
 interface `system_button_order()` at start-up. Opening the About dialog over the benchmark panel
 costs about 24 M instructions, 11 M more than a question, almost all of it the logo's fill: once
 per opening, within the frame's budget.
+
+## Precisions of the implementation (F2.12a4a, owner's choices of 2026-11-24)
+
+The owner split F2.12a4 in F2.12a4a (the structure and Appearance) and F2.12a4b (Language,
+Playback, Keyboard, the saved shortcuts, the screenshot and the guides' chapter), and approved
+choices 1–8 as recommended:
+
+- **1, the theme changes at run time.** A new `WindowRequest::SetTheme { pair, mode }` (a precision
+  of ADR-0040): the window's theme state takes the new choice and remembers the system's last
+  answer (back to *System* the system's half shows at once), redraws everything only when what it
+  draws changed, and calls `winit`'s `set_theme` as DG9 says (also when the window opens with a mode
+  chosen by hand); back to *System* on Windows and macOS the window's own theme is fed to the
+  reporter, which drops a repeat. The application applies the pair's density, text and shape
+  tokens with `Ui::set_theme`.
+- **2, the settings live in the application.** `orchestra_ui::run` borrows the app (`&mut A`; a
+  `&mut A` is a `WindowApp` by a forwarding implementation), so the program keeps the
+  demonstration, hands it the `SettingsStore` (`attach_settings`) and takes it back after the loop
+  to close it (`take_settings`, `close`), whatever way the loop ended. The window wakes for the
+  earlier of the interface's and the store's wake-ups (P5 of F2.12a2 done).
+- **3, three widgets.** `DropDown` (its list a menu of the interface made of `MenuItem::Choice`
+  items, a precision of ADR-0048 AM9; the chosen value comes back as `WidgetEvent::Chosen`),
+  `RadioGroup` (segments in one box, one Tab stop, the arrows choose at once) and `ListBox` (the
+  sections). Each is one accessibility node with its value in `AccessInfo::value_text` (roles
+  `ComboBox`, `RadioGroup`, `ListBox`; the list's values `MenuItemRadio`).
+- **4, a custom theme in use stays in the list** after the ten built-in pairs; choosing among custom
+  themes comes with the theme editor (F2.12b).
+- **5, `Ui::set_caret_blink`.** Off, a field's caret stays solid and asks no wake-ups (ADR-0047
+  TF8's blink becomes the user's choice); on again, it blinks from the next key, click or focus.
+- **6, a large dialog with free content.** `Ui::open_large_dialog(LargeDialog { … })`: 720 × 520
+  logical pixels within the window, at least 480 × 320 while the window allows it, a title, a
+  content column the application fills, one *Close*. The action named `closed_by` is the only
+  shortcut that works behind a dialog: while that dialog is on top it closes it, through the panel's
+  own Escape (DG8: "the shortcut that opened it closes it too").
+- **7, only Appearance now**: its pair, mode and blink; the other sections arrive with F2.12a4b.
+- **8, the pairs' names** in the six catalogues, shown to the owner and approved: translated where
+  they are common words (*Foresta*, *Wald*, *Bosque*…), *Studio* kept (es *Estudio*), *Nocturne*
+  kept in French and German.
+
+Measured: opening the Preferences over the benchmark panel about 10.4 M instructions, opening the
+drop-down's list about 10.3 M, both within the frame's budget.

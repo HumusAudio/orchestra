@@ -161,9 +161,69 @@ pub trait WindowApp {
     }
 }
 
+/// A borrowed app is an app ([`run`] borrows it): every method is forwarded unchanged.
+impl<A: WindowApp + ?Sized> WindowApp for &mut A {
+    fn layout(&mut self, bounds: Rect, list: &mut DisplayList) {
+        (**self).layout(bounds, list);
+    }
+
+    fn input(&mut self, event: &input::InputEvent, list: &mut DisplayList) {
+        (**self).input(event, list);
+    }
+
+    fn access_update(&mut self, full: bool) -> Option<crate::AccessUpdate> {
+        (**self).access_update(full)
+    }
+
+    fn access_action(&mut self, action: crate::AccessAction, list: &mut DisplayList) {
+        (**self).access_action(action, list);
+    }
+
+    fn pointer_shape(&self) -> pointer::PointerShape {
+        (**self).pointer_shape()
+    }
+
+    fn advance(&mut self, now: std::time::Instant, list: &mut DisplayList) {
+        (**self).advance(now, list);
+    }
+
+    fn attach_clipboard(&mut self, clipboard: Box<dyn crate::ClipboardSource>) {
+        (**self).attach_clipboard(clipboard);
+    }
+
+    fn next_wakeup(&self) -> Option<std::time::Instant> {
+        (**self).next_wakeup()
+    }
+
+    fn text_input(&self) -> Option<crate::TextInput> {
+        (**self).text_input()
+    }
+
+    fn take_window_request(&mut self) -> Option<WindowRequest> {
+        (**self).take_window_request()
+    }
+
+    fn system_menu(&mut self) -> Option<crate::SystemMenu> {
+        (**self).system_menu()
+    }
+
+    fn run_action(&mut self, action: crate::ActionId, list: &mut DisplayList) {
+        (**self).run_action(action, list);
+    }
+
+    fn take_menu_updates(&mut self, out: &mut Vec<(crate::ActionId, crate::ActionState)>) {
+        (**self).take_menu_updates(out);
+    }
+}
+
 /// Something the app asks of its window ([`WindowApp::take_window_request`]). `PartialEq` only:
 /// the window menu's position is a point of `f32`s.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "`SetTheme` carries a whole pair (F2.12a4a): requests are a few per user action and \
+              live in a short queue, so the size costs nothing, while boxing would end `Copy`"
+)]
 pub enum WindowRequest {
     /// Close the window and end the event loop (Quit).
     Close,
@@ -189,6 +249,20 @@ pub enum WindowRequest {
     /// edges of our own frame, ADR-0049 TB7, F2.11b3). Must follow that press closely, like
     /// [`WindowRequest::Drag`]. Ignored where the system draws the frame.
     Resize(ResizeEdge),
+    /// Draw with `pair` in `mode` from now on (the Preferences, ADR-0050 DG9, F2.12a4a): the
+    /// window redraws everything when what it shows changed (another pair or another half; layout
+    /// does not depend on colours, so nothing is re-recorded). With *Light* or *Dark* it also
+    /// asks the system to give its own decorations that half (`winit`'s `set_theme`: the title
+    /// bar of Windows and macOS); back to *System* it asks for none, because while a half is
+    /// forced those systems stop reporting their changes (the note of F2.04b). The application
+    /// applies the pair's density, text and shape tokens to its own interface itself
+    /// ([`Ui::set_theme`](crate::Ui::set_theme)): the window draws colours only.
+    SetTheme {
+        /// The pair (ADR-0037 T1).
+        pair: ThemePair,
+        /// The mode (ADR-0014 §1).
+        mode: ThemeMode,
+    },
 }
 
 /// An edge or a corner of the window, to resize it from ([`WindowRequest::Resize`]).
@@ -293,9 +367,15 @@ impl std::error::Error for WindowError {}
 ///
 /// Blocks the calling thread, which must be the program's main thread (macOS requires it).
 ///
+/// # Why the app is borrowed (F2.12a4a, owner's choice 2)
+/// The caller keeps the app, so what it owns outlives the window: the program closes its settings
+/// file after the loop (writing what is still waiting), whatever way the loop ended. A
+/// `&mut A` is itself a [`WindowApp`] (the forwarding implementation below), so the window's
+/// code is the same as with an owned app.
+///
 /// # Errors
 /// [`WindowError`] when the loop, the window or the surface cannot be created, or drawing fails.
-pub fn run<A: WindowApp>(app: A, options: WindowOptions) -> Result<(), WindowError> {
+pub fn run<A: WindowApp>(app: &mut A, options: WindowOptions) -> Result<(), WindowError> {
     // An event loop that also carries our own event (W3), so other threads (the portal's) can wake
     // it through a proxy.
     #[cfg_attr(

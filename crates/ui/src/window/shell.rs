@@ -203,6 +203,13 @@ impl<A: WindowApp> Shell<A> {
         if let (Some(feed), Some(theme)) = (self.appearance_feed.as_ref(), window.theme()) {
             feed.answer(Some(appearance_from_winit(theme)));
         }
+        // A half chosen by hand in the settings (F2.12a4a, ADR-0050 DG9): the system's decorations
+        // take it too, after the system's own answer was read above (forcing a half first would
+        // hide it). With *System* nothing is forced.
+        let forced = forced_theme(self.theme.mode());
+        if forced.is_some() {
+            window.set_theme(forced);
+        }
         // The system's clipboard, one for the whole session (ADR-0047 TF12): connected here, once
         // the display server is known to be there, and handed to the application before its
         // first layout. Without one (the error says why, for developers only) the application
@@ -452,6 +459,7 @@ impl<A: WindowApp> Shell<A> {
                         let _refused = open.window.drag_resize_window(resize_direction(edge));
                     }
                 }
+                WindowRequest::SetTheme { pair, mode } => self.set_theme(pair, mode),
                 WindowRequest::ShowWindowMenu { at } => {
                     if let Some(open) = self.open.as_ref() {
                         open.window.show_window_menu(LogicalPosition::new(
@@ -460,6 +468,36 @@ impl<A: WindowApp> Shell<A> {
                         ));
                     }
                 }
+            }
+        }
+    }
+
+    /// The user chose `pair` in `mode` ([`WindowRequest::SetTheme`], F2.12a4a): the system's
+    /// decorations are told the forced half (or none for *System*), and the window is redrawn
+    /// when what it shows changed.
+    ///
+    /// # Back to *System* on Windows and macOS
+    /// While a half was forced the system did not report its changes, so the last answer may be
+    /// stale: after `set_theme(None)` the window's own theme (the system's again) is fed to the
+    /// reporter, which drops it when it is the same as before. On Linux `winit` reports no theme
+    /// and the portal never stopped reporting, so there is nothing to feed.
+    fn set_theme(&mut self, pair: crate::ThemePair, mode: crate::ThemeMode) {
+        let was = self.theme.mode();
+        let changed = self.theme.set_choice(pair, mode);
+        if let Some(open) = self.open.as_ref() {
+            let forced = forced_theme(mode);
+            if was != mode {
+                open.window.set_theme(forced);
+                if forced.is_none()
+                    && let (Some(feed), Some(theme)) =
+                        (self.appearance_feed.as_ref(), open.window.theme())
+                {
+                    feed.answer(Some(appearance_from_winit(theme)));
+                }
+            }
+            if changed {
+                self.list.damage_all();
+                open.window.request_redraw();
             }
         }
     }
@@ -714,6 +752,15 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
                 }
             }
         }
+    }
+}
+
+/// The half `mode` forces on the system's decorations: none for *System* (ADR-0050 DG9).
+const fn forced_theme(mode: crate::ThemeMode) -> Option<winit::window::Theme> {
+    match mode {
+        crate::ThemeMode::System => None,
+        crate::ThemeMode::Light => Some(winit::window::Theme::Light),
+        crate::ThemeMode::Dark => Some(winit::window::Theme::Dark),
     }
 }
 

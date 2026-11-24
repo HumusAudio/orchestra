@@ -192,6 +192,23 @@ licenza. Premi *Chiudi*, Invio o Esc per tornare al lavoro.
   [La finestra Informazioni su Orchestra: il logo, la versione, le licenze, il codice sorgente.],
 )
 
+== Preferenze
+
+Apri le Preferenze con *Modifica → Preferenze…* oppure con Ctrl+, (su macOS con *Orchestra →
+Impostazioni…* oppure ⌘,). A sinistra c'è l'elenco delle sezioni, a destra le impostazioni della
+sezione scelta. Ogni modifica si applica subito e viene ricordata alla prossima apertura di
+Orchestra: non serve confermare. Chiudi la finestra con *Chiudi*, con Esc oppure di nuovo con
+Ctrl+,.
+
+Per ora c'è la sezione *Aspetto*:
+- *Tema* sceglie una delle dieci coppie di colori di Orchestra, ognuna con una metà chiara e una
+  scura;
+- *Modalità* sceglie quale metà usare: *Sistema* segue l'impostazione chiara o scura del tuo
+  sistema, *Chiaro* e *Scuro* la fissano;
+- *Cursore lampeggiante* spegne il lampeggio del cursore nelle caselle di testo.
+
+Le sezioni Lingua, Riproduzione e Tastiera arriveranno nei prossimi passi.
+
 == Stato di questa guida
 
 Orchestra è in una fase di sviluppo molto iniziale. Questa edizione di anteprima spiega le idee

@@ -18,6 +18,7 @@
 //!   (ADR-0050 DG10, F2.12a3b);
 //! - `actions`: the program's actions with their default shortcuts per platform (ADR-0048 AM6);
 //! - `demo`: the demonstration window of ADR-0040 W8, until the real views exist;
+//! - `preferences`: the Preferences' texts, content and changes (ADR-0050 DG8–DG9, F2.12a4a);
 //! - `screenshots`: the catalogue of screenshot scenes and how one is rendered (ADR-0041);
 //! - `settings`: the settings of the session, their writing on a thread of their own, and their
 //!   translation between the settings file and the interface's types (ADR-0050 DG6, F2.12a2).
@@ -35,6 +36,7 @@
 mod about;
 mod actions;
 mod demo;
+mod preferences;
 mod screenshots;
 mod settings;
 
@@ -44,6 +46,10 @@ pub use actions::{
     system_texts,
 };
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
+pub use preferences::{
+    Effect, MODES, PreferencesMessage, PreferencesTexts, apply as apply_preference,
+    open_preferences,
+};
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
 };

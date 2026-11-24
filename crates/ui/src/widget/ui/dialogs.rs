@@ -38,7 +38,9 @@ use crate::draw::list::DisplayList;
 use crate::theme::text::{FamilyToken, SizeToken, Weight};
 use crate::theme::token::ColorToken;
 use crate::widget::button::{Button, ButtonKind};
-use crate::widget::dialog::{DialogPanel, DialogRoot, DialogSpec, LOGO_SIDE};
+use crate::widget::dialog::{
+    DialogPanel, DialogRoot, DialogSpec, LOGO_SIDE, LargeDialog, PanelSize,
+};
 use crate::widget::label::Label;
 use crate::widget::layout::{Align, Constraints, Flex, LayoutProps, Length, Size, Space};
 use crate::widget::logo::Logo;
@@ -56,6 +58,8 @@ pub(super) struct DialogLayer {
     pub(super) panel: usize,
     /// Its display-list layer.
     pub(super) layer: u32,
+    /// The action whose shortcut closes it, as Escape does (a large dialog's, F2.12a4a).
+    pub(super) closed_by: Option<crate::ActionId>,
 }
 
 impl<M: Clone + std::fmt::Debug + 'static> Ui<M> {
@@ -156,6 +160,65 @@ impl<M: Clone + std::fmt::Debug + 'static> Ui<M> {
         self.open_pushed_dialog(root, focus.map(|(_, slot)| slot), list);
         self.id_of(panel)
             .ok_or(UiError::UnknownWidget(WidgetId::placeholder()))
+    }
+
+    /// Opens a large dialog (the Preferences, ADR-0050 DG8–DG9, F2.12a4a) and answers the IDs
+    /// of its panel (for [`Ui::close_dialog`]) and of its **content area**, an empty column that
+    /// fills the room between the title and the *Close* button: the application adds its widgets
+    /// there with [`Ui::add`], then calls [`Ui::focus_first`] to put the focus on the first one.
+    /// The panel is [`LARGE_SIZE`](crate::DIALOG_LARGE_SIZE) within the window (see
+    /// `crate::widget::dialog`); Escape, *Close* and the shortcut of `spec.closed_by` close it,
+    /// each sending `spec.close_message`.
+    ///
+    /// # Errors
+    /// As [`Ui::open_dialog`].
+    pub fn open_large_dialog(
+        &mut self,
+        spec: LargeDialog<M>,
+        list: &mut DisplayList,
+    ) -> Result<(WidgetId, WidgetId), UiError> {
+        let panel = DialogPanel::new(
+            crate::DialogKind::Information,
+            spec.title.clone(),
+            String::new(),
+            None,
+            Some(spec.close_message.clone()),
+        )
+        .sized(PanelSize::Large);
+        let (root, panel) = self.push_dialog(Box::new(panel));
+        if let Some(layer) = self.dialogs.last_mut() {
+            layer.closed_by = spec.closed_by;
+        }
+        let fill = LayoutProps::default()
+            .width(Length::Fill(1.0))
+            .height(Length::Fill(1.0));
+        // The title above the content, as a question's (its heading style).
+        let column = self.tree.insert(
+            Some(panel),
+            Box::new(Flex::column(Space::M, Space::None)),
+            fill,
+        );
+        let title =
+            Label::new(spec.title).styled(FamilyToken::Ui, SizeToken::Subheading, Weight::SemiBold);
+        self.tree
+            .insert(Some(column), Box::new(title), LayoutProps::default());
+        let content = self.tree.insert(
+            Some(column),
+            Box::new(Flex::column(Space::M, Space::None)),
+            fill,
+        );
+        let close = Button::new(spec.close_text, spec.close_message).closing_dialog();
+        let close = self
+            .tree
+            .insert(Some(panel), Box::new(close), LayoutProps::default());
+        self.open_pushed_dialog(root, Some(close), list);
+        let panel = self
+            .id_of(panel)
+            .ok_or(UiError::UnknownWidget(WidgetId::placeholder()))?;
+        let content = self
+            .id_of(content)
+            .ok_or(UiError::UnknownWidget(WidgetId::placeholder()))?;
+        Ok((panel, content))
     }
 
     /// Opens a dialog whose panel is `panel`, with no content yet, and answers the panel's ID:
@@ -285,7 +348,12 @@ impl<M: 'static> Ui<M> {
         if let Some(slot) = self.tree.slot_mut(root) {
             slot.layer = layer;
         }
-        self.dialogs.push(DialogLayer { root, panel, layer });
+        self.dialogs.push(DialogLayer {
+            root,
+            panel,
+            layer,
+            closed_by: None,
+        });
         (root, panel)
     }
 

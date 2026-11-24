@@ -68,6 +68,27 @@ pub const LOGO_SIDE: f32 = 128.0;
 /// buttons side by side and a short title.
 pub const MIN_WIDTH: f32 = 320.0;
 
+/// The size a **large** dialog asks for (the Preferences, ADR-0050 DG9, F2.12a4a), logical
+/// pixels: room for a list of sections and a column of controls beside it, about the Preferences
+/// windows of GNOME's and KDE's applications. A smaller window gets a smaller dialog, never below
+/// [`LARGE_MIN_SIZE`] unless the window itself is smaller (the content then scrolls).
+pub const LARGE_SIZE: (f32, f32) = (720.0, 520.0);
+
+/// The smallest a large dialog gets while the window allows it, logical pixels.
+pub const LARGE_MIN_SIZE: (f32, f32) = (480.0, 320.0);
+
+/// How a dialog's panel is sized (F2.12a4a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum PanelSize {
+    /// As large as its texts and buttons need, between [`MIN_WIDTH`] and [`MAX_WIDTH`] (a
+    /// question, an error, About).
+    #[default]
+    Fit,
+    /// [`LARGE_SIZE`] within the window, at least [`LARGE_MIN_SIZE`]; the content takes the whole
+    /// room above the buttons (the Preferences).
+    Large,
+}
+
 /// What a dialog is for (DG2, DG3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum DialogKind {
@@ -216,6 +237,24 @@ impl<M> DialogSpec<M> {
     }
 }
 
+/// A large dialog whose content the application builds (the Preferences, ADR-0050 DG8–DG9,
+/// F2.12a4a): a title, an empty content area that [`Ui::open_large_dialog`](crate::Ui) answers for
+/// the application to fill with [`Ui::add`](crate::Ui::add), and one *Close* button. Escape, the
+/// button and the action `closed_by` (the shortcut that opened it) close it, each sending
+/// `close_message`; there is no OK or Cancel, the changes apply at once (DG8).
+#[derive(Debug, Clone)]
+pub struct LargeDialog<M> {
+    /// The title, the heading and the accessible name, already localised.
+    pub title: String,
+    /// The *Close* button's text, already localised.
+    pub close_text: String,
+    /// The message the closing sends, whatever closed it.
+    pub close_message: M,
+    /// The action whose shortcut also closes the dialog while it is open (the one that opened
+    /// it: Preferences, Ctrl+, or ⌘,), if any.
+    pub closed_by: Option<crate::ActionId>,
+}
+
 /// The root of a dialog's layer: invisible, over the whole window, centring the panel (see the
 /// module documentation).
 #[derive(Debug, Default)]
@@ -276,6 +315,8 @@ pub(crate) struct DialogPanel<M> {
     enter: Option<M>,
     /// What Escape sends: the cancel button's message.
     escape: Option<M>,
+    /// How it is sized.
+    size: PanelSize,
 }
 
 impl<M> DialogPanel<M> {
@@ -293,7 +334,47 @@ impl<M> DialogPanel<M> {
             message,
             enter,
             escape,
+            size: PanelSize::Fit,
         }
+    }
+
+    /// The same panel sized as `size`.
+    pub(crate) const fn sized(mut self, size: PanelSize) -> Self {
+        self.size = size;
+        self
+    }
+}
+
+impl<M: 'static> DialogPanel<M> {
+    /// The measure of a large panel (F2.12a4a): [`LARGE_SIZE`] within what the window gives
+    /// (`constraints`, the window less the large gap on every side), at least [`LARGE_MIN_SIZE`]
+    /// while the window allows it, and at least as wide as the buttons' row; the content (child
+    /// 0) is measured tight at the room left above the buttons.
+    fn measure_large(
+        cx: &mut LayoutCx<'_, M>,
+        constraints: Constraints,
+        row_width: f32,
+        row_height: f32,
+    ) -> Size {
+        let pad = cx.spacing().gap_l;
+        let max = constraints.max;
+        let width = LARGE_SIZE
+            .0
+            .min(max.width)
+            .max(LARGE_MIN_SIZE.0.min(max.width))
+            .max((row_width + 2.0 * pad).min(max.width));
+        let height = LARGE_SIZE
+            .1
+            .min(max.height)
+            .max(LARGE_MIN_SIZE.1.min(max.height));
+        let content = Size::new(
+            (width - 2.0 * pad).max(0.0),
+            (height - row_height - 3.0 * pad).max(0.0),
+        );
+        if cx.child_count() > 0 {
+            cx.measure_child(0, Constraints::tight(content));
+        }
+        constraints.constrain(Size::new(width, height))
     }
 }
 
@@ -315,6 +396,9 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for DialogPanel<M> {
             }
             row_width += size.width;
             row_height = row_height.max(size.height);
+        }
+        if self.size == PanelSize::Large {
+            return Self::measure_large(cx, constraints, row_width, row_height);
         }
         // The widest the panel may be: MAX_WIDTH, or the buttons' row if it is wider, never more
         // than the window gives.
@@ -348,7 +432,20 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for DialogPanel<M> {
         if cx.child_count() == 0 {
             return;
         }
-        let texts = cx.child_size(0);
+        // A large panel's content takes every pixel above the buttons (F2.12a4a); a question's
+        // texts their measured height.
+        let texts = match self.size {
+            PanelSize::Fit => cx.child_size(0),
+            PanelSize::Large => {
+                let row = (1..cx.child_count())
+                    .map(|child| cx.child_size(child).height)
+                    .fold(0.0, f32::max);
+                Size::new(
+                    rect.width() - 2.0 * pad,
+                    (rect.height() - row - 3.0 * pad).max(0.0),
+                )
+            }
+        };
         cx.place_child(
             0,
             Rect::new(

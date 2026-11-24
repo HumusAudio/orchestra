@@ -1868,9 +1868,140 @@ fn about_open(mut panel: Panel) -> Panel {
     panel
 }
 
+// The Preferences' shape (F2.12a4a, ADR-0050 DG9): a large dialog with a list of sections, a
+// drop-down of ten values, a group of three options and a check box. The texts are the en-US
+// catalogue's, written here so the benchmark does not depend on `orchestra-app`.
+fn preferences(panel: &mut Panel) -> orchestra_ui::WidgetId {
+    use orchestra_ui::{DropDown, LargeDialog, ListBox, RadioGroup, Toggle};
+    let names = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect();
+    let (_, content) = panel
+        .ui
+        .open_large_dialog(
+            LargeDialog {
+                title: "Preferences".to_owned(),
+                close_text: "Close".to_owned(),
+                close_message: (),
+                closed_by: None,
+            },
+            &mut panel.list,
+        )
+        .unwrap();
+    let row = panel
+        .ui
+        .add(
+            content,
+            Flex::row(Space::L, Space::None),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    panel
+        .ui
+        .add(
+            row,
+            ListBox::new(names(&["Appearance"]), 0, |_| ()),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    let column = panel
+        .ui
+        .add(
+            row,
+            Flex::column(Space::M, Space::None),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    let pairs = names(&[
+        "Absolute",
+        "Graphite",
+        "Signal",
+        "Parchment",
+        "Slate",
+        "Studio",
+        "Forest",
+        "Lagoon",
+        "Nocturne",
+        "Snow",
+    ]);
+    let drop = panel
+        .ui
+        .add(
+            column,
+            DropDown::new(pairs, 5, |_| ()),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    panel
+        .ui
+        .add(
+            column,
+            RadioGroup::new(names(&["System", "Light", "Dark"]), 0, |_| ()),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    panel
+        .ui
+        .add(
+            column,
+            Toggle::checkbox("Blinking cursor", true, |_| ()),
+            LayoutProps::default(),
+        )
+        .unwrap();
+    panel.ui.focus_first(&mut panel.list);
+    drop
+}
+
+// Opening the Preferences over the panel of 200 widgets and drawing them: the large dialog, its
+// controls built, laid out and drawn (the whole 720 × 520 panel is damaged). Once per opening,
+// never on a frame's path; the budget is the 50 ms of an input (CLAUDE.md §5).
+#[library_benchmark]
+#[bench::panel(shown())]
+fn preferences_open(mut panel: Panel) -> Panel {
+    let drop = preferences(&mut panel);
+    draw(&mut panel);
+    black_box(drop);
+    panel
+}
+
+// The Preferences open and drawn, with the focus on the drop-down.
+fn preferences_shown() -> Panel {
+    let mut panel = shown();
+    let drop = preferences(&mut panel);
+    panel.ui.set_focus(Some(drop), &mut panel.list).unwrap();
+    draw(&mut panel);
+    let _ = panel.ui.take_access_update();
+    panel
+}
+
+// Enter on the drop-down: its list of ten values opens below it (a menu built from a model,
+// F2.11d2a) and is drawn, the value in use highlighted.
+#[library_benchmark]
+#[bench::panel(preferences_shown())]
+fn drop_down_open(mut panel: Panel) -> Panel {
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        panel.ui.input(
+            black_box(&InputEvent::Key {
+                key: Key::Named(NamedKey::Enter),
+                physical: PhysicalKey::Other,
+                state,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            }),
+            &mut panel.list,
+        );
+    }
+    draw(&mut panel);
+    panel
+}
+
 library_benchmark_group!(
     name = dialogs,
-    benchmarks = [dialog_open, dialog_tab, about_open]
+    benchmarks = [
+        dialog_open,
+        dialog_tab,
+        about_open,
+        preferences_open,
+        drop_down_open
+    ]
 );
 
 main!(

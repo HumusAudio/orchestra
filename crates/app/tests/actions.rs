@@ -61,10 +61,12 @@ fn the_registry_builds_on_every_platform_with_its_defaults() {
             registry.lookup(Context::GLOBAL, f11),
             (platform != Platform::MacOs).then_some(ids.full_screen)
         );
-        // Choice E: only Quit, Full screen and About (F2.12a3b) are enabled outside a field.
+        // Choice E: only Quit, Full screen, About (F2.12a3b) and Preferences (F2.12a4a) are
+        // enabled outside a field.
         for id in ids.all() {
             let enabled = registry.state(id).unwrap().enabled;
-            let expected = id == ids.quit || id == ids.full_screen || id == ids.about;
+            let expected =
+                id == ids.quit || id == ids.full_screen || id == ids.about || id == ids.preferences;
             assert_eq!(enabled, expected, "{id:?}");
         }
         // About has no shortcut on any platform (ADR-0050 DG10).
@@ -168,6 +170,44 @@ fn about_opens_its_dialog_and_escape_closes_it() {
     );
     assert_eq!(demo.ui().dialogs().count(), 0);
     assert_eq!(demo.take_window_request(), None);
+}
+
+/// The Preferences (F2.12a4a, ADR-0050 DG8–DG9): Ctrl+, opens them; a mode chosen applies at
+/// once (a request to the window) and goes into the settings, written later; the blink turned
+/// off reaches the interface; Ctrl+, again closes them.
+#[test]
+fn the_preferences_apply_at_once_and_their_shortcut_closes_them() {
+    let (mut demo, mut list) = demo();
+    let ids = demo.actions().unwrap();
+    demo.run_action(ids.preferences, &mut list);
+    let panel = demo.preferences().expect("the Preferences are open");
+    assert_eq!(demo.ui().dialogs().collect::<Vec<_>>(), vec![panel]);
+    // The first control has the focus: the list of sections.
+    assert!(demo.ui().focused().is_some());
+    // Tab to the mode's group (sections → theme → mode), End chooses Dark.
+    for key in [NamedKey::Tab, NamedKey::Tab, NamedKey::End] {
+        press(&mut demo, &mut list, &Key::Named(key), Modifiers::default());
+    }
+    match demo.take_window_request() {
+        Some(WindowRequest::SetTheme { mode, .. }) => {
+            assert_eq!(mode, orchestra_ui::ThemeMode::Dark);
+        }
+        other => panic!("expected a theme request, got {other:?}"),
+    }
+    assert_eq!(
+        demo.settings().settings().theme.mode,
+        orchestra_io::settings::Mode::Dark
+    );
+    // Tab to the blinking cursor's check box, Space turns it off.
+    for key in [NamedKey::Tab, NamedKey::Space] {
+        press(&mut demo, &mut list, &Key::Named(key), Modifiers::default());
+    }
+    assert!(!demo.ui().caret_blink());
+    assert!(!demo.settings().settings().caret_blink);
+    // Ctrl+, (⌘, on macOS) closes them instead of opening them again.
+    press(&mut demo, &mut list, &Key::Character(",".into()), PRIMARY);
+    assert_eq!(demo.ui().dialogs().count(), 0);
+    assert_eq!(demo.preferences(), None);
 }
 
 #[test]
@@ -300,7 +340,7 @@ fn siblings(
             orchestra_ui::MenuItem::Submenu { name, mnemonic, .. } => {
                 Some((name.clone(), *mnemonic))
             }
-            orchestra_ui::MenuItem::Separator => None,
+            orchestra_ui::MenuItem::Separator | orchestra_ui::MenuItem::Choice { .. } => None,
         })
         .collect()
 }

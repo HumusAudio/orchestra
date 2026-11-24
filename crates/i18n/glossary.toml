@@ -60,6 +60,9 @@ qt-mdi = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_
 qt-buttons = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QPlatformTheme (the standard buttons of Qt's and KDE's dialogs: OK, Cancel, Close)"
 firefox-about = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/menubar.ftl (menu-about: the Help menu's About item and its access key) and aboutDialog.ftl (aboutDialog-title), en-GB, it, fr, de, es-ES"
 gtk-about = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (en_GB, it, fr, de, es): GtkAboutDialog's 'About %s', 'License', 'GNU General Public License, version 3 or later', and the font chooser's 'Font'"
+gnome-settings = "https://gitlab.gnome.org/GNOME/gnome-control-center/-/tree/main/po — GNOME Settings' catalogues (it, fr, de, es, en_GB): the Appearance panel ('Appearance', 'Style')"
+firefox-appearance = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/preferences/preferences.ftl: the appearance choices of Firefox's settings (System, Light, Dark) in it, fr, de, es-ES, en-GB"
+musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the Appearance page of MuseScore Studio's Preferences ('Appearance', 'Theme', 'Follow system theme')"
 
 # ================================================================================================
 # Notation
@@ -1601,4 +1604,121 @@ de = "Logo"
 es = "logotipo"
 sources = ["gtk-about"]
 note = """The Orchestra logo: the About dialog's sentence on its rights and the picture's accessible name ('Orchestra logo', F2.12a3b). es: 'logotipo' is the RAE's form (the short 'logo' is accepted, 'logotipo' is what formal and legal texts write). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "preferences_section"
+category = "general"
+en-US = "sections"
+en-GB = "sections"
+it = "sezioni"
+fr = "sections"
+de = "Bereiche"
+es = "secciones"
+sources = ["gnome-settings"]
+note = """The accessible name of the Preferences' list of sections (F2.12a4a, ADR-0050 DG9); never shown on screen. de: 'Bereiche', the word German settings dialogs use for their parts. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "appearance"
+category = "general"
+en-US = "appearance"
+en-GB = "appearance"
+it = "aspetto"
+fr = "apparence"
+de = "Erscheinungsbild"
+es = "apariencia"
+sources = ["gnome-settings", "musescore-appearance", "firefox-appearance"]
+note = """The Preferences' first section (F2.12a4a): the theme's pair, the mode, the cursor's blink. GNOME Settings and Firefox agree in the five languages; MuseScore writes the same except de 'Aussehen': GNOME's and Firefox's 'Erscheinungsbild'. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "theme"
+category = "general"
+en-US = "theme"
+en-GB = "theme"
+it = "tema"
+fr = "thème"
+de = "Darstellung"
+es = "tema"
+sources = ["musescore-appearance"]
+note = """The pair of light and dark themes chosen in the Preferences (ADR-0037 T1, F2.12a4a). MuseScore Studio's Preferences: it 'Tema', fr 'Thème', de 'Darstellung', es 'Tema'. de: Windows and Office write 'Design', Firefox 'Theme'; the owner chose MuseScore's 'Darstellung' (a music program's own word) on 2026-11-24, to be confirmed by a native speaker."""
+review = true
+
+[[term]]
+id = "theme_mode"
+category = "general"
+en-US = "mode"
+en-GB = "mode"
+it = "modalità"
+fr = "mode"
+de = "Modus"
+es = "modo"
+sources = ["firefox-appearance"]
+note = """The label of the choice System / Light / Dark (ADR-0014 §1, ADR-0050 DG9, F2.12a4a). The common word for a setting's mode in each language. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "system_mode"
+category = "general"
+en-US = "system"
+en-GB = "system"
+it = "sistema"
+fr = "système"
+de = "System"
+es = "sistema"
+sources = ["firefox-appearance"]
+note = """The mode that follows the system's light or dark preference (ADR-0038, F2.12a4a), as Firefox's settings name it in the five languages. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "light"
+category = "general"
+en-US = "light"
+en-GB = "light"
+it = "chiaro"
+fr = "clair"
+de = "hell"
+es = "claro"
+sources = ["firefox-appearance"]
+note = """The light mode (F2.12a4a), as Firefox's settings name it (adjective, written as a choice: 'Chiaro', 'Clair', 'Hell', 'Claro'). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "dark"
+category = "general"
+en-US = "dark"
+en-GB = "dark"
+it = "scuro"
+fr = "sombre"
+de = "dunkel"
+es = "oscuro"
+sources = ["firefox-appearance"]
+note = """The dark mode (F2.12a4a), as Firefox's settings name it ('Scuro', 'Sombre', 'Dunkel', 'Oscuro'). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "blinking_cursor"
+category = "general"
+en-US = "blinking cursor"
+en-GB = "blinking cursor"
+it = "cursore lampeggiante"
+fr = "curseur clignotant"
+de = "blinkender Cursor"
+es = "cursor parpadeante"
+sources = ["gnome-settings"]
+note = """The check box that turns the text cursor's blink on or off (ADR-0047 TF8, ADR-0050 DG9, F2.12a4a). 'Cursor' is the users' word for the text caret in every language (GNOME's accessibility settings: 'Cursor Blinking'). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "theme_pairs"
+category = "general"
+en-US = "Absolute, Graphite, Signal, Parchment, Slate, Studio, Forest, Lagoon, Nocturne, Snow"
+en-GB = "as en-US"
+it = "Assoluto, Grafite, Segnale, Pergamena, Ardesia, Studio, Foresta, Laguna, Notturno, Neve"
+fr = "Absolu, Graphite, Signal, Parchemin, Ardoise, Studio, Forêt, Lagon, Nocturne, Neige"
+de = "Absolut, Graphit, Signal, Pergament, Schiefer, Studio, Wald, Lagune, Nocturne, Schnee"
+es = "Absoluto, Grafito, Señal, Pergamino, Pizarra, Estudio, Bosque, Laguna, Nocturno, Nieve"
+sources = ["wikipedia"]
+note = """The names of the ten built-in theme pairs of ADR-0037 T1 (theme-absolute … theme-snow), owner's choice 8 of F2.12a4a, approved 2026-11-24: translated where they are common words, 'Studio' kept as the loanword it is in it, fr and de (es 'Estudio'); 'Nocturne' is the musical genre's name, kept in fr and de, 'Notturno' and 'Nocturno' in it and es. The identifiers stay English in the settings file."""
 review = false

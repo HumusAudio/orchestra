@@ -585,3 +585,14 @@ the fixed keys there (4). While writing, the rest:
 - **Not verified by hand** (no Mac, ADR-0040 W9): AppKit may add items of its own (Start
   Dictation and Emoji & Symbols in an Edit menu, Enter Full Screen near a View menu), which could
   duplicate View → Full screen. To be looked at the first time a Mac is available.
+
+## Precisions of the implementation (F2.12a4a, approved by the owner on 2026-11-24)
+
+- **Values of a choice in a menu.** `MenuItem::Choice { name, checked, value }` (`MenuModel::choice`)
+  is a value of a drop-down's list (ADR-0050 DG9): drawn with a check mark when it is the value in
+  use, `MenuItemRadio` for assistive technologies, chosen like an action (Enter, Space, the release
+  of an armed menu) but reported to the menu's owner as `WidgetEvent::Chosen(value)` instead of
+  running an action. A widget opens such a list below itself with `EventCx::open_choices` (closed
+  with `close_choices`), carried out at the next frame. Choices never reach the system's menus.
+- **One shortcut behind a dialog.** The action a large dialog names as `closed_by` closes that dialog
+  while it is on top (ADR-0050 DG8); every other non-editing action stays off behind a dialog.

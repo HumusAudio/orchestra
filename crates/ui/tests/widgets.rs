@@ -90,6 +90,7 @@ impl Widget<Msg> for Probe {
             WidgetEvent::Scroll { .. } => "scroll",
             WidgetEvent::WakeUp => "wake",
             WidgetEvent::MenuClosed(_) => "menu-closed",
+            WidgetEvent::Chosen(_) => "chosen",
             WidgetEvent::Edit(_) => "edit-action",
             WidgetEvent::SetText(_)
             | WidgetEvent::ReplaceSelectedText(_)

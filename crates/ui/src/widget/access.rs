@@ -81,6 +81,17 @@ pub enum AccessRole {
     AlertDialog,
     /// A picture with a name and no text of its own (the Orchestra logo, F2.12a3b).
     Image,
+    /// A value in a drop-down's list (F2.12a4a): one of several, its state in
+    /// [`AccessInfo::toggled`].
+    MenuItemRadio,
+    /// A drop-down: shows the value in use and opens the list of values (F2.12a4a).
+    ComboBox,
+    /// A group of options of which one is chosen (F2.12a4a), the chosen one in
+    /// [`AccessInfo::value_text`].
+    RadioGroup,
+    /// A list of items of which one is selected (the Preferences' sections, F2.12a4a), the
+    /// selected one in [`AccessInfo::value_text`].
+    ListBox,
 }
 
 /// What a widget tells assistive technologies besides its role (WC2): all optional.
@@ -136,6 +147,9 @@ pub struct AccessInfo {
     pub description: Option<String>,
     /// The widget is modal: nothing outside it can be used while it is shown (a dialog).
     pub modal: bool,
+    /// The value as people read it, for widgets whose value is a word, not a number (F2.12a4a):
+    /// a drop-down's, a group of options', a list's chosen item.
+    pub value_text: Option<String>,
 }
 
 /// One line of text as assistive technologies read it (F2.10b3, ADR-0045 WI1, ADR-0047 TF11).
@@ -325,17 +339,7 @@ pub(crate) fn push_widget_nodes(
     if info.modal {
         node.set_modal();
     }
-    if let Some(on) = info.toggled {
-        node.set_toggled(if on { Toggled::True } else { Toggled::False });
-    }
-    if let Some(value) = info.value {
-        node.set_numeric_value(value);
-    }
-    if let Some((min, max, step)) = info.range {
-        node.set_min_numeric_value(min);
-        node.set_max_numeric_value(max);
-        node.set_numeric_value_step(step);
-    }
+    set_values(&mut node, info);
     if let Some(scroll) = info.scroll {
         // The children outside the viewport are not visible: assistive technologies must not
         // offer them as on screen (they can still ask to scroll them into view).
@@ -414,6 +418,25 @@ pub(crate) fn push_widget_nodes(
     nodes.insert(at, (NodeId(id.get()), node));
 }
 
+/// The widget's state and value on its node: on or off, a number with its range, a value as a
+/// word (F2.12a4a). Split from [`push_widget_nodes`] to keep each function short.
+fn set_values(node: &mut Node, info: &AccessInfo) {
+    if let Some(on) = info.toggled {
+        node.set_toggled(if on { Toggled::True } else { Toggled::False });
+    }
+    if let Some(value) = info.value {
+        node.set_numeric_value(value);
+    }
+    if let Some(text) = &info.value_text {
+        node.set_value(text.clone());
+    }
+    if let Some((min, max, step)) = info.range {
+        node.set_min_numeric_value(min);
+        node.set_max_numeric_value(max);
+        node.set_numeric_value_step(step);
+    }
+}
+
 /// AccessKit's role for `role` (WC2).
 const fn role_of(role: AccessRole) -> Role {
     match role {
@@ -436,6 +459,10 @@ const fn role_of(role: AccessRole) -> Role {
         AccessRole::Dialog => Role::Dialog,
         AccessRole::AlertDialog => Role::AlertDialog,
         AccessRole::Image => Role::Image,
+        AccessRole::MenuItemRadio => Role::MenuItemRadio,
+        AccessRole::ComboBox => Role::ComboBox,
+        AccessRole::RadioGroup => Role::RadioGroup,
+        AccessRole::ListBox => Role::ListBox,
     }
 }
 
