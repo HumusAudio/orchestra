@@ -61,11 +61,14 @@ fn the_registry_builds_on_every_platform_with_its_defaults() {
             registry.lookup(Context::GLOBAL, f11),
             (platform != Platform::MacOs).then_some(ids.full_screen)
         );
-        // Choice E: only Quit and Full screen are enabled outside a field.
+        // Choice E: only Quit, Full screen and About (F2.12a3b) are enabled outside a field.
         for id in ids.all() {
             let enabled = registry.state(id).unwrap().enabled;
-            assert_eq!(enabled, id == ids.quit || id == ids.full_screen, "{id:?}");
+            let expected = id == ids.quit || id == ids.full_screen || id == ids.about;
+            assert_eq!(enabled, expected, "{id:?}");
         }
+        // About has no shortcut on any platform (ADR-0050 DG10).
+        assert_eq!(registry.shortcuts(ids.about), []);
     }
 }
 
@@ -139,6 +142,31 @@ fn full_screen_and_quit_reach_the_window() {
     press(&mut demo, &mut list, &Key::Character("q".into()), PRIMARY);
     let expected = (Platform::CURRENT != Platform::Windows).then_some(WindowRequest::Close);
     assert_eq!(demo.take_window_request(), expected);
+    assert_eq!(demo.take_window_request(), None);
+}
+
+/// *About Orchestra* opens its dialog (F2.12a3b): an information dialog with the logo, the
+/// version and the repository's address, the focus on *Close*; Escape closes it.
+#[test]
+fn about_opens_its_dialog_and_escape_closes_it() {
+    let (mut demo, mut list) = demo();
+    let ids = demo.actions().unwrap();
+    demo.run_action(ids.about, &mut list);
+    let dialogs: Vec<_> = demo.ui().dialogs().collect();
+    assert_eq!(dialogs.len(), 1);
+    // The dialog's texts are the catalogue's, with the version and the address filled in.
+    let texts = &SceneContext::new().unwrap().demo.about;
+    assert_eq!(texts.title, "About Orchestra");
+    assert_eq!(texts.version, format!("Version {}", orchestra_app::VERSION));
+    assert!(texts.source.ends_with(orchestra_app::REPOSITORY));
+    assert!(!texts.source.contains(['\u{2068}', '\u{2069}']));
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Escape),
+        Modifiers::default(),
+    );
+    assert_eq!(demo.ui().dialogs().count(), 0);
     assert_eq!(demo.take_window_request(), None);
 }
 

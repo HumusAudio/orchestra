@@ -171,7 +171,30 @@ pub const SCENES: &[Scene] = &[
         height: TITLE_BAR_HEIGHT,
         record: record_title_bar,
     },
+    Scene {
+        name: "about-dialog",
+        width: 640.0,
+        height: ABOUT_SCENE_HEIGHT,
+        record: record_about_dialog,
+    },
 ];
+
+/// The height of the About dialog's scene (F2.12a3b), logical pixels: the demonstration window
+/// made tall enough for the whole dialog (logo, title, version, four details, *Close*) to show
+/// without scrolling its texts.
+const ABOUT_SCENE_HEIGHT: f32 = 600.0;
+
+/// The demonstration window with *About Orchestra* open (F2.12a3b, ADR-0050 DG10), run as its
+/// menu item would: the logo in the text colour, the version, the licence, the logo's notice, the
+/// repository's address and the bundled fonts, the focus on *Close*. The buttons' order does not
+/// matter with one button, so the scene does not depend on the desktop.
+fn record_about_dialog(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    if let Some(ids) = demo.actions() {
+        demo.run_action(ids.about, list);
+    }
+}
 
 /// The height of the title bar's strip (F2.11b3): the bar (a control's height at Studio's
 /// density) and the resize band under it, with the frame's line around.

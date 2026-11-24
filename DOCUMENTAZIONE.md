@@ -5664,6 +5664,78 @@ Costruire la finestra di dialogo costa circa 2 M istruzioni, il resto è il dise
 cornice, i pulsanti e i testi, i cui glifi sono nuovi per la cache. Dentro il budget del fotogramma
 di 33 M (F2.07c), e indipendente dalle dimensioni della finestra.
 
+#### Informazioni su Orchestra
+
+**Cosa vede l'utente** (ADR-0050 DG10, SCALETTA F2.12a3b). *Aiuto → Informazioni su Orchestra* (su
+macOS la prima voce del menu dell'applicazione, grazie al ruolo *About* di ADR-0048 AM9) apre la
+nostra prima finestra di dialogo vera: il logo nel colore del testo del tema, il titolo, la
+versione e, nel colore attenuato, la licenza (GNU GPL 3.0 o successiva), la nota che il logo non
+ne fa parte (tutti i diritti riservati), l'indirizzo del repository dei sorgenti e i caratteri
+inclusi con la loro licenza. Un solo pulsante, *Chiudi*, che ha il fuoco e che si preme anche con
+Esc. L'azione è la quindicesima del registro, `help.about`, abilitata, senza scorciatoia su
+nessuna piattaforma (nessuna ne dà una a Informazioni su).
+
+**Il logo, convertito dal nostro codice** (scelta 1 del proprietario). DG10 vieta un motore SVG
+come dipendenza per un'immagine sola. Il file del logo è stato prodotto da `pdftocairo` e usa una
+parte minuscola di SVG: un `viewBox` quadrato, un tracciato per il disegno, un tracciato per
+lettera in `<defs>` posizionato con `<use x y>`, solo i comandi assoluti `M`, `L`, `C`, `Z`, un
+colore, la regola non-zero. `crates/ui/build/logo_svg.rs` legge esattamente questo e rifiuta tutto
+il resto con un errore tipizzato (un `transform`, un altro elemento, un comando relativo, la regola
+pari-dispari), così una modifica futura del logo che ne chiedesse di più fa fallire la compilazione
+invece di disegnare un'altra forma. Gira **in compilazione**: `crates/ui/build.rs` converte il logo
+e scrive i tracciati in `OUT_DIR/logo_paths.rs`, mai committato, perché il logo non è GPL e non
+deve stare in un file sorgente con l'intestazione della GPL. Lo script controlla anche che il logo
+resti dentro la sua tela, misurando l'estensione vera di ogni curva (i suoi estremi) e non i punti
+di controllo: un punto di controllo del disegno sta a x ≈ 2642 su una tela di 2384, mentre la curva
+arriva solo a x ≈ 2228.
+
+```rust
+// crates/ui/src/widget/logo.rs: the generated table, included once.
+mod generated {
+    use super::LogoElement;
+    include!(concat!(env!("OUT_DIR"), "/logo_paths.rs"));
+}
+```
+
+**Il widget** (`crates/ui/src/widget/logo.rs`). `Logo::new(side, label)` chiede un quadrato di
+`side` pixel logici e disegna le dieci forme (il disegno e nove lettere, la R due volte) con una
+sola scala uniforme nel quadrato centrato più grande del suo rettangolo, ognuna riempita da sola
+con la regola non-zero in `ColorToken::Text`: ricolorato, mai rimodellato
+(`assets/logo/README.md`). Per le tecnologie assistive è un'immagine (`AccessRole::Image`, nuovo)
+con il nome `label`.
+
+**Cosa hanno guadagnato le finestre di dialogo** (`crates/ui/src/widget/dialog.rs`).
+`DialogKind::Information` (una finestra che non chiede nulla, un `Dialog` semplice per le
+tecnologie assistive); `DialogSpec::logo(label)`, il logo sopra il titolo a `DIALOG_LOGO_SIDE`
+(128 pixel logici), centrato; e un numero qualunque di dettagli, `DialogSpec::details` al posto
+del singolo `detail` (il metodo `.detail(…)` ora ne aggiunge uno). La finestra Informazioni su è
+costruita da `crates/app/src/about.rs`: `AboutTexts` legge i suoi testi, `about_dialog(texts,
+close)` fa la `DialogSpec`. La versione è `CARGO_PKG_VERSION` e l'indirizzo `CARGO_PKG_REPOSITORY`,
+scritto come testo semplice (scelte 2 e 3 del proprietario: per ora niente link cliccabile e niente
+hash del commit). Il programma ora dà all'interfaccia l'ordine dei pulsanti del sistema all'avvio
+(`Ui::set_button_order(system_button_order())` in `main.rs`).
+
+**Testi.** Sette messaggi nuovi nei sei cataloghi (`menu-help-about` con il suo mnemonico, gli
+`about-*` della finestra), dopo la ricerca nei cataloghi distribuiti di Firefox e di GTK; sette
+termini nuovi nel glossario (`about`, `version`, `license`, `source_code`, `bundled_fonts`,
+`all_rights_reserved`, `logo`). Il francese elide davanti al nome del programma (*À propos
+d'Orchestra*); `about` e `bundled_fonts` (lo spagnolo *fuentes*) sono segnati da rivedere.
+
+**Test e benchmark.** In `logo.rs`: la tabella generata è esattamente ciò che il convertitore fa
+del logo di oggi, dieci forme dentro la tela; glifi posizionati due volte, ripetizioni implicite, e
+dodici tipi di ingresso non supportato o malformato rifiutati. In `crates/app/tests/actions.rs`:
+Informazioni su è abilitata e senza scorciatoia, apre una finestra con i testi del catalogo
+completati, ed Esc la chiude. La scena `about-dialog` la mostra nelle guide. Il benchmark
+`about_open` (gruppo `dialogs`, riquadro di 200 widget, finestra di 1000 × 1000):
+
+```text
+benchmark                       instructions
+about_open (open + draw)          24 068 635
+```
+
+Circa 11 M più di una domanda, quasi tutti per `tiny-skia` che riempie i tracciati del logo: una
+volta per apertura, dentro il budget del fotogramma di 33 M.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

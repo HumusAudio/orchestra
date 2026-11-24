@@ -5,10 +5,11 @@
 //! registry, the lookup, the contexts) is `orchestra-ui`'s; this module only fills it.
 //!
 //! # Which actions, and their state today (choice E of F2.11d1)
-//! The fourteen of ADR-0048 AM6's table, so that the menus of F2.11d2 have real items:
+//! The fourteen of ADR-0048 AM6's table, so that the menus of F2.11d2 have real items, and
+//! *About Orchestra* (F2.12a3b, ADR-0050 DG10), fifteen in all:
 //! - **working:** Quit and Full screen (they ask the window, [`orchestra_ui::WindowRequest`]),
-//!   and the six editing actions on a focused text field (AM13: the interface sends them to the
-//!   field itself);
+//!   About (it opens the About dialog, [`crate::about`]), and the six editing actions on a focused
+//!   text field (AM13: the interface sends them to the field itself);
 //! - **registered but disabled** until what they do exists: New, Open, Save, Save as (the project
 //!   file in the interface), Preferences (F2.12), Help (the guides), and the editing actions
 //!   outside a field (there is no document view yet to undo in or select from).
@@ -29,6 +30,7 @@
 //! | Preferences | Ctrl+, | Ctrl+, | ⌘, |
 //! | Full screen | F11 | F11 | ⌃⌘F |
 //! | Help | F1 | F1 | ⌘? |
+//! | About Orchestra | none | none | none (as every Mac program) |
 //!
 //! They are written with the abstract modifiers (*Primary* is Ctrl or ⌘, *Secondary* is the
 //! Windows/Super key or ⌃), so one table serves the three platforms, chosen by value: the tests
@@ -44,12 +46,13 @@
 //! # The menu bar and the mnemonics (F2.11d2b)
 //! [`menu_bar`] is the drawn bar of Linux and Windows (ADR-0048 AM9): File (New, Open…, Save,
 //! Save as…, Quit), Edit (Undo, Redo, Cut, Copy, Paste, Select all, Preferences…), View (Full
-//! screen) and Help (User guide). Each title and item has a **mnemonic**, the `.mnemonic`
+//! screen) and Help (User guide, then About Orchestra after a separator, as GNOME, KDE and Windows
+//! programs place it). Each title and item has a **mnemonic**, the `.mnemonic`
 //! attribute of its message, chosen for each language from the shipped catalogues of a music program and
 //! unique among its siblings (tested in the six languages; glossary entries `menu_mnemonics`).
 //!
-//! The roles of ADR-0048 AM9 are on the model too: Preferences and Quit go into macOS's
-//! application menu, the Help menu is given to the system (F2.11e1); on Linux and Windows they
+//! The roles of ADR-0048 AM9 are on the model too: About, Preferences and Quit go into macOS's
+//! application menu (About first), the Help menu is given to the system (F2.11e1); on Linux and Windows they
 //! change nothing.
 //!
 //! # The field's context menu (F2.11d2a)
@@ -94,12 +97,14 @@ pub struct ActionIds {
     pub full_screen: ActionId,
     /// `help.contents`.
     pub help: ActionId,
+    /// `help.about` (F2.12a3b).
+    pub about: ActionId,
 }
 
 impl ActionIds {
     /// Every action, in registration order.
     #[must_use]
-    pub const fn all(&self) -> [ActionId; 14] {
+    pub const fn all(&self) -> [ActionId; 15] {
         [
             self.new,
             self.open,
@@ -115,6 +120,7 @@ impl ActionIds {
             self.preferences,
             self.full_screen,
             self.help,
+            self.about,
         ]
     }
 }
@@ -205,15 +211,15 @@ const fn global(
     }
 }
 
-/// The fourteen actions, in the order of [`ActionIds::all`], with the defaults of AM6: the File
+/// The fifteen actions, in the order of [`ActionIds::all`], with the defaults of AM6: the File
 /// group, the Edit group, then View and Help (three tables, so each stays readable).
 ///
 /// # Errors
 /// [`ShortcutError`] when a default shortcut is malformed; the tests prevent it.
-fn specs() -> Result<[ActionSpec; 14], ShortcutError> {
+fn specs() -> Result<[ActionSpec; 15], ShortcutError> {
     let [new, open, save, save_as, quit] = file_specs()?;
     let [undo, redo, cut, copy, paste, select_all, preferences] = edit_specs()?;
-    let [full_screen, help] = view_and_help_specs()?;
+    let [full_screen, help, about] = view_and_help_specs()?;
     Ok([
         new,
         open,
@@ -229,6 +235,7 @@ fn specs() -> Result<[ActionSpec; 14], ShortcutError> {
         preferences,
         full_screen,
         help,
+        about,
     ])
 }
 
@@ -330,8 +337,8 @@ fn edit_specs() -> Result<[ActionSpec; 7], ShortcutError> {
     ])
 }
 
-/// Full screen, Help.
-fn view_and_help_specs() -> Result<[ActionSpec; 2], ShortcutError> {
+/// Full screen, Help, About.
+fn view_and_help_specs() -> Result<[ActionSpec; 3], ShortcutError> {
     Ok([
         global(
             "view.full-screen",
@@ -352,6 +359,13 @@ fn view_and_help_specs() -> Result<[ActionSpec; 2], ShortcutError> {
                 windows: vec![function(1)?],
                 macos: vec![ch(PRIMARY, '?')?],
             },
+            None,
+        ),
+        // No shortcut anywhere: no platform gives one to About (ADR-0050 DG10).
+        global(
+            "help.about",
+            "menu-help-about",
+            Defaults::everywhere(&[]),
             None,
         ),
     ])
@@ -380,6 +394,7 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
         preferences,
         full_screen,
         help,
+        about,
     ] = specs()?.map(|spec| registry.register(spec));
     let ids = ActionIds {
         new: new?,
@@ -396,11 +411,12 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
         preferences: preferences?,
         full_screen: full_screen?,
         help: help?,
+        about: about?,
     };
     // What does not exist yet is disabled (choice E). The editing actions are enabled by the
     // focused field itself when it has the focus (AM13); outside it there is nothing to edit.
     for id in ids.all() {
-        if id != ids.quit && id != ids.full_screen {
+        if id != ids.quit && id != ids.full_screen && id != ids.about {
             registry.set_state(id, ActionState::DISABLED)?;
         }
     }
@@ -492,7 +508,11 @@ pub fn menu_bar(ids: &ActionIds, texts: &ActionTexts) -> MenuModel {
         .action(ids.preferences)
         .role(MenuRole::Preferences);
     let view = MenuModel::new().action(ids.full_screen);
-    let help = MenuModel::new().action(ids.help);
+    let help = MenuModel::new()
+        .action(ids.help)
+        .separator()
+        .action(ids.about)
+        .role(MenuRole::About);
     let title = |index: usize| {
         let (name, mnemonic) = texts.title(index);
         (name.to_owned(), mnemonic)
@@ -575,11 +595,13 @@ pub fn action_texts(localizer: &Localizer) -> Result<ActionTexts, I18nError> {
         .unwrap_or_default();
     let mut names = Vec::with_capacity(keys.len());
     for key in keys {
-        names.push((
-            key,
-            localizer.format(key, None)?,
-            mnemonic_of(localizer, key)?,
-        ));
+        // A name may hold the program's name (`About { app-name }`, F2.12a3b): Fluent's isolation
+        // marks around it are dropped, as for the system's names below (the program's name is
+        // never right-to-left, and the name reaches menus and the accessibility tree).
+        let name = localizer
+            .format(key, None)?
+            .replace(['\u{2068}', '\u{2069}'], "");
+        names.push((key, name, mnemonic_of(localizer, key)?));
     }
     let mut titles = Vec::with_capacity(TITLES.len());
     for key in TITLES {

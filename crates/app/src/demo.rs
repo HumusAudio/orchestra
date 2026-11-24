@@ -45,6 +45,7 @@ use orchestra_ui::{
     WindowButtonNames,
 };
 
+use crate::about::{AboutTexts, about_dialog};
 use crate::actions::{self, ActionIds, ActionTexts};
 
 /// The messages of the demonstration's widgets (ADR-0045 WA7).
@@ -64,6 +65,9 @@ pub enum DemoMessage {
     Ok,
     /// An action ran from its shortcut (ADR-0048 AM4, F2.11d1).
     Action(ActionId),
+    /// The About dialog's *Close* was pressed (F2.12a3b): the dialog closes by itself, nothing
+    /// else to do.
+    AboutClosed,
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -92,6 +96,8 @@ pub struct DemoTexts {
     /// The names of our title bar's window buttons (F2.11b2), used only where the system draws
     /// no frame.
     pub window_buttons: WindowButtonNames,
+    /// The About dialog's texts (F2.12a3b).
+    pub about: AboutTexts,
 }
 
 impl DemoTexts {
@@ -117,6 +123,7 @@ impl DemoTexts {
                 restore: localizer.format("window-restore", None)?,
                 minimize: localizer.format("window-minimize", None)?,
             },
+            about: AboutTexts::new(localizer)?,
         })
     }
 }
@@ -183,6 +190,8 @@ pub struct Demo {
     actions: Option<ActionIds>,
     /// What the actions asked of the window, waiting for it ([`WindowApp::take_window_request`]).
     requests: VecDeque<WindowRequest>,
+    /// The About dialog's texts, for `help.about` (F2.12a3b).
+    about: AboutTexts,
 }
 
 impl Demo {
@@ -304,6 +313,7 @@ impl Demo {
             ui,
             actions,
             requests: VecDeque::new(),
+            about: texts.about.clone(),
             title,
             metronome,
             count_in,
@@ -369,23 +379,35 @@ impl Demo {
     fn handle_messages(&mut self, list: &mut DisplayList) {
         let mut restore = false;
         let mut name = None;
+        let mut about = false;
         for message in self.ui.take_messages() {
             match message {
                 DemoMessage::RestoreDefaults => restore = true,
                 DemoMessage::TrackName(text) => name = Some(text),
-                // Quit and Full screen ask the window (F2.11d1); the other actions are disabled
-                // until they exist, so their messages never come.
+                // Quit and Full screen ask the window (F2.11d1), About opens its dialog
+                // (F2.12a3b); the other actions are disabled until they exist, so their messages
+                // never come.
                 DemoMessage::Action(id) => {
                     if let Some(ids) = self.actions {
                         if id == ids.quit {
                             self.requests.push_back(WindowRequest::Close);
                         } else if id == ids.full_screen {
                             self.requests.push_back(WindowRequest::ToggleFullScreen);
+                        } else if id == ids.about {
+                            about = true;
                         }
                     }
                 }
                 _ => {}
             }
+        }
+        // A dialog blocks the menus and the shortcuts while it is open (ADR-0050 DG1), so About
+        // cannot be asked twice; `open_dialog` fails only if the interface's own tree is
+        // inconsistent, and then the dialog is simply not shown.
+        if about {
+            let _ = self
+                .ui
+                .open_dialog(about_dialog(&self.about, DemoMessage::AboutClosed), list);
         }
         if let Some(name) = name {
             if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.staff) {

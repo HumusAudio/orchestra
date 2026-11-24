@@ -88,7 +88,8 @@ Maiusc per usarli.
 
 Su Linux e Windows i menu sono in cima alla finestra: File, Modifica, Vista e Aiuto. Su macOS
 sono nella barra dei menu in cima allo schermo, come in ogni programma per Mac. Lì il primo menu si
-chiama Orchestra e ha ciò che ha ogni programma per Mac: *Impostazioni…* (⌘,, le Preferenze), i
+chiama Orchestra e ha ciò che ha ogni programma per Mac: *Informazioni su Orchestra*,
+*Impostazioni…* (⌘,, le Preferenze), i
 *Servizi* del sistema, *Nascondi Orchestra* (⌘H), *Nascondi altre* (⌥⌘H), *Mostra tutte* ed *Esci
 da Orchestra* (⌘Q). Un menu *Finestra*, prima di Aiuto, ha *Contrai* (⌘M), *Ridimensiona* e
 *Porta tutto in primo piano*, e macOS vi aggiunge l'elenco delle finestre di Orchestra. Poiché ⌘H,
@@ -162,6 +163,33 @@ comando disponibile già evidenziato.
 #screenshot-placeholder(
   [Screenshot: il menu contestuale di una casella di testo],
   [Il menu contestuale di una casella di testo, con la scorciatoia di ogni comando a destra.],
+)
+
+== Finestre di dialogo
+
+Quando Orchestra deve chiederti qualcosa, o dirti che qualcosa non è andato a buon fine, apre una
+*finestra di dialogo* al centro della finestra, con una cornice spessa nel colore d'accento. Finché
+è aperta, il resto della finestra aspetta: i menu e le scorciatoie non rispondono, e un clic fuori
+dalla finestra di dialogo non fa nulla. Quando si chiude, la tastiera torna dov'era.
+
+- I pulsanti stanno in basso a destra, nell'ordine del tuo sistema: su Windows e su KDE Plasma il
+  pulsante che conferma viene per primo (*Salva, Non salvare, Annulla*), su macOS, su GNOME e sugli
+  altri desktop Linux per ultimo (*Non salvare, Annulla, Salva*).
+- Il pulsante evidenziato nel colore d'accento è quello che risponde a *Invio*. *Esc* preme il
+  pulsante che annulla o chiude. Un comando che butta via qualcosa, come *Non salvare*, non è mai
+  quello di Invio.
+- *Tab* e *Maiusc+Tab* si spostano tra i pulsanti senza uscire dalla finestra di dialogo; *Spazio*
+  preme quello che ha il fuoco.
+
+La prima finestra di dialogo che puoi aprire è *Aiuto → Informazioni su Orchestra* (su macOS la
+prima voce del menu Orchestra). Mostra il logo, la versione del programma, la licenza (Orchestra è
+software libero, distribuito con la licenza GNU GPL versione 3 o successive; il logo non ne fa
+parte), l'indirizzo dove trovare il codice sorgente e i caratteri inclusi nel programma con la loro
+licenza. Premi *Chiudi*, Invio o Esc per tornare al lavoro.
+
+#screenshot-placeholder(
+  [Screenshot: la finestra Informazioni su Orchestra (about-dialog.png)],
+  [La finestra Informazioni su Orchestra: il logo, la versione, le licenze, il codice sorgente.],
 )
 
 == Stato di questa guida

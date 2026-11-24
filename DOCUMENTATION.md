@@ -5320,6 +5320,74 @@ Building the dialog costs about 2 M instructions, the rest is drawing the panel:
 buttons and its texts, whose glyphs are new to the cache. Within the frame's budget of 33 M
 (F2.07c), and independent of the window's size.
 
+#### About Orchestra
+
+**What the user sees** (ADR-0050 DG10, SCALETTA F2.12a3b). *Help → About Orchestra* (on macOS the
+first item of the application menu, through the *About* role of ADR-0048 AM9) opens our first real
+dialog: the logo in the theme's text colour, the title, the version, and in the muted colour the
+licence (GNU GPL 3.0 or later), the note that the logo is not under it (all rights reserved), the
+source repository's address and the bundled fonts with their licence. One button, *Close*, which
+has the focus and which Escape presses too. The action is the fifteenth of the registry,
+`help.about`, enabled, with no shortcut on any platform (none of them gives one to About).
+
+**The logo, converted by our own code** (owner's choice 1). DG10 forbids an SVG renderer as a
+dependency for one picture. The logo file was made by `pdftocairo` and uses a tiny part of SVG: a
+square `viewBox`, one path for the drawing, one path per letter in `<defs>` placed with
+`<use x y>`, only the absolute commands `M`, `L`, `C`, `Z`, one colour, the non-zero rule.
+`crates/ui/build/logo_svg.rs` reads exactly that and refuses everything else with a typed error
+(a `transform`, another element, a relative command, the even-odd rule), so a future edit of the
+logo that needs more fails the build instead of drawing another shape. It runs **at build time**:
+`crates/ui/build.rs` converts the logo and writes the paths into `OUT_DIR/logo_paths.rs`, never
+committed, because the logo is not GPL and must not live in a source file with the GPL's header.
+The script also checks that the logo stays inside its canvas, measuring each curve's true extent
+(its extrema), not its control points: one control point of the drawing is at x ≈ 2642 on a
+2384 canvas, while the curve itself reaches only x ≈ 2228.
+
+```rust
+// crates/ui/src/widget/logo.rs: the generated table, included once.
+mod generated {
+    use super::LogoElement;
+    include!(concat!(env!("OUT_DIR"), "/logo_paths.rs"));
+}
+```
+
+**The widget** (`crates/ui/src/widget/logo.rs`). `Logo::new(side, label)` asks for a square of
+`side` logical pixels and draws the ten shapes (the drawing and nine letters, the R twice) with one
+uniform scale into the largest centred square of its rectangle, each filled on its own with the
+non-zero rule in `ColorToken::Text`: recoloured, never reshaped (`assets/logo/README.md`). For
+assistive technologies it is an image (`AccessRole::Image`, new) named by `label`.
+
+**What the dialogs gained** (`crates/ui/src/widget/dialog.rs`). `DialogKind::Information` (a
+dialog that asks nothing, a plain `Dialog` for assistive technologies); `DialogSpec::logo(label)`,
+the logo above the title at `DIALOG_LOGO_SIDE` (128 logical pixels), centred; and any number of
+details, `DialogSpec::details` replacing the single `detail` (the builder `.detail(…)` now adds
+one more). The About dialog is built by `crates/app/src/about.rs`: `AboutTexts` reads its texts,
+`about_dialog(texts, close)` makes the `DialogSpec`. The version is `CARGO_PKG_VERSION` and the
+address `CARGO_PKG_REPOSITORY`, written as plain text (owner's choices 2 and 3: no clickable link
+and no commit hash for now). The program now gives the interface the system's order of the
+buttons at start-up (`Ui::set_button_order(system_button_order())` in `main.rs`).
+
+**Texts.** Seven new messages in the six catalogues (`menu-help-about` with its mnemonic, the
+dialog's `about-*`), after research in Firefox's and GTK's shipped catalogues; seven new glossary
+terms (`about`, `version`, `license`, `source_code`, `bundled_fonts`, `all_rights_reserved`,
+`logo`). French elides before the program's name (*À propos d'Orchestra*); `about` and
+`bundled_fonts` (Spanish *fuentes*) are marked for review.
+
+**Tests and benchmark.** In `logo.rs`: the generated table is exactly what the converter makes of
+today's logo, ten shapes inside the canvas; glyphs placed twice, implicit repetitions, and twelve
+kinds of unsupported or malformed input refused. In `crates/app/tests/actions.rs`: About is
+enabled with no shortcut, opens one dialog with the catalogue's texts filled in, and Escape closes
+it. The screenshot scene `about-dialog` shows it for the guides. The benchmark `about_open`
+(group `dialogs`, panel of 200 widgets, 1000 × 1000 window):
+
+```text
+benchmark                       instructions
+about_open (open + draw)          24 068 635
+```
+
+About 11 M more than a question, almost all of it `tiny-skia` filling the logo's paths: once per
+opening, within the frame's budget of 33 M.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

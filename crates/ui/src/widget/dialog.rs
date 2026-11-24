@@ -59,6 +59,11 @@ use crate::window::input::{ButtonState, Key, NamedKey};
 /// message text, as GNOME's and Windows' message dialogs keep theirs.
 pub const MAX_WIDTH: f32 = 480.0;
 
+/// The side of the logo in a dialog ([`DialogSpec::logo`]), logical pixels: large enough for the
+/// wordmark to be read easily (its capitals are then about 7 pixels high), small enough to leave
+/// the texts the first place.
+pub const LOGO_SIDE: f32 = 128.0;
+
 /// The narrowest a dialog's panel gets when the window allows it, logical pixels: room for two
 /// buttons side by side and a short title.
 pub const MIN_WIDTH: f32 = 320.0;
@@ -71,6 +76,9 @@ pub enum DialogKind {
     Question,
     /// An error to report: an alert for assistive technologies (`AlertDialog`).
     Error,
+    /// Information that asks nothing (*About Orchestra*, F2.12a3b): a plain dialog for assistive
+    /// technologies, like a question.
+    Information,
 }
 
 /// What a dialog's button does (DG2), which decides its place in the row and whether Enter or
@@ -108,9 +116,12 @@ pub struct DialogSpec<M> {
     pub title: String,
     /// The message, the dialog's accessible description.
     pub message: String,
-    /// An optional detail under the message, in the muted colour (a file's path, an error's
-    /// cause).
-    pub detail: Option<String>,
+    /// The details under the message, in the muted colour, one paragraph each, in order (a
+    /// file's path, an error's cause; the About dialog's licence and fonts, F2.12a3b).
+    pub details: Vec<String>,
+    /// The Orchestra logo above the title, with this accessible name (the About dialog, ADR-0050
+    /// DG10); `None` for no logo.
+    pub logo: Option<String>,
     /// The buttons, in the order they were added; [`Ui::open_dialog`](crate::Ui::open_dialog)
     /// places them in the system's order.
     pub buttons: Vec<DialogButton<M>>,
@@ -124,15 +135,24 @@ impl<M> DialogSpec<M> {
             kind,
             title: title.into(),
             message: message.into(),
-            detail: None,
+            details: Vec::new(),
+            logo: None,
             buttons: Vec::new(),
         }
     }
 
-    /// The same dialog with a detail under the message.
+    /// The same dialog with one more detail under the message (after the ones already given).
     #[must_use]
     pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
+        self.details.push(detail.into());
+        self
+    }
+
+    /// The same dialog with the Orchestra logo above the title, named `label` for assistive
+    /// technologies ([`Logo`](crate::Logo), at [`LOGO_SIDE`] logical pixels, centred).
+    #[must_use]
+    pub fn logo(mut self, label: impl Into<String>) -> Self {
+        self.logo = Some(label.into());
         self
     }
 
@@ -391,7 +411,7 @@ impl<M: Clone + std::fmt::Debug + 'static> Widget<M> for DialogPanel<M> {
 
     fn access_role(&self) -> AccessRole {
         match self.kind {
-            DialogKind::Question => AccessRole::Dialog,
+            DialogKind::Question | DialogKind::Information => AccessRole::Dialog,
             DialogKind::Error => AccessRole::AlertDialog,
         }
     }

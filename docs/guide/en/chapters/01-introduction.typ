@@ -84,7 +84,7 @@ position on every layout, so on a French keyboard you do not need Shift to use t
 
 On Linux and Windows the menus are at the top of the window: File, Edit, View and Help. On macOS
 they are in the menu bar at the top of the screen, as in every Mac program. There the first menu
-is named Orchestra and has what every Mac program has: *Settings…* (⌘,, the Preferences), the
+is named Orchestra and has what every Mac program has: *About Orchestra*, *Settings…* (⌘,, the Preferences), the
 system's *Services*, *Hide Orchestra* (⌘H), *Hide Others* (⌥⌘H), *Show All* and *Quit Orchestra*
 (⌘Q). A *Window* menu, before Help, has *Minimize* (⌘M), *Zoom* and *Bring All to Front*, and
 macOS adds the list of Orchestra's windows to it. Because ⌘H, ⌥⌘H and ⌘M belong to these system
@@ -151,6 +151,33 @@ Shift+F10: it then opens at the text cursor, with its first available command al
 #screenshot-placeholder(
   [Screenshot: the context menu of a text box],
   [The context menu of a text box, with the shortcut of each command on the right.],
+)
+
+== Dialogs
+
+When Orchestra needs to ask you something, or to tell you that something went wrong, it opens a
+*dialog* in the middle of the window, with a thick frame in the accent colour. While it is open,
+the rest of the window waits: the menus and the shortcuts do not respond, and a click outside the
+dialog does nothing. When it closes, the keyboard goes back where it was.
+
+- The buttons are at the bottom right, in your system's order: on Windows and KDE Plasma the
+  button that confirms comes first (*Save, Don't save, Cancel*), on macOS, GNOME and the other
+  Linux desktops last (*Don't save, Cancel, Save*).
+- The button highlighted in the accent colour is the one that answers *Enter*. *Escape* presses
+  the button that cancels or closes. A command that throws something away, such as *Don't save*,
+  is never the one for Enter.
+- *Tab* and *Shift+Tab* move between the buttons without leaving the dialog; *Space* presses the
+  one that has the focus.
+
+The first dialog you can open is *Help → About Orchestra* (on macOS the first item of the
+Orchestra menu). It shows the logo, the program's version, the licence (Orchestra is free
+software, under the GNU GPL version 3 or later; the logo is not part of it), the address where
+the source code is, and the fonts bundled with the program with their licence. Press *Close*,
+Enter or Escape to go back to work.
+
+#screenshot-placeholder(
+  [Screenshot: the About Orchestra dialog (about-dialog.png)],
+  [The About Orchestra dialog: the logo, the version, the licences, the source code.],
 )
 
 == Status of this guide
