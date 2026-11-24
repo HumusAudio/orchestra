@@ -111,8 +111,8 @@ pub use widget::access::{
 };
 pub use widget::button::{Button, ButtonKind};
 pub use widget::dialog::{
-    ButtonRole, DialogButton, DialogKind, DialogSpec, MAX_WIDTH as DIALOG_MAX_WIDTH,
-    MIN_WIDTH as DIALOG_MIN_WIDTH,
+    ButtonRole, DialogButton, DialogKind, DialogSpec, LOGO_SIDE as DIALOG_LOGO_SIDE,
+    MAX_WIDTH as DIALOG_MAX_WIDTH, MIN_WIDTH as DIALOG_MIN_WIDTH,
 };
 pub use widget::edit::keys::{Direction, EditAction, EditConvention, Unit, edit_action};
 pub use widget::edit::{EditResponse, TextEditor};
@@ -121,6 +121,7 @@ pub use widget::label::Label;
 pub use widget::layout::{
     Align, Axis, Constraints, Flex, Grid, LayoutProps, Length, Size, Space, Stack, Track,
 };
+pub use widget::logo::Logo;
 pub use widget::menu::{MenuItem, MenuModel, MenuRole};
 pub use widget::popup::{Popup, PopupSide};
 pub use widget::scroll::ScrollArea;

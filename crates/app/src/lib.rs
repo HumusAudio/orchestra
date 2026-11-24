@@ -14,6 +14,8 @@
 //! modules without copying them, so the views live here and each binary is a thin `main`.
 //!
 //! ## Modules (private, ADR-0034 D1: the root re-exports the API)
+//! - `about`: the About Orchestra dialog, its texts, the version and the repository's address
+//!   (ADR-0050 DG10, F2.12a3b);
 //! - `actions`: the program's actions with their default shortcuts per platform (ADR-0048 AM6);
 //! - `demo`: the demonstration window of ADR-0040 W8, until the real views exist;
 //! - `screenshots`: the catalogue of screenshot scenes and how one is rendered (ADR-0041);
@@ -30,11 +32,13 @@
 
 #![forbid(unsafe_code)]
 
+mod about;
 mod actions;
 mod demo;
 mod screenshots;
 mod settings;
 
+pub use about::{AboutTexts, REPOSITORY, VERSION, about_dialog};
 pub use actions::{
     ActionIds, ActionTexts, ActionsError, TITLES, action_texts, field_menu, menu_bar, registry,
     system_texts,

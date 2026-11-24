@@ -79,6 +79,8 @@ pub enum AccessRole {
     Dialog,
     /// A dialog that reports an error: assistive technologies announce it at once.
     AlertDialog,
+    /// A picture with a name and no text of its own (the Orchestra logo, F2.12a3b).
+    Image,
 }
 
 /// What a widget tells assistive technologies besides its role (WC2): all optional.
@@ -433,6 +435,7 @@ const fn role_of(role: AccessRole) -> Role {
         AccessRole::MenuItemCheckBox => Role::MenuItemCheckBox,
         AccessRole::Dialog => Role::Dialog,
         AccessRole::AlertDialog => Role::AlertDialog,
+        AccessRole::Image => Role::Image,
     }
 }
 

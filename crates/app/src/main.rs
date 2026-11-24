@@ -95,7 +95,7 @@ fn main() -> ExitCode {
     let button_layout = (decorations == orchestra_ui::Decorations::Own)
         .then(orchestra_ui::button_layout)
         .flatten();
-    let demo = Demo::with_decorations(
+    let mut demo = Demo::with_decorations(
         &options.faces,
         &theme,
         &options.title,
@@ -103,6 +103,10 @@ fn main() -> ExitCode {
         decorations,
         button_layout.as_deref(),
     );
+    // The dialogs' buttons in this system's order (ADR-0050 DG2): affirmative first on Windows
+    // and KDE Plasma, last on macOS and GNOME (`XDG_CURRENT_DESKTOP`), read once here.
+    demo.ui_mut()
+        .set_button_order(orchestra_ui::system_button_order());
     let result = orchestra_ui::run(demo, options);
     // What is still waiting is written, and the writer thread is waited for (DG6).
     for failure in store.close() {

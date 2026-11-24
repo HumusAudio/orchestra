@@ -47,6 +47,8 @@ menu-help = Aide
     .mnemonic = d
 menu-help-contents = Guide de l'utilisateur
     .mnemonic = g
+menu-help-about = À propos d'{ app-name }
+    .mnemonic = p
 
 ## macOS's own menus (F2.11e2, ADR-0048 AM9; glossary: mac_settings … mac_bring_all_to_front).
 ## Shown only in the system's menu bar on macOS: the application menu (Settings, Services, Hide,
@@ -127,3 +129,15 @@ dialog-restore-defaults = Réinitialiser aux valeurs par défaut
 dialog-ok = OK
 dialog-cancel = Annuler
 dialog-close = Fermer
+
+## The About dialog (F2.12a3b, ADR-0050 DG10; glossary: about, version, license, source_code,
+## bundled_fonts, all_rights_reserved, logo). Its title is menu-help-about. $version is the
+## program's version ("0.0.0"), $url the source repository's address; the fonts' and the
+## licences' names are proper names and stay in English.
+
+about-version = Version { $version }
+about-license = Logiciel libre distribué sous la Licence publique générale GNU, version 3 ou ultérieure.
+about-logo-notice = Le logo est © 2026 Emanuele Rainoldi, tous droits réservés : il n'est pas couvert par cette licence.
+about-source = Code source : { $url }
+about-fonts = Polices incluses : Inter, Bravura et JetBrains Mono, sous licence SIL Open Font License 1.1.
+about-logo = Logo d'{ app-name }

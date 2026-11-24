@@ -24,6 +24,7 @@ pub(crate) mod elide;
 pub(crate) mod field;
 pub(crate) mod label;
 pub(crate) mod layout;
+pub(crate) mod logo;
 pub(crate) mod look;
 pub(crate) mod menu;
 pub(crate) mod popup;

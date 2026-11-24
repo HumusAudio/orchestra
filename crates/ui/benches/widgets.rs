@@ -1833,7 +1833,45 @@ fn dialog_tab(mut panel: Panel) -> Panel {
     panel
 }
 
-library_benchmark_group!(name = dialogs, benchmarks = [dialog_open, dialog_tab]);
+// The About dialog's shape (F2.12a3b, ADR-0050 DG10): the logo (10 filled paths, about 860
+// elements), a title, the version and four details, one button. The texts are the en-US
+// catalogue's, written here so the benchmark does not depend on `orchestra-app`.
+fn about() -> orchestra_ui::DialogSpec<()> {
+    use orchestra_ui::{ButtonRole, DialogKind, DialogSpec};
+    DialogSpec::new(DialogKind::Information, "About Orchestra", "Version 0.0.0")
+        .logo("Orchestra logo")
+        .detail("Free software under the GNU General Public License, version 3 or later.")
+        .detail(
+            "The logo is © 2026 Emanuele Rainoldi, all rights reserved: it is not covered by \
+             that license.",
+        )
+        .detail("Source code: https://github.com/HumusAudio/orchestra")
+        .detail(
+            "Bundled fonts: Inter, Bravura and JetBrains Mono, under the SIL Open Font License \
+             1.1.",
+        )
+        .button("Close", ButtonRole::Cancel, ())
+}
+
+// Opening the About dialog over the panel of 200 widgets and drawing it: as `dialog_open`, plus
+// the logo's paths recorded and filled by `tiny-skia`. Once per opening, never on a frame's path;
+// the budget is the 50 ms of an input (CLAUDE.md §5).
+#[library_benchmark]
+#[bench::panel(shown())]
+fn about_open(mut panel: Panel) -> Panel {
+    let id = panel
+        .ui
+        .open_dialog(black_box(about()), &mut panel.list)
+        .unwrap();
+    draw(&mut panel);
+    black_box(id);
+    panel
+}
+
+library_benchmark_group!(
+    name = dialogs,
+    benchmarks = [dialog_open, dialog_tab, about_open]
+);
 
 main!(
     library_benchmark_groups = core,

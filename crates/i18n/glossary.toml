@@ -58,6 +58,8 @@ omni-it = "https://support.omnigroup.com/doc-assets//OmniOutliner-Mac/OmniOutlin
 gtk-window-controls = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the window buttons' names of gtk/gtkwindowcontrols.c (Close, Minimize, Maximize) and the window menu's Restore of gtk/gtkwindowhandle.c"
 qt-mdi = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QMdiSubWindow (Minimize, Maximize, Restore, Close of Qt's window buttons)"
 qt-buttons = "https://github.com/qt/qttranslations/tree/dev/translations — qtbase_<lang>.ts, context QPlatformTheme (the standard buttons of Qt's and KDE's dialogs: OK, Cancel, Close)"
+firefox-about = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/menubar.ftl (menu-about: the Help menu's About item and its access key) and aboutDialog.ftl (aboutDialog-title), en-GB, it, fr, de, es-ES"
+gtk-about = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (en_GB, it, fr, de, es): GtkAboutDialog's 'About %s', 'License', 'GNU General Public License, version 3 or later', and the font chooser's 'Font'"
 
 # ================================================================================================
 # Notation
@@ -1318,14 +1320,14 @@ review = true
 [[term]]
 id = "menu_mnemonics"
 category = "general"
-en-US = "File F, Edit E, View V, Help H; New N, Open O, Save S, Save as A, Quit Q; Undo U, Redo R, Cut T, Copy C, Paste P, Select all A, Preferences N; Full screen F; User guide U"
+en-US = "File F, Edit E, View V, Help H; New N, Open O, Save S, Save as A, Quit Q; Undo U, Redo R, Cut T, Copy C, Paste P, Select all A, Preferences N; Full screen F; User guide U, About Orchestra A"
 en-GB = "as en-US"
-it = "File F, Modifica M, Vista V, Aiuto I; Nuovo N, Apri A, Salva S, Salva come C, Esci E; Annulla A, Ripristina R, Taglia G, Copia C, Incolla I, Seleziona tutto T, Preferenze P; Schermo intero S; Guida per l'utente G"
-fr = "Fichier F, Éditer É, Affichage A, Aide D; Nouveau N, Ouvrir O, Enregistrer S, Enregistrer sous G, Quitter Q; Annuler A, Rétablir R, Couper U, Copier C, Coller E, Tout sélectionner T, Préférences P; Plein écran É; Guide de l'utilisateur G"
-de = "Datei D, Bearbeiten B, Ansicht A, Hilfe H; Neu N, Öffnen Ö, Speichern S, Speichern unter U, Beenden B; Rückgängig R, Wiederherstellen W, Ausschneiden A, Kopieren K, Einfügen I, Alles auswählen L, Einstellungen E; Vollbild V; Benutzerhandbuch B"
-es = "Archivo A, Editar E, Vista V, Ayuda U; Nuevo N, Abrir A, Guardar G, Guardar como C, Salir S; Deshacer D, Rehacer R, Cortar T, Copiar C, Pegar P, Seleccionar todo S, Preferencias E; Pantalla completa C; Guía del usuario G"
+it = "File F, Modifica M, Vista V, Aiuto I; Nuovo N, Apri A, Salva S, Salva come C, Esci E; Annulla A, Ripristina R, Taglia G, Copia C, Incolla I, Seleziona tutto T, Preferenze P; Schermo intero S; Guida per l'utente G, Informazioni su Orchestra I"
+fr = "Fichier F, Éditer É, Affichage A, Aide D; Nouveau N, Ouvrir O, Enregistrer S, Enregistrer sous G, Quitter Q; Annuler A, Rétablir R, Couper U, Copier C, Coller E, Tout sélectionner T, Préférences P; Plein écran É; Guide de l'utilisateur G, À propos d'Orchestra P"
+de = "Datei D, Bearbeiten B, Ansicht A, Hilfe H; Neu N, Öffnen Ö, Speichern S, Speichern unter U, Beenden B; Rückgängig R, Wiederherstellen W, Ausschneiden A, Kopieren K, Einfügen I, Alles auswählen L, Einstellungen E; Vollbild V; Benutzerhandbuch B, Über Orchestra E"
+es = "Archivo A, Editar E, Vista V, Ayuda U; Nuevo N, Abrir A, Guardar G, Guardar como C, Salir S; Deshacer D, Rehacer R, Cortar T, Copiar C, Pegar P, Seleccionar todo S, Preferencias E; Pantalla completa C; Guía del usuario G, Acerca de Orchestra A"
 sources = ["musescore-ui"]
-note = """The menus' mnemonics (ADR-0048 AM10, F2.11d2b): the .mnemonic attribute of each menu message, the letter that opens a title with Alt or chooses an item in an open menu, underlined at the first word that starts with it, otherwise its first occurrence. Not terms but choices tied to the terms above, recorded here so a translator changes them knowingly. Research 2026-11-19 in MuseScore's shipped catalogues (the '&' Qt puts before the letter): its letters are kept where our name is the same word (it &File, &Modifica, A&iuto, Ta&glia, Seleziona &tutto, Salva &come; fr &Fichier, &Affichage, Ai&de, Co&uper, Coll&er, Enre&gistrer sous, Plein &écran; de &Datei, &Bearbeiten, &Ansicht, E&infügen, A&lles; es &Archivo, &Editar, Ay&uda, Cor&tar, Pantalla &completa). Where our word differs (it Vista, fr Éditer, de Speichern unter, es Vista, Salir) or two siblings would share a letter (it Annulla/Incolla, es Cortar/Seleccionar todo, Pegar/Preferencias), the letter is the word's first free letter. Unique among siblings in all six languages, tested (crates/app/tests/actions.rs)."""
+note = """The menus' mnemonics (ADR-0048 AM10, F2.11d2b): the .mnemonic attribute of each menu message, the letter that opens a title with Alt or chooses an item in an open menu, underlined at the first word that starts with it, otherwise its first occurrence. Not terms but choices tied to the terms above, recorded here so a translator changes them knowingly. Research 2026-11-19 in MuseScore's shipped catalogues (the '&' Qt puts before the letter): its letters are kept where our name is the same word (it &File, &Modifica, A&iuto, Ta&glia, Seleziona &tutto, Salva &come; fr &Fichier, &Affichage, Ai&de, Co&uper, Coll&er, Enre&gistrer sous, Plein &écran; de &Datei, &Bearbeiten, &Ansicht, E&infügen, A&lles; es &Archivo, &Editar, Ay&uda, Cor&tar, Pantalla &completa). Where our word differs (it Vista, fr Éditer, de Speichern unter, es Vista, Salir) or two siblings would share a letter (it Annulla/Incolla, es Cortar/Seleccionar todo, Pegar/Preferencias), the letter is the word's first free letter. Unique among siblings in all six languages, tested (crates/app/tests/actions.rs). About Orchestra (F2.12a3b, 2026-11-24): Firefox's access keys of its own About item (see 'about')."""
 review = true
 
 [[term]]
@@ -1508,4 +1510,95 @@ de = "Minimieren"
 es = "Minimizar"
 sources = ["gtk-window-controls", "qt-mdi"]
 note = """The minimise button of our title bar. en-GB 'Minimise' (GTK's en_GB). GTK and Qt agree. A different entry from 'mac_minimize' (macOS's Window menu, F2.11e2): different systems, different words. Research 2026-11-23 (F2.11b2): GTK 4's and Qt's catalogues."""
+review = false
+
+[[term]]
+id = "about"
+category = "general"
+en-US = "About Orchestra"
+en-GB = "About Orchestra"
+it = "Informazioni su Orchestra"
+fr = "À propos d'Orchestra"
+de = "Über Orchestra"
+es = "Acerca de Orchestra"
+sources = ["firefox-about", "gtk-about"]
+note = """The Help menu's item (the application menu's first item on macOS, ADR-0048 AM9) and the About dialog's title (ADR-0050 DG10, F2.12a3b), written 'menu-help-about = About { app-name }'. Firefox and GTK agree in en-GB, it, fr, es; de: Firefox (and Apple, KDE) 'Über …', GTK 'Info zu …': Firefox's, the usual German menu item. fr: Firefox and GTK write 'À propos de …' before a consonant; before a vowel French elides the preposition ('d'Orchestra'), so the French catalogue writes 'À propos d'{ app-name }' (and 'Logo d'{ app-name }'). No ellipsis: the dialog only shows information (GNOME and Apple write none either). Mnemonics as Firefox's access keys: A, A, I, p (fr), e (de: Firefox's, B is the user guide's), A (es). Research 2026-11-24."""
+review = true
+
+[[term]]
+id = "version"
+category = "general"
+en-US = "version"
+en-GB = "version"
+it = "versione"
+fr = "version"
+de = "Version"
+es = "versión"
+sources = ["gtk-about", "firefox-about"]
+note = """The program's version in the About dialog ('Version 0.0.0', F2.12a3b). The same word in every catalogue consulted. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "license"
+category = "general"
+en-US = "license"
+en-GB = "licence"
+it = "licenza"
+fr = "licence"
+de = "Lizenz"
+es = "licencia"
+sources = ["gtk-about"]
+note = """A software licence (About dialog, F2.12a3b). en-GB spells the noun 'licence' (GTK's en_GB: 'Licence', 'GNU General Public Licence'). The GPL's localised names are GTK's: it 'Licenza GNU General Public versione 3 o successive', fr 'Licence publique générale GNU, version 3 ou ultérieure', de 'GNU General Public License, Version 3 oder neuer', es 'Licencia Pública General de GNU, versión 3 o posterior'. The fonts' licence keeps its proper name 'SIL Open Font License' in every language (en-GB included: it is a title). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "source_code"
+category = "general"
+en-US = "source code"
+en-GB = "source code"
+it = "codice sorgente"
+fr = "code source"
+de = "Quellcode"
+es = "código fuente"
+sources = ["gtk-about"]
+note = """The program's source code, in the About dialog's line with the repository's address (F2.12a3b). The standard term in each language (GNOME, KDE, Mozilla). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "bundled_fonts"
+category = "general"
+en-US = "bundled fonts"
+en-GB = "bundled fonts"
+it = "tipi di carattere inclusi"
+fr = "polices incluses"
+de = "mitgelieferte Schriften"
+es = "fuentes incluidas"
+sources = ["gtk-about"]
+note = """The fonts that ship inside the program (ADR-0044), listed in the About dialog (F2.12a3b). 'Font' as GTK's font chooser translates it: it 'Tipo di carattere', fr 'Police', de 'Schrift'; es: GTK writes 'Tipografía', but 'fuente' is what Spanish users of Windows, macOS and LibreOffice read ('Fuentes'), so 'fuentes incluidas'. Research 2026-11-24."""
+review = true
+
+[[term]]
+id = "all_rights_reserved"
+category = "general"
+en-US = "all rights reserved"
+en-GB = "all rights reserved"
+it = "tutti i diritti riservati"
+fr = "tous droits réservés"
+de = "alle Rechte vorbehalten"
+es = "todos los derechos reservados"
+sources = ["gtk-about"]
+note = """The logo's copyright notice in the About dialog (F2.12a3b, assets/logo/README.md): the fixed legal formula of each language. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "logo"
+category = "general"
+en-US = "logo"
+en-GB = "logo"
+it = "logo"
+fr = "logo"
+de = "Logo"
+es = "logotipo"
+sources = ["gtk-about"]
+note = """The Orchestra logo: the About dialog's sentence on its rights and the picture's accessible name ('Orchestra logo', F2.12a3b). es: 'logotipo' is the RAE's form (the short 'logo' is accepted, 'logotipo' is what formal and legal texts write). Research 2026-11-24."""
 review = false

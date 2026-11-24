@@ -38,9 +38,10 @@ use crate::draw::list::DisplayList;
 use crate::theme::text::{FamilyToken, SizeToken, Weight};
 use crate::theme::token::ColorToken;
 use crate::widget::button::{Button, ButtonKind};
-use crate::widget::dialog::{DialogPanel, DialogRoot, DialogSpec};
+use crate::widget::dialog::{DialogPanel, DialogRoot, DialogSpec, LOGO_SIDE};
 use crate::widget::label::Label;
-use crate::widget::layout::{Constraints, Flex, LayoutProps, Length, Size, Space};
+use crate::widget::layout::{Align, Constraints, Flex, LayoutProps, Length, Size, Space};
+use crate::widget::logo::Logo;
 use crate::widget::scroll::ScrollArea;
 use crate::widget::tree::{Widget, WidgetId};
 
@@ -100,6 +101,14 @@ impl<M: Clone + std::fmt::Debug + 'static> Ui<M> {
             LayoutProps::default().width(Length::Fill(1.0)),
         );
         let fill = LayoutProps::default().width(Length::Fill(1.0));
+        // The logo first, centred above the title (the About dialog, ADR-0050 DG10).
+        if let Some(label) = spec.logo {
+            self.tree.insert(
+                Some(column),
+                Box::new(Logo::new(LOGO_SIDE, label)),
+                LayoutProps::default().align(Align::Center, Align::Start),
+            );
+        }
         let title = Label::new(spec.title)
             .styled(FamilyToken::Ui, SizeToken::Subheading, Weight::SemiBold)
             .wrapping();
@@ -109,7 +118,7 @@ impl<M: Clone + std::fmt::Debug + 'static> Ui<M> {
             Box::new(Label::new(spec.message).wrapping()),
             fill,
         );
-        if let Some(detail) = spec.detail {
+        for detail in spec.details {
             let detail = Label::new(detail).color(ColorToken::TextMuted).wrapping();
             self.tree.insert(Some(column), Box::new(detail), fill);
         }

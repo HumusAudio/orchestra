@@ -340,3 +340,35 @@ the texts *OK*, *Cancel*, *Close* now (C7); nothing in the program opens a dialo
 - **Accessibility.** `AccessInfo` gains `description` and `modal`; the panel is a modal `Dialog`
   or `AlertDialog` named by its title and described by its message; the dialogs' roots are
   children of the window node after the root and before the menus.
+
+## Precisions of the implementation (F2.12a3b, owner's choices of 2026-11-24)
+
+Choices 1–4 of F2.12a3b were approved by the owner before the code (all as recommended):
+
+- **1, the logo's converter runs at build time (fixes DG10's open point).** `crates/ui/build.rs`
+  reads `assets/logo/orchestra-logo.svg` with our own converter (`crates/ui/build/logo_svg.rs`, no
+  dependency) and writes the paths into `OUT_DIR/logo_paths.rs`, **never committed**: the logo is
+  all rights reserved, not GPL, so its shape must not live in a source file with the GPL's SPDX
+  header (CLAUDE.md §10), and a committed copy could drift from the asset. The converter supports
+  exactly what the file uses (a square `viewBox` at 0 0, glyphs in `<defs>` placed by `<use x y>`,
+  the absolute `M L C Z`, the non-zero rule) and refuses anything else with a typed error, so a
+  future logo that needs more fails the build rather than being drawn with another shape. The
+  script also checks that the logo stays inside its canvas, measuring each curve's extrema (a
+  control point of today's drawing lies outside the canvas, the curve does not). The library's
+  tests compile the converter too and check that the generated table is what it makes of the logo.
+- **2, the repository's address is plain text.** No clickable link until a link widget and a way
+  to open the system's browser (a dependency to evaluate) exist; noted for a later step.
+- **3, the version is `CARGO_PKG_VERSION` only.** The commit hash comes with packaging (F6): a
+  source archive has no `.git` to read it from.
+- **4, the dialog's content.** The logo (128 logical pixels, the theme's `text` colour, uniform
+  scale), the title *About Orchestra*, the version, and as details the licence, the note that the
+  logo is not under it, the address and the bundled fonts (Inter, Bravura, JetBrains Mono, SIL Open
+  Font License 1.1); one button, *Close* (role *cancel*: Escape presses it and it has the focus).
+
+What the dialogs gained for it: `DialogKind::Information` (a plain `Dialog` for assistive
+technologies), `DialogSpec::logo(label)` (the public widget `Logo`, an `AccessRole::Image` named by
+its label) and any number of details (`DialogSpec::details`, the builder `detail` adding one). The
+action `help.about` has the *About* role and no shortcut on any platform; `main.rs` now hands the
+interface `system_button_order()` at start-up. Opening the About dialog over the benchmark panel
+costs about 24 M instructions, 11 M more than a question, almost all of it the logo's fill: once
+per opening, within the frame's budget.
