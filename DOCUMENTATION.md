@@ -5505,6 +5505,44 @@ applied (Quit moved to Ctrl+Shift+Q, the modifier, the blink, an unreadable shor
 the sections changing the pane (Language chosen and saved). Screenshot scenes
 `preferences-language` and `preferences-keyboard`.
 
+**Playback** (F2.12a4b2, owner's choices 1–6). The values of ADR-0027 §14–§15 tuned by ear are no
+longer constants of the engine: `orchestra-playback` has a `Tuning` (`crates/playback/src/tuning.rs`)
+of eighteen values, each named by a `TuningValue` with its stable name in the settings file
+(`"accent.step"`, `"fp.hold-ms"`), its unit (a step of the 0–127 scale, or whole milliseconds),
+its range (steps 0–40, the unstress −40–0, times 0–2000 ms) and its default (round 2 of §15).
+The levels the marks reach (*rf* one level up, *fp* from *f* to *p*) stay rules of H3–H4.
+
+```rust
+let mut tuning = Tuning::default();
+tuning.set(TuningValue::AccentStep, 30); // clamped to its range; `true` if it was outside
+let performance = Performance::with_tuning(&doc, &path, &tuning)?;
+```
+
+`Performance::new` uses the default; `with_tuning` and `set_tuning` (a whole recomputation, only
+when the tuning changed) take the user's. Inside, the tuning travels with each voice's timeline,
+which `mark_effect`, `articulation_step` and `profile` read; times become exact seconds
+(`ms/1000`), so the defaults give exactly the rationals the constants gave and every earlier test
+passes unchanged.
+
+In the settings the values that differ from the defaults go into the `playback` map by name
+(`tuning_to_settings`; a value back at its default leaves the map, unknown names stay, S2);
+`tuning_from_settings` reads them back, clamping and reporting a value out of range.
+
+The section (`crates/app/src/preferences/playback.rs`) scrolls: a sentence saying the values are
+personal, then three groups (*Articulation accents*, *Dynamic accents*, *Changes of level*), each a
+grid of rows with a slider and its value written beside it ("+22", "−7" with the true minus, "250
+ms" with a no-break space), and *Restore defaults*. A slider sends a plain function pointer, so a
+table of eighteen functions (`MESSAGES`, one generic function per index) tells which value moved.
+The value's text is formatted from the catalogue message split once around its number (`Around`),
+so the language decides where the number and the unit go. Nobody listens yet (the audio comes
+with F3): the demonstration keeps the settings and answers `Demo::tuning()`.
+
+Tests: `tuning.rs` (the table, the clamping, the differences), `loudness_cases.rs` (a new tuning
+changes the accent and the *fp*, `set_tuning` recomputes only on a change), `preferences.rs` (the
+values written by name, *Restore defaults* keeping unknown names), `playback.rs` (the values' texts,
+the messages), and in `crates/app/tests/actions.rs` the slider moved by an arrow, its label and the
+settings, then *Restore defaults*. Screenshot scene `preferences-playback`.
+
 #### The window and the event loop
 
 Step F2.04a (ADR-0040) puts the drawing of ADR-0039 in a real window. The module `window` of

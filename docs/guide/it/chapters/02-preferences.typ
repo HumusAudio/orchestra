@@ -6,7 +6,7 @@
 = Preferenze
 
 Le Preferenze raccolgono le scelte che valgono per Orchestra, non per un singolo progetto: l'aspetto
-della finestra, la lingua, la tastiera. Aprile con *Modifica → Preferenze…* oppure con Ctrl+, (su
+della finestra, la lingua, il modo di suonare, la tastiera. Aprile con *Modifica → Preferenze…* oppure con Ctrl+, (su
 macOS con *Orchestra → Impostazioni…* oppure ⌘,).
 
 == Come funzionano
@@ -48,6 +48,23 @@ lingua che non conosci. *Lingua del sistema* usa quella del tuo sistema.
 #screenshot-placeholder(
   [Screenshot: la sezione Lingua (preferences-language.png)],
   [La sezione Lingua, con la nota sul riavvio.],
+)
+
+== Riproduzione
+
+Qui scegli come Orchestra suona gli accenti e i segni dinamici: di quanto un accento è più forte e
+in quanto tempo il suono torna al livello di prima, quanto durano la tenuta e il passaggio di *fp*,
+*sfp* e *pf*. I valori di partenza sono stati tarati a orecchio. Ogni valore ha un cursore, con il
+valore scritto accanto; *Ripristina predefiniti* li riporta tutti ai valori di partenza.
+
+#note("Nota")[
+  Questi valori sono tuoi, non del progetto: valgono per tutti i progetti che apri, e chi apre lo
+  stesso progetto con le sue preferenze può sentirlo suonare in modo un po' diverso.
+]
+
+#screenshot-placeholder(
+  [Screenshot: la sezione Riproduzione (preferences-playback.png)],
+  [La sezione Riproduzione: gli accenti, gli accenti dinamici e i cambi di livello.],
 )
 
 == Tastiera

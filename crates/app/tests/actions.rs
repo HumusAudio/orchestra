@@ -298,6 +298,65 @@ fn the_sections_change_the_pane() {
     );
 }
 
+/// The Playback section (F2.12a4b2): the first slider (the soft accent's step) moved by an
+/// arrow writes its value by name into the settings and its label follows; *Restore defaults*
+/// brings the tuning by ear back.
+#[test]
+fn the_playback_values_are_saved_and_shown() {
+    use orchestra_ui::{Button, Label};
+    let (mut demo, mut list) = demo();
+    let ids = demo.actions().unwrap();
+    demo.run_action(ids.preferences, &mut list);
+    // Down twice: Playback. Tab: the first slider. Right: one step up.
+    for key in [
+        NamedKey::ArrowDown,
+        NamedKey::ArrowDown,
+        NamedKey::Tab,
+        NamedKey::ArrowRight,
+    ] {
+        press(&mut demo, &mut list, &Key::Named(key), Modifiers::default());
+    }
+    assert_eq!(
+        demo.settings().settings().playback.get("soft-accent.step"),
+        Some(&8)
+    );
+    assert_eq!(
+        demo.tuning()
+            .get(orchestra_playback::TuningValue::SoftAccentStep),
+        8
+    );
+    // Its label says "+8"; the section's *Restore defaults* is found among the panel's widgets.
+    let panel = demo.preferences().unwrap();
+    let mut labels = Vec::new();
+    let mut restore = None;
+    let mut stack = vec![panel];
+    while let Some(id) = stack.pop() {
+        if let Some(label) = demo.ui().widget::<Label>(id) {
+            labels.push(label.text().to_owned());
+        }
+        if let Some(button) = demo.ui().widget::<Button<orchestra_app::DemoMessage>>(id)
+            && button.text() == "Restore defaults"
+        {
+            restore = Some(id);
+        }
+        stack.extend(demo.ui().children(id));
+    }
+    assert!(labels.iter().any(|text| text == "+8"), "{labels:?}");
+    demo.ui_mut()
+        .set_focus(Some(restore.expect("Restore defaults")), &mut list)
+        .unwrap();
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Enter),
+        Modifiers::default(),
+    );
+    assert_eq!(
+        demo.settings().settings().playback.get("soft-accent.step"),
+        None
+    );
+}
+
 #[test]
 fn disabled_actions_do_nothing() {
     let (mut demo, mut list) = demo();

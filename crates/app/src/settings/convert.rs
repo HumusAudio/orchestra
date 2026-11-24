@@ -24,6 +24,7 @@ use orchestra_io::settings::{
     self as file, CustomTheme as FileCustom, Language, Mode, ShortcutEntry, ThemeChoice,
     ThemeOverride,
 };
+use orchestra_playback::{Tuning, TuningValue};
 use orchestra_ui::{
     BuiltInTheme, ColorToken, CustomTheme, Density, Family, FamilyToken, FineModifier, LoadWarning,
     Override, Registry, ShapeToken, Shortcut, ShortcutTextError, SizeToken, ThemeMode, ThemePair,
@@ -56,6 +57,14 @@ pub enum SettingsProblem {
     },
     /// What the action registry reported while applying the shortcuts (ADR-0048 AM7).
     Registry(LoadWarning),
+    /// A playback value outside its range (ADR-0027 §14–§15, F2.12a4b2): brought to the nearest
+    /// limit.
+    PlaybackValue {
+        /// Its name in the file.
+        name: String,
+        /// The value written there.
+        value: i64,
+    },
 }
 
 impl fmt::Display for SettingsProblem {
@@ -88,6 +97,12 @@ impl fmt::Display for SettingsProblem {
                 "{} was given to two actions; the later entry keeps it",
                 shortcut.settings_text()
             ),
+            Self::PlaybackValue { name, value } => {
+                write!(
+                    f,
+                    "playback value {name} = {value} is out of range; clamped"
+                )
+            }
         }
     }
 }
@@ -225,6 +240,41 @@ pub const fn mode_to_settings(mode: ThemeMode) -> Mode {
         ThemeMode::System => Mode::System,
         ThemeMode::Light => Mode::Light,
         ThemeMode::Dark => Mode::Dark,
+    }
+}
+
+/// The playback's tuning the settings choose (ADR-0027 §14–§15, F2.12a4b2): the tuning by ear,
+/// changed by the values the file names. A name this program does not know is left alone (it
+/// stays in the file, S2: a newer Orchestra may know it); a value out of its range is clamped and
+/// reported. O(entries × 18).
+#[must_use]
+pub fn tuning_from_settings(
+    playback: &std::collections::BTreeMap<String, i64>,
+    problems: &mut Vec<SettingsProblem>,
+) -> Tuning {
+    let mut tuning = Tuning::default();
+    for (name, value) in playback {
+        if let Some(known) = TuningValue::from_name(name)
+            && tuning.set(known, *value)
+        {
+            problems.push(SettingsProblem::PlaybackValue {
+                name: name.clone(),
+                value: *value,
+            });
+        }
+    }
+    tuning
+}
+
+/// Writes `tuning` into the file's map: the values that differ from the tuning by ear, by name;
+/// a known value back at its default is removed, the names this program does not know are kept
+/// (S2).
+pub fn tuning_to_settings(tuning: &Tuning, playback: &mut std::collections::BTreeMap<String, i64>) {
+    for value in TuningValue::ALL {
+        playback.remove(value.name());
+    }
+    for (name, value) in tuning.differences() {
+        playback.insert(name.to_owned(), value);
     }
 }
 

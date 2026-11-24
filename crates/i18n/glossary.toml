@@ -64,6 +64,7 @@ gnome-settings = "https://gitlab.gnome.org/GNOME/gnome-control-center/-/tree/mai
 firefox-appearance = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/preferences/preferences.ftl: the appearance choices of Firefox's settings (System, Light, Dark) in it, fr, de, es-ES, en-GB"
 musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the Appearance page of MuseScore Studio's Preferences ('Appearance', 'Theme', 'Follow system theme')"
 musescore-preferences = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: MuseScore Studio's Preferences ('Language', 'Keyboard', 'Shortcuts', 'Restart required')"
+musescore-articulations = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the articulation symbols' names ('Accent above', 'Soft accent above', 'Stress above', 'Unstress above', 'Marcato above'), 'Articulations', 'Dynamics'"
 
 # ================================================================================================
 # Notation
@@ -1788,3 +1789,120 @@ es = "as en-US"
 sources = ["musescore-preferences"]
 note = """The six interface languages, each named in its own language and identical in every catalogue (owner's choice 1 of F2.12a4b1), as language pickers do (MuseScore, Firefox, GNOME) so a user lost in a foreign language finds their own. The British variant is 'English (UK)', the name people recognise."""
 review = false
+
+[[term]]
+id = "accent"
+category = "notation"
+en-US = "accent"
+en-GB = "accent"
+it = "accento"
+fr = "accent"
+de = "Akzent"
+es = "acento"
+sources = ["musescore-articulations"]
+note = """The accent (>) as an articulation (ADR-0024; the Playback section of the Preferences, F2.12a4b2). MuseScore's names of the symbol without 'above'. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "soft_accent"
+category = "notation"
+en-US = "soft accent"
+en-GB = "soft accent"
+it = "accento leggero"
+fr = "accent adouci"
+de = "weicher Akzent"
+es = "acento suave"
+sources = ["musescore-articulations"]
+note = """The soft accent (SMuFL articSoftAccent), MuseScore's names. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "stress"
+category = "notation"
+en-US = "stress"
+en-GB = "stress"
+it = "accentuato"
+fr = "accentué"
+de = "betont"
+es = "tiempo fuerte"
+sources = ["musescore-articulations"]
+note = """The stress mark (SMuFL articStress). MuseScore: fr 'Accentué', de 'Betont', es 'Tiempo fuerte'; its Italian 'Accento' would be the same word as the accent, so 'Accentuato' (the participle, as fr and de write it). Research 2026-11-24."""
+review = true
+
+[[term]]
+id = "unstress"
+category = "notation"
+en-US = "unstress"
+en-GB = "unstress"
+it = "non accentato"
+fr = "inaccentué"
+de = "unbetont"
+es = "tiempo débil"
+sources = ["musescore-articulations"]
+note = """The unstress mark (SMuFL articUnstress), MuseScore's names. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "marcato"
+category = "notation"
+en-US = "marcato"
+en-GB = "marcato"
+it = "marcato"
+fr = "marcato"
+de = "Marcato"
+es = "marcato"
+sources = ["musescore-articulations"]
+note = """The marcato (^), the Italian term every language keeps (MuseScore). Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "articulation_accents"
+category = "general"
+en-US = "articulation accents"
+en-GB = "articulation accents"
+it = "accenti di articolazione"
+fr = "accents d'articulation"
+de = "Artikulationsakzente"
+es = "acentos de articulación"
+sources = ["musescore-articulations"]
+note = """The Playback section's first group (F2.12a4b2): the accents written as articulations (ADR-0027 H15), as opposed to the dynamic accents. Built on the glossary's 'articulation' and 'accent'. Research 2026-11-24."""
+review = false
+
+[[term]]
+id = "dynamic_accents"
+category = "general"
+en-US = "dynamic accents"
+en-GB = "dynamic accents"
+it = "accenti dinamici"
+fr = "accents de nuance"
+de = "dynamische Akzente"
+es = "acentos dinámicos"
+sources = ["musescore-articulations"]
+note = """The Playback section's second group (F2.12a4b2): rf, sf, sffz and the like (ADR-0027 H16). fr 'nuance' as the glossary's 'dynamics'. Research 2026-11-24."""
+review = true
+
+[[term]]
+id = "changes_of_level"
+category = "general"
+en-US = "changes of level"
+en-GB = "changes of level"
+it = "cambi di livello"
+fr = "changements de niveau"
+de = "Lautstärkewechsel"
+es = "cambios de nivel"
+sources = ["musescore-articulations"]
+note = """The Playback section's third group (F2.12a4b2): fp, sfp, sfpp and pf, a level held then changed (ADR-0027 H16). de: 'Lautstärkewechsel' (change of loudness). Research 2026-11-24."""
+review = true
+
+[[term]]
+id = "playback_columns"
+category = "general"
+en-US = "louder by, back in, held for, change in"
+en-GB = "as en-US"
+it = "più forte di, torna in, tenuto per, cambia in"
+fr = "plus fort de, retour en, tenu, changement en"
+de = "lauter um, zurück in, gehalten, Wechsel in"
+es = "más fuerte en, vuelve en, sostenido, cambia en"
+sources = ["musescore-articulations"]
+note = """The column headings of the Playback section (F2.12a4b2): an accent's step, the time to settle back, a hold, the time of a change (ADR-0027 H14). Short phrases read above sliders whose values carry the unit. Research 2026-11-24."""
+review = true

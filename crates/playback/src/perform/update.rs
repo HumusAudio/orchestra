@@ -53,6 +53,7 @@ use orchestra_core_time::invariant::convert_or;
 
 use super::{Extra, Part, PerformError, Performance, PlayedNote, last_played, order_key};
 use crate::loudness::{PathPoint, Profile, Timeline};
+use crate::tuning::Tuning;
 use crate::unroll::Unrolled;
 
 impl Performance {
@@ -75,7 +76,7 @@ impl Performance {
             || changes.meter_from().is_some()
             || self.parts.len() != doc.tracks().len()
         {
-            *self = Self::new(doc, path)?;
+            *self = Self::with_tuning(doc, path, &self.tuning)?;
             return Ok(true);
         }
         // The parts touched: (part index, dynamics changed, changed played bars).
@@ -90,7 +91,7 @@ impl Performance {
         };
         for &instrument in changes.dynamics_changed() {
             let Some(i) = self.parts.iter().position(|p| p.id == instrument) else {
-                *self = Self::new(doc, path)?;
+                *self = Self::with_tuning(doc, path, &self.tuning)?;
                 return Ok(true);
             };
             let k = entry(&mut touched, i);
@@ -100,11 +101,11 @@ impl Performance {
         }
         for &(voice, bar) in changes.cells() {
             let Some((instrument, _)) = doc.voice(voice) else {
-                *self = Self::new(doc, path)?;
+                *self = Self::with_tuning(doc, path, &self.tuning)?;
                 return Ok(true);
             };
             let Some(i) = self.parts.iter().position(|p| p.id == instrument.id()) else {
-                *self = Self::new(doc, path)?;
+                *self = Self::with_tuning(doc, path, &self.tuning)?;
                 return Ok(true);
             };
             // A bar no longer in the document was removed with the bars, which set `meter_from`.
@@ -131,7 +132,7 @@ impl Performance {
                 .ok_or(DocumentError::UnknownInstrument(old.id))?;
             ks.sort_unstable();
             ks.dedup();
-            changes.push(old.change(i, doc, path, instrument, (dynamics, &ks))?);
+            changes.push(old.change(i, doc, path, instrument, (dynamics, &ks), &self.tuning)?);
         }
         for change in changes {
             if let Some(part) = self.parts.get_mut(change.index) {
@@ -272,9 +273,10 @@ impl Part {
         path: &Unrolled,
         instrument: &Instrument,
         (dynamics, ks): (bool, &[u32]),
+        tuning: &Tuning,
     ) -> Result<PartChange, PerformError> {
         let timelines = if dynamics {
-            Some(Timeline::all(doc, path, instrument)?)
+            Some(Timeline::all(doc, path, instrument, tuning)?)
         } else {
             None
         };

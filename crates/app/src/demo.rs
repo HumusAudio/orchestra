@@ -208,6 +208,9 @@ pub struct Demo {
     preferences_texts: PreferencesTexts,
     /// The open Preferences, while they are open.
     preferences: Option<PreferencesView>,
+    /// The labels of the playback values while the Playback section is shown, in
+    /// `TuningValue::ALL`'s order (F2.12a4b2); empty otherwise.
+    playback_labels: Vec<WidgetId>,
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
@@ -321,6 +324,7 @@ impl Demo {
             about: texts.about.clone(),
             preferences_texts: texts.preferences.clone(),
             preferences: None,
+            playback_labels: Vec::new(),
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             title,
             metronome,
@@ -395,6 +399,9 @@ impl Demo {
         self.ui
             .set_fine_modifier(fine_modifier_from_settings(settings.fine_modifier));
         let mut problems = Vec::new();
+        // The playback values are read once here only to report the ones out of range: the
+        // tuning itself is read from the settings when needed (`Demo::tuning`).
+        let _ = crate::settings::convert::tuning_from_settings(&settings.playback, &mut problems);
         if let Some(registry) = self.ui.actions_mut() {
             apply_settings_shortcuts(&settings.shortcuts, registry, &mut problems);
         }
@@ -415,6 +422,17 @@ impl Demo {
     #[must_use]
     pub const fn settings(&self) -> &SettingsStore {
         &self.settings
+    }
+
+    /// The playback's tuning the settings choose now (ADR-0027 §14–§15, F2.12a4b2): what the
+    /// performance will be computed with when the program plays (F3). Values out of range are
+    /// clamped (and were reported when the settings were handed in).
+    #[must_use]
+    pub fn tuning(&self) -> orchestra_playback::Tuning {
+        crate::settings::convert::tuning_from_settings(
+            &self.settings.settings().playback,
+            &mut Vec::new(),
+        )
     }
 
     /// The open Preferences' panel, while they are open.
@@ -453,14 +471,27 @@ impl Demo {
                 if let Some(view) = self.preferences {
                     // Fails only if the interface's own tree is inconsistent: the pane then keeps
                     // what it showed.
-                    let _ = preferences::show_section(
+                    self.playback_labels = preferences::show_section(
                         &mut self.ui,
                         view,
                         section,
                         &self.preferences_texts,
                         self.settings.settings(),
                         list,
-                    );
+                    )
+                    .unwrap_or_default();
+                }
+            }
+            Effect::PlaybackValue(index, n) => {
+                // The value's label follows the slider (choice 4 of F2.12a4b2). The performance
+                // will take the new tuning when the program plays (F3); there is none yet.
+                if let Some(&label) = self.playback_labels.get(index) {
+                    let text = preferences::playback_value_text(&self.preferences_texts, index, n);
+                    if let Some(widget) = self.ui.widget_mut::<Label>(label) {
+                        widget.set_text(&text);
+                    }
+                    self.ui.request_layout(label);
+                    self.ui.frame(list);
                 }
             }
         }

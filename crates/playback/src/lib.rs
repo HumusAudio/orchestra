@@ -38,8 +38,10 @@
 
 mod loudness;
 mod perform;
+mod tuning;
 mod unroll;
 
 pub use loudness::INITIAL_VELOCITY;
 pub use perform::{PerformError, Performance, PlayedNote};
+pub use tuning::{Tuning, TuningUnit, TuningValue};
 pub use unroll::{PlayedBar, StaffContent, UnrollError, Unrolled};

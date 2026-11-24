@@ -54,6 +54,7 @@ use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{BarIndex, Duration, Position, Rational, RationalError, Seconds};
 
 use crate::perform::PerformError;
+use crate::tuning::{Tuning, TuningValue};
 use crate::unroll::{UnrollError, Unrolled};
 
 // ------------------------------------------------------------------------------------------------
@@ -130,11 +131,6 @@ fn level_below(level: Rational) -> Result<Rational, RationalError> {
     Rational::from_integer(PPPP.saturating_add(LEVEL_STEP.saturating_mul(i)))
 }
 
-/// `n/d` seconds, for the constant times of ADR-0027 H15 and ADR-0027 H16. O(1).
-fn seconds(n: i64, d: i64) -> Result<Seconds, RationalError> {
-    Ok(Seconds::from_rational(Rational::new(n, d)?))
-}
-
 // ------------------------------------------------------------------------------------------------
 // What a dynamic mark does
 // ------------------------------------------------------------------------------------------------
@@ -178,34 +174,41 @@ pub(crate) enum PointAccent {
 /// - free text: its level if it has one, else nothing.
 ///
 /// The levels are those of ADR-0027 H3–H4, except the *fff* attack of *sfp*/*sfpp*; the
-/// times are those of the tuning by ear (§15, rounds 1–2, replacing those of ADR-0027 H16).
+/// times are `tuning`'s (F2.12a4b2), by default those of the tuning by ear (§15, rounds 1–2,
+/// replacing those of ADR-0027 H16).
 ///
 /// # Errors
 /// Only the arithmetic of the constants (never on these values).
-fn mark_effect(mark: &DynamicMark) -> Result<(Option<PointAccent>, Option<i64>), RationalError> {
-    let up = |levels: i64, tenths: i64| -> Result<_, RationalError> {
+fn mark_effect(
+    mark: &DynamicMark,
+    tuning: &Tuning,
+) -> Result<(Option<PointAccent>, Option<i64>), RationalError> {
+    use TuningValue as V;
+    // The levels are ADR-0027 H3–H4's rules; the times are the user's tuning (F2.12a4b2), whose
+    // defaults are §15's.
+    let up = |levels: i64, settle: V| -> Result<_, RationalError> {
         Ok(Some(PointAccent::Up {
             levels,
-            settle_in: seconds(tenths, 10)?,
+            settle_in: tuning.seconds(settle)?,
         }))
     };
-    let shift = |attack: i64, hold: i64, settle: i64, then: i64| -> Result<_, RationalError> {
+    let shift = |attack: i64, hold: V, settle: V, then: i64| -> Result<_, RationalError> {
         Ok(Some(PointAccent::Shift {
             attack,
-            hold: seconds(hold, 10)?,
-            settle_in: seconds(settle, 10)?,
+            hold: tuning.seconds(hold)?,
+            settle_in: tuning.seconds(settle)?,
             then,
         }))
     };
     Ok(match mark {
         DynamicMark::Level(level) => (None, Some(level_value(*level))),
-        DynamicMark::Rf | DynamicMark::Rfz => (up(1, 4)?, None),
-        DynamicMark::Sf | DynamicMark::Sfz | DynamicMark::Fz => (up(2, 6)?, None),
-        DynamicMark::Sffz => (up(3, 8)?, None),
-        DynamicMark::Fp => (shift(F, 6, 1, P)?, Some(P)),
-        DynamicMark::Sfp => (shift(FFF, 2, 2, P)?, Some(P)),
-        DynamicMark::Sfpp => (shift(FFF, 2, 2, PP)?, Some(PP)),
-        DynamicMark::Pf => (shift(P, 6, 1, F)?, Some(F)),
+        DynamicMark::Rf | DynamicMark::Rfz => (up(1, V::RfSettle)?, None),
+        DynamicMark::Sf | DynamicMark::Sfz | DynamicMark::Fz => (up(2, V::SfSettle)?, None),
+        DynamicMark::Sffz => (up(3, V::SffzSettle)?, None),
+        DynamicMark::Fp => (shift(F, V::FpHold, V::FpChange, P)?, Some(P)),
+        DynamicMark::Sfp => (shift(FFF, V::SfpHold, V::SfpChange, P)?, Some(P)),
+        DynamicMark::Sfpp => (shift(FFF, V::SfpHold, V::SfpChange, PP)?, Some(PP)),
+        DynamicMark::Pf => (shift(P, V::PfHold, V::PfChange, F)?, Some(F)),
         DynamicMark::Niente => (None, Some(0)),
         DynamicMark::Other(other) => (None, other.level().map(level_value)),
     })
@@ -280,6 +283,9 @@ pub(crate) struct Timeline {
     accents: Vec<(PathPoint, PointAccent)>,
     /// The plays of the hairpins.
     plans: Vec<Plan>,
+    /// The playback's tuning it was computed with (F2.12a4b2): the notes read on it take their
+    /// articulation accents from it too ([`Timeline::tuning`]).
+    tuning: Tuning,
 }
 
 /// A dynamic that applies to the voice, as the walk needs it.
@@ -353,7 +359,7 @@ impl Marks {
     ///
     /// # Errors
     /// The document's and the meter map's errors (a bug of the model), the arithmetic errors.
-    fn new(doc: &Document, instrument: &Instrument) -> Result<Self, PerformError> {
+    fn new(doc: &Document, instrument: &Instrument, tuning: &Tuning) -> Result<Self, PerformError> {
         let bars = doc.bars();
         let meter = doc.meter_map();
         let index_of = |bar| -> Result<u32, PerformError> {
@@ -366,7 +372,7 @@ impl Marks {
         for d in instrument.dynamics() {
             let at = d.at();
             let bar = index_of(at.bar)?;
-            let (accent, after) = mark_effect(d.mark())?;
+            let (accent, after) = mark_effect(d.mark(), tuning)?;
             dyns.push((
                 d.placement().scope,
                 Dyn {
@@ -422,13 +428,21 @@ impl Timeline {
         doc: &Document,
         path: &Unrolled,
         instrument: &Instrument,
+        tuning: &Tuning,
     ) -> Result<Vec<Self>, PerformError> {
-        let marks = Marks::new(doc, instrument)?;
+        let marks = Marks::new(doc, instrument, tuning)?;
         let mut timelines = Vec::with_capacity(instrument.voices().len());
         for voice in instrument.voices() {
-            timelines.push(Self::new(doc, path, &marks, voice.id())?);
+            let mut timeline = Self::new(doc, path, &marks, voice.id())?;
+            timeline.tuning = *tuning;
+            timelines.push(timeline);
         }
         Ok(timelines)
+    }
+
+    /// The playback's tuning this timeline was computed with (F2.12a4b2).
+    pub(crate) const fn tuning(&self) -> &Tuning {
+        &self.tuning
     }
 
     /// The timeline of `voice` along `path`, from the marks of its instrument (see the module
@@ -813,33 +827,38 @@ pub(crate) struct Profile {
     pub(crate) settle_to: u16,
 }
 
-/// The step of an articulation accent on the 0–127 scale and the time to settle back (ADR-0027 H15,
-/// times of the tuning by ear, rounds 1–2, §15): soft accent and stress +7 in 0.2 s, accent +22 in
-/// 0.25 s, marcato +30 in 0.3 s. Unstress is handled apart (−7 on the whole note, no profile).
-/// Steps add; the time is the longest. O(1).
+/// The step of an articulation accent on the 0–127 scale and the time to settle back (ADR-0027 H15),
+/// from `tuning` (F2.12a4b2; by default the tuning by ear, rounds 1–2, §15: soft accent and stress
+/// +7 in 0.2 s, accent +22 in 0.25 s, marcato +30 in 0.3 s). Unstress is handled apart (−7 by
+/// default, on the whole note, no profile). Steps add; the time is the longest. O(1).
 ///
 /// # Errors
 /// Only the arithmetic of the constants.
-fn articulation_step(set: ArticulationSet) -> Result<(i64, Seconds), RationalError> {
+fn articulation_step(
+    set: ArticulationSet,
+    tuning: &Tuning,
+) -> Result<(i64, Seconds), RationalError> {
+    use TuningValue as V;
     use orchestra_core_model::Articulation;
     let mut step = 0_i64;
     let mut time = Seconds::ZERO;
-    for (articulation, add, hundredths) in [
-        (Articulation::SoftAccent, 7, 20),
-        (Articulation::Stress, 7, 20),
-        (Articulation::Accent, 22, 25),
-        (Articulation::Marcato, 30, 30),
+    for (articulation, add, settle) in [
+        (
+            Articulation::SoftAccent,
+            V::SoftAccentStep,
+            V::SoftAccentSettle,
+        ),
+        (Articulation::Stress, V::StressStep, V::StressSettle),
+        (Articulation::Accent, V::AccentStep, V::AccentSettle),
+        (Articulation::Marcato, V::MarcatoStep, V::MarcatoSettle),
     ] {
         if set.contains(articulation) {
-            step = step.saturating_add(add);
-            time = time.max(seconds(hundredths, 100)?);
+            step = step.saturating_add(tuning.get(add));
+            time = time.max(tuning.seconds(settle)?);
         }
     }
     Ok((step, time))
 }
-
-/// The step of an unstress on the whole note, on the 0–127 scale (ADR-0027 H15).
-const UNSTRESS: i64 = -7;
 
 /// The attack profile of a note (ADR-0027 H14–H17) from the level in force at its point
 /// (`base`, 0–127), the dynamic accent written there (`accent`; never for grace notes,
@@ -864,6 +883,7 @@ pub(crate) fn profile(
     accent: Option<PointAccent>,
     articulations: ArticulationSet,
     offset: i32,
+    tuning: &Tuning,
 ) -> Result<Profile, RationalError> {
     let int = Rational::from_integer;
     let (mut attack, mut settle_to) = (base, base);
@@ -891,14 +911,15 @@ pub(crate) fn profile(
             settle_to = int(then)?;
         }
     }
-    let (step, time) = articulation_step(articulations)?;
+    let (step, time) = articulation_step(articulations, tuning)?;
     if step > 0 {
         attack = attack.checked_add(int(step)?)?;
         settle_in = settle_in.max(time);
     }
     if articulations.contains(orchestra_core_model::Articulation::Unstress) {
-        attack = attack.checked_add(int(UNSTRESS)?)?;
-        settle_to = settle_to.checked_add(int(UNSTRESS)?)?;
+        let unstress = tuning.get(TuningValue::UnstressStep);
+        attack = attack.checked_add(int(unstress)?)?;
+        settle_to = settle_to.checked_add(int(unstress)?)?;
     }
     let bounded = |x: Rational| -> Result<u16, RationalError> {
         let up = upscale(x.max(Rational::ZERO).min(int(FFFF)?));

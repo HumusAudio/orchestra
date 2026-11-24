@@ -60,6 +60,7 @@ use orchestra_core_time::invariant::convert_or;
 use orchestra_core_time::{Duration, Position, Rational, RationalError, Seconds};
 
 use crate::loudness::{self, PathPoint, Timeline};
+use crate::tuning::Tuning;
 use crate::unroll::{UnrollError, Unrolled};
 
 mod update;
@@ -207,6 +208,9 @@ pub struct PlayedNote {
 pub struct Performance {
     /// One part per instrument, in score order.
     parts: Vec<Part>,
+    /// The playback's tuning (ADR-0027 §14–§15, the user's choice, F2.12a4b2); the default is
+    /// the tuning by ear.
+    tuning: Tuning,
 }
 
 /// The played notes of one instrument and what is kept to update them (internal).
@@ -268,6 +272,7 @@ impl Basis {
     /// The arithmetic errors; [`UnrollError::Endless`] for an unknown voice index (a bug).
     fn profile(&self, timelines: &[Timeline]) -> Result<loudness::Profile, PerformError> {
         let timeline = timelines.get(self.voice).ok_or(UnrollError::Endless)?;
+        let tuning = *timeline.tuning();
         let accent = if self.accent {
             timeline.accent_at(self.point)
         } else {
@@ -278,6 +283,7 @@ impl Basis {
             accent,
             self.articulations,
             self.offset,
+            &tuning,
         )?)
     }
 }
@@ -297,8 +303,9 @@ impl Part {
         doc: &Document,
         path: &Unrolled,
         instrument: &orchestra_core_model::Instrument,
+        tuning: &Tuning,
     ) -> Result<Self, PerformError> {
-        let timelines = Timeline::all(doc, path, instrument)?;
+        let timelines = Timeline::all(doc, path, instrument, tuning)?;
         let mut slots = match last_played(path) {
             Some(last) => perform_range(doc, path, instrument, &timelines, 0, last)?,
             None => Vec::new(),
@@ -336,11 +343,53 @@ impl Performance {
     /// # Errors
     /// [`PerformError`]: arithmetic only on a valid document.
     pub fn new(doc: &Document, path: &Unrolled) -> Result<Self, PerformError> {
+        Self::with_tuning(doc, path, &Tuning::default())
+    }
+
+    /// The played notes of `doc` along `path` with the playback's `tuning` (ADR-0027 §14–§15; the
+    /// user's values from the Preferences, F2.12a4b2). [`Performance::new`] uses the tuning by ear.
+    ///
+    /// # Errors
+    /// As [`Performance::new`].
+    pub fn with_tuning(
+        doc: &Document,
+        path: &Unrolled,
+        tuning: &Tuning,
+    ) -> Result<Self, PerformError> {
         let mut parts = Vec::new();
         for track in doc.tracks() {
-            parts.push(Part::new(doc, path, track.instrument())?);
+            parts.push(Part::new(doc, path, track.instrument(), tuning)?);
         }
-        Ok(Self { parts })
+        Ok(Self {
+            parts,
+            tuning: *tuning,
+        })
+    }
+
+    /// The playback's tuning in use.
+    #[must_use]
+    pub const fn tuning(&self) -> &Tuning {
+        &self.tuning
+    }
+
+    /// Takes a new `tuning` (the Preferences changed a value, F2.12a4b2) and computes the whole
+    /// performance again with it: a tuning changes every accented note, and it changes rarely (once
+    /// per user's change), so nothing incremental is attempted. Nothing happens when `tuning` is
+    /// the one in use. Returns whether anything was recomputed.
+    ///
+    /// # Errors
+    /// As [`Performance::new`]. On error `self` is unchanged.
+    pub fn set_tuning(
+        &mut self,
+        doc: &Document,
+        path: &Unrolled,
+        tuning: &Tuning,
+    ) -> Result<bool, PerformError> {
+        if *tuning == self.tuning {
+            return Ok(false);
+        }
+        *self = Self::with_tuning(doc, path, tuning)?;
+        Ok(true)
     }
 
     /// The played notes of an instrument, sorted by start, then by pitch (then by voice, notehead

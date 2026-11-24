@@ -383,6 +383,17 @@ later; the incremental update (§9, H12), which assumes a grace reads at most th
 disagreed with a full computation. Found on macOS CI by the update's property test; fixed in
 `previous_end` with a fixed test of the case.
 
+### 17. The tuned values as the user's configuration (owner, F2.12a4b2, 2026-11-24)
+
+Approved by the owner before the code (choices 1–3 of F2.12a4b2), as ADR-0050 DG9 announced.
+
+| # | Precision |
+|---|---|
+| T1 | The eighteen **times and steps** of H15–H16 as tuned in §15 become a configuration, `Tuning`, of `orchestra-playback`: the steps of soft accent, stress, accent, marcato and unstress and their times to settle back; the times of *rf*, *sf*, *sffz*; the holds and changes of *fp*, *sfp*/*sfpp*, *pf*. Their defaults are §15's round 2. The **levels** (H3–H4: *rf* +1 level, *sf* +2, *sffz* +3, the levels of *fp* and the like, the *fff* attack of *sfp*) stay rules, not tuning. |
+| T2 | Each value has a stable name (`"accent.step"`, `"fp.hold-ms"`…), a unit (a step of the 0–127 scale, or whole milliseconds) and a range (steps 0–40, the unstress −40–0, times 0–2000 ms); a value outside it is clamped. Times are turned into exact seconds (`ms/1000`), so the defaults give exactly the previous rationals. |
+| T3 | `Performance::new` uses the default tuning; `Performance::with_tuning` takes another; `Performance::set_tuning` recomputes the whole performance when the tuning changed (a rare change, once per user's action). The incremental update (H11–H12) keeps the tuning of the performance. |
+| T4 | The values are the **user's** (DG9): the settings file keeps those that differ from the defaults, by name; a project does not carry them. |
+
 ## Alternatives rejected
 
 - **Seconds in the played notes:** every tempo edit would recompute every note; the path already
