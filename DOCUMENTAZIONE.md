@@ -5861,6 +5861,48 @@ salvate applicate (Esci spostato su Ctrl+Maiusc+Q, il modificatore, il lampeggio
 illeggibile segnalata) e le sezioni che cambiano il riquadro (Lingua scelta e salvata). Scene degli
 screenshot `preferences-language` e `preferences-keyboard`.
 
+**Riproduzione** (F2.12a4b2, scelte 1–6 del proprietario). I valori di ADR-0027 §14–§15 tarati a
+orecchio non sono più costanti del motore: `orchestra-playback` ha una `Tuning`
+(`crates/playback/src/tuning.rs`) di diciotto valori, ognuno indicato da un `TuningValue` con il suo
+nome stabile nel file delle impostazioni (`"accent.step"`, `"fp.hold-ms"`), la sua unità (un
+gradino della scala 0–127, oppure millisecondi interi), il suo intervallo (gradini 0–40,
+l'unstress −40–0, tempi 0–2000 ms) e il suo predefinito (secondo giro di §15). I livelli che i
+segni raggiungono (*rf* un livello sopra, *fp* da *f* a *p*) restano regole di H3–H4.
+
+```rust
+let mut tuning = Tuning::default();
+tuning.set(TuningValue::AccentStep, 30); // clamped to its range; `true` if it was outside
+let performance = Performance::with_tuning(&doc, &path, &tuning)?;
+```
+
+`Performance::new` usa il predefinito; `with_tuning` e `set_tuning` (un ricalcolo completo, solo se
+la configurazione è cambiata) prendono quella dell'utente. All'interno la configurazione viaggia con
+la linea del volume di ogni voce, che `mark_effect`, `articulation_step` e `profile` leggono; i
+tempi diventano secondi esatti (`ms/1000`), così i predefiniti danno esattamente i razionali delle
+costanti di prima e tutti i test precedenti passano invariati.
+
+Nelle impostazioni i valori diversi dai predefiniti vanno nella mappa `playback` per nome
+(`tuning_to_settings`; un valore tornato al predefinito esce dalla mappa, i nomi sconosciuti
+restano, S2); `tuning_from_settings` li rilegge, riportando al limite e segnalando un valore fuori
+dall'intervallo.
+
+La sezione (`crates/app/src/preferences/playback.rs`) scorre: una frase che dice che i valori sono
+personali, poi tre gruppi (*Accenti di articolazione*, *Accenti dinamici*, *Cambi di livello*),
+ognuno una griglia di righe con un cursore e il suo valore scritto accanto ("+22", "−7" con il vero
+segno meno, "250 ms" con uno spazio indivisibile), e *Ripristina predefiniti*. Un cursore manda un
+semplice puntatore a funzione, così una tabella di diciotto funzioni (`MESSAGES`, una funzione
+generica per indice) dice quale valore si è mosso. Il testo del valore si forma dal messaggio del
+catalogo diviso una volta intorno al suo numero (`Around`), così è la lingua a decidere dove vanno
+il numero e l'unità. Per ora nessuno ascolta (l'audio arriva con F3): la dimostrazione tiene le
+impostazioni e risponde `Demo::tuning()`.
+
+Test: `tuning.rs` (la tabella, i limiti, le differenze), `loudness_cases.rs` (una configurazione
+nuova cambia l'accento e il *fp*, `set_tuning` ricalcola solo se qualcosa cambia),
+`preferences.rs` (i valori scritti per nome, *Ripristina predefiniti* che tiene i nomi
+sconosciuti), `playback.rs` (i testi dei valori, i messaggi), e in `crates/app/tests/actions.rs` il
+cursore mosso da una freccia, la sua etichetta e le impostazioni, poi *Ripristina predefiniti*.
+Scena degli screenshot `preferences-playback`.
+
 #### La finestra e il ciclo degli eventi
 
 Il passo F2.04a (ADR-0040) mette il disegno di ADR-0039 in una finestra vera. Il modulo `window` di

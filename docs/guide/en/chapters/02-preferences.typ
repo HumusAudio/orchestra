@@ -6,7 +6,7 @@
 = Preferences
 
 The Preferences hold the choices that apply to Orchestra itself, not to one project: the window's
-appearance, the language, the keyboard. Open them with *Edit → Preferences…* or with Ctrl+, (on
+appearance, the language, the way of playing, the keyboard. Open them with *Edit → Preferences…* or with Ctrl+, (on
 macOS with *Orchestra → Settings…* or ⌘,).
 
 == How they work
@@ -47,6 +47,23 @@ a language you do not know. *System language* uses your system's.
 #screenshot-placeholder(
   [Screenshot: the Language section (preferences-language.png)],
   [The Language section, with the note about restarting.],
+)
+
+== Playback
+
+Here you choose how Orchestra plays accents and dynamic marks: how much louder an accent is and how
+soon the sound goes back to the level before it, how long the hold and the change of *fp*, *sfp* and
+*pf* last. The starting values were tuned by ear. Every value has a slider, with the value written
+beside it; *Restore defaults* brings them all back to the starting values.
+
+#note("Note")[
+  These values are yours, not the project's: they apply to every project you open, and someone who
+  opens the same project with their own preferences may hear it played a little differently.
+]
+
+#screenshot-placeholder(
+  [Screenshot: the Playback section (preferences-playback.png)],
+  [The Playback section: the accents, the dynamic accents and the changes of level.],
 )
 
 == Keyboard

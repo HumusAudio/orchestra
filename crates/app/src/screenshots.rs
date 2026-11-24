@@ -190,6 +190,12 @@ pub const SCENES: &[Scene] = &[
         record: record_preferences_language,
     },
     Scene {
+        name: "preferences-playback",
+        width: 960.0,
+        height: 600.0,
+        record: record_preferences_playback,
+    },
+    Scene {
         name: "preferences-keyboard",
         width: 960.0,
         height: 600.0,
@@ -232,10 +238,16 @@ fn record_preferences_language(bounds: Rect, list: &mut DisplayList, context: &S
     record_preferences_section(bounds, list, context, 1);
 }
 
+/// The Preferences' Playback section (F2.12a4b2): the tuning's eighteen values with their
+/// sliders, in three groups, the first ones visible.
+fn record_preferences_playback(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    record_preferences_section(bounds, list, context, 2);
+}
+
 /// The Preferences' Keyboard section (F2.12a4b1): the modifier of fine adjustment, as Linux
 /// names the keys (the scenes are rendered on Linux).
 fn record_preferences_keyboard(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
-    record_preferences_section(bounds, list, context, 2);
+    record_preferences_section(bounds, list, context, 3);
 }
 
 /// The demonstration window with the Preferences open (F2.12a4a, ADR-0050 DG8–DG9), as their menu

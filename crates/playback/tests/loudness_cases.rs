@@ -556,3 +556,51 @@ fn the_target_is_looked_for_within_the_bar_of_the_end() {
         [up(49), upf(111, 2), up(62), up(62), up(88)]
     );
 }
+
+/// The playback's tuning (ADR-0027 §14–§15, the user's values, F2.12a4b2): an accent of +30 back
+/// in 0.5 s and an *fp* held 1 s change the notes as written; `set_tuning` recomputes, and the same
+/// tuning again changes nothing.
+#[test]
+fn the_tuning_changes_the_profiles() {
+    use orchestra_playback::{Tuning, TuningValue};
+    let mut s = score(1);
+    s.level(0, d(0, 1), DynamicLevel::Pp);
+    s.dynamic(0, d(1, 4), DynamicMark::Fp);
+    let ids =
+        s.b.add_chord(
+            Placement::new(s.voice, s.bars[0], d(0, 1)),
+            NoteValue::plain(BaseValue::Quarter),
+            &[Pitch::new(Step::C, Alteration::NATURAL, 4)],
+        )
+        .unwrap();
+    s.b.set_articulations(ids.event, ArticulationSet::EMPTY.with(Articulation::Accent))
+        .unwrap();
+    s.note_in(s.voice, 0, d(1, 4));
+    let instrument = s.instrument;
+    let doc: Document = s.b.build().unwrap();
+    let path = Unrolled::new(&doc).unwrap();
+    let mut tuning = Tuning::default();
+    tuning.set(TuningValue::AccentStep, 30);
+    tuning.set(TuningValue::AccentSettle, 500);
+    tuning.set(TuningValue::FpHold, 1000);
+    let mut performance = Performance::new(&doc, &path).unwrap();
+    // The tuning by ear first: pp (36) + 22, back in 0.25 s; fp held 0.6 s.
+    let notes = performance.notes(instrument).to_vec();
+    assert_eq!(
+        (notes[0].velocity, notes[0].settle_in),
+        (up(58), secs(1, 4))
+    );
+    assert_eq!(notes[1].hold, secs(3, 5));
+    assert!(performance.set_tuning(&doc, &path, &tuning).unwrap());
+    let notes = performance.notes(instrument).to_vec();
+    assert_eq!(
+        (notes[0].velocity, notes[0].settle_in),
+        (up(66), secs(1, 2))
+    );
+    assert_eq!(notes[1].hold, secs(1, 1));
+    assert_eq!(
+        performance,
+        Performance::with_tuning(&doc, &path, &tuning).unwrap()
+    );
+    assert!(!performance.set_tuning(&doc, &path, &tuning).unwrap());
+}

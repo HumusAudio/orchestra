@@ -434,3 +434,17 @@ guides' chapter) and F2.12a4b2 (Playback: the values of ADR-0027 as a configurat
   the demonstration's window stays out of the guides); the scenes `preferences-dialog`,
   `preferences-language` and `preferences-keyboard` exist for when the pictures come in.
 - **6**: the theme's change at run time (F2.12a4a) was checked by hand by the owner on 2026-11-24.
+
+## Precisions of the implementation (F2.12a4b2, owner's choices of 2026-11-24)
+
+Choices 1–6 approved as recommended: only the eighteen values of ADR-0027 §14–§15 (choice 1;
+ADR-0027 §17 T1–T4 for the engine, choice 2); stable names with the unit in the file's `playback`
+map, steps on the 0–127 scale and times in whole milliseconds, only the values that differ from the
+defaults, unknown names kept, values out of range clamped and reported (choice 3); a slider with
+its value written beside it, whole milliseconds so no decimal separator is needed (choice 4); the
+section scrolls, in three groups (articulation accents, dynamic accents, changes of level), with
+*Restore defaults* for the playback values only (choice 5); a *Playback* part in the guides'
+chapter, saying the values are personal (choice 6). The sections are now Appearance, Language,
+Playback, Keyboard, as DG9 lists them. Nothing plays yet in the window (F3): the program keeps the
+values and computes the tuning from them when it is needed.
+

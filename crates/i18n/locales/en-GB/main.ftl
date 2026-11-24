@@ -184,3 +184,32 @@ language-it = Italiano
 language-fr = Français
 language-de = Deutsch
 language-es = Español
+
+## The Preferences' Playback section (F2.12a4b2, ADR-0050 DG9, ADR-0027 §14–§15; glossary:
+## playback, articulation_accents, dynamic_accents, changes_of_level, soft_accent, stress,
+## accent, marcato, unstress). The dynamic marks are written as in the score, the same in every
+## language. $value is a number already written with its sign ("+22", "−7") or a whole number of
+## milliseconds; the space before "ms" is a no-break space.
+
+prefs-section-playback = Playback
+prefs-playback-intro = How accents and dynamic marks are played. These values are personal: they apply to every project.
+prefs-playback-articulations = Articulation accents
+prefs-playback-dynamic-accents = Dynamic accents
+prefs-playback-changes = Changes of level
+prefs-playback-louder = Louder by
+prefs-playback-back = Back in
+prefs-playback-held = Held for
+prefs-playback-change = Change in
+prefs-playback-ms = { $value } ms
+prefs-playback-step = { $value }
+articulation-soft-accent = Soft accent
+articulation-stress = Stress
+articulation-accent = Accent
+articulation-marcato = Marcato
+articulation-unstress = Unstress
+dynamic-rf = rf, rfz
+dynamic-sf = sf, sfz, fz
+dynamic-sffz = sffz
+dynamic-fp = fp
+dynamic-sfp = sfp, sfpp
+dynamic-pf = pf

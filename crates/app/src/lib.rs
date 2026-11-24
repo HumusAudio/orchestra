@@ -47,8 +47,9 @@ pub use actions::{
 };
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
 pub use preferences::{
-    Effect, FINE_MODIFIERS, MODES, PreferencesMessage, PreferencesTexts, PreferencesView, SECTIONS,
-    Section, apply as apply_preference, open_preferences, show_section,
+    Effect, FINE_MODIFIERS, MODES, PlaybackTexts, PreferencesMessage, PreferencesTexts,
+    PreferencesView, SECTIONS, Section, apply as apply_preference, open_preferences,
+    playback_value_text, show_section,
 };
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
@@ -57,6 +58,6 @@ pub use settings::convert::{
     SettingsProblem, apply_settings_shortcuts, custom_theme_from_settings,
     custom_theme_to_settings, fine_modifier_from_settings, fine_modifier_to_settings,
     language_from_settings, language_to_settings, mode_to_settings, shortcuts_to_settings,
-    theme_from_settings,
+    theme_from_settings, tuning_from_settings, tuning_to_settings,
 };
 pub use settings::{SettingsStore, WRITE_DELAY};

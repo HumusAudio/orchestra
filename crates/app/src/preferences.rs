@@ -43,7 +43,13 @@ use crate::demo::DemoMessage;
 use crate::settings::convert::{
     SettingsProblem, fine_modifier_from_settings, fine_modifier_to_settings,
     language_from_settings, language_to_settings, mode_to_settings, theme_from_settings,
+    tuning_from_settings, tuning_to_settings,
 };
+
+mod playback;
+
+use orchestra_playback::{Tuning, TuningValue};
+pub use playback::PlaybackTexts;
 
 /// The modes of the group, in its order (ADR-0014 §1).
 pub const MODES: [ThemeMode; 3] = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
@@ -62,12 +68,19 @@ pub enum Section {
     Appearance,
     /// The interface's language.
     Language,
+    /// The playback's tuning (F2.12a4b2, `playback`).
+    Playback,
     /// The modifier of fine adjustment.
     Keyboard,
 }
 
-/// The sections in the list's order.
-pub const SECTIONS: [Section; 3] = [Section::Appearance, Section::Language, Section::Keyboard];
+/// The sections in the list's order (DG9's: Appearance, Language, Playback, Keyboard).
+pub const SECTIONS: [Section; 4] = [
+    Section::Appearance,
+    Section::Language,
+    Section::Playback,
+    Section::Keyboard,
+];
 
 /// What the Preferences' controls send (inside [`DemoMessage::Preferences`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +98,11 @@ pub enum PreferencesMessage {
     Language(usize),
     /// A modifier of fine adjustment was chosen, by its index in [`FINE_MODIFIERS`].
     FineModifier(usize),
+    /// A playback value changed: its index in [`TuningValue::ALL`] and its new value
+    /// (F2.12a4b2).
+    Playback(usize, i64),
+    /// *Restore defaults* in the Playback section: the tuning by ear again.
+    RestorePlayback,
     /// The dialog closed (*Close*, Escape, or the shortcut that opened it).
     Closed,
 }
@@ -121,6 +139,8 @@ pub struct PreferencesTexts {
     pub fine_modifier: String,
     /// The modifiers' names in the platform's style, in [`FINE_MODIFIERS`]' order.
     pub fine_modifiers: Vec<String>,
+    /// The Playback section's texts (F2.12a4b2).
+    pub playback: PlaybackTexts,
 }
 
 impl PreferencesTexts {
@@ -153,6 +173,7 @@ impl PreferencesTexts {
             section_names: vec![
                 text("prefs-section-appearance")?,
                 text("prefs-section-language")?,
+                text("prefs-section-playback")?,
                 text("prefs-section-keyboard")?,
             ],
             theme: text("prefs-theme")?,
@@ -174,6 +195,7 @@ impl PreferencesTexts {
                 .iter()
                 .map(|fine| modifier_label(*fine, platform, keys))
                 .collect(),
+            playback: PlaybackTexts::new(localizer)?,
         })
     }
 }
@@ -263,7 +285,9 @@ pub fn open_preferences(
 }
 
 /// Replaces the controls in the Preferences' pane with those of `section`, showing `settings`'
-/// values. The list of sections keeps the focus (the user is moving in it).
+/// values. The list of sections keeps the focus (the user is moving in it). Answers the labels of
+/// the playback values, in [`TuningValue::ALL`]'s order, for the Playback section (their text
+/// follows each change, [`playback_value_text`]); nothing for the others.
 ///
 /// # Errors
 /// The interface's, if its own tree is inconsistent (never expected).
@@ -274,9 +298,13 @@ pub fn show_section(
     texts: &PreferencesTexts,
     settings: &Settings,
     list: &mut DisplayList,
-) -> Result<(), UiError> {
+) -> Result<Vec<WidgetId>, UiError> {
     for child in ui.children(view.pane) {
         ui.remove(child, list)?;
+    }
+    if section == Section::Playback {
+        let tuning = tuning_from_settings(&settings.playback, &mut Vec::new());
+        return playback::build(ui, view.pane, &texts.playback, &tuning, list);
     }
     // A label and its control on each line, the labels in one column.
     let grid = ui.add(
@@ -348,6 +376,8 @@ pub fn show_section(
                 control(1).width(Length::Fill(1.0)),
             )?;
         }
+        // Built above, in its own scroll area.
+        Section::Playback => {}
         Section::Keyboard => {
             let fine = fine_modifier_from_settings(settings.fine_modifier);
             let selected = FINE_MODIFIERS
@@ -366,7 +396,18 @@ pub fn show_section(
         }
     }
     ui.frame(list);
-    Ok(())
+    Ok(Vec::new())
+}
+
+/// The text of a playback value's label: `n` for the value number `index` of
+/// [`TuningValue::ALL`] (an index out of the list gives an empty text).
+#[must_use]
+pub fn playback_value_text(texts: &PreferencesTexts, index: usize, n: i64) -> String {
+    TuningValue::ALL
+        .get(index)
+        .map_or_else(String::new, |value| {
+            playback::value_text(&texts.playback, *value, n)
+        })
 }
 
 /// What a change asks of the interface, once written into the settings ([`apply`]).
@@ -387,6 +428,9 @@ pub enum Effect {
     CaretBlink(bool),
     /// Use this modifier of fine adjustment.
     FineModifier(FineModifier),
+    /// The playback value number `.0` of [`TuningValue::ALL`] is now `.1` (its label follows; the
+    /// performance, when there is one, takes the new tuning).
+    PlaybackValue(usize, i64),
 }
 
 /// Writes `message` into `settings` and answers what the interface must do now (DG8). A theme's
@@ -434,6 +478,21 @@ pub fn apply(settings: &mut Settings, message: PreferencesMessage) -> Effect {
             };
             settings.fine_modifier = fine_modifier_to_settings(*fine);
             Effect::FineModifier(*fine)
+        }
+        PreferencesMessage::Playback(index, n) => {
+            let Some(value) = TuningValue::ALL.get(index) else {
+                return Effect::None;
+            };
+            let mut tuning = tuning_from_settings(&settings.playback, &mut Vec::new());
+            tuning.set(*value, n);
+            tuning_to_settings(&tuning, &mut settings.playback);
+            Effect::PlaybackValue(index, tuning.get(*value))
+        }
+        PreferencesMessage::RestorePlayback => {
+            // The tuning by ear: the known names leave the file, the unknown ones stay (S2); the
+            // section is built again with the defaults.
+            tuning_to_settings(&Tuning::default(), &mut settings.playback);
+            Effect::Section(Section::Playback)
         }
         PreferencesMessage::Closed => Effect::None,
     }
@@ -523,8 +582,41 @@ mod tests {
             orchestra_io::settings::FineModifier::Shift
         );
         assert_eq!(
-            apply(&mut settings, PreferencesMessage::Section(2)),
+            apply(&mut settings, PreferencesMessage::Section(3)),
             Effect::Section(Section::Keyboard)
+        );
+    }
+
+    /// A playback value goes into the file's map by name, clamped; back at its default it leaves
+    /// the map; *Restore defaults* removes the known names and keeps the unknown ones (S2).
+    #[test]
+    fn playback_values_are_written_by_name() {
+        let mut settings = Settings::default();
+        settings.playback.insert("from-the-future".to_owned(), 3);
+        let accent = TuningValue::ALL
+            .iter()
+            .position(|value| *value == TuningValue::AccentStep)
+            .unwrap();
+        assert_eq!(
+            apply(&mut settings, PreferencesMessage::Playback(accent, 99)),
+            Effect::PlaybackValue(accent, 40)
+        );
+        assert_eq!(settings.playback.get("accent.step"), Some(&40));
+        assert_eq!(
+            apply(&mut settings, PreferencesMessage::Playback(accent, 22)),
+            Effect::PlaybackValue(accent, 22)
+        );
+        assert_eq!(settings.playback.get("accent.step"), None);
+        apply(&mut settings, PreferencesMessage::Playback(0, 10));
+        assert_eq!(
+            apply(&mut settings, PreferencesMessage::RestorePlayback),
+            Effect::Section(Section::Playback)
+        );
+        assert_eq!(settings.playback.len(), 1);
+        assert_eq!(settings.playback.get("from-the-future"), Some(&3));
+        assert_eq!(
+            apply(&mut settings, PreferencesMessage::Playback(99, 1)),
+            Effect::None
         );
     }
 
