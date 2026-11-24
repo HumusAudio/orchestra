@@ -5639,7 +5639,7 @@ code and texts included) and `rfd` adds about 7 s of work to a clean release bui
 
 **Tests.** `platform/file_chooser/tests.rs`: the decision in its three cases (the chooser never
 shown when nothing can appear), the `PATH` search, the two requests, `block_on` with a ready future
-and with one woken from another thread. `crates/ui/tests/file_chooser.rs`: one request at a time,
+and with one woken from another thread (`program_in_path` is compiled on every system, though only Linux calls it, so its tests run on all three). `crates/ui/tests/file_chooser.rs`: one request at a time,
 the layer blocking typing, Tab, a click, the shortcuts and F10, the focus back after the answer, a
 chooser above a dialog, no dialog for assistive technologies. `widgets_no_alloc.rs`: input behind
 the layer allocates nothing. `crates/app/tests/files.rs`: Ctrl+O and Ctrl+Shift+S with their texts

@@ -194,6 +194,13 @@ pub(crate) fn decide(
 ///
 /// # Cost
 /// O(folders in `path`), one `stat` per folder: once per chooser, on the worker thread.
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(
+        dead_code,
+        reason = "only Linux looks for `zenity`; kept on every system so its tests run everywhere"
+    )
+)]
 pub(crate) fn program_in_path(
     path: Option<&OsStr>,
     name: &str,

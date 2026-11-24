@@ -6005,7 +6005,7 @@ scelta, sul thread di lavoro.
 
 **Test.** `platform/file_chooser/tests.rs`: la decisione nei suoi tre casi (la finestra di scelta
 mai mostrata quando nulla può comparire), la ricerca nel `PATH`, le due richieste, `block_on` con un
-future già pronto e con uno risvegliato da un altro thread. `crates/ui/tests/file_chooser.rs`: una
+future già pronto e con uno risvegliato da un altro thread (`program_in_path` si compila su ogni sistema, anche se solo Linux la chiama, così i suoi test girano su tutti e tre). `crates/ui/tests/file_chooser.rs`: una
 richiesta alla volta, il livello che blocca la digitazione, Tab, un clic, le scorciatoie e F10, il
 fuoco che torna dopo la risposta, una scelta sopra un dialogo, nessun dialogo per le tecnologie
 assistive. `widgets_no_alloc.rs`: l'input dietro il livello non alloca nulla.
