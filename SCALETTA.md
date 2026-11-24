@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.90, approvata dal proprietario il 2026-11-24.**
+> **Stato di questo documento: v0.91, approvata dal proprietario il 2026-11-24.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -730,11 +730,11 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12a3 | **Finestre di dialogo nostre** (DG1–DG3, DG10): livello nella pila dei popup, token `scrim` nelle dieci coppie, pulsanti nell'ordine della piattaforma, domande ed errori, accessibilità, **Informazioni su Orchestra** con il logo, testi nei sei cataloghi | ✅ (F2.12a3a–b) | 1,5–2 |
 | F2.12a3a | **Finestre di dialogo**: livello nella pila dei popup, cornice d'accento (token `dialog-frame`, niente velo), pulsanti nell'ordine del sistema, domande ed errori, tastiera e fuoco, accessibilità, testi *OK / Annulla / Chiudi* | ✅ | 1 |
 | F2.12a3b | **Informazioni su Orchestra**: azione `help.about`, convertitore nostro dei tracciati del logo, la finestra con versione, licenza, link e licenze dei font; screenshot e capitolo "Finestre di dialogo" delle guide | ✅ PR #95 | 0,5–1 |
-| F2.12a4 | **Preferenze** (DG8–DG9): sezioni Aspetto, Lingua, Riproduzione, Tastiera; modifiche applicate subito; `set_theme` con il modo scelto a mano; lampeggio, modificatore fine, valori di riproduzione; nomi delle coppie; screenshot e capitolo delle guide | 🔄 (F2.12a4a–b) | 1–1,5 |
+| F2.12a4 | **Preferenze** (DG8–DG9): sezioni Aspetto, Lingua, Riproduzione, Tastiera; modifiche applicate subito; `set_theme` con il modo scelto a mano; lampeggio, modificatore fine, valori di riproduzione; nomi delle coppie; screenshot e capitolo delle guide | ✅ (F2.12a4a–b) | 1–1,5 |
 | F2.12a4a | **Struttura e Aspetto**: tema che cambia mentre il programma gira (`WindowRequest::SetTheme`), `run` con l'app in prestito e file delle impostazioni nella dimostrazione, menu a tendina, gruppo di opzioni, elenco, finestra di dialogo grande, lampeggio del cursore, sezione Aspetto, nomi delle coppie nei sei cataloghi | ✅ PR #96 | 1 |
-| F2.12a4b | **Lingua, Riproduzione, Tastiera**: le tre sezioni, scorciatoie salvate applicate al registro, lingua e modificatore fine letti dal file, screenshot e capitolo delle guide | 🔄 (F2.12a4b1–b2) | 0,5–1 |
+| F2.12a4b | **Lingua, Riproduzione, Tastiera**: le tre sezioni, scorciatoie salvate applicate al registro, lingua e modificatore fine letti dal file, screenshot e capitolo delle guide | ✅ (F2.12a4b1–b2) | 0,5–1 |
 | F2.12a4b1 | **Lingua e Tastiera**: le due sezioni, modificatore fine scelto dall'utente, impostazioni salvate applicate all'avvio (lampeggio, modificatore, scorciatoie), lingua dei testi dal file, capitolo "Preferenze" delle guide | ✅ PR #97 | 0,5–1 |
-| F2.12a4b2 | **Riproduzione**: i valori di ADR-0027 §14–§15 come configurazione del crate `playback`, nomi stabili nel file, la sezione con i controlli e *Ripristina predefiniti*; precisioni di ADR-0027 | ⬜ | 1 |
+| F2.12a4b2 | **Riproduzione**: i valori di ADR-0027 §14–§15 come configurazione del crate `playback`, nomi stabili nel file, la sezione con i controlli e *Ripristina predefiniti*; precisioni di ADR-0027 | ✅ PR #98 | 1 |
 | F2.12a5 | **Scelta dei file e progetto aperto** (DG4–DG5): `rfd` 0.18 rimisurato, finestra di scelta asincrona con il livello che blocca, errore senza portale; Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti; guide | ⬜ | 1 |
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
 | F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ⬜ | 2 |
@@ -1046,7 +1046,12 @@ controllo completo. Va fatta bene una volta sola.
   nei cataloghi, sezione Tastiera con il solo modificatore fine, Maiusc+rotella fine quando Maiusc
   è il modificatore, impostazioni applicate all'avvio, capitolo delle guide con segnaposto, prova
   del tema annotata). Precisioni in ADR-0050 e ADR-0046.
-- **F2.12a4b2** I valori di riproduzione oggi sono costanti del crate `playback`: serve una
+- **F2.12a4b2** **Fatto il 2026-11-24:** scelte 1–6 approvate dal proprietario (solo i 18 valori di
+  §14–§15, `Tuning` nel crate `playback` con `Performance::with_tuning`/`set_tuning`, nomi stabili e
+  millisecondi interi nel file, cursori con il valore accanto, sezione che scorre in tre gruppi con
+  *Ripristina predefiniti*, parte "Riproduzione" nelle guide). ADR-0027 §17, precisioni di ADR-0050.
+  Nessuno ascolta ancora: l'esecuzione userà la configurazione con l'audio (F3).
+- **F2.12a4b2** (nota originale) I valori di riproduzione oggi sono costanti del crate `playback`: serve una
   configurazione passata al calcolo dell'esecuzione, con i valori tarati a orecchio come
   predefiniti; il file li tiene come mappa nome → intero (scelta S2 di F2.12a2). Manca un campo
   numerico: va deciso se bastano i cursori.
@@ -1531,3 +1536,4 @@ raccomandato.
 | 2026-11-24 | 0.88 | F2.12a3b fatto (Informazioni su Orchestra, scelte 1–4 e precisioni di ADR-0050), quindi F2.12a3 fatto; nota in F6 (link cliccabili, hash del commit); prossimo passo F2.12a4 | proprietario |
 | 2026-11-24 | 0.89 | F2.12a4 diviso in F2.12a4a e F2.12a4b; F2.12a4a fatto (struttura delle Preferenze e Aspetto, scelte 1–8, precisioni di ADR-0050, ADR-0040, ADR-0048); note in F2.12a4b; prossimo passo F2.12a4b | proprietario |
 | 2026-11-24 | 0.90 | F2.12a4b diviso in F2.12a4b1 e F2.12a4b2; F2.12a4b1 fatto (Lingua, Tastiera, impostazioni all'avvio, capitolo delle guide; scelte 1–6, precisioni di ADR-0050 e ADR-0046); note in F2.12a4b2; prossimo passo F2.12a4b2 | proprietario |
+| 2026-11-24 | 0.91 | F2.12a4b2 fatto (Riproduzione: la configurazione dei valori tarati a orecchio; scelte 1–6, ADR-0027 §17, precisioni di ADR-0050), quindi F2.12a4b e F2.12a4 fatti; prossimo passo F2.12a5 | proprietario |
