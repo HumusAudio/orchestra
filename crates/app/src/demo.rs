@@ -29,6 +29,7 @@
 //! Nothing here is business logic (the crate's rule): it is a throw-away view.
 
 use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use orchestra_i18n::{I18nError, Localizer};
@@ -41,12 +42,13 @@ use orchestra_ui::{
     WindowApp, WindowRequest,
 };
 use orchestra_ui::{
-    ActionId, ActionState, Decorations, MenuModel, Platform, SystemMenu, SystemTexts, TitleBarSpec,
-    WindowButtonNames,
+    ActionId, ActionState, Decorations, FileChoice, FileRequest, MenuModel, Platform, SystemMenu,
+    SystemTexts, TitleBarSpec, WindowButtonNames,
 };
 
 use crate::about::{AboutTexts, about_dialog};
 use crate::actions::{self, ActionIds, ActionTexts};
+use crate::files::{FileTexts, open_request, save_request, unavailable_dialog};
 use crate::preferences::{self, Effect, PreferencesMessage, PreferencesTexts, PreferencesView};
 use crate::settings::SettingsStore;
 use crate::settings::convert::{
@@ -75,6 +77,9 @@ pub enum DemoMessage {
     AboutClosed,
     /// A control of the Preferences changed, or they closed (F2.12a4a).
     Preferences(PreferencesMessage),
+    /// The *OK* of the error "Files can't be chosen" was pressed (F2.12a5a): the dialog closes
+    /// by itself, nothing else to do.
+    FileErrorClosed,
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -107,6 +112,8 @@ pub struct DemoTexts {
     pub about: AboutTexts,
     /// The Preferences' texts (F2.12a4a).
     pub preferences: PreferencesTexts,
+    /// The file choosers' texts (F2.12a5a).
+    pub files: FileTexts,
 }
 
 impl DemoTexts {
@@ -136,6 +143,7 @@ impl DemoTexts {
             },
             about: AboutTexts::new(localizer)?,
             preferences: PreferencesTexts::new(localizer, Platform::CURRENT, actions.keys())?,
+            files: FileTexts::new(localizer)?,
         })
     }
 }
@@ -214,6 +222,11 @@ pub struct Demo {
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
+    /// The file choosers' texts, for *Open* and *Save as* (F2.12a5a).
+    files: FileTexts,
+    /// The last path a file chooser answered (F2.12a5a): nothing uses it until the open project
+    /// arrives (F2.12a5b, ADR-0050 DG5); kept so the tests and a look in a debugger see it.
+    chosen: Option<PathBuf>,
 }
 
 impl Demo {
@@ -326,6 +339,8 @@ impl Demo {
             preferences: None,
             playback_labels: Vec::new(),
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
+            files: texts.files.clone(),
+            chosen: None,
             title,
             metronome,
             count_in,
@@ -435,6 +450,12 @@ impl Demo {
         )
     }
 
+    /// The last path a file chooser answered (F2.12a5a), not used yet (F2.12a5b).
+    #[must_use]
+    pub fn chosen_file(&self) -> Option<&Path> {
+        self.chosen.as_deref()
+    }
+
     /// The open Preferences' panel, while they are open.
     #[must_use]
     pub fn preferences(&self) -> Option<WidgetId> {
@@ -504,6 +525,8 @@ impl Demo {
         let mut name = None;
         let mut about = false;
         let mut open_preferences = false;
+        // The file chooser asked by *Open* or *Save as* (F2.12a5a).
+        let mut chooser: Option<FileRequest> = None;
         // The Preferences' changes, applied after the queue is drained (it borrows the interface).
         let mut changes = Vec::new();
         for message in self.ui.take_messages() {
@@ -524,6 +547,11 @@ impl Demo {
                             about = true;
                         } else if id == ids.preferences {
                             open_preferences = true;
+                        } else if id == ids.open {
+                            chooser = Some(open_request(&self.files));
+                        } else if id == ids.save_as {
+                            // No project yet (F2.12a5b): the name proposed is "Untitled".
+                            chooser = Some(save_request(&self.files, None));
                         }
                     }
                 }
@@ -553,6 +581,11 @@ impl Demo {
                 list,
             )
             .ok();
+        }
+        // The interface blocks itself until the answer (ADR-0050 DG4) and refuses a second chooser
+        // while one is open; the window takes the request after this batch of events.
+        if let Some(request) = chooser {
+            let _ = self.ui.choose_file(request, list);
         }
         if let Some(name) = name {
             if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.staff) {
@@ -854,6 +887,29 @@ impl WindowApp for Demo {
 
     fn take_menu_updates(&mut self, out: &mut Vec<(ActionId, ActionState)>) {
         self.ui.take_menu_updates(out);
+    }
+
+    fn take_file_request(&mut self) -> Option<FileRequest> {
+        // Asked by *Open* or *Save as* (F2.12a5a), kept by the interface with its blocking layer.
+        self.ui.take_file_request()
+    }
+
+    fn file_chosen(&mut self, choice: FileChoice, list: &mut DisplayList) {
+        // The blocking layer goes first, so an error dialog opens over the interface itself.
+        self.ui.file_chosen(list);
+        match choice {
+            // Kept for the open project (F2.12a5b, ADR-0050 DG5), which will open or save it.
+            FileChoice::Chosen(path) => self.chosen = Some(path),
+            FileChoice::Cancelled => {}
+            // Never silence (ADR-0036 B4): the error says what to install. `open_dialog` fails
+            // only if the interface's own tree is inconsistent; then nothing is shown.
+            FileChoice::Unavailable => {
+                let _ = self.ui.open_dialog(
+                    unavailable_dialog(&self.files, DemoMessage::FileErrorClosed),
+                    list,
+                );
+            }
+        }
     }
 
     fn take_window_request(&mut self) -> Option<WindowRequest> {

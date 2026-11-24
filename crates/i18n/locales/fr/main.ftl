@@ -213,3 +213,16 @@ dynamic-sffz = sffz
 dynamic-fp = fp
 dynamic-sfp = sfp, sfpp
 dynamic-pf = pf
+
+## The file choosers (F2.12a5a, ADR-0050 DG4; glossary: project, untitled, open, save_as). The
+## filter names the project files; the titles are the choosers' own (some systems do not show
+## them). file-untitled is the name proposed for a project never saved, without the extension
+## (the program adds ".orchestra"). The error comes only on Linux, when the desktop offers no
+## file chooser: the packages' names are not translated.
+
+file-untitled = Sans titre
+file-filter-project = Projet { app-name }
+file-open-title = Ouvrir un projet
+file-save-title = Enregistrer le projet sous
+file-chooser-unavailable-title = Impossible de choisir des fichiers
+file-chooser-unavailable-message = { app-name } utilise la fenêtre du bureau pour choisir les fichiers, mais aucun service du bureau ne la fournit. Il faut le paquet xdg-desktop-portal avec celui du bureau utilisé (par exemple xdg-desktop-portal-kde ou xdg-desktop-portal-gnome).

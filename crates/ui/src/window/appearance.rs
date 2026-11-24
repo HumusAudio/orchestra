@@ -45,6 +45,8 @@ pub(crate) enum ShellEvent {
     /// The user chose this action in the system's menu bar (macOS, F2.11e1, ADR-0048 AM9): it
     /// runs as the drawn menus and the shortcuts run theirs.
     MenuAction(crate::ActionId),
+    /// The open file chooser answered (ADR-0050 DG4, F2.12a5a), from its worker thread.
+    FileChosen(crate::FileChoice),
 }
 
 /// AccessKit's adapter sends its requests through our proxy (`with_event_loop_proxy` requires

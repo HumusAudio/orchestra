@@ -3,7 +3,7 @@
 - **Status:** Accepted (owner, 2026-11-23; outline DG1–DG10 presented first, the owner followed
   every recommendation, then this text, accepted with its three points: the buttons' order on KDE
   corrected, the logo converted by our own code, the playback values as the user's settings).
-  Precisions of F2.12a2 below.
+  Precisions of F2.12a2 and of the later steps below.
 - **Date:** 2026-11-23
 - **Implements:** ADR-0045 WA4 and WB9 (modal layers: the focus trapped, the pointer blocked),
   ADR-0048 AM7 (the user's shortcuts in the settings file), AM9 (the *About* role), AM11 (the
@@ -448,3 +448,59 @@ chapter, saying the values are personal (choice 6). The sections are now Appeara
 Playback, Keyboard, as DG9 lists them. Nothing plays yet in the window (F3): the program keeps the
 values and computes the tuning from them when it is needed.
 
+
+## Precisions of the implementation (F2.12a5a, owner's choices of 2026-11-24)
+
+SCALETTA v0.92 split F2.12a5 in F2.12a5a (the file choosers, DG4) and F2.12a5b (the open project,
+DG5). Choices 1–6 of F2.12a5a approved as recommended:
+
+- **1, `rfd` 0.18.0 with `xdg-portal` and `wayland`** (measured again, as DG4 asked). Without
+  `wayland`, `rfd` gives the portal no parent window on Wayland (the xdg-foreign handle is behind
+  that feature) and the chooser would float free of our window. The Wayland crates are winit's, in
+  the same versions: the feature adds no crate. New crates per platform: Linux +2 (`rfd`,
+  `pollster`), Windows +1 (`rfd`), macOS +4 (`rfd`, `block2` 0.6, `dispatch2`,
+  `objc2-uniform-type-identifiers`; `block2` 0.6 sits next to winit 0.30's 0.5, listed in
+  `deny.toml` with winit 0.31 as its exit, ADR-0036 B7). On Linux the `orchestra` release binary
+  grows by 245 288 bytes (16 040 520 → 16 285 808, +1.5%), by 181 248 once stripped (13 122 296 →
+  13 303 544, +1.4%), this step's own code and texts included; Cargo's times give `rfd` 6.7 s of a
+  clean release build, `pollster` and `rfd`'s build script about 1 s together.
+- **2, telling "cancelled" from "failed"** (Linux only). `rfd` answers `None` in both cases (its
+  portal call fails, it falls back on `zenity`, which may be missing too). Before showing a chooser
+  the worker thread reads the `version` property of `org.freedesktop.portal.FileChooser` with
+  `zbus` (a connection of its own, calls limited to 5 s); only when that fails does it look for
+  `zenity` in the `PATH`. Neither: the answer is *unavailable* at once and the application shows
+  its error dialog (*Files can't be chosen*, which names `xdg-desktop-portal` and the desktop's
+  back end). Otherwise `rfd` runs and its `None` means *cancelled*. **Recorded limit:** a portal
+  that answers on a system without libdbus-1 and without `zenity` still ends in silence (the
+  portal is a D-Bus service, so its desktops ship libdbus-1); `docs/native-deps.md` says so too.
+  Windows and macOS are not probed.
+- **3, where the code lives.** `orchestra-ui`'s `platform/file_chooser`: `FileRequest`,
+  `FileChoice` (`Chosen`, `Cancelled`, `Unavailable`) and the `FileChooser` trait, with `rfd` in
+  one file. The window asks the app for a request after every batch of events
+  (`WindowApp::take_file_request`, so a shortcut, a menu item, an assistive technology's action and
+  macOS's menu all reach it) and gives the answer back with `WindowApp::file_chosen`, through the
+  proxy (`ShellEvent::FileChosen`). The chooser's future is created on the main thread on Windows
+  and macOS (`AppKit` must be called there; the sheet does not block) and on the worker after the
+  probe on Linux; a worker thread waits for it with a twelve-line executor of our own on
+  `std::task::Wake` (no new crate for Windows and macOS). If the worker cannot start, the answer
+  is *unavailable*. `FileRequest` is not a `WindowRequest`: it carries texts, and `WindowRequest`
+  stays `Copy`.
+- **4, the blocking layer** is a layer of the dialogs' stack with an empty panel: nothing drawn, the
+  pointer, the keys, typed text and Tab reach nothing, the menu bar and the shortcuts are off as
+  under any dialog. It is not one of `Ui::dialogs` and the window node does not list it for
+  assistive technologies (the system's chooser is the dialog to read). `Ui::choose_file` refuses a
+  second request until `Ui::file_chosen`; the window starts one chooser at a time and **ignores
+  the requests to close it** while one is open (the system's close button, Alt+F4, Quit), as
+  Windows and macOS do with a modal chooser's parent. Input behind the layer allocates nothing (a
+  test).
+- **5, Open and Save as** are enabled and open the chooser (*Open project*, *Save project as*, the
+  filter *Orchestra project* on `*.orchestra`, `orchestra_io::PROJECT_EXTENSION`; *Save as*
+  proposes `Untitled.orchestra`). The chosen path is kept but not used until F2.12a5b, which also
+  adds the extension to a saved name that lacks it (not every system adds it). New and Save stay
+  disabled until then. The guides' chapter *Dialogs* has a part on the file choosers.
+- **6, the texts** (`file-untitled`, `file-filter-project`, `file-open-title`, `file-save-title`,
+  `file-chooser-unavailable-title`, `file-chooser-unavailable-message`) are in the six catalogues;
+  the glossary gains *project* and *untitled*.
+
+The owner checked a real chooser by hand on KDE Plasma, on Wayland and on X11, on 2026-11-24: it
+works.

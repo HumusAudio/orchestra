@@ -59,6 +59,6 @@ pub mod settings;
 pub use safe_write::IoFailure;
 
 pub use project::{
-    FORMAT_VERSION, LoadError, MAX_FILE_BYTES, MigrationError, SaveError, from_bytes, load, save,
-    to_bytes,
+    FORMAT_VERSION, LoadError, MAX_FILE_BYTES, MigrationError, PROJECT_EXTENSION, SaveError,
+    from_bytes, load, save, to_bytes,
 };

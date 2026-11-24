@@ -161,6 +161,15 @@ accesskit_consumer = "=0.39.2"
 # Pure Rust on Linux, system APIs on Windows and macOS: no native library to install. Only
 # `orchestra-ui`'s `platform/clipboard` uses it, behind the `ClipboardSource` trait.
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
+# rfd: the system's file choosers (ADR-0036 B4, ADR-0050 DG4, SCALETTA F2.12a5a). MIT; 0.18.0 of
+# 2026-11-07, checked on crates.io on 2026-11-24 (MSRV 1.92). Without default features, then:
+# `xdg-portal` (Linux: the XDG desktop portal's FileChooser, reached through libdbus-1 loaded with
+# dlopen, ADR-0036 B4; it brings `pollster`), and `wayland` (Linux: the chooser is made a child of
+# our window on Wayland through xdg-foreign; without it the portal gets no parent there and the
+# chooser floats free: choice 1 of F2.12a5a). The Wayland crates are winit's, the same versions.
+# Windows and macOS use the system's dialogs with no feature. Only `orchestra-ui` uses it, behind
+# `platform::file_chooser`.
+rfd = { version = "0.18.0", default-features = false, features = ["xdg-portal", "wayland"] }
 # skrifa + harfrust: reading fonts and drawing their outlines, and shaping text (ADR-0012,
 # ADR-0036 B1-B3, ADR-0044 TX1). Versions checked on crates.io on 2026-11-12 (skrifa 0.50.0 of
 # 2026-11-10, MIT OR Apache-2.0; harfrust 0.16.0 of 2026-11-12, MIT): both are built on

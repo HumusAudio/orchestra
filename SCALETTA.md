@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.91, approvata dal proprietario il 2026-11-24.**
+> **Stato di questo documento: v0.93, approvata dal proprietario il 2026-11-24.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -735,7 +735,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12a4b | **Lingua, Riproduzione, Tastiera**: le tre sezioni, scorciatoie salvate applicate al registro, lingua e modificatore fine letti dal file, screenshot e capitolo delle guide | ✅ (F2.12a4b1–b2) | 0,5–1 |
 | F2.12a4b1 | **Lingua e Tastiera**: le due sezioni, modificatore fine scelto dall'utente, impostazioni salvate applicate all'avvio (lampeggio, modificatore, scorciatoie), lingua dei testi dal file, capitolo "Preferenze" delle guide | ✅ PR #97 | 0,5–1 |
 | F2.12a4b2 | **Riproduzione**: i valori di ADR-0027 §14–§15 come configurazione del crate `playback`, nomi stabili nel file, la sezione con i controlli e *Ripristina predefiniti*; precisioni di ADR-0027 | ✅ PR #98 | 1 |
-| F2.12a5 | **Scelta dei file e progetto aperto** (DG4–DG5): `rfd` 0.18 rimisurato, finestra di scelta asincrona con il livello che blocca, errore senza portale; Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti; guide | ⬜ | 1 |
+| F2.12a5 | **Scelta dei file e progetto aperto** (DG4–DG5): `rfd` 0.18 rimisurato, finestra di scelta asincrona con il livello che blocca, errore senza portale; Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti; guide | 🔄 (F2.12a5a–b) | 1–1,5 |
+| F2.12a5a | **Finestra di scelta dei file** (DG4): `rfd` 0.18 rimisurato con la funzionalità `wayland`, scelta asincrona con la finestra principale come genitore, livello che blocca, controllo del portale ed errore senza portale, filtro e titoli nei sei cataloghi, *Apri…* e *Salva con nome…* aprono la scelta; paragrafo delle guide | ✅ PR #99 | 0,5–1 |
+| F2.12a5b | **Progetto aperto** (DG5): contenuto di Nuovo, Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti, screenshot e guide | ⬜ | 0,5–1 |
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
 | F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ⬜ | 2 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
@@ -1046,6 +1048,8 @@ controllo completo. Va fatta bene una volta sola.
   nei cataloghi, sezione Tastiera con il solo modificatore fine, Maiusc+rotella fine quando Maiusc
   è il modificatore, impostazioni applicate all'avvio, capitolo delle guide con segnaposto, prova
   del tema annotata). Precisioni in ADR-0050 e ADR-0046.
+- **F2.12a5b** (da F2.12a5a): aggiungere l'estensione `.orchestra` al nome salvato che non ce l'ha (non tutti i sistemi la aggiungono); il percorso scelto è già conservato in `Demo::chosen_file`.
+- **F2.12a5a** **Fatto il 2026-11-24 (PR #99):** provato a mano dal proprietario su KDE Wayland e su X11, funziona. Scelte 1–6 approvate dal proprietario il 2026-11-24 (tutte le raccomandazioni): funzionalità `wayland` di `rfd` accesa (genitore anche su Wayland, misura prima); su Linux il portale si interroga con `zbus` sul thread di lavoro prima della scelta, errore nostro se il portale non risponde e `zenity` non è nel `PATH`, il caso raro rimasto (portale presente, libdbus-1 assente, niente `zenity`) annotato come limite; codice in `orchestra-ui` (`platform/file_chooser.rs`) dietro un trait con un falso per i test, richiesta con `WindowRequest`, risposta `Chosen`/`Cancelled`/`Unavailable`; livello invisibile che prende ogni input, seconda richiesta ignorata, chiusura della finestra ignorata finché la scelta è aperta; *Apri…* e *Salva con nome…* aprono già la scelta (percorso usato da F2.12a5b), paragrafo nel capitolo "Finestre di dialogo" delle guide; testi del filtro, dei titoli e dell'errore nei sei cataloghi.
 - **F2.12a4b2** **Fatto il 2026-11-24:** scelte 1–6 approvate dal proprietario (solo i 18 valori di
   §14–§15, `Tuning` nel crate `playback` con `Performance::with_tuning`/`set_tuning`, nomi stabili e
   millisecondi interi nel file, cursori con il valore accanto, sezione che scorre in tre gruppi con
@@ -1537,3 +1541,5 @@ raccomandato.
 | 2026-11-24 | 0.89 | F2.12a4 diviso in F2.12a4a e F2.12a4b; F2.12a4a fatto (struttura delle Preferenze e Aspetto, scelte 1–8, precisioni di ADR-0050, ADR-0040, ADR-0048); note in F2.12a4b; prossimo passo F2.12a4b | proprietario |
 | 2026-11-24 | 0.90 | F2.12a4b diviso in F2.12a4b1 e F2.12a4b2; F2.12a4b1 fatto (Lingua, Tastiera, impostazioni all'avvio, capitolo delle guide; scelte 1–6, precisioni di ADR-0050 e ADR-0046); note in F2.12a4b2; prossimo passo F2.12a4b2 | proprietario |
 | 2026-11-24 | 0.91 | F2.12a4b2 fatto (Riproduzione: la configurazione dei valori tarati a orecchio; scelte 1–6, ADR-0027 §17, precisioni di ADR-0050), quindi F2.12a4b e F2.12a4 fatti; prossimo passo F2.12a5 | proprietario |
+| 2026-11-24 | 0.92 | F2.12a5 diviso in F2.12a5a (finestra di scelta dei file) e F2.12a5b (progetto aperto); scelte 1–6 di F2.12a5a approvate; prossimo passo F2.12a5a | proprietario |
+| 2026-11-24 | 0.93 | F2.12a5a fatto (PR #99: finestre di scelta dei file con `rfd` 0.18, sonda del portale, livello che blocca; provato a mano dal proprietario su KDE Wayland e X11); nota in F2.12a5b (estensione aggiunta al nome salvato); prossimo passo F2.12a5b | proprietario |

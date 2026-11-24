@@ -51,6 +51,10 @@ pub use migrate::MigrationError;
 /// The format version this program writes and the newest it reads (ADR-0010 §1).
 pub const FORMAT_VERSION: u32 = 1;
 
+/// The extension of a project file, without the dot (ADR-0029 S14): `Name.orchestra`. The file
+/// choosers' filter uses it (ADR-0050 DG4, F2.12a5a), so the program has one spelling of it.
+pub const PROJECT_EXTENSION: &str = "orchestra";
+
 /// The largest file the reader accepts, in bytes (1 GiB, ADR-0029 S9): a protection against
 /// corrupt or hostile files, about fifty times the heavy test score (1 000 bars × 30 staves).
 pub const MAX_FILE_BYTES: u64 = 1 << 30;

@@ -86,6 +86,8 @@ pub use draw::skia::CpuRenderer;
 // Who draws the window's frame (ADR-0049 TB1, TB2, F2.11b2): the system or our title bar.
 pub use platform::decorations::{Decorations, button_layout, decorations};
 pub use platform::dialog::{ButtonOrder, button_order, system_button_order};
+// The system's file choosers (ADR-0050 DG4, F2.12a5a).
+pub use platform::file_chooser::{FileChoice, FileRequest, FileRequestKind};
 
 // The system's menu bar (ADR-0048 AM9, F2.11e1): a description on every platform, `muda` on macOS.
 #[cfg(target_os = "macos")]
