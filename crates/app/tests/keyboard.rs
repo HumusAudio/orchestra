@@ -213,9 +213,15 @@ fn a_fixed_key_is_refused_and_escape_cancels() {
         Modifiers::default(),
     );
     let notice = demo.shortcut_editor().unwrap().notice();
+    // Enter as this platform writes it ("Enter" on Linux and Windows, "↩" on macOS).
+    let enter = demo.ui().actions().unwrap().shortcut_label(
+        Shortcut::new(Modifiers::default(), ShortcutKey::Named(NamedKey::Enter)).unwrap(),
+    );
     assert_eq!(
         label(&demo, notice),
-        "Enter can't be assigned: moving around the program, the menus or the system use it."
+        format!(
+            "{enter} can't be assigned: moving around the program, the menus or the system use it."
+        )
     );
     assert!(
         demo.shortcut_editor().unwrap().capture().is_some(),
