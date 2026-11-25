@@ -289,3 +289,27 @@ prefs-shortcut-conflict-message = Assign it to “{ $command }” instead? “{ 
 prefs-shortcut-restore-conflict-title = Some default shortcuts of “{ $command }” are assigned to other commands
 prefs-shortcut-restore-conflict-message = Give them back to “{ $command }”? The other commands will no longer have them.
 dialog-reassign = Reassign
+
+## Importing and exporting the shortcuts (F2.12c2, ADR-0051; glossary: import, export, shortcut,
+## replace). $file is a file's whole name ("Mine.orchestra-shortcuts"); $count a number of entries.
+## file-shortcuts-name is the name proposed when exporting, without the extension (the program adds
+## ".orchestra-shortcuts"). The question comes before an import replaces shortcuts the user had
+## changed (buttons: dialog-replace, dialog-cancel). The report comes after an import when some
+## entries of the file could not be used. The errors' other messages are those of the project's
+## (project-open-error-*, project-save-error-*).
+
+prefs-shortcuts-import = Import…
+prefs-shortcuts-export = Export…
+file-filter-shortcuts = { app-name } shortcuts
+file-import-shortcuts-title = Import shortcuts
+file-export-shortcuts-title = Export shortcuts
+file-shortcuts-name = Shortcuts
+prefs-shortcuts-import-question-title = Replace your shortcuts with those of “{ $file }”?
+prefs-shortcuts-import-question-message = The shortcuts you changed will be lost.
+prefs-shortcuts-imported-title = Shortcuts imported
+prefs-shortcuts-imported-unused = Entries of “{ $file }” not used: { $count }
+prefs-shortcuts-import-error-title = “{ $file }” can't be imported
+prefs-shortcuts-import-error-not-shortcuts = The file isn't an { app-name } shortcut file.
+prefs-shortcuts-import-error-newer = The file was saved with a newer version of { app-name }. Install the latest version to import it.
+prefs-shortcuts-import-error-damaged = The file is damaged: it can't be read as { app-name } shortcuts.
+prefs-shortcuts-export-error-title = “{ $file }” can't be exported

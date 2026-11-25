@@ -288,3 +288,27 @@ prefs-shortcut-conflict-message = Assegnarla invece a «{ $command }»? «{ $own
 prefs-shortcut-restore-conflict-title = Alcune scorciatoie predefinite di «{ $command }» sono assegnate ad altri comandi
 prefs-shortcut-restore-conflict-message = Restituirle a «{ $command }»? Gli altri comandi non le avranno più.
 dialog-reassign = Riassegna
+
+## Importing and exporting the shortcuts (F2.12c2, ADR-0051; glossary: import, export, shortcut,
+## replace). $file is a file's whole name ("Mine.orchestra-shortcuts"); $count a number of entries.
+## file-shortcuts-name is the name proposed when exporting, without the extension (the program adds
+## ".orchestra-shortcuts"). The question comes before an import replaces shortcuts the user had
+## changed (buttons: dialog-replace, dialog-cancel). The report comes after an import when some
+## entries of the file could not be used. The errors' other messages are those of the project's
+## (project-open-error-*, project-save-error-*).
+
+prefs-shortcuts-import = Importa…
+prefs-shortcuts-export = Esporta…
+file-filter-shortcuts = Scorciatoie di { app-name }
+file-import-shortcuts-title = Importa scorciatoie
+file-export-shortcuts-title = Esporta scorciatoie
+file-shortcuts-name = Scorciatoie
+prefs-shortcuts-import-question-title = Sostituire le tue scorciatoie con quelle di «{ $file }»?
+prefs-shortcuts-import-question-message = Le scorciatoie che hai cambiato andranno perse.
+prefs-shortcuts-imported-title = Scorciatoie importate
+prefs-shortcuts-imported-unused = Voci di «{ $file }» non usate: { $count }
+prefs-shortcuts-import-error-title = Impossibile importare «{ $file }»
+prefs-shortcuts-import-error-not-shortcuts = Il file non è un file di scorciatoie di { app-name }.
+prefs-shortcuts-import-error-newer = Il file è stato salvato con una versione più recente di { app-name }. Installa l'ultima versione per importarlo.
+prefs-shortcuts-import-error-damaged = Il file è danneggiato: non si può leggere come scorciatoie di { app-name }.
+prefs-shortcuts-export-error-title = Impossibile esportare «{ $file }»

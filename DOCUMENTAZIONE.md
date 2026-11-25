@@ -5992,6 +5992,75 @@ esegue il suo comando, i testi nelle sei lingue. Ogni testo di scorciatoia attes
 come "↩": una prima versione che si aspettava "Enter" lì è fallita in CI). Gli screenshot
 `preferences-keyboard` e `shortcut-conflict` mostrano la sezione e la domanda.
 
+#### I file di scorciatoie
+
+**Che cosa vede l'utente** (ADR-0051, SCALETTA F2.12c2). *Importa…* ed *Esporta…* accanto a
+*Ripristina tutte le scorciatoie*. *Esporta…* apre la finestra di scelta del sistema (*Esporta
+scorciatoie*, il filtro *Scorciatoie di Orchestra* su `*.orchestra-shortcuts`, il nome proposto
+*Scorciatoie*) e scrive l'intera tastiera. *Importa…* legge un file e mette le sue scorciatoie al
+posto di quelle attuali, chiedendo prima se l'utente ne aveva cambiate; dopo dice quante voci non
+ha potuto usare, quando ce ne sono. Un file che non è di scorciatoie, è danneggiato, troppo grande
+o più recente dà un errore tradotto che lo nomina, e non cambia nulla.
+
+**Il file** (`crates/io/src/shortcuts.rs`, `orchestra_io::shortcuts`). JSON con la versione per
+prima e le stesse voci del file delle impostazioni, con i modificatori astratti:
+
+```json
+{
+  "orchestra_shortcuts": 1,
+  "shortcuts": [
+    { "action": "file.new", "keys": ["Primary+n"] },
+    { "action": "help.contents", "keys": [] }
+  ]
+}
+```
+
+`from_bytes` e `load` lo leggono in modo tollerante voce per voce (il lettore delle voci del file
+delle impostazioni, `settings::read_shortcut_entries`, in comune) e contano ciò che scartano
+(`ShortcutFile::dropped`); il file intero fallisce con uno `ShortcutFileError` quando è
+illeggibile, più grande di 1 MiB, non è JSON, non ha `orchestra_shortcuts` o è più recente della
+versione 1. `to_bytes` e `save` scrivono in modo sicuro (un file temporaneo rinominato sopra il
+bersaglio). La catena delle migrazioni è vuota (la versione 1 è la prima) e usa il motore in
+comune con il file di progetto e quello delle impostazioni; un file golden della versione 1,
+`tests/golden/shortcuts-v1/keyboard.orchestra-shortcuts`, viene letto e riscritto identico byte
+per byte.
+
+**Che cosa si esporta** (SF2). `Registry::layout()` elenca ogni azione con la sua lista completa,
+predefinite comprese, poi le voci conservate delle azioni sconosciute; `layout_to_entries` la
+trasforma nelle voci del file. Così il file vuol dire la stessa cosa qualunque siano le
+predefinite della versione che lo legge, mentre il file delle impostazioni continua a tenere solo
+le differenze.
+
+**L'importazione** (SF3). Il file viene letto per primo (un errore non cambia nulla). Se il
+registro ha differenze dalle predefinite (`overrides()` non è vuoto) arriva la domanda *Sostituire
+le tue scorciatoie con quelle di «File»?*, con *Sostituisci* (distruttivo) e *Annulla*. Poi
+`apply_settings_shortcuts` parte dalle predefinite e applica le voci con le regole di AM7, e le
+impostazioni vengono scritte. Il resoconto conta le voci scartate dal file e i problemi del
+registro (tasti che non sono scorciatoie, tasti fissi, conflitti persi), non le azioni
+sconosciute, che si conservano.
+
+**L'esportazione** (SF5). L'estensione si aggiunge a un nome scritto che non ce l'ha
+(`with_extension_added`, la generalizzazione di `with_project_extension` del progetto), e un file
+che la finestra di scelta non ha confermato fa partire la domanda, come *Salva come*.
+
+**Chi riceve la risposta della finestra di scelta** (SF6). La dimostrazione tiene
+`chooser: Option<ChooserOwner>` (`Project` o `Shortcuts`), impostato quando apre una finestra di
+scelta, così la risposta va al progetto aperto o all'editor delle scorciatoie
+(`ShortcutEditor::file_chosen`). L'editor risponde `KeyboardOutcome::Choose(request)` per
+chiederne una, e `Changed { report }` dopo un'importazione.
+
+**Testi.** 15 messaggi nuovi nei sei cataloghi (i motivi del sistema riusano i testi di errore
+del progetto); il glossario acquista *import* ed *export* (*Import shortcuts* ed *Export
+shortcuts* di MuseScore Studio).
+
+**Test.** `crates/io/tests/shortcuts_cases.rs` (4): il file golden, la tolleranza, i file
+rifiutati, il salvataggio e la rilettura con il percorso che fallisce.
+`crates/ui/src/action/tests.rs`: la tastiera intera elenca ogni azione e si ricarica uguale.
+`crates/app/tests/keyboard.rs` (altri 4): la richiesta dell'esportazione e l'intera tastiera
+scritta, la domanda di sostituzione, l'importazione con il resoconto e le differenze salvate, la
+domanda prima di sostituire le scorciatoie proprie, un file che non si può importare. Lo
+screenshot `preferences-keyboard` mostra i due pulsanti.
+
 #### Le finestre di scelta dei file
 
 **Che cosa vede l'utente** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Apri…* (Ctrl+O, ⌘O) e *File

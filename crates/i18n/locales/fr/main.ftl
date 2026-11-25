@@ -289,3 +289,27 @@ prefs-shortcut-conflict-message = L'affecter plutôt à « { $command } » ?
 prefs-shortcut-restore-conflict-title = Certains raccourcis par défaut de « { $command } » sont affectés à d'autres commandes
 prefs-shortcut-restore-conflict-message = Les rendre à « { $command } » ? Les autres commandes ne les auront plus.
 dialog-reassign = Réaffecter
+
+## Importing and exporting the shortcuts (F2.12c2, ADR-0051; glossary: import, export, shortcut,
+## replace). $file is a file's whole name ("Mine.orchestra-shortcuts"); $count a number of entries.
+## file-shortcuts-name is the name proposed when exporting, without the extension (the program adds
+## ".orchestra-shortcuts"). The question comes before an import replaces shortcuts the user had
+## changed (buttons: dialog-replace, dialog-cancel). The report comes after an import when some
+## entries of the file could not be used. The errors' other messages are those of the project's
+## (project-open-error-*, project-save-error-*).
+
+prefs-shortcuts-import = Importer…
+prefs-shortcuts-export = Exporter…
+file-filter-shortcuts = Raccourcis { app-name }
+file-import-shortcuts-title = Importer les raccourcis
+file-export-shortcuts-title = Exporter les raccourcis
+file-shortcuts-name = Raccourcis
+prefs-shortcuts-import-question-title = Remplacer vos raccourcis par ceux de « { $file } » ?
+prefs-shortcuts-import-question-message = Les raccourcis que vous avez modifiés seront perdus.
+prefs-shortcuts-imported-title = Raccourcis importés
+prefs-shortcuts-imported-unused = Entrées de « { $file } » non utilisées : { $count }
+prefs-shortcuts-import-error-title = Impossible d'importer « { $file } »
+prefs-shortcuts-import-error-not-shortcuts = Ce fichier n'est pas un fichier de raccourcis { app-name }.
+prefs-shortcuts-import-error-newer = Ce fichier a été enregistré avec une version plus récente d'{ app-name }. Installez la dernière version pour l'importer.
+prefs-shortcuts-import-error-damaged = Le fichier est endommagé : il ne peut pas être lu comme des raccourcis { app-name }.
+prefs-shortcuts-export-error-title = Impossible d'exporter « { $file } »

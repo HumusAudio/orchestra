@@ -288,3 +288,27 @@ prefs-shortcut-conflict-message = Stattdessen „{ $command }“ zuweisen? „{ 
 prefs-shortcut-restore-conflict-title = Einige Standard-Tastaturkürzel von „{ $command }“ sind anderen Befehlen zugewiesen
 prefs-shortcut-restore-conflict-message = An „{ $command }“ zurückgeben? Die anderen Befehle verlieren sie.
 dialog-reassign = Neu zuweisen
+
+## Importing and exporting the shortcuts (F2.12c2, ADR-0051; glossary: import, export, shortcut,
+## replace). $file is a file's whole name ("Mine.orchestra-shortcuts"); $count a number of entries.
+## file-shortcuts-name is the name proposed when exporting, without the extension (the program adds
+## ".orchestra-shortcuts"). The question comes before an import replaces shortcuts the user had
+## changed (buttons: dialog-replace, dialog-cancel). The report comes after an import when some
+## entries of the file could not be used. The errors' other messages are those of the project's
+## (project-open-error-*, project-save-error-*).
+
+prefs-shortcuts-import = Importieren…
+prefs-shortcuts-export = Exportieren…
+file-filter-shortcuts = { app-name }-Tastaturkürzel
+file-import-shortcuts-title = Tastaturkürzel importieren
+file-export-shortcuts-title = Tastaturkürzel exportieren
+file-shortcuts-name = Tastaturkürzel
+prefs-shortcuts-import-question-title = Ihre Tastaturkürzel durch die aus „{ $file }“ ersetzen?
+prefs-shortcuts-import-question-message = Die Tastaturkürzel, die Sie geändert haben, gehen verloren.
+prefs-shortcuts-imported-title = Tastaturkürzel importiert
+prefs-shortcuts-imported-unused = Nicht verwendete Einträge aus „{ $file }“: { $count }
+prefs-shortcuts-import-error-title = „{ $file }“ kann nicht importiert werden
+prefs-shortcuts-import-error-not-shortcuts = Die Datei ist keine { app-name }-Tastaturkürzeldatei.
+prefs-shortcuts-import-error-newer = Die Datei wurde mit einer neueren Version von { app-name } gespeichert. Installieren Sie die neueste Version, um sie zu importieren.
+prefs-shortcuts-import-error-damaged = Die Datei ist beschädigt: Sie kann nicht als { app-name }-Tastaturkürzel gelesen werden.
+prefs-shortcuts-export-error-title = „{ $file }“ kann nicht exportiert werden

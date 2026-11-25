@@ -117,3 +117,23 @@ spostarla:
 *Riassegna* (o Invio) la dà al comando nuovo, e l'altro non ce l'ha più; *Annulla* (o Esc) lascia
 tutto com'era. *Ripristina predefiniti* chiede allo stesso modo quando altri comandi hanno preso
 nel frattempo alcune delle scorciatoie originali del comando, e le elenca.
+
+=== Portare con sé le scorciatoie
+
+*Esporta…* salva tutte le tue scorciatoie in un file che finisce con `.orchestra-shortcuts`: ogni
+comando con le sue scorciatoie, anche quelle che non hai mai cambiato. Copialo su un altro
+computer, condividilo con un collega o con una classe, oppure tienilo da parte prima di provare
+qualcosa di nuovo. Il file vale allo stesso modo su Linux, Windows e macOS: Ctrl su uno diventa ⌘
+su un Mac.
+
+*Importa…* legge un file così e mette le sue scorciatoie al posto delle tue. Se avevi cambiato
+qualche scorciatoia, Orchestra chiede prima, perché le tue andrebbero perse; *Sostituisci* va
+avanti, *Annulla* (o Esc) le lascia come sono. I comandi che il file non nomina ricevono le loro
+scorciatoie di sempre.
+
+#note("Nota")[
+  Un file fatto con un'altra versione di Orchestra può nominare comandi che questa non ha, oppure
+  tasti che il tuo sistema tiene per sé. Orchestra tiene quello che può usare e ti dice quante voci
+  non ha potuto usare. Un file fatto da una versione più recente di Orchestra non si può
+  importare: installa prima l'ultima versione.
+]

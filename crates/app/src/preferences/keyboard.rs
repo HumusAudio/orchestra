@@ -32,6 +32,18 @@
 //! ([`KeyboardOutcome::Changed`], `shortcuts_to_settings`), which the store saves half a second
 //! later.
 //!
+//! # Importing and exporting (F2.12c2, ADR-0051)
+//! *Import…* and *Export…* beside *Restore all shortcuts* open the system's file chooser for a
+//! shortcut file (`orchestra_io::shortcuts`, `.orchestra-shortcuts`). The editor answers
+//! [`KeyboardOutcome::Choose`] with the request; the demonstration remembers that the answer is
+//! the editor's and hands it back ([`ShortcutEditor::file_chosen`]).
+//! - **Export** writes the whole keyboard ([`layout_to_entries`], SF2), adding the extension to a
+//!   name that lacks it and asking before replacing a file the chooser did not confirm (SF5).
+//! - **Import** reads the file first (an error says why, and nothing changes, SF4), then asks
+//!   *Replace your shortcuts with those of "File"?* only when the current shortcuts are not the
+//!   defaults, then replaces them all with the file's (`apply_settings_shortcuts`, AM7's rules,
+//!   SF3) and reports how many entries were not used, when some were not.
+//!
 //! # Contexts (a recorded limit)
 //! AM7 asks to show when a context's shortcut covers a global one. Every action of the program is
 //! global today, so there is nothing to show; it comes with the views' contexts (F2.21).
@@ -49,7 +61,15 @@ use orchestra_ui::{
     ShortcutCapture, SizeToken, Space, TextField, Ui, UiError, Weight, WidgetId,
 };
 
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+
+use orchestra_io::shortcuts::{self as file, ShortcutFile, ShortcutFileError};
+use orchestra_ui::FileRequest;
+
 use crate::demo::DemoMessage;
+use crate::project::{file_name, with_extension_added};
+use crate::settings::convert::{SettingsProblem, apply_settings_shortcuts, layout_to_entries};
 use crate::template::{ISOLATION_MARKS, Template};
 
 /// What the shortcut editor's widgets send (inside [`DemoMessage::Keyboard`]).
@@ -77,6 +97,16 @@ pub enum KeyboardMessage {
     RestoreAll,
     /// The answer to a conflict's question: `true` for *Reassign*.
     Conflict(bool),
+    /// *Import…*: the chooser of a shortcut file to read (F2.12c2).
+    Import,
+    /// *Export…*: the chooser of a shortcut file to write.
+    Export,
+    /// The answer to "Replace your shortcuts with those of…?": `true` for *Replace*.
+    ImportAnswer(bool),
+    /// The answer to "… already exists. Replace it?" when exporting: `true` for *Replace*.
+    ExportReplace(bool),
+    /// *OK* of a report or an error: the dialog closes by itself, nothing else to do.
+    Closed,
 }
 
 /// The texts of the shortcut editor in one language (CLAUDE.md §7).
@@ -120,6 +150,62 @@ pub struct KeyboardTexts {
     pub reassign: String,
     /// `dialog-cancel`.
     pub cancel: String,
+    /// `dialog-ok`.
+    pub ok: String,
+    /// `prefs-shortcuts-import`.
+    pub import: String,
+    /// `prefs-shortcuts-export`.
+    pub export: String,
+    /// `file-filter-shortcuts`.
+    pub filter: String,
+    /// `file-import-shortcuts-title`.
+    pub import_title: String,
+    /// `file-export-shortcuts-title`.
+    pub export_title: String,
+    /// `file-shortcuts-name`: the name proposed when exporting, without the extension.
+    pub file_name: String,
+    /// `prefs-shortcuts-import-question-title`, with `$file`.
+    pub import_question: Template,
+    /// `prefs-shortcuts-import-question-message`.
+    pub import_question_message: String,
+    /// `dialog-replace`.
+    pub replace: String,
+    /// `prefs-shortcuts-imported-title`.
+    pub imported: String,
+    /// `prefs-shortcuts-imported-unused`, with `$file` and `$count`.
+    pub unused: Template,
+    /// `prefs-shortcuts-import-error-title`, with `$file`.
+    pub import_error: Template,
+    /// `prefs-shortcuts-export-error-title`, with `$file`.
+    pub export_error: Template,
+    /// `prefs-shortcuts-import-error-not-shortcuts`.
+    pub not_shortcuts: String,
+    /// `prefs-shortcuts-import-error-newer`.
+    pub newer: String,
+    /// `prefs-shortcuts-import-error-damaged`.
+    pub damaged: String,
+    /// `project-open-error-not-found` (the project's texts serve every file).
+    pub not_found: String,
+    /// `project-open-error-permission`.
+    pub read_permission: String,
+    /// `project-open-error-read`.
+    pub unreadable: String,
+    /// `project-open-error-too-large`.
+    pub too_large: String,
+    /// `project-save-error-permission`.
+    pub write_permission: String,
+    /// `project-save-error-full`.
+    pub disk_full: String,
+    /// `project-save-error-write`.
+    pub unwritable: String,
+    /// `project-save-error-internal`.
+    pub internal: String,
+    /// `project-save-error-kept`.
+    pub kept: String,
+    /// `project-replace-title`, with `$file`.
+    pub replace_title: Template,
+    /// `project-replace-message`.
+    pub replace_message: String,
 }
 
 impl KeyboardTexts {
@@ -158,14 +244,47 @@ impl KeyboardTexts {
             )?,
             reassign: text("dialog-reassign")?,
             cancel: text("dialog-cancel")?,
+            ok: text("dialog-ok")?,
+            import: text("prefs-shortcuts-import")?,
+            export: text("prefs-shortcuts-export")?,
+            filter: text("file-filter-shortcuts")?,
+            import_title: text("file-import-shortcuts-title")?,
+            export_title: text("file-export-shortcuts-title")?,
+            file_name: text("file-shortcuts-name")?,
+            import_question: template("prefs-shortcuts-import-question-title", &["file"])?,
+            import_question_message: text("prefs-shortcuts-import-question-message")?,
+            replace: text("dialog-replace")?,
+            imported: text("prefs-shortcuts-imported-title")?,
+            unused: template("prefs-shortcuts-imported-unused", &["file", "count"])?,
+            import_error: template("prefs-shortcuts-import-error-title", &["file"])?,
+            export_error: template("prefs-shortcuts-export-error-title", &["file"])?,
+            not_shortcuts: text("prefs-shortcuts-import-error-not-shortcuts")?,
+            newer: text("prefs-shortcuts-import-error-newer")?,
+            damaged: text("prefs-shortcuts-import-error-damaged")?,
+            not_found: text("project-open-error-not-found")?,
+            read_permission: text("project-open-error-permission")?,
+            unreadable: text("project-open-error-read")?,
+            too_large: text("project-open-error-too-large")?,
+            write_permission: text("project-save-error-permission")?,
+            disk_full: text("project-save-error-full")?,
+            unwritable: text("project-save-error-write")?,
+            internal: text("project-save-error-internal")?,
+            kept: text("project-save-error-kept")?,
+            replace_title: template("project-replace-title", &["file"])?,
+            replace_message: text("project-replace-message")?,
         })
     }
 
     /// Every text with values in it, each with its number of variables, for the tests (each
     /// variable must appear exactly once in every language).
     #[must_use]
-    pub fn templates(&self) -> [(&Template, usize); 8] {
+    pub fn templates(&self) -> [(&Template, usize); 13] {
         [
+            (&self.import_question, 1),
+            (&self.unused, 2),
+            (&self.import_error, 1),
+            (&self.export_error, 1),
+            (&self.replace_title, 1),
             (&self.no_match, 1),
             (&self.shortcuts_of, 1),
             (&self.capture_name, 1),
@@ -212,7 +331,7 @@ pub fn shown_commands(registry: &Registry, query: &str) -> Vec<ActionId> {
 }
 
 /// A question waiting for its answer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Pending {
     /// Give `shortcut` to `action`, taking it from its owner.
     Reassign {
@@ -226,6 +345,27 @@ enum Pending {
         /// The command whose defaults come back.
         action: ActionId,
     },
+    /// Replace every shortcut with those of `file`, read from the file named `name`.
+    Import {
+        /// The file's whole name, for the report.
+        name: String,
+        /// What was read.
+        file: ShortcutFile,
+    },
+    /// Write the keyboard to `path`, which exists and the chooser did not confirm.
+    Export {
+        /// The file.
+        path: PathBuf,
+    },
+}
+
+/// Which file chooser the editor is waiting for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Choosing {
+    /// A file to import.
+    Import,
+    /// A file to export to.
+    Export,
 }
 
 /// What the demonstration does after a message ([`ShortcutEditor::handle`]).
@@ -233,11 +373,23 @@ enum Pending {
 pub enum KeyboardOutcome {
     /// Nothing more.
     None,
-    /// The registry's shortcuts changed: write the differences into the settings (DG8).
-    Changed,
-    /// Open this question (a conflict, choice 3); its answer comes back as
-    /// [`KeyboardMessage::Conflict`].
+    /// The registry's shortcuts changed: write the differences into the settings (DG8); then
+    /// show `report` if there is one (an import with entries not used, F2.12c2).
+    Changed {
+        /// What to tell after the change.
+        report: Option<DialogSpec<DemoMessage>>,
+    },
+    /// Open this dialog (a conflict, choice 3; a question, a report or an error of a shortcut
+    /// file, F2.12c2); its answer comes back as a [`KeyboardMessage`].
     Ask(DialogSpec<DemoMessage>),
+    /// Open the system's file chooser with this request (F2.12c2); its answer goes back to
+    /// [`ShortcutEditor::file_chosen`].
+    Choose(FileRequest),
+}
+
+impl KeyboardOutcome {
+    /// [`KeyboardOutcome::Changed`] with nothing to tell.
+    const CHANGED: Self = Self::Changed { report: None };
 }
 
 /// The shortcut editor while the Keyboard section is shown (see the module documentation).
@@ -247,6 +399,10 @@ pub struct ShortcutEditor {
     search: WidgetId,
     /// *Restore all shortcuts*.
     restore_all: WidgetId,
+    /// *Import…* (F2.12c2).
+    import: WidgetId,
+    /// *Export…* (F2.12c2).
+    export: WidgetId,
     /// The muted line under the search field ("No command matches…").
     no_match: WidgetId,
     /// The list of commands.
@@ -279,6 +435,8 @@ pub struct ShortcutEditor {
     shortcut: usize,
     /// The question waiting for its answer.
     pending: Option<Pending>,
+    /// The file chooser waiting for its answer (F2.12c2).
+    choosing: Option<Choosing>,
     /// Whose fixed keys apply (the capture box's).
     platform: Platform,
 }
@@ -374,15 +532,13 @@ impl ShortcutEditor {
         let capture_row = ui.add(pane, Flex::row(Space::M, Space::None), wide)?;
         let slot = ui.add(capture_row, Flex::row(Space::None, Space::None), wide)?;
         let notice = ui.add(capture_row, muted(String::new()), wide)?;
-        let restore_all = ui.add(
-            pane,
-            button(&texts.restore_all, KeyboardMessage::RestoreAll),
-            LayoutProps::default(),
-        )?;
+        let (restore_all, import, export) = last_row(ui, pane, texts)?;
         let platform = ui.actions().map_or(Platform::CURRENT, Registry::platform);
         let mut editor = Self {
             search,
             restore_all,
+            import,
+            export,
             no_match,
             commands,
             of,
@@ -399,6 +555,7 @@ impl ShortcutEditor {
             action: None,
             shortcut: 0,
             pending: None,
+            choosing: None,
             platform,
         };
         editor.refresh_commands(ui, texts);
@@ -466,6 +623,18 @@ impl ShortcutEditor {
         self.restore_all
     }
 
+    /// *Import…* (tests).
+    #[must_use]
+    pub const fn import_button(&self) -> WidgetId {
+        self.import
+    }
+
+    /// *Export…* (tests).
+    #[must_use]
+    pub const fn export_button(&self) -> WidgetId {
+        self.export
+    }
+
     /// The muted line under the capture box (tests).
     #[must_use]
     pub const fn notice(&self) -> WidgetId {
@@ -524,14 +693,193 @@ impl ShortcutEditor {
                 if let Some(registry) = ui.actions_mut() {
                     registry.restore_all();
                 }
-                KeyboardOutcome::Changed
+                KeyboardOutcome::CHANGED
             }
             KeyboardMessage::Conflict(reassign) => self.answer(ui, reassign),
+            KeyboardMessage::Import => {
+                self.choosing = Some(Choosing::Import);
+                KeyboardOutcome::Choose(FileRequest::open(
+                    texts.import_title.clone(),
+                    texts.filter.clone(),
+                    file::EXTENSION,
+                ))
+            }
+            KeyboardMessage::Export => {
+                self.choosing = Some(Choosing::Export);
+                KeyboardOutcome::Choose(FileRequest::save(
+                    texts.export_title.clone(),
+                    texts.filter.clone(),
+                    file::EXTENSION,
+                    format!("{}.{}", texts.file_name, file::EXTENSION),
+                ))
+            }
+            KeyboardMessage::ImportAnswer(replace) => match self.pending.take() {
+                Some(Pending::Import { name, file }) if replace => {
+                    Self::import(ui, texts, &name, &file)
+                }
+                _ => KeyboardOutcome::None,
+            },
+            KeyboardMessage::ExportReplace(replace) => match self.pending.take() {
+                Some(Pending::Export { path }) if replace => Self::export(ui, texts, &path),
+                _ => KeyboardOutcome::None,
+            },
+            KeyboardMessage::Closed => KeyboardOutcome::None,
         };
-        if matches!(outcome, KeyboardOutcome::Changed) {
+        if matches!(outcome, KeyboardOutcome::Changed { .. }) {
             self.refresh_commands(ui, texts);
         }
         outcome
+    }
+
+    /// The answer of the file chooser the editor asked for (F2.12c2): the chosen path, or
+    /// `None` when it was cancelled or could not open (the demonstration has said why). Answers
+    /// what to show next, as [`ShortcutEditor::handle`] does.
+    pub fn file_chosen(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &KeyboardTexts,
+        path: Option<PathBuf>,
+    ) -> KeyboardOutcome {
+        let (Some(choosing), Some(path)) = (self.choosing.take(), path) else {
+            return KeyboardOutcome::None;
+        };
+        let outcome = match choosing {
+            Choosing::Import => self.read_import(ui, texts, &path),
+            Choosing::Export => {
+                // The extension added when the typed name lacks it; a file the chooser did not
+                // confirm is asked about first (SF5, as *Save as*, F2.12a5b).
+                let target = with_extension_added(path.clone(), file::EXTENSION);
+                if target != path && target.try_exists().unwrap_or(false) {
+                    let spec = DialogSpec::new(
+                        DialogKind::Question,
+                        texts.replace_title.fill(&[&file_name(&target)]),
+                        texts.replace_message.clone(),
+                    )
+                    .detail(target.display().to_string())
+                    .button(
+                        texts.replace.clone(),
+                        ButtonRole::Destructive,
+                        DemoMessage::Keyboard(KeyboardMessage::ExportReplace(true)),
+                    )
+                    .button(
+                        texts.cancel.clone(),
+                        ButtonRole::Cancel,
+                        DemoMessage::Keyboard(KeyboardMessage::ExportReplace(false)),
+                    );
+                    self.pending = Some(Pending::Export { path: target });
+                    KeyboardOutcome::Ask(spec)
+                } else {
+                    Self::export(ui, texts, &target)
+                }
+            }
+        };
+        if matches!(outcome, KeyboardOutcome::Changed { .. }) {
+            self.refresh_commands(ui, texts);
+        }
+        outcome
+    }
+
+    /// Reads the file at `path` to import it: an error says why and changes nothing; otherwise
+    /// the question when there is something to lose (SF3), or the import at once.
+    fn read_import(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &KeyboardTexts,
+        path: &Path,
+    ) -> KeyboardOutcome {
+        let name = file_name(path);
+        let file = match file::load(path) {
+            Ok(file) => file,
+            Err(error) => {
+                return KeyboardOutcome::Ask(error_dialog(
+                    texts,
+                    texts.import_error.fill(&[&name]),
+                    &error,
+                    path,
+                    false,
+                ));
+            }
+        };
+        let customised = ui
+            .actions()
+            .is_some_and(|registry| registry.overrides().next().is_some());
+        if customised {
+            let spec = DialogSpec::new(
+                DialogKind::Question,
+                texts.import_question.fill(&[&name]),
+                texts.import_question_message.clone(),
+            )
+            .button(
+                texts.replace.clone(),
+                ButtonRole::Destructive,
+                DemoMessage::Keyboard(KeyboardMessage::ImportAnswer(true)),
+            )
+            .button(
+                texts.cancel.clone(),
+                ButtonRole::Cancel,
+                DemoMessage::Keyboard(KeyboardMessage::ImportAnswer(false)),
+            );
+            self.pending = Some(Pending::Import { name, file });
+            return KeyboardOutcome::Ask(spec);
+        }
+        Self::import(ui, texts, &name, &file)
+    }
+
+    /// Replaces every shortcut with `file`'s (SF3: from the defaults, AM7's rules), and reports
+    /// the entries not used when there are some: those the file reader dropped, the keys that
+    /// are not shortcuts, the fixed keys and the conflicts lost (unknown actions are kept, not
+    /// "not used").
+    fn import(
+        ui: &mut Ui<DemoMessage>,
+        texts: &KeyboardTexts,
+        name: &str,
+        file: &ShortcutFile,
+    ) -> KeyboardOutcome {
+        let Some(registry) = ui.actions_mut() else {
+            return KeyboardOutcome::None;
+        };
+        let mut problems = Vec::new();
+        apply_settings_shortcuts(&file.entries, registry, &mut problems);
+        let unused = file.dropped
+            + problems
+                .iter()
+                .filter(|problem| {
+                    !matches!(
+                        problem,
+                        SettingsProblem::Registry(orchestra_ui::LoadWarning::UnknownAction(_))
+                    )
+                })
+                .count();
+        let report = (unused > 0).then(|| {
+            DialogSpec::new(
+                DialogKind::Information,
+                texts.imported.clone(),
+                texts.unused.fill(&[name, &unused.to_string()]),
+            )
+            .button(
+                texts.ok.clone(),
+                ButtonRole::Affirmative,
+                DemoMessage::Keyboard(KeyboardMessage::Closed),
+            )
+        });
+        KeyboardOutcome::Changed { report }
+    }
+
+    /// Writes the whole keyboard to `path` (SF2); an error says why.
+    fn export(ui: &mut Ui<DemoMessage>, texts: &KeyboardTexts, path: &Path) -> KeyboardOutcome {
+        let Some(registry) = ui.actions() else {
+            return KeyboardOutcome::None;
+        };
+        match file::save(&layout_to_entries(registry), path) {
+            Ok(()) => KeyboardOutcome::None,
+            Err(error) => KeyboardOutcome::Ask(error_dialog(
+                texts,
+                texts.export_error.fill(&[&file_name(path)]),
+                &error,
+                path,
+                true,
+            )),
+        }
     }
 
     /// A shortcut captured for the selected command: added at once, or the question when another
@@ -561,7 +909,7 @@ impl ShortcutEditor {
         // Nobody has it: the reassignment takes nothing from anyone. A fixed key never comes
         // here (the capture box refuses it), so the error is not expected.
         match registry.reassign(action, shortcut) {
-            Ok(_) => KeyboardOutcome::Changed,
+            Ok(_) => KeyboardOutcome::CHANGED,
             Err(_) => KeyboardOutcome::None,
         }
     }
@@ -583,7 +931,7 @@ impl ShortcutEditor {
         match registry.set_shortcuts(action, &kept) {
             Ok(()) => {
                 self.shortcut = self.shortcut.min(kept.len().saturating_sub(1));
-                KeyboardOutcome::Changed
+                KeyboardOutcome::CHANGED
             }
             Err(_) => KeyboardOutcome::None,
         }
@@ -604,7 +952,7 @@ impl ShortcutEditor {
         let conflicts = registry.restore_conflicts(action);
         if conflicts.is_empty() {
             return match registry.restore(action) {
-                Ok(()) => KeyboardOutcome::Changed,
+                Ok(()) => KeyboardOutcome::CHANGED,
                 Err(_) => KeyboardOutcome::None,
             };
         }
@@ -641,9 +989,11 @@ impl ShortcutEditor {
         let done = match pending {
             Pending::Reassign { action, shortcut } => registry.reassign(action, shortcut).is_ok(),
             Pending::Restore { action } => registry.restore_reassigning(action).is_ok(),
+            // The files' questions have answers of their own (`ImportAnswer`, `ExportReplace`).
+            Pending::Import { .. } | Pending::Export { .. } => false,
         };
         if done {
-            KeyboardOutcome::Changed
+            KeyboardOutcome::CHANGED
         } else {
             KeyboardOutcome::None
         }
@@ -781,6 +1131,82 @@ impl ShortcutEditor {
             ui.request_record(button);
         }
     }
+}
+
+/// The last row of the editor: *Restore all shortcuts*, *Import…* and *Export…* (F2.12c2), as
+/// `(restore all, import, export)`.
+///
+/// # Errors
+/// The interface's, if its own tree is inconsistent (never expected).
+fn last_row(
+    ui: &mut Ui<DemoMessage>,
+    pane: WidgetId,
+    texts: &KeyboardTexts,
+) -> Result<(WidgetId, WidgetId, WidgetId), UiError> {
+    let button = |text: &str, message: KeyboardMessage| {
+        Button::new(text.to_owned(), DemoMessage::Keyboard(message))
+    };
+    // *Restore all shortcuts*, *Import…* and *Export…* in one row at the end (F2.12c2).
+    let last = ui.add(
+        pane,
+        Flex::row(Space::S, Space::None),
+        LayoutProps::default(),
+    )?;
+    let restore_all = ui.add(
+        last,
+        button(&texts.restore_all, KeyboardMessage::RestoreAll),
+        LayoutProps::default(),
+    )?;
+    let import = ui.add(
+        last,
+        button(&texts.import, KeyboardMessage::Import),
+        LayoutProps::default(),
+    )?;
+    let export = ui.add(
+        last,
+        button(&texts.export, KeyboardMessage::Export),
+        LayoutProps::default(),
+    )?;
+    Ok((restore_all, import, export))
+}
+
+/// The error dialog of a shortcut file (SF4): `title`, one message per reason the user can act
+/// on (the project's texts for the system's reasons), the path as the detail, and for a failed
+/// export (`writing`) that the file already there was left as it was. One *OK*.
+fn error_dialog(
+    texts: &KeyboardTexts,
+    title: String,
+    error: &ShortcutFileError,
+    path: &Path,
+    writing: bool,
+) -> DialogSpec<DemoMessage> {
+    let message = match error {
+        ShortcutFileError::Io(failure) => match (failure.kind(), writing) {
+            (ErrorKind::NotFound, false) => &texts.not_found,
+            (ErrorKind::PermissionDenied, false) => &texts.read_permission,
+            (_, false) => &texts.unreadable,
+            (ErrorKind::PermissionDenied | ErrorKind::ReadOnlyFilesystem, true) => {
+                &texts.write_permission
+            }
+            (ErrorKind::StorageFull | ErrorKind::QuotaExceeded, true) => &texts.disk_full,
+            (_, true) => &texts.unwritable,
+        },
+        ShortcutFileError::TooLarge { .. } => &texts.too_large,
+        ShortcutFileError::NotShortcuts => &texts.not_shortcuts,
+        ShortcutFileError::NewerFormat { .. } => &texts.newer,
+        ShortcutFileError::Syntax { .. } | ShortcutFileError::Migration { .. } => &texts.damaged,
+        ShortcutFileError::Encode(_) => &texts.internal,
+    };
+    let mut spec = DialogSpec::new(DialogKind::Error, title, message.clone())
+        .detail(path.display().to_string());
+    if writing {
+        spec = spec.detail(texts.kept.clone());
+    }
+    spec.button(
+        texts.ok.clone(),
+        ButtonRole::Affirmative,
+        DemoMessage::Keyboard(KeyboardMessage::Closed),
+    )
 }
 
 /// A conflict's question (choice 3): *Reassign* the default, *Cancel*.

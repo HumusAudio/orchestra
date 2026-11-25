@@ -951,6 +951,32 @@ note = "The verb of a search field (F2.12c1: 'Search commands'). MuseScore Studi
 review = false
 
 [[term]]
+id = "import"
+category = "general"
+en-US = "Import"
+en-GB = "Import"
+it = "Importa"
+fr = "Importer"
+de = "Importieren"
+es = "Importar"
+sources = ["musescore-ui"]
+note = "Reading a file made elsewhere into the program (F2.12c2: a shortcut file, ADR-0051). MuseScore Studio's 'Import' and 'Import shortcuts': 'Importa', 'Importer', 'Import' / 'Tastaturkürzel importieren', 'Importar'. de: the button is the verb 'Importieren…' (MuseScore's lone button writes the noun 'Import'; its phrase uses the verb), as the other buttons of the section are verbs. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "export"
+category = "general"
+en-US = "Export"
+en-GB = "Export"
+it = "Esporta"
+fr = "Exporter"
+de = "Exportieren"
+es = "Exportar"
+sources = ["musescore-ui"]
+note = "Writing the program's data into a file for elsewhere (F2.12c2: a shortcut file, ADR-0051). MuseScore Studio's 'Export…' and 'Export shortcuts': 'Esporta…', 'Exporter…', 'Export…' / 'Tastaturkürzel exportieren', 'Exportar…'. de: the verb, as for 'import'. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
 id = "quit"
 category = "general"
 en-US = "Quit"

@@ -115,3 +115,21 @@ If the shortcut you press already belongs to another command, Orchestra asks bef
 *Reassign* (or Enter) gives it to the new command, and the other one no longer has it; *Cancel*
 (or Esc) leaves everything as it was. *Restore defaults* asks the same way when other commands
 have taken some of the command's original shortcuts in the meantime, and lists them.
+
+=== Taking your shortcuts with you
+
+*Export…* saves all your shortcuts in a file ending in `.orchestra-shortcuts`: every command with
+its shortcuts, also those you never changed. Copy it to another computer, share it with a
+colleague or a class, or keep it before trying something new. The file works on Linux, Windows
+and macOS alike: Ctrl on one becomes ⌘ on a Mac.
+
+*Import…* reads such a file and puts its shortcuts in place of yours. If you had changed some
+shortcuts, Orchestra asks first, because yours would be lost; *Replace* goes ahead, *Cancel* (or
+Esc) leaves them as they are. Commands the file does not mention get their usual shortcuts.
+
+#note("Note")[
+  A file made with another version of Orchestra may name commands this one does not have, or keys
+  your system keeps for itself. Orchestra keeps what it can use and tells you how many entries it
+  could not use. A file made by a newer version of Orchestra cannot be imported: install the
+  latest version first.
+]
