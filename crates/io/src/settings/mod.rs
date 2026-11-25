@@ -500,6 +500,17 @@ pub fn from_bytes(bytes: &[u8]) -> Result<Parsed, Broken> {
     })
 }
 
+/// The shortcut entries of `list` (the JSON array at `path`, for the warnings' places), read as
+/// the settings file reads its own (`read::read_shortcuts`): the shortcut file shares them
+/// (ADR-0051 SF1). Each dropped entry or key adds one warning. O(size of the list).
+pub(crate) fn read_shortcut_entries(
+    list: &[serde_json::Value],
+    path: &str,
+    warnings: &mut Vec<Warning>,
+) -> Vec<ShortcutEntry> {
+    read::read_shortcuts(list, path, warnings)
+}
+
 /// Reads the settings file at `path` for the session (see the module documentation). Never fails:
 /// a missing file gives the defaults, a broken one is renamed to [`BROKEN_FILE_NAME`] beside it,
 /// and every problem becomes a [`Warning`].

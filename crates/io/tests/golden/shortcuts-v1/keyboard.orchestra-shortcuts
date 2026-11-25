@@ -1,0 +1,28 @@
+{
+  "orchestra_shortcuts": 1,
+  "shortcuts": [
+    {
+      "action": "file.new",
+      "keys": [
+        "Primary+n"
+      ]
+    },
+    {
+      "action": "edit.redo",
+      "keys": [
+        "Primary+Shift+z",
+        "Primary+y"
+      ]
+    },
+    {
+      "action": "help.contents",
+      "keys": []
+    },
+    {
+      "action": "future.action",
+      "keys": [
+        "F5"
+      ]
+    }
+  ]
+}

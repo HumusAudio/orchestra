@@ -53,6 +53,7 @@ mod platform;
 mod project;
 mod safe_write;
 pub mod settings;
+pub mod shortcuts;
 
 /// The shape of every I/O error of the crate (the `Io` variants of [`LoadError`], [`SaveError`]
 /// and [`midi::MidiError`]).
