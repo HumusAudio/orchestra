@@ -872,6 +872,85 @@ note = "The button that saves over an existing file (F2.12a5b: the program added
 review = false
 
 [[term]]
+id = "shortcut"
+category = "general"
+en-US = "shortcut"
+en-GB = "shortcut"
+it = "scorciatoia"
+fr = "raccourci"
+de = "Tastaturkürzel"
+es = "atajo de teclado"
+plural = { en-US = "shortcuts", en-GB = "shortcuts", it = "scorciatoie", fr = "raccourcis", de = "Tastaturkürzel", es = "atajos de teclado" }
+sources = ["musescore-ui", "gtk-ui"]
+note = "A keyboard shortcut of a command (ADR-0048 AM7; the shortcut editor of F2.12c1). MuseScore Studio's 'Shortcut' / 'Shortcuts' (its Preferences page): 'Scorciatoia/Scorciatoie', 'Raccourci/Raccourcis', 'Tastaturkürzel', 'Atajo' with 'Atajos del teclado' as the page's title. de: GTK 4 writes 'Tastenkürzel'; MuseScore's 'Tastaturkürzel' is chosen, the music program's word. es: 'atajo de teclado' in full where it stands alone ('Atajos de teclado' as the heading), 'atajo' inside a sentence once the context is clear (MuseScore does the same). Gender for agreement: it feminine, fr masculine, de neuter, es masculine. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "command"
+category = "general"
+en-US = "command"
+en-GB = "command"
+it = "comando"
+fr = "commande"
+de = "Befehl"
+es = "comando"
+sources = ["logic-guide"]
+note = "What the shortcut editor lists (F2.12c1): an action of the menus, as the guides call it. MuseScore Studio's editor says 'Action' ('Azione', 'Action', 'Aktion', 'Acción'); 'command' is kept because the guides already speak of the menus' commands, and Logic Pro's guide calls the same list 'Key Commands' ('Comandi tastiera', 'Tastaturbefehle', 'Comandos de teclado'; fr 'Raccourcis clavier', 'commande' elsewhere in the same guide). Research 2026-11-25."
+review = true
+
+[[term]]
+id = "reassign"
+category = "general"
+en-US = "Reassign"
+en-GB = "Reassign"
+it = "Riassegna"
+fr = "Réaffecter"
+de = "Neu zuweisen"
+es = "Reasignar"
+sources = ["musescore-ui"]
+note = "The button that gives a shortcut to another command, taking it from the one that had it (F2.12c1). MuseScore Studio's 'Reassign shortcut': 'Riassegna scorciatoia', 'Réaffecter le raccourci', 'Tastaturkürzel neu zuweisen', 'Reasignar atajo de teclado'; its 'This shortcut is already assigned to: %1' gives 'assegnata', 'affecté', 'zugeordnet' (ours 'zugewiesen', the verb of the button), 'asignado'. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "add"
+category = "general"
+en-US = "Add"
+en-GB = "Add"
+it = "Aggiungi"
+fr = "Ajouter"
+de = "Hinzufügen"
+es = "Añadir"
+sources = ["musescore-ui"]
+note = "A button that adds an item (F2.12c1: a shortcut; with an ellipsis, because it then waits for the keys, as MuseScore's 'Define…'). MuseScore Studio's 'Add' in the instruments' panel: 'Aggiungi', 'Ajouter', 'Hinzufügen', 'Añadir'. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "remove"
+category = "general"
+en-US = "Remove"
+en-GB = "Remove"
+it = "Rimuovi"
+fr = "Enlever"
+de = "Entfernen"
+es = "Quitar"
+sources = ["gtk-ui"]
+note = "A button that takes an item out of a list without deleting anything else (F2.12c1: a shortcut of a command). GTK 4's '_Remove': 'Rimuovi', 'Enlever', 'Entfernen', 'Quitar', en_GB as en-US. fr: not 'Supprimer', which means deleting. Research 2026-11-25 on the shipped catalogues."
+review = true
+
+[[term]]
+id = "search"
+category = "general"
+en-US = "search"
+en-GB = "search"
+it = "cerca"
+fr = "rechercher"
+de = "suchen"
+es = "buscar"
+sources = ["musescore-ui", "gtk-ui"]
+note = "The verb of a search field (F2.12c1: 'Search commands'). MuseScore Studio's 'Search palettes', 'Search shortcut': 'Cerca tavolozze', 'Rechercher dans les palettes', 'Paletten durchsuchen', 'Buscar atajo de teclado'; de puts the verb last ('Befehle suchen'). GTK 4's 'No Results Found' gives the empty result's wording ('Nessun risultato trovato'…), ours names the search instead. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
 id = "quit"
 category = "general"
 en-US = "Quit"

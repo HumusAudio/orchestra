@@ -386,8 +386,8 @@ fn the_texts_exist_in_six_languages_with_one_name_each() {
         let texts = texts(locale);
         let templates: [&NameTemplate; 6] = texts.templates();
         for template in templates {
-            assert_eq!(template.slots(), 1, "{locale:?}: {template:?}");
-            let filled = template.fill("Song");
+            assert_eq!(template.slots(0), 1, "{locale:?}: {template:?}");
+            let filled = template.fill(&["Song"]);
             assert!(filled.contains("Song"), "{locale:?}");
             assert!(
                 !filled.contains(['\u{2068}', '\u{2069}', '\u{E000}']),

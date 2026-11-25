@@ -557,3 +557,56 @@ fn states_change_and_say_so() {
     assert_eq!(registry.set_state(undo, ActionState::DISABLED), Ok(false));
     assert_eq!(registry.state(undo), Some(ActionState::DISABLED));
 }
+
+/// The shortcut editor's conflicts (F2.12c1): who has a shortcut, *Reassign* taking it from that
+/// action and appending it to the other, and *Restore* refused while a default is someone else's,
+/// then done by taking it back.
+#[test]
+fn reassigning_and_restoring_take_the_shortcut_from_its_owner() {
+    let mut registry = Registry::new(Platform::Linux);
+    let new = add(&mut registry, spec("file.new", &[ch(PRIMARY, 'n')]));
+    let open = add(&mut registry, spec("file.open", &[ch(PRIMARY, 'o')]));
+    assert_eq!(registry.owner_of(open, ch(PRIMARY, 'n')), Some(new));
+    assert_eq!(registry.owner_of(new, ch(PRIMARY, 'n')), None, "its own");
+    assert_eq!(registry.owner_of(open, ch(PRIMARY, 'k')), None);
+
+    // Reassign: Open keeps its own first shortcut and gains Ctrl+N; New loses it.
+    assert_eq!(registry.reassign(open, ch(PRIMARY, 'n')), Ok(Some(new)));
+    assert_eq!(
+        registry.shortcuts(open),
+        &[ch(PRIMARY, 'o'), ch(PRIMARY, 'n')]
+    );
+    assert_eq!(registry.shortcuts(new), &[] as &[Shortcut]);
+    assert_eq!(
+        registry.lookup(Context::GLOBAL, ch(PRIMARY, 'n')),
+        Some(open)
+    );
+    // Again: nothing changes. A fixed key is refused.
+    assert_eq!(registry.reassign(open, ch(PRIMARY, 'n')), Ok(None));
+    assert_eq!(
+        registry.reassign(open, named(NONE, NamedKey::Tab)),
+        Err(RegistryError::FixedKey(named(NONE, NamedKey::Tab)))
+    );
+
+    // Restoring New conflicts with Open, which has Ctrl+N now.
+    assert_eq!(
+        registry.restore_conflicts(new),
+        vec![(ch(PRIMARY, 'n'), open)]
+    );
+    assert_eq!(
+        registry.restore(new),
+        Err(RegistryError::Conflict {
+            shortcut: ch(PRIMARY, 'n'),
+            owner: open
+        })
+    );
+    assert_eq!(registry.restore_reassigning(new), Ok(vec![open]));
+    assert_eq!(registry.shortcuts(new), &[ch(PRIMARY, 'n')]);
+    assert_eq!(registry.shortcuts(open), &[ch(PRIMARY, 'o')]);
+    assert_eq!(
+        registry.overrides().count(),
+        0,
+        "both are their defaults again"
+    );
+    assert_eq!(registry.restore_conflicts(new).len(), 0);
+}

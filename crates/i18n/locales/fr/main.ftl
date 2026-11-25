@@ -262,3 +262,30 @@ project-save-error-full = Il n'y a pas assez d'espace sur le disque.
 project-save-error-write = Le fichier n'a pas pu être écrit.
 project-save-error-internal = Le projet n'a pas pu être préparé pour l'enregistrement. Il s'agit d'une erreur d'{ app-name } : veuillez la signaler.
 project-save-error-kept = Le fichier qui s'y trouvait déjà, le cas échéant, est resté tel quel.
+
+## The shortcut editor in the Preferences' Keyboard section (F2.12c1, ADR-0048 AM7; glossary:
+## shortcut, command, reassign, add, remove, search, restore_defaults, key_escape). $command and
+## $owner are commands' names as the menus write them ("Save as…" keeps its ellipsis); $shortcut is a
+## shortcut written as the menus write it ("Ctrl+Shift+S", "⇧⌘S"); $search is what the user typed in
+## the search field. prefs-shortcut-capture is shown inside the box that waits for the keys;
+## prefs-shortcut-fixed under it when a key that cannot be assigned is pressed. The two questions
+## come when the shortcut, or a default being restored, belongs to another command; their button
+## is dialog-reassign, with dialog-cancel.
+
+prefs-shortcuts = Raccourcis
+prefs-shortcuts-search = Rechercher des commandes
+prefs-shortcuts-commands = Commandes
+prefs-shortcuts-no-match = Aucune commande ne correspond à « { $search } ».
+prefs-shortcuts-of = Raccourcis de « { $command } »
+prefs-shortcuts-none = Aucun raccourci
+prefs-shortcut-add = Ajouter…
+prefs-shortcut-remove = Enlever
+prefs-shortcuts-restore-all = Réinitialiser tous les raccourcis
+prefs-shortcut-capture = Appuyez sur le raccourci, ou sur Échap pour annuler
+prefs-shortcut-capture-name = Nouveau raccourci pour « { $command } »
+prefs-shortcut-fixed = { $shortcut } ne peut pas être affecté : il sert à se déplacer dans le programme, aux menus ou au système.
+prefs-shortcut-conflict-title = { $shortcut } est déjà affecté à « { $owner } »
+prefs-shortcut-conflict-message = L'affecter plutôt à « { $command } » ? « { $owner } » ne l'aura plus.
+prefs-shortcut-restore-conflict-title = Certains raccourcis par défaut de « { $command } » sont affectés à d'autres commandes
+prefs-shortcut-restore-conflict-message = Les rendre à « { $command } » ? Les autres commandes ne les auront plus.
+dialog-reassign = Réaffecter

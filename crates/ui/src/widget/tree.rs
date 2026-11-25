@@ -32,7 +32,9 @@ use orchestra_text::{Elision, Faces, Shaper, TextError, TextLayout};
 use crate::theme::density::Spacing;
 use crate::theme::text::{FamilyToken, SizeToken, Typography, Weight};
 use crate::theme::token::Shape;
-use crate::window::input::{ButtonState, ImeEvent, Key, Modifiers, PointerButton, WheelDelta};
+use crate::window::input::{
+    ButtonState, ImeEvent, Key, Modifiers, PhysicalKey, PointerButton, WheelDelta,
+};
 use crate::window::pointer::PointerShape;
 
 use super::access::{AccessInfo, AccessRole};
@@ -196,6 +198,10 @@ pub enum WidgetEvent<'a> {
     Key {
         /// The key.
         key: &'a Key,
+        /// Where it is on the keyboard (F2.12c1): only the keypad's digits are told apart, so the
+        /// shortcut editor's capture records a keypad digit as such (ADR-0048 AM5), as the
+        /// lookup of the actions does.
+        physical: PhysicalKey,
         /// Pressed or released.
         state: ButtonState,
         /// An automatic repeat.
@@ -544,6 +550,8 @@ pub struct EventCx<'a, M> {
     pub(crate) caret_blink: bool,
     /// The modifier of fine adjustment ([`Ui::set_fine_modifier`](crate::Ui::set_fine_modifier)).
     pub(crate) fine_modifier: crate::FineModifier,
+    /// A part of this widget to bring into view ([`EventCx::request_reveal`]), if asked.
+    pub(crate) reveal: Option<Rect>,
 }
 
 /// What a widget asked about its list of values (F2.12a4a): a drop-down opens it below itself
@@ -662,6 +670,14 @@ impl<M> EventCx<'_, M> {
     /// Asks for the keyboard focus.
     pub const fn request_focus(&mut self) {
         self.focus = true;
+    }
+
+    /// Asks the scroll areas around this widget to bring `rect` (logical pixels of the window,
+    /// usually a part of [`EventCx::rect`]) into view, as Tab does for a whole widget (WF5;
+    /// F2.12c1): a list whose selection moved from the keyboard reveals the selected row. The
+    /// last request of an event wins.
+    pub const fn request_reveal(&mut self, rect: Rect) {
+        self.reveal = Some(rect);
     }
 
     /// Asks the tree to record this widget's **overlay** again, and only it

@@ -596,3 +596,33 @@ the fixed keys there (4). While writing, the rest:
   with `close_choices`), carried out at the next frame. Choices never reach the system's menus.
 - **One shortcut behind a dialog.** The action a large dialog names as `closed_by` closes that dialog
   while it is on top (ADR-0050 DG8); every other non-editing action stays off behind a dialog.
+
+## Precisions of the implementation (F2.12c1, approved by the owner on 2026-11-25)
+
+The shortcut editor of AM7, in the Preferences' Keyboard section (ADR-0050's precisions of
+F2.12c1 for its layout). The owner followed every recommendation (choices 1–8).
+
+- **Capturing a shortcut** (choice 2): a widget of the interface, `ShortcutCapture`, takes the
+  next key with the modifiers held. A modifier alone is waited past; Escape cancels (with any
+  modifier); Tab is not handled, so the focus moves on, and the focus leaving cancels; a **fixed
+  key** (AM8) is refused with a message (the application says why) and the capture goes on;
+  anything else is the shortcut, read with the lookup's own rule (`candidates`: the logical key,
+  the keypad apart; `WidgetEvent::Key` carries the physical key for this). Since the focused
+  widget sees a key before the actions (AM4), the dialog's own `closed_by` shortcut is captured
+  too instead of closing the Preferences.
+- **Conflicts** (choice 3): a captured shortcut another action of the context has opens a question,
+  *"Ctrl+N is already assigned to "New""*, with *Reassign* as the **default** button (the user
+  pressed the combination on purpose) and *Cancel*. *Restore defaults* asks the same when some of
+  the action's defaults belong to others now, listing each as a detail. The registry does both
+  all or nothing: `Registry::reassign` (adds the shortcut after the action's own, taking it from
+  its owner) and `Registry::restore_reassigning`; `owner_of` and `restore_conflicts` tell what
+  would be taken.
+- **Saving** (choice 5): every change applies at once and the settings file stores the
+  differences from the defaults (`Registry::overrides`), as AM7 says.
+- **Covered global shortcuts.** AM7's "the editor shows it" has nothing to show while every action
+  is global; it comes with the views' contexts (F2.21), a recorded limit.
+- **New registry methods** for the editor: `ids()` (registration order) and
+  `shortcut_label(shortcut)` (any shortcut in the platform's style, not only the first).
+
+The owner checked the editor by hand on 2026-11-25 (search, adding, a fixed key, a conflict,
+removing, restoring, the shortcuts kept after a restart): it works.

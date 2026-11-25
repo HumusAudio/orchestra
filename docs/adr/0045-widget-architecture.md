@@ -395,3 +395,18 @@ neighbours anywhere else.
 - **`EventCx::reset_ime()`**: a widget asks the window to end the composition in progress (a
   click inside a composing field); the interface counts the requests and `TextInput::reset`
   carries the count, so the window acts on a change.
+
+## Precisions of the implementation (F2.12c1, approved by the owner on 2026-11-25)
+
+- **A list with details** (choice 6): `ListBox` may show a second, muted column at the right of
+  each row (`details`); its items may be replaced (`set_items`, `set_selected`, without a
+  message); it may be empty (nothing selected, the arrows do nothing); its accessible value is
+  "item, detail".
+- **Revealing a part of a widget**: `EventCx::request_reveal(rect)` asks the scroll areas around
+  the widget to bring that rectangle into view, as Tab does for a whole widget (WF5). A list whose
+  selection moves from the keyboard reveals the selected row.
+- **An empty label takes no room**: a `Label` with an empty text measures zero, so a line shown only
+  sometimes leaves no empty line (its parent's spacing stays).
+- **The physical key reaches the widgets**: `WidgetEvent::Key` carries `physical` (ADR-0040 W5's
+  `PhysicalKey`), so a widget can read a key as the actions' lookup does (the shortcut capture,
+  ADR-0048's precisions of F2.12c1).

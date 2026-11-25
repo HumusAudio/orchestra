@@ -5550,6 +5550,80 @@ values written by name, *Restore defaults* keeping unknown names), `playback.rs`
 the messages), and in `crates/app/tests/actions.rs` the slider moved by an arrow, its label and the
 settings, then *Restore defaults*. Screenshot scene `preferences-playback`.
 
+#### The shortcut editor
+
+**What the user sees** (ADR-0048 AM7, SCALETTA F2.12c1). The Preferences' Keyboard section shows,
+under the fine modifier, every command with its shortcuts (written as the platform writes them),
+a search field, and for the selected command its shortcuts with *Add…*, *Remove* and *Restore
+defaults*; *Restore all shortcuts* closes the section. *Add…* shows a box, "Press the shortcut,
+or Esc to cancel": the combination pressed is added. A fixed key (AM8) gets a muted line beside
+the box saying why, and the box keeps waiting. A shortcut that another command has opens a
+question over the Preferences, *"Ctrl+N is already assigned to "New""*, with *Reassign* (the
+default) and *Cancel*; *Restore defaults* asks the same when some defaults belong to others now,
+listing them. Every change applies at once (the menus follow) and is saved.
+
+**The capture box** (`crates/ui/src/widget/capture.rs`, `ShortcutCapture`). A widget of
+`orchestra-ui` that looks like a text field and reads keys:
+
+```rust
+match key {
+    Key::Named(NamedKey::Escape) => self.finish(cx, (self.on_cancel)()),
+    // A modifier alone: the user is still building the combination.
+    Key::Named(NamedKey::Alt) | Key::Unknown => {}
+    _ => {
+        let [logical, fallback] = candidates(key, physical, modifiers);
+        // … a fixed key → on_refused (and keep waiting); anything else → on_capture
+    }
+}
+```
+
+It reads the key exactly as the actions' lookup does (`candidates`), so what is recorded is what
+will match; for that `WidgetEvent::Key` now carries the `physical` key (the keypad's digits are
+kept apart). Since the focused widget sees a key before the actions (AM4), even Ctrl+, (which
+closes the Preferences) is captured. Tab is not handled, so the focus moves on, and the focus
+leaving cancels; one message at most is sent.
+
+**The registry** (`crates/ui/src/action/registry.rs`). New: `ids()` (every action in
+registration order), `shortcut_label(shortcut)` (any shortcut written for people, not only the
+first), `owner_of(id, shortcut)` (who else has it), `reassign(id, shortcut)` (adds it, taking it
+from its owner, all or nothing; answers the loser), `restore_conflicts(id)` and
+`restore_reassigning(id)` (the defaults others hold now, and restoring by taking them back).
+
+**The list with details** (`crates/ui/src/widget/choice.rs`). `ListBox` gains a second, muted
+column at the right of each row (`details`), `set_items` and `set_selected` (the search replaces
+the items), may be empty, and is read as "item, detail" by assistive technologies. When the
+selection moves from the keyboard it asks the scroll areas around it to show the selected row
+through the new `EventCx::request_reveal`. And a `Label` with an empty text now measures zero, so
+a line shown only sometimes leaves no empty line.
+
+**The editor** (`crates/app/src/preferences/keyboard.rs`). `ShortcutEditor` keeps the widgets'
+IDs, the search, the commands shown, the selection and the question pending; `handle(message)`
+changes the registry and the widgets and answers a `KeyboardOutcome`: nothing, `Changed` (the
+demonstration writes `shortcuts_to_settings(registry)` into the settings: only the differences
+from the defaults, AM7) or `Ask(dialog)`. The search (`matches`) looks in the name and in the
+shortcuts' text, ignoring case. The texts with values (`$command`, `$owner`, `$shortcut`,
+`$search`) are `Template`s (`crates/app/src/template.rs`), the generalisation of F2.12a5b's
+`NameTemplate` to several variables: one private-use placeholder per variable (U+E000, U+E001…),
+so Fluent still decides their order in each language.
+
+**Texts.** 17 new messages in the six catalogues; the glossary gains *shortcut*, *command*,
+*reassign*, *add*, *remove* and *search* (MuseScore Studio's and GTK 4's catalogues, and Logic
+Pro's guide).
+
+**Limit recorded.** AM7 asks to show a context's shortcut that covers a global one: every action
+is global today, so there is nothing to show until the views have contexts (F2.21).
+
+**Tests.** `crates/ui/tests/capture.rs` (7): a combination with its modifiers, a modifier alone
+waited past, the keypad, fixed keys refused, Escape and Tab cancelling, Ctrl+, captured inside a
+large dialog, the list's details, new items and an empty list. `crates/ui/src/action/tests.rs`:
+reassigning and restoring by taking back. `crates/app/tests/keyboard.rs` (8): every command
+listed, the search by name and by shortcut, a shortcut added and saved, a fixed key refused,
+Escape, a conflict reassigned, a default taken back, *Remove* and *Restore all*, the new shortcut
+running its command, the texts in six languages. Every expected shortcut text is built with the
+registry's own `shortcut_label`, so the tests hold on the three platforms (macOS writes Enter as
+"↩": a first version that expected "Enter" failed there in CI). The screenshots
+`preferences-keyboard` and `shortcut-conflict` show the section and the question.
+
 #### The file choosers
 
 **What the user sees** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Open…* (Ctrl+O, ⌘O) and *File →

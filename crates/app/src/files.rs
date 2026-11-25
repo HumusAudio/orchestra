@@ -19,14 +19,9 @@
 //! from [`ProjectTexts`]. What they ask and when is [`crate::project`]'s.
 //!
 //! ## Texts with a name in them
-//! The texts above hold a name known only when they are shown (the project's, a file's). The
-//! demonstration's texts are formatted once, when the language is chosen, and the localizer is
-//! not kept; so each of these is formatted once with a **placeholder** in place of the name
-//! ([`NameTemplate`]: a private-use character, U+E000, which no catalogue and no file name
-//! contains in practice) and the name is put in its place when the text is shown. This is not
-//! concatenation (CLAUDE.md §7): Fluent still decides where the name goes in each language, and
-//! no message selects on the name (a test checks that the placeholder appears exactly once in
-//! every language).
+//! The texts above hold a name known only when they are shown (the project's, a file's): they
+//! are [`Template`]s ([`crate::template`]), formatted once with a placeholder and filled when
+//! shown.
 //!
 //! ## The errors (choice 6 of F2.12a5b)
 //! One title per operation ("«Song.orchestra» can't be opened"), and one message per reason
@@ -45,20 +40,12 @@
 use std::io::ErrorKind;
 use std::path::Path;
 
-use orchestra_i18n::{FluentArgs, I18nError, Localizer};
+use orchestra_i18n::{I18nError, Localizer};
 use orchestra_io::{LoadError, PROJECT_EXTENSION, SaveError};
 use orchestra_ui::{ButtonRole, DialogKind, DialogSpec, FileRequest};
 
 use crate::project::{ProjectError, file_name};
-
-/// The isolation marks Fluent puts around every placeable (U+2068 FIRST STRONG ISOLATE, U+2069
-/// POP DIRECTIONAL ISOLATE), dropped from our texts as for the About dialog's (`crate::about`):
-/// they would reach the system's title, the chooser and screen readers.
-const ISOLATION_MARKS: [char; 2] = ['\u{2068}', '\u{2069}'];
-
-/// The placeholder of a [`NameTemplate`]: a character of the Private Use Area, which no
-/// catalogue writes and which file names do not contain in practice.
-const SLOT: char = '\u{E000}';
+use crate::template::{ISOLATION_MARKS, Template};
 
 /// The file choosers' texts in one language, already formatted (CLAUDE.md §7).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,37 +124,8 @@ pub fn unavailable_dialog<M>(texts: &FileTexts, ok: M) -> DialogSpec<M> {
     .button(texts.ok.clone(), ButtonRole::Affirmative, ok)
 }
 
-/// A text with one name in it, formatted once with a placeholder (see the module documentation).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NameTemplate(String);
-
-impl NameTemplate {
-    /// The message `key` of `localizer`, with its variable `variable` left as the placeholder.
-    ///
-    /// # Errors
-    /// The localizer's, if the message is missing.
-    pub fn new(localizer: &Localizer, key: &str, variable: &str) -> Result<Self, I18nError> {
-        let mut args = FluentArgs::new();
-        args.set(variable, SLOT.to_string());
-        Ok(Self(
-            localizer
-                .format(key, Some(&args))?
-                .replace(ISOLATION_MARKS, ""),
-        ))
-    }
-
-    /// The text with `name` in place of the placeholder. O(text length + name length).
-    #[must_use]
-    pub fn fill(&self, name: &str) -> String {
-        self.0.replace(SLOT, name)
-    }
-
-    /// How many placeholders the text holds: exactly one in every language (the tests check it).
-    #[must_use]
-    pub fn slots(&self) -> usize {
-        self.0.matches(SLOT).count()
-    }
-}
+/// A text with one name in it (see the module documentation): a [`Template`] with one variable.
+pub type NameTemplate = Template;
 
 /// The open project's texts in one language (see the module documentation), already formatted.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -243,8 +201,8 @@ impl ProjectTexts {
         let text = |key: &str| -> Result<String, I18nError> {
             Ok(localizer.format(key, None)?.replace(ISOLATION_MARKS, ""))
         };
-        let name = |key: &str| NameTemplate::new(localizer, key, "name");
-        let file = |key: &str| NameTemplate::new(localizer, key, "file");
+        let name = |key: &str| Template::new(localizer, key, &["name"]);
+        let file = |key: &str| Template::new(localizer, key, &["file"]);
         Ok(Self {
             untitled: text("file-untitled")?,
             window_title: name("window-title")?,
@@ -297,9 +255,9 @@ impl ProjectTexts {
 pub fn window_title(texts: &ProjectTexts, name: Option<&str>, modified: bool) -> String {
     let name = name.unwrap_or(&texts.untitled);
     if modified {
-        texts.window_title_modified.fill(name)
+        texts.window_title_modified.fill(&[name])
     } else {
-        texts.window_title.fill(name)
+        texts.window_title.fill(&[name])
     }
 }
 
@@ -318,7 +276,7 @@ pub fn save_changes_dialog<M>(
     let name = name.unwrap_or(&texts.untitled);
     DialogSpec::new(
         DialogKind::Question,
-        texts.save_changes_title.fill(name),
+        texts.save_changes_title.fill(&[name]),
         texts.save_changes_message.clone(),
     )
     .button(texts.save.clone(), ButtonRole::Affirmative, save)
@@ -339,7 +297,7 @@ pub fn replace_dialog<M>(
 ) -> DialogSpec<M> {
     DialogSpec::new(
         DialogKind::Question,
-        texts.replace_title.fill(&file_name(path)),
+        texts.replace_title.fill(&[&file_name(path)]),
         texts.replace_message.clone(),
     )
     .detail(path.display().to_string())
@@ -358,13 +316,13 @@ pub fn project_error_dialog<M>(texts: &ProjectTexts, error: &ProjectError, ok: M
         ),
         ProjectError::Open { path, error } => DialogSpec::new(
             DialogKind::Error,
-            texts.open_error_title.fill(&file_name(path)),
+            texts.open_error_title.fill(&[&file_name(path)]),
             open_message(texts, error),
         )
         .detail(path.display().to_string()),
         ProjectError::Save { path, error } => DialogSpec::new(
             DialogKind::Error,
-            texts.save_error_title.fill(&file_name(path)),
+            texts.save_error_title.fill(&[&file_name(path)]),
             save_message(texts, error),
         )
         .detail(path.display().to_string())

@@ -18,6 +18,7 @@
 
 pub(crate) mod access;
 pub(crate) mod button;
+pub(crate) mod capture;
 pub(crate) mod choice;
 pub(crate) mod dialog;
 pub(crate) mod edit;

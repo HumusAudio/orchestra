@@ -15,8 +15,9 @@
 //!   own language (choice 1), with the note that the choice applies at the next start (until
 //!   F2.13 changes the language without a restart);
 //! - **Keyboard** (F2.12a4b1): the modifier of **fine adjustment** (ADR-0046 V3), a group of
-//!   three options named as the platform writes the keys (Ctrl, Shift, Alt; ⌘, ⇧, ⌥ on macOS).
-//!   Nothing else yet: the shortcut editor joins this section with F2.12c (choice 2).
+//!   three options named as the platform writes the keys (Ctrl, Shift, Alt; ⌘, ⇧, ⌥ on macOS),
+//!   then the **shortcut editor** (F2.12c1, `keyboard`): the commands with their shortcuts,
+//!   a search, adding, removing and restoring shortcuts, and the questions about conflicts.
 //!
 //! # Changes apply at once (DG8)
 //! Every change goes to the settings ([`apply`]), which the store writes half a second later
@@ -46,8 +47,13 @@ use crate::settings::convert::{
     tuning_from_settings, tuning_to_settings,
 };
 
+mod keyboard;
 mod playback;
 
+pub use keyboard::{
+    KeyboardMessage, KeyboardOutcome, KeyboardTexts, ShortcutEditor, matches as shortcut_matches,
+    shortcuts_text, shown_commands,
+};
 use orchestra_playback::{Tuning, TuningValue};
 pub use playback::PlaybackTexts;
 
@@ -141,6 +147,8 @@ pub struct PreferencesTexts {
     pub fine_modifiers: Vec<String>,
     /// The Playback section's texts (F2.12a4b2).
     pub playback: PlaybackTexts,
+    /// The shortcut editor's texts (F2.12c1).
+    pub keyboard: KeyboardTexts,
 }
 
 impl PreferencesTexts {
@@ -196,6 +204,7 @@ impl PreferencesTexts {
                 .map(|fine| modifier_label(*fine, platform, keys))
                 .collect(),
             playback: PlaybackTexts::new(localizer)?,
+            keyboard: KeyboardTexts::new(localizer)?,
         })
     }
 }
@@ -284,10 +293,20 @@ pub fn open_preferences(
     Ok(view)
 }
 
+/// What a section shown keeps for its changes: the labels of the playback values, in
+/// [`TuningValue::ALL`]'s order (Playback; their text follows each change,
+/// [`playback_value_text`]), and the shortcut editor (Keyboard, F2.12c1). Empty for the others.
+#[derive(Debug, Default)]
+pub struct SectionWidgets {
+    /// The playback values' labels.
+    pub playback_labels: Vec<WidgetId>,
+    /// The shortcut editor.
+    pub keyboard: Option<ShortcutEditor>,
+}
+
 /// Replaces the controls in the Preferences' pane with those of `section`, showing `settings`'
-/// values. The list of sections keeps the focus (the user is moving in it). Answers the labels of
-/// the playback values, in [`TuningValue::ALL`]'s order, for the Playback section (their text
-/// follows each change, [`playback_value_text`]); nothing for the others.
+/// values. The list of sections keeps the focus (the user is moving in it). Answers what the
+/// section keeps for its changes ([`SectionWidgets`]).
 ///
 /// # Errors
 /// The interface's, if its own tree is inconsistent (never expected).
@@ -298,20 +317,29 @@ pub fn show_section(
     texts: &PreferencesTexts,
     settings: &Settings,
     list: &mut DisplayList,
-) -> Result<Vec<WidgetId>, UiError> {
+) -> Result<SectionWidgets, UiError> {
     for child in ui.children(view.pane) {
         ui.remove(child, list)?;
     }
     if section == Section::Playback {
         let tuning = tuning_from_settings(&settings.playback, &mut Vec::new());
-        return playback::build(ui, view.pane, &texts.playback, &tuning, list);
+        return Ok(SectionWidgets {
+            playback_labels: playback::build(ui, view.pane, &texts.playback, &tuning, list)?,
+            keyboard: None,
+        });
     }
-    // A label and its control on each line, the labels in one column.
+    // A label and its control on each line, the labels in one column; as many lines as the
+    // section has (an empty line would still take the grid's spacing).
+    let lines = match section {
+        Section::Appearance => 3,
+        Section::Language => 2,
+        Section::Playback | Section::Keyboard => 1,
+    };
     let grid = ui.add(
         view.pane,
         Grid::new(
             vec![Track::Content, Track::Fill(1.0)],
-            vec![Track::Content, Track::Content, Track::Content],
+            vec![Track::Content; lines],
             Space::M,
             Space::None,
         ),
@@ -379,24 +407,51 @@ pub fn show_section(
         // Built above, in its own scroll area.
         Section::Playback => {}
         Section::Keyboard => {
-            let fine = fine_modifier_from_settings(settings.fine_modifier);
-            let selected = FINE_MODIFIERS
-                .iter()
-                .position(|known| *known == fine)
-                .unwrap_or(0);
-            ui.add(grid, Label::new(texts.fine_modifier.clone()), label(0))?;
-            ui.add(
-                grid,
-                RadioGroup::new(texts.fine_modifiers.clone(), selected, |index| {
-                    DemoMessage::Preferences(PreferencesMessage::FineModifier(index))
-                })
-                .label(texts.fine_modifier.clone()),
-                control(0),
-            )?;
+            return keyboard_section(ui, view, grid, texts, settings, list);
         }
     }
     ui.frame(list);
-    Ok(Vec::new())
+    Ok(SectionWidgets::default())
+}
+
+/// The Keyboard section's controls in `grid` and under it (F2.12a4b1, F2.12c1): the modifier of
+/// fine adjustment, then the shortcut editor, which `view`'s pane gives the room left.
+///
+/// # Errors
+/// The interface's, if its own tree is inconsistent (never expected).
+fn keyboard_section(
+    ui: &mut Ui<DemoMessage>,
+    view: PreferencesView,
+    grid: WidgetId,
+    texts: &PreferencesTexts,
+    settings: &Settings,
+    list: &mut DisplayList,
+) -> Result<SectionWidgets, UiError> {
+    let label = LayoutProps::default()
+        .cell(0, 0)
+        .align(orchestra_ui::Align::Start, orchestra_ui::Align::Center);
+    let control = LayoutProps::default().cell(0, 1);
+    let fine = fine_modifier_from_settings(settings.fine_modifier);
+    let selected = FINE_MODIFIERS
+        .iter()
+        .position(|known| *known == fine)
+        .unwrap_or(0);
+    ui.add(grid, Label::new(texts.fine_modifier.clone()), label)?;
+    ui.add(
+        grid,
+        RadioGroup::new(texts.fine_modifiers.clone(), selected, |index| {
+            DemoMessage::Preferences(PreferencesMessage::FineModifier(index))
+        })
+        .label(texts.fine_modifier.clone()),
+        control,
+    )?;
+    // The shortcut editor under the grid (F2.12c1), taking the room left.
+    let editor = ShortcutEditor::build(ui, view.pane, &texts.keyboard, list)?;
+    ui.frame(list);
+    Ok(SectionWidgets {
+        playback_labels: Vec::new(),
+        keyboard: Some(editor),
+    })
 }
 
 /// The text of a playback value's label: `n` for the value number `index` of

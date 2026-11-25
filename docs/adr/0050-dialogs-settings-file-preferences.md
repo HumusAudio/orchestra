@@ -550,3 +550,19 @@ demonstration (the dialogs, the choosers, the title). The owner followed every r
 
 The owner checked New, Open, Save, Save as, the title and the errors by hand on 2026-11-25: it
 works.
+
+## Precisions of the implementation (F2.12c1, approved by the owner on 2026-11-25)
+
+- **The Keyboard section** (DG9, choice 1): under the modifier of fine adjustment, the heading
+  *Shortcuts*, a search field (choice 4: by name and by shortcut text, ignoring case, not
+  accents), the list of every command (the disabled ones too) in the menus' order with its
+  shortcuts at the right, taking the room left and scrolling; for the selected command, *Shortcuts
+  of "Name"*, the list of its shortcuts ("No shortcut" when none) with *Add…*, *Remove* and
+  *Restore defaults*; the capture box's row, with the reason a key cannot be assigned beside it;
+  *Restore all shortcuts*. The rules of the editor are ADR-0048's precisions of F2.12c1.
+- **Each section's grid has as many lines as the section uses**, so no empty line leaves a gap.
+- **The questions about conflicts open over the Preferences** (dialogs stack, DG1); their answer
+  comes back to the editor.
+- **The texts** (choice 7): 17 new messages in the six catalogues; the glossary gains *shortcut*,
+  *command*, *reassign*, *add*, *remove* and *search*. Texts holding several values (a command, its
+  owner, a shortcut) use `Template`, F2.12a5b's placeholders generalised to several variables.

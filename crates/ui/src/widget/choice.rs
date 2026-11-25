@@ -32,6 +32,13 @@
 //! selection at once, a click selects. The Preferences' sections are such a list: choosing a
 //! section shows its content.
 //!
+//! Since F2.12c1 (the shortcut editor) a list may have a second, **detail** column
+//! ([`ListBox::details`]): a muted text at the right end of each row (an action's shortcuts),
+//! and its items may be **replaced** ([`ListBox::set_items`], a search filtering the actions). Its
+//! accessible value is then "item, detail". A list may be empty: then nothing is selected, and
+//! the arrows do nothing. When the selection moves from the keyboard the list asks the scroll
+//! areas around it to show the selected row ([`EventCx::request_reveal`]).
+//!
 //! # Cost
 //! The texts are laid out once per text generation (a change of language or of text tokens) and
 //! kept; recording draws a few rectangles and texts. Events allocate nothing, except opening a
@@ -585,6 +592,9 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for RadioGroup<M> {
 pub struct ListBox<M> {
     /// The items.
     values: Values,
+    /// The detail of each item, at the right end of its row (F2.12c1); empty texts for none,
+    /// and no column at all when every text is empty.
+    details: Values,
     /// The selected item's index.
     selected: usize,
     /// The message sent with a new index selected by the user.
@@ -599,8 +609,10 @@ impl<M> ListBox<M> {
     #[must_use]
     pub fn new(items: Vec<String>, selected: usize, message: fn(usize) -> M) -> Self {
         let selected = selected.min(items.len().saturating_sub(1));
+        let details = Values::new(vec![String::new(); items.len()]);
         Self {
             values: Values::new(items),
+            details,
             selected,
             message,
             label: None,
@@ -614,10 +626,57 @@ impl<M> ListBox<M> {
         self
     }
 
-    /// The selected item's index.
+    /// The same list with `details` at the right end of the rows, one per item in order (F2.12c1;
+    /// missing ones are empty, extra ones ignored).
+    #[must_use]
+    pub fn details(mut self, details: Vec<String>) -> Self {
+        self.details = Values::new(fitted(details, self.values.len()));
+        self
+    }
+
+    /// The selected item's index (0 for an empty list).
     #[must_use]
     pub const fn selected(&self) -> usize {
         self.selected
+    }
+
+    /// The number of items.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// Whether the list has no item.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.values.len() == 0
+    }
+
+    /// Replaces the items and their details (F2.12c1: a search filtering the list), selecting
+    /// `selected` (clamped). No message is sent: the application chose. The caller asks for a new
+    /// layout ([`Ui::request_layout`](crate::Ui::request_layout)): the list's height and width
+    /// change with its items.
+    pub fn set_items(&mut self, items: Vec<String>, details: Vec<String>, selected: usize) {
+        let count = items.len();
+        self.selected = selected.min(count.saturating_sub(1));
+        self.values = Values::new(items);
+        self.details = Values::new(fitted(details, count));
+    }
+
+    /// Selects `index` (clamped) without sending the message: the application chose. The caller
+    /// asks for a new recording ([`Ui::request_record`](crate::Ui::request_record)).
+    pub fn set_selected(&mut self, index: usize) {
+        self.selected = index.min(self.values.len().saturating_sub(1));
+    }
+
+    /// The width of the details' column with its gap before it (0 without details).
+    fn detail_room(&self, spacing: crate::Spacing) -> f32 {
+        let widest = self.details.widest();
+        if widest > 0.0 {
+            widest + 2.0 * spacing.control_padding
+        } else {
+            0.0
+        }
     }
 
     /// The height of one row: a control's height.
@@ -633,20 +692,38 @@ impl<M> ListBox<M> {
             cx.request_record();
         }
     }
+
+    /// The rectangle of row `index` inside `rect` (the list's).
+    fn row_rect(rect: Rect, row: f32, index: usize) -> Rect {
+        #[allow(
+            clippy::cast_precision_loss,
+            reason = "a few hundred rows at most, exact in f32"
+        )]
+        let y0 = rect.y0 + row * index as f32;
+        Rect::new(rect.x0, y0, rect.x1, y0 + row)
+    }
+}
+
+/// `texts` made exactly `count` long: cut, or completed with empty texts. O(count).
+fn fitted(mut texts: Vec<String>, count: usize) -> Vec<String> {
+    texts.resize(count, String::new());
+    texts
 }
 
 impl<M: std::fmt::Debug + 'static> Widget<M> for ListBox<M> {
-    /// As wide as the widest item and its padding; one control's height per item.
+    /// As wide as the widest item, the widest detail and their padding; one control's height per
+    /// item.
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
         self.values.lay_out(cx);
+        self.details.lay_out(cx);
         let spacing = cx.spacing();
         #[allow(
             clippy::cast_precision_loss,
-            reason = "a handful of items, exact in f32"
+            reason = "a few hundred items at most, exact in f32"
         )]
         let rows = self.values.len() as f32;
         constraints.constrain(Size::new(
-            self.values.widest() + 2.0 * spacing.control_padding,
+            self.values.widest() + 2.0 * spacing.control_padding + self.detail_room(spacing),
             Self::row(spacing) * rows,
         ))
     }
@@ -656,12 +733,7 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for ListBox<M> {
         let radius = f32::from(cx.shape.corner_radius);
         let row = Self::row(cx.spacing);
         for (index, layout) in self.values.layouts.iter().enumerate() {
-            #[allow(
-                clippy::cast_precision_loss,
-                reason = "a handful of items, exact in f32"
-            )]
-            let y0 = rect.y0 + row * index as f32;
-            let line = Rect::new(rect.x0, y0, rect.x1, y0 + row);
+            let line = Self::row_rect(rect, row, index);
             let selected = index == self.selected;
             if selected {
                 recorder.fill_rounded_rect(RoundedRect::new(line, radius), ColorToken::Accent);
@@ -677,6 +749,19 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for ListBox<M> {
                 Point::new(line.x0 + cx.spacing.control_padding, y),
                 text,
             );
+            // The detail at the right end, muted (on the accent: the accent's text colour).
+            if let Some(detail) = self.details.layouts.get(index)
+                && detail.width() > 0.0
+            {
+                let paint = if selected {
+                    ColorToken::OnAccent
+                } else {
+                    ColorToken::TextMuted
+                };
+                let x = line.x1 - cx.spacing.control_padding - detail.width();
+                let y = line.y0 + (row - detail.height()) / 2.0;
+                recorder.text(detail, Point::new(x, y), paint);
+            }
         }
         if cx.focused {
             super::look::focus_ring(recorder, rect, radius, cx.shape);
@@ -721,6 +806,14 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for ListBox<M> {
             } => match stepped(key, self.selected, self.values.len()) {
                 Some(index) => {
                     self.select(cx, index);
+                    // The selected row in view, when the list scrolls (F2.12c1). The row's
+                    // height from the last layout, as the click finds its row.
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "a few hundred items at most, exact in f32"
+                    )]
+                    let row = cx.rect().height() / self.values.len().max(1) as f32;
+                    cx.request_reveal(Self::row_rect(cx.rect(), row, index));
                     Handled::Yes
                 }
                 None => Handled::No,
@@ -739,7 +832,16 @@ impl<M: std::fmt::Debug + 'static> Widget<M> for ListBox<M> {
 
     fn access_info(&self, info: &mut AccessInfo) {
         info.label.clone_from(&self.label);
-        info.value_text = Some(self.values.text(self.selected).to_owned());
+        if self.values.len() == 0 {
+            return;
+        }
+        let item = self.values.text(self.selected);
+        let detail = self.details.text(self.selected);
+        info.value_text = Some(if detail.is_empty() {
+            item.to_owned()
+        } else {
+            format!("{item}, {detail}")
+        });
     }
 }
 

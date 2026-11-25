@@ -262,3 +262,30 @@ project-save-error-full = There isn't enough space on the disk.
 project-save-error-write = The file could not be written.
 project-save-error-internal = The project could not be prepared for saving. This is a mistake in { app-name }: please report it.
 project-save-error-kept = The file that was already there, if any, has been left as it was.
+
+## The shortcut editor in the Preferences' Keyboard section (F2.12c1, ADR-0048 AM7; glossary:
+## shortcut, command, reassign, add, remove, search, restore_defaults, key_escape). $command and
+## $owner are commands' names as the menus write them ("Save as…" keeps its ellipsis); $shortcut is a
+## shortcut written as the menus write it ("Ctrl+Shift+S", "⇧⌘S"); $search is what the user typed in
+## the search field. prefs-shortcut-capture is shown inside the box that waits for the keys;
+## prefs-shortcut-fixed under it when a key that cannot be assigned is pressed. The two questions
+## come when the shortcut, or a default being restored, belongs to another command; their button
+## is dialog-reassign, with dialog-cancel.
+
+prefs-shortcuts = Shortcuts
+prefs-shortcuts-search = Search commands
+prefs-shortcuts-commands = Commands
+prefs-shortcuts-no-match = No command matches “{ $search }”.
+prefs-shortcuts-of = Shortcuts of “{ $command }”
+prefs-shortcuts-none = No shortcut
+prefs-shortcut-add = Add…
+prefs-shortcut-remove = Remove
+prefs-shortcuts-restore-all = Restore all shortcuts
+prefs-shortcut-capture = Press the shortcut, or Esc to cancel
+prefs-shortcut-capture-name = New shortcut for “{ $command }”
+prefs-shortcut-fixed = { $shortcut } can't be assigned: moving around the program, the menus or the system use it.
+prefs-shortcut-conflict-title = { $shortcut } is already assigned to “{ $owner }”
+prefs-shortcut-conflict-message = Assign it to “{ $command }” instead? “{ $owner }” will no longer have it.
+prefs-shortcut-restore-conflict-title = Some default shortcuts of “{ $command }” are assigned to other commands
+prefs-shortcut-restore-conflict-message = Give them back to “{ $command }”? The other commands will no longer have them.
+dialog-reassign = Reassign

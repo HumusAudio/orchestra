@@ -77,9 +77,41 @@ default (⌘ on macOS); you can choose Shift or Alt (⌥ on macOS) if that suits
   window: to scroll, use the wheel outside the slider.
 ]
 
+=== Shortcuts
+
+Under it is the list of every command with its keyboard shortcuts, in the order of the menus. You
+can change them as you like: the menus show the new shortcuts at once, and Orchestra remembers
+them the next time it starts.
+
 #screenshot-placeholder(
   [Screenshot: the Keyboard section (preferences-keyboard.png)],
-  [The Keyboard section: the key of fine adjustment.],
+  [The Keyboard section: the key of fine adjustment and the commands with their shortcuts.],
 )
 
-The list of keyboard shortcuts, to change as you like, will come here too.
+- *Search commands* narrows the list as you type. It finds a command by its name, or by its
+  shortcut: type "ctrl+s" to see what Ctrl+S does.
+- Select a command to see its shortcuts under the list. A command can have more than one, or
+  none.
+- *Add…* waits for the new shortcut: hold the modifier keys you want (Ctrl, Shift, Alt…) and press
+  the key. Esc cancels, and so does Tab, which moves on as always.
+- *Remove* takes away the selected shortcut of the command.
+- *Restore defaults* gives the command back the shortcuts it had at the start; *Restore all
+  shortcuts* does it for every command.
+
+Some keys cannot become shortcuts, because Orchestra and your system need them. On their own or
+with Shift: Tab and the arrows to move between controls, Enter, Space and Esc, F10; and always: Alt
+and the Menu key, which open the menus, Alt with a
+letter for the menus' underlined letters (on Linux and Windows), and on macOS the system's own,
+such as ⌘H. If you press one of them, Orchestra tells you why next to the box, and keeps waiting
+for another key.
+
+If the shortcut you press already belongs to another command, Orchestra asks before moving it:
+
+#screenshot-placeholder(
+  [Screenshot: the question about a shortcut already in use (shortcut-conflict.png)],
+  [Ctrl+N belongs to New: Reassign gives it to Open instead.],
+)
+
+*Reassign* (or Enter) gives it to the new command, and the other one no longer has it; *Cancel*
+(or Esc) leaves everything as it was. *Restore defaults* asks the same way when other commands
+have taken some of the command's original shortcuts in the meantime, and lists them.

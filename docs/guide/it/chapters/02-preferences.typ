@@ -78,9 +78,42 @@ piano. Normalmente è Ctrl (⌘ su macOS); puoi scegliere Maiusc o Alt (⌥ su m
   finestra: per scorrere, usa la rotella fuori dal cursore.
 ]
 
+=== Scorciatoie
+
+Sotto c'è l'elenco di tutti i comandi con le loro scorciatoie da tastiera, nell'ordine dei menu.
+Puoi cambiarle come preferisci: i menu mostrano subito le scorciatoie nuove, e Orchestra se le
+ricorda al prossimo avvio.
+
 #screenshot-placeholder(
   [Screenshot: la sezione Tastiera (preferences-keyboard.png)],
-  [La sezione Tastiera: il tasto della regolazione fine.],
+  [La sezione Tastiera: il tasto della regolazione fine e i comandi con le loro scorciatoie.],
 )
 
-Qui arriverà anche l'elenco delle scorciatoie da tastiera, da cambiare a piacere.
+- *Cerca comandi* restringe l'elenco mentre scrivi. Trova un comando dal nome, oppure dalla
+  scorciatoia: scrivi "ctrl+s" per vedere che cosa fa Ctrl+S.
+- Seleziona un comando per vedere le sue scorciatoie sotto l'elenco. Un comando può averne più di
+  una, oppure nessuna.
+- *Aggiungi…* aspetta la scorciatoia nuova: tieni premuti i tasti modificatori che vuoi (Ctrl,
+  Maiusc, Alt…) e premi il tasto. Esc annulla, e anche Tab, che come sempre passa oltre.
+- *Rimuovi* toglie al comando la scorciatoia selezionata.
+- *Ripristina predefiniti* restituisce al comando le scorciatoie che aveva all'inizio; *Ripristina
+  tutte le scorciatoie* lo fa per tutti i comandi.
+
+Alcuni tasti non possono diventare scorciatoie, perché servono a Orchestra e al sistema. Da soli o
+con Maiusc: Tab e le frecce per spostarsi tra i controlli, Invio, Spazio ed Esc, F10; e sempre: Alt
+e il tasto Menu, che aprono i menu, Alt con
+una lettera per le lettere sottolineate dei menu (su Linux e Windows), e su macOS quelle del
+sistema, come ⌘H. Se ne premi uno, Orchestra ti dice perché accanto al riquadro, e aspetta un
+altro tasto.
+
+Se la scorciatoia che premi appartiene già a un altro comando, Orchestra chiede prima di
+spostarla:
+
+#screenshot-placeholder(
+  [Screenshot: la domanda su una scorciatoia già usata (shortcut-conflict.png)],
+  [Ctrl+N appartiene a Nuovo: Riassegna la dà invece ad Apri.],
+)
+
+*Riassegna* (o Invio) la dà al comando nuovo, e l'altro non ce l'ha più; *Annulla* (o Esc) lascia
+tutto com'era. *Ripristina predefiniti* chiede allo stesso modo quando altri comandi hanno preso
+nel frattempo alcune delle scorciatoie originali del comando, e le elenca.

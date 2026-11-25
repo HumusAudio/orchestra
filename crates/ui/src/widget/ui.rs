@@ -1199,6 +1199,7 @@ impl<M: 'static> Ui<M> {
         self.modifiers = modifiers;
         let event = WidgetEvent::Key {
             key,
+            physical,
             state,
             repeat,
             modifiers,
@@ -1359,6 +1360,7 @@ impl<M: 'static> Ui<M> {
                     panel,
                     &WidgetEvent::Key {
                         key: &Key::Named(NamedKey::Escape),
+                        physical: PhysicalKey::Other,
                         state: ButtonState::Pressed,
                         repeat: false,
                         modifiers: Modifiers::default(),
@@ -1558,8 +1560,10 @@ impl<M: 'static> Ui<M> {
             choices: None,
             caret_blink: self.caret_blink,
             fine_modifier: self.fine_modifier,
+            reveal: None,
         };
         let handled = widget.event(&mut cx, event);
+        let reveal = cx.reveal;
         if let Some(request) = cx.window {
             // Handed to the window by the application, in order ([`Ui::take_window_request`]).
             self.window_requests.push_back(request);
@@ -1607,6 +1611,10 @@ impl<M: 'static> Ui<M> {
         }
         if focus {
             self.set_focus_slot(Some(index));
+        }
+        // A part of the widget to show (F2.12c1): after the widget is back in its slot.
+        if let Some(target) = reveal {
+            self.reveal_rect(index, target.inflate(DRAW_MARGIN));
         }
         // A drop-down's list (F2.12a4a): opened or closed at the next frame, which ends every
         // input and has the display list the menus need (`Ui::open_requested_choices`).
@@ -1801,7 +1809,20 @@ impl<M: 'static> Ui<M> {
         let Some(slot) = self.tree.slot(index) else {
             return;
         };
-        let mut target = slot.rect.inflate(DRAW_MARGIN);
+        let target = slot.rect.inflate(DRAW_MARGIN);
+        self.reveal_rect(index, target);
+    }
+
+    /// [`Ui::reveal`] of `target` (logical pixels, the room for a focus ring already added)
+    /// instead of the whole widget at `index`: the ancestors of `index` are asked, innermost
+    /// first ([`EventCx::request_reveal`], F2.12c1).
+    ///
+    /// # Complexity
+    /// As [`Ui::reveal`].
+    fn reveal_rect(&mut self, index: usize, mut target: Rect) {
+        let Some(slot) = self.tree.slot(index) else {
+            return;
+        };
         let mut current = slot.parent;
         while let Some(at) = current {
             let Some(slot) = self.tree.slot_mut(at) else {
