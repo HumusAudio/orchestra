@@ -5619,8 +5619,10 @@ large dialog, the list's details, new items and an empty list. `crates/ui/src/ac
 reassigning and restoring by taking back. `crates/app/tests/keyboard.rs` (8): every command
 listed, the search by name and by shortcut, a shortcut added and saved, a fixed key refused,
 Escape, a conflict reassigned, a default taken back, *Remove* and *Restore all*, the new shortcut
-running its command, the texts in six languages. The screenshots `preferences-keyboard` and
-`shortcut-conflict` show the section and the question.
+running its command, the texts in six languages. Every expected shortcut text is built with the
+registry's own `shortcut_label`, so the tests hold on the three platforms (macOS writes Enter as
+"↩": a first version that expected "Enter" failed there in CI). The screenshots
+`preferences-keyboard` and `shortcut-conflict` show the section and the question.
 
 #### The file choosers
 

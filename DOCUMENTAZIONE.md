@@ -5987,8 +5987,10 @@ vuoto. `crates/ui/src/action/tests.rs`: riassegnare e ripristinare riprendendosi
 `crates/app/tests/keyboard.rs` (8): tutti i comandi elencati, la ricerca per nome e per
 scorciatoia, una scorciatoia aggiunta e salvata, un tasto fisso rifiutato, Esc, un conflitto
 riassegnato, una predefinita ripresa, *Rimuovi* e *Ripristina tutte*, la scorciatoia nuova che
-esegue il suo comando, i testi nelle sei lingue. Gli screenshot `preferences-keyboard` e
-`shortcut-conflict` mostrano la sezione e la domanda.
+esegue il suo comando, i testi nelle sei lingue. Ogni testo di scorciatoia atteso è costruito con
+`shortcut_label` del registro stesso, così i test valgono sulle tre piattaforme (macOS scrive Invio
+come "↩": una prima versione che si aspettava "Enter" lì è fallita in CI). Gli screenshot
+`preferences-keyboard` e `shortcut-conflict` mostrano la sezione e la domanda.
 
 #### Le finestre di scelta dei file
 
