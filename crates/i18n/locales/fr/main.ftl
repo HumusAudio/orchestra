@@ -313,3 +313,55 @@ prefs-shortcuts-import-error-not-shortcuts = Ce fichier n'est pas un fichier de 
 prefs-shortcuts-import-error-newer = Ce fichier a été enregistré avec une version plus récente d'{ app-name }. Installez la dernière version pour l'importer.
 prefs-shortcuts-import-error-damaged = Le fichier est endommagé : il ne peut pas être lu comme des raccourcis { app-name }.
 prefs-shortcuts-export-error-title = Impossible d'exporter « { $file } »
+
+## The theme editor in the Preferences' Appearance section (F2.12b1, ADR-0037 T7–T8; glossary:
+## theme_color_names, accent_color, duplicate, delete, color, decimal_separator). The colour names
+## are those of the theme's tokens, as the editor lists them; the user picks a value for each.
+## number-decimal-separator is the character written between the whole part and the decimals of a
+## number in this language ("3.2" or "3,2"): the program writes the contrast ratios with it,
+## because Fluent does not localise decimals. $name is a theme's name; $color, $foreground and
+## $background are colour names (theme-color-*); $ratio and $minimum are ratios already written
+## with one decimal ("3,2"). The editing notes name the Mode control and its values
+## (prefs-mode, prefs-mode-light, prefs-mode-dark): keep them identical.
+
+number-decimal-separator = ,
+prefs-theme-duplicate = Dupliquer
+prefs-theme-delete = Supprimer
+prefs-theme-name = Nom
+prefs-theme-copy-name = { $name } (copie)
+prefs-theme-colors = Couleurs
+prefs-theme-builtin = Les thèmes intégrés ne peuvent pas être modifiés : dupliquez-en un pour créer le vôtre.
+prefs-theme-editing-light = Voici les couleurs de la moitié claire. Pour modifier la moitié sombre, choisissez Sombre dans Mode.
+prefs-theme-editing-dark = Voici les couleurs de la moitié sombre. Pour modifier la moitié claire, choisissez Clair dans Mode.
+prefs-theme-restore = Restaurer
+prefs-theme-value-name = Valeur de « { $color } »
+prefs-theme-contrast = Contraste
+prefs-theme-contrast-ok = Tous les textes et contrôles gardent assez de contraste.
+prefs-theme-contrast-low = { $foreground } sur { $background } : { $ratio }:1, au moins { $minimum }:1
+prefs-theme-delete-title = Supprimer le thème « { $name } » ?
+prefs-theme-delete-message = Ses couleurs seront perdues.
+dialog-delete = Supprimer
+theme-color-surface = Arrière-plan des fenêtres
+theme-color-surface-raised = Arrière-plan des panneaux
+theme-color-surface-sunken = Arrière-plan des champs
+theme-color-surface-overlay = Arrière-plan des menus et dialogues
+theme-color-border = Bordures et séparateurs
+theme-color-control-border = Bordures des contrôles
+theme-color-text = Texte standard
+theme-color-text-muted = Texte secondaire
+theme-color-text-disabled = Texte désactivé
+theme-color-accent = Couleur d'accentuation
+theme-color-accent-hover = Couleur d'accentuation sous le pointeur
+theme-color-accent-pressed = Couleur d'accentuation enfoncée
+theme-color-on-accent = Texte sur la couleur d'accentuation
+theme-color-accent-text = Texte en couleur d'accentuation
+theme-color-control = Arrière-plan des boutons
+theme-color-control-hover = Arrière-plan des boutons sous le pointeur
+theme-color-control-pressed = Arrière-plan des boutons enfoncés
+theme-color-selection = Arrière-plan de sélection
+theme-color-on-selection = Texte sélectionné
+theme-color-focus = Décoration du focus
+theme-color-error = Erreurs
+theme-color-warning = Avertissements
+theme-color-success = Succès
+theme-color-shadow = Ombre

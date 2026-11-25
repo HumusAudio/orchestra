@@ -5689,6 +5689,14 @@ request and the whole keyboard written, the replacement question, the import wit
 the saved differences, the question before replacing one's own shortcuts, a file that cannot be
 imported. The screenshot `preferences-keyboard` shows the two buttons.
 
+#### The theme editor (work in progress, F2.12b1)
+
+Being written on `feature/f2-12b1-theme-editor`: `crates/app/src/preferences/theme.rs` (custom
+themes duplicated, renamed, deleted; each colour edited as `#rrggbb` with a live preview of the
+half on screen; contrast warnings with the language's decimal separator,
+`number-decimal-separator`), `Swatch`, `DropDown::set_values`, `InputEvent::Appearance` and
+`Ui::appearance`. Not finished: tests, screenshots, guides and this section's full text.
+
 #### The file choosers
 
 **What the user sees** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Open…* (Ctrl+O, ⌘O) and *File →

@@ -79,6 +79,10 @@ pub enum InputEvent {
     /// whenever one of its parts changes. Our title bar shows Restore instead of Maximise while
     /// maximised, and hides its title and buttons in full screen.
     WindowState(WindowState),
+    /// The half of the theme the window draws with now (ADR-0037 T1, F2.12b1): sent once after
+    /// the window opens, then whenever it changes (the system switched, the user chose another
+    /// mode). The theme editor edits this half, so the preview always shows what changes.
+    Appearance(crate::Appearance),
 }
 
 /// The state of the window that our title bar shows (see [`InputEvent::WindowState`]).

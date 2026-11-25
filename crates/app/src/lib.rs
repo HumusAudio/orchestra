@@ -59,6 +59,9 @@ pub use preferences::{
     playback_value_text, show_section,
 };
 pub use preferences::{
+    ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts, theme_values,
+};
+pub use preferences::{
     KeyboardMessage, KeyboardOutcome, KeyboardTexts, SectionWidgets, ShortcutEditor,
     shortcut_matches, shortcuts_text, shown_commands,
 };

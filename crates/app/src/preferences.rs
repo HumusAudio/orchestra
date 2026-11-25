@@ -33,11 +33,11 @@
 //! program's only view until the real ones exist, and it is the one that opens this dialog.
 
 use orchestra_i18n::{I18nError, Locale, Localizer};
-use orchestra_io::settings::{Settings, ThemeChoice};
+use orchestra_io::settings::Settings;
 use orchestra_ui::{
-    ActionId, BuiltInTheme, ColorToken, DisplayList, DropDown, FineModifier, Flex, Grid, KeyNames,
-    Label, LargeDialog, LayoutProps, Length, ListBox, Platform, RadioGroup, Space, ThemeMode,
-    ThemePair, Toggle, Track, Ui, UiError, WidgetId, modifier_label,
+    ActionId, Appearance, BuiltInTheme, ColorToken, DisplayList, DropDown, FineModifier, Flex,
+    Grid, KeyNames, Label, LargeDialog, LayoutProps, Length, ListBox, Platform, RadioGroup, Space,
+    ThemeMode, ThemePair, Toggle, Track, Ui, UiError, WidgetId, modifier_label,
 };
 
 use crate::demo::DemoMessage;
@@ -49,6 +49,7 @@ use crate::settings::convert::{
 
 mod keyboard;
 mod playback;
+mod theme;
 
 pub use keyboard::{
     KeyboardMessage, KeyboardOutcome, KeyboardTexts, ShortcutEditor, matches as shortcut_matches,
@@ -56,6 +57,7 @@ pub use keyboard::{
 };
 use orchestra_playback::{Tuning, TuningValue};
 pub use playback::PlaybackTexts;
+pub use theme::{ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts, theme_values};
 
 /// The modes of the group, in its order (ADR-0014 §1).
 pub const MODES: [ThemeMode; 3] = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
@@ -149,6 +151,8 @@ pub struct PreferencesTexts {
     pub playback: PlaybackTexts,
     /// The shortcut editor's texts (F2.12c1).
     pub keyboard: KeyboardTexts,
+    /// The theme editor's texts (F2.12b1).
+    pub theme_editor: ThemeTexts,
 }
 
 impl PreferencesTexts {
@@ -205,32 +209,9 @@ impl PreferencesTexts {
                 .collect(),
             playback: PlaybackTexts::new(localizer)?,
             keyboard: KeyboardTexts::new(localizer)?,
+            theme_editor: ThemeTexts::new(localizer)?,
         })
     }
-}
-
-/// The values of the theme drop-down for `settings` and the index of the one in use: the
-/// built-in pairs' names, then the custom theme's own name when the settings chose one
-/// (choice 4 of F2.12a4a).
-fn theme_values(texts: &PreferencesTexts, settings: &Settings) -> (Vec<String>, usize) {
-    let mut values = texts.pairs.clone();
-    let selected = match &settings.theme.choice {
-        ThemeChoice::BuiltIn(id) => BuiltInTheme::ALL
-            .iter()
-            .position(|pair| pair.id() == id)
-            // An unknown identifier is drawn as Studio, the default (theme_from_settings).
-            .unwrap_or_else(|| {
-                BuiltInTheme::ALL
-                    .iter()
-                    .position(|pair| *pair == BuiltInTheme::default())
-                    .unwrap_or(0)
-            }),
-        ThemeChoice::Custom(name) => {
-            values.push(name.clone());
-            values.len() - 1
-        }
-    };
-    (values, selected)
 }
 
 /// The language drop-down's index for `settings`: 0 for the system's (and for a tag this program
@@ -262,8 +243,9 @@ pub fn open_preferences(
     texts: &PreferencesTexts,
     settings: &Settings,
     closed_by: Option<ActionId>,
+    appearance: Appearance,
     list: &mut DisplayList,
-) -> Result<PreferencesView, UiError> {
+) -> Result<(PreferencesView, SectionWidgets), UiError> {
     let (panel, content) = ui.open_large_dialog(
         LargeDialog {
             title: texts.title.clone(),
@@ -288,9 +270,17 @@ pub fn open_preferences(
     )?;
     let pane = ui.add(row, Flex::column(Space::M, Space::None), fill)?;
     let view = PreferencesView { panel, pane };
-    show_section(ui, view, Section::Appearance, texts, settings, list)?;
+    let widgets = show_section(
+        ui,
+        view,
+        Section::Appearance,
+        texts,
+        settings,
+        appearance,
+        list,
+    )?;
     ui.focus_first(list);
-    Ok(view)
+    Ok((view, widgets))
 }
 
 /// What a section shown keeps for its changes: the labels of the playback values, in
@@ -302,6 +292,8 @@ pub struct SectionWidgets {
     pub playback_labels: Vec<WidgetId>,
     /// The shortcut editor.
     pub keyboard: Option<ShortcutEditor>,
+    /// The theme editor (Appearance, F2.12b1).
+    pub theme: Option<ThemeEditor>,
 }
 
 /// Replaces the controls in the Preferences' pane with those of `section`, showing `settings`'
@@ -316,6 +308,7 @@ pub fn show_section(
     section: Section,
     texts: &PreferencesTexts,
     settings: &Settings,
+    appearance: Appearance,
     list: &mut DisplayList,
 ) -> Result<SectionWidgets, UiError> {
     for child in ui.children(view.pane) {
@@ -326,6 +319,7 @@ pub fn show_section(
         return Ok(SectionWidgets {
             playback_labels: playback::build(ui, view.pane, &texts.playback, &tuning, list)?,
             keyboard: None,
+            theme: None,
         });
     }
     // A label and its control on each line, the labels in one column; as many lines as the
@@ -335,8 +329,23 @@ pub fn show_section(
         Section::Language => 2,
         Section::Playback | Section::Keyboard => 1,
     };
+    // Appearance scrolls (F2.12b1: the theme editor's 24 colours do not fit a small window); the
+    // others are short.
+    let parent = if section == Section::Appearance {
+        let fill = LayoutProps::default()
+            .width(Length::Fill(1.0))
+            .height(Length::Fill(1.0));
+        let scroll = ui.add(view.pane, orchestra_ui::ScrollArea::vertical(), fill)?;
+        ui.add(
+            scroll,
+            Flex::column(Space::M, Space::None),
+            LayoutProps::default().width(Length::Fill(1.0)),
+        )?
+    } else {
+        view.pane
+    };
     let grid = ui.add(
-        view.pane,
+        parent,
         Grid::new(
             vec![Track::Content, Track::Fill(1.0)],
             vec![Track::Content; lines],
@@ -353,9 +362,9 @@ pub fn show_section(
     let control = |row: u16| LayoutProps::default().cell(row, 1);
     match section {
         Section::Appearance => {
-            let (values, selected) = theme_values(texts, settings);
+            let (values, selected) = theme_values(&texts.pairs, settings);
             ui.add(grid, Label::new(texts.theme.clone()), label(0))?;
-            ui.add(
+            let themes = ui.add(
                 grid,
                 DropDown::new(values, selected, |index| {
                     DemoMessage::Preferences(PreferencesMessage::Theme(index))
@@ -384,6 +393,22 @@ pub fn show_section(
                 }),
                 control(2),
             )?;
+            // The theme editor under the grid (F2.12b1).
+            let editor = ThemeEditor::build(
+                ui,
+                parent,
+                themes,
+                &texts.theme_editor,
+                settings,
+                appearance,
+                list,
+            )?;
+            ui.frame(list);
+            return Ok(SectionWidgets {
+                playback_labels: Vec::new(),
+                keyboard: None,
+                theme: Some(editor),
+            });
         }
         Section::Language => {
             ui.add(grid, Label::new(texts.language.clone()), label(0))?;
@@ -451,6 +476,7 @@ fn keyboard_section(
     Ok(SectionWidgets {
         playback_labels: Vec::new(),
         keyboard: Some(editor),
+        theme: None,
     })
 }
 
@@ -499,9 +525,8 @@ pub fn apply(settings: &mut Settings, message: PreferencesMessage) -> Effect {
             .get(index)
             .map_or(Effect::None, |section| Effect::Section(*section)),
         PreferencesMessage::Theme(index) => {
-            if let Some(pair) = BuiltInTheme::ALL.get(index) {
-                settings.theme.choice = ThemeChoice::BuiltIn(pair.id().to_owned());
-            }
+            // A built-in pair, or a custom theme by its place after them (F2.12b1).
+            theme::choose(settings, index);
             theme_effect(settings)
         }
         PreferencesMessage::Mode(index) => {
@@ -681,12 +706,12 @@ mod tests {
     #[test]
     fn the_drop_downs_list_their_values() {
         let texts = texts();
-        let (values, selected) = theme_values(&texts, &Settings::default());
+        let (values, selected) = theme_values(&texts.pairs, &Settings::default());
         assert_eq!(values.len(), 10);
         assert_eq!(values[selected], "Studio");
         let mut settings = Settings::default();
         settings.theme.choice = ThemeChoice::Custom("Mine".to_owned());
-        let (values, selected) = theme_values(&texts, &settings);
+        let (values, selected) = theme_values(&texts.pairs, &settings);
         assert_eq!(values.len(), 11);
         assert_eq!(values[selected], "Mine");
         assert_eq!(texts.languages.len(), 7);

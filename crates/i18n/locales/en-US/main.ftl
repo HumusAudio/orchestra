@@ -319,3 +319,55 @@ prefs-shortcuts-import-error-not-shortcuts = The file isn't an { app-name } shor
 prefs-shortcuts-import-error-newer = The file was saved with a newer version of { app-name }. Install the latest version to import it.
 prefs-shortcuts-import-error-damaged = The file is damaged: it can't be read as { app-name } shortcuts.
 prefs-shortcuts-export-error-title = “{ $file }” can't be exported
+
+## The theme editor in the Preferences' Appearance section (F2.12b1, ADR-0037 T7–T8; glossary:
+## theme_color_names, accent_color, duplicate, delete, color, decimal_separator). The colour names
+## are those of the theme's tokens, as the editor lists them; the user picks a value for each.
+## number-decimal-separator is the character written between the whole part and the decimals of a
+## number in this language ("3.2" or "3,2"): the program writes the contrast ratios with it,
+## because Fluent does not localise decimals. $name is a theme's name; $color, $foreground and
+## $background are colour names (theme-color-*); $ratio and $minimum are ratios already written
+## with one decimal ("3,2"). The editing notes name the Mode control and its values
+## (prefs-mode, prefs-mode-light, prefs-mode-dark): keep them identical.
+
+number-decimal-separator = .
+prefs-theme-duplicate = Duplicate
+prefs-theme-delete = Delete
+prefs-theme-name = Name
+prefs-theme-copy-name = { $name } (copy)
+prefs-theme-colors = Colors
+prefs-theme-builtin = Built-in themes can't be changed: duplicate one to make a theme of your own.
+prefs-theme-editing-light = These are the colors of the light half. To change the dark half, choose Dark in Mode.
+prefs-theme-editing-dark = These are the colors of the dark half. To change the light half, choose Light in Mode.
+prefs-theme-restore = Restore
+prefs-theme-value-name = Value of “{ $color }”
+prefs-theme-contrast = Contrast
+prefs-theme-contrast-ok = Every text and control keeps enough contrast.
+prefs-theme-contrast-low = { $foreground } on { $background }: { $ratio }:1, at least { $minimum }:1
+prefs-theme-delete-title = Delete the theme “{ $name }”?
+prefs-theme-delete-message = Its colors will be lost.
+dialog-delete = Delete
+theme-color-surface = Window background
+theme-color-surface-raised = Panel background
+theme-color-surface-sunken = Field background
+theme-color-surface-overlay = Menu and dialog background
+theme-color-border = Borders and separators
+theme-color-control-border = Control borders
+theme-color-text = Normal text
+theme-color-text-muted = Secondary text
+theme-color-text-disabled = Disabled text
+theme-color-accent = Accent color
+theme-color-accent-hover = Accent color under the pointer
+theme-color-accent-pressed = Accent color when pressed
+theme-color-on-accent = Text on the accent color
+theme-color-accent-text = Text in the accent color
+theme-color-control = Button background
+theme-color-control-hover = Button background under the pointer
+theme-color-control-pressed = Button background when pressed
+theme-color-selection = Selection background
+theme-color-on-selection = Selected text
+theme-color-focus = Focus decoration
+theme-color-error = Errors
+theme-color-warning = Warnings
+theme-color-success = Success
+theme-color-shadow = Shadow

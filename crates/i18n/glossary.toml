@@ -65,6 +65,7 @@ firefox-appearance = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/br
 musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the Appearance page of MuseScore Studio's Preferences ('Appearance', 'Theme', 'Follow system theme')"
 musescore-preferences = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: MuseScore Studio's Preferences ('Language', 'Keyboard', 'Shortcuts', 'Restart required')"
 gtk-file-chooser = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the file chooser's question about an existing file ('A file named “%s” already exists.  Do you want to replace it?', '_Replace', '_Cancel', '_Save')"
+kde-colors = "https://websvn.kde.org/trunk/l10n-kf6/ — <lang>/messages/plasma-workspace/kcm_colors.po: KDE Plasma's colour scheme roles (View/Window/Button/Selection/Tooltip Background, Normal/Inactive/Negative/Neutral/Positive Text, Focus and Hover Decoration, Accent color) in it, fr, de, es, en_GB"
 musescore-articulations = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the articulation symbols' names ('Accent above', 'Soft accent above', 'Stress above', 'Unstress above', 'Marcato above'), 'Articulations', 'Dynamics'"
 
 # ================================================================================================
@@ -974,6 +975,84 @@ de = "Exportieren"
 es = "Exportar"
 sources = ["musescore-ui"]
 note = "Writing the program's data into a file for elsewhere (F2.12c2: a shortcut file, ADR-0051). MuseScore Studio's 'Export…' and 'Export shortcuts': 'Esporta…', 'Exporter…', 'Export…' / 'Tastaturkürzel exportieren', 'Exportar…'. de: the verb, as for 'import'. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "accent_color"
+category = "general"
+en-US = "accent color"
+en-GB = "accent colour"
+it = "colore in evidenza"
+fr = "couleur d'accentuation"
+de = "Akzentfarbe"
+es = "color de énfasis"
+sources = ["musescore-ui", "kde-colors"]
+note = "The interface's accent colour (the theme token 'accent', F2.12b1), not the musical accent (glossary: accent). it: MuseScore Studio's 'Colore in evidenza' (KDE writes 'Colore secondario'): it avoids 'accento', the articulation, in a music program. fr: KDE's 'Couleur d'accentuation' (MuseScore 'Couleur accentuée'), also Windows' word. de: KDE's and Windows' 'Akzentfarbe' (MuseScore 'Betonungsfarbe'). es: MuseScore's 'Color de énfasis' (KDE 'Color de acento'), for the same reason as it. Research 2026-11-25."
+review = true
+
+[[term]]
+id = "theme_color_names"
+category = "general"
+en-US = "Window background, Normal text, Button background, Selection background, Focus decoration…"
+en-GB = "as en-US, with 'colour' and 'dialogue'"
+it = "Sfondo delle finestre, Testo normale, Sfondo dei pulsanti, Sfondo delle selezioni, Decorazione del focus…"
+fr = "Arrière-plan des fenêtres, Texte standard, Arrière-plan des boutons, Arrière-plan de sélection, Décoration du focus…"
+de = "Fenster-Hintergrund, Normaler Text, Knopf-Hintergrund, Auswahl-Hintergrund, Fokus-Dekoration…"
+es = "Fondo de las ventanas, Texto normal, Fondo de los botones, Fondo de las selecciones, Decoración del foco…"
+sources = ["kde-colors"]
+note = "The names of the 24 colour tokens in the theme editor (theme-color-*, F2.12b1). Our tokens have no standard names; they follow the pattern of KDE Plasma's colour scheme editor, whose roles are the closest ('View Background', 'Window Background', 'Button Background', 'Selection Background', 'Normal Text', 'Inactive Text', 'Focus Decoration', 'Negative/Neutral/Positive Text'), in its shipped catalogues (it, fr, de, es, en_GB). Ours that KDE lacks are built the same way ('… under the pointer', '… when pressed', 'Text on the accent colour'). de: KDE's compounds with a hyphen ('Fenster-Hintergrund', 'Knopf-Hintergrund'). Research 2026-11-25."
+review = true
+
+[[term]]
+id = "duplicate"
+category = "general"
+en-US = "Duplicate"
+en-GB = "Duplicate"
+it = "Duplica"
+fr = "Dupliquer"
+de = "Duplizieren"
+es = "Duplicar"
+sources = ["musescore-ui"]
+note = "A button that makes a copy to change (F2.12b1: a theme). MuseScore Studio's 'Duplicate' agrees in the five languages. The copy's name adds MuseScore's and the systems' word: '(copia)', '(copie)', '(Kopie)', '(copia)'. Research 2026-11-25."
+review = false
+
+[[term]]
+id = "delete"
+category = "general"
+en-US = "Delete"
+en-GB = "Delete"
+it = "Elimina"
+fr = "Supprimer"
+de = "Löschen"
+es = "Eliminar"
+sources = ["musescore-ui"]
+note = "A button that destroys something for good (F2.12b1: a custom theme), unlike 'remove' (glossary), which takes an item out of a list. MuseScore Studio's 'Delete' in the five languages. Research 2026-11-25."
+review = false
+
+[[term]]
+id = "color"
+category = "general"
+en-US = "color"
+en-GB = "colour"
+it = "colore"
+fr = "couleur"
+de = "Farbe"
+es = "color"
+sources = ["musescore-ui"]
+note = "A colour of the interface (F2.12b1: the theme editor's 'Colors' and 'Its colors will be lost'). MuseScore Studio's 'Color' / 'Colour' (en_GB). Research 2026-11-25."
+review = false
+
+[[term]]
+id = "decimal_separator"
+category = "general"
+en-US = "."
+en-GB = "."
+it = ","
+fr = ","
+de = ","
+es = ","
+sources = ["wikipedia"]
+note = "The character between a number's whole part and its decimals (number-decimal-separator, F2.12b1): Fluent does not localise decimals, so the program writes them with this catalogue's character. English uses the point; Italian, French, German and Spanish the comma (Wikipedia, 'Decimal separator', and each language's article). Spanish in Mexico and parts of Latin America uses the point; our 'es' is Spain's Spanish. Research 2026-11-25."
 review = false
 
 [[term]]

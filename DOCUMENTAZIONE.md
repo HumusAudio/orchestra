@@ -6061,6 +6061,14 @@ scritta, la domanda di sostituzione, l'importazione con il resoconto e le differ
 domanda prima di sostituire le scorciatoie proprie, un file che non si può importare. Lo
 screenshot `preferences-keyboard` mostra i due pulsanti.
 
+#### L'editor dei temi (lavoro in corso, F2.12b1)
+
+In scrittura su `feature/f2-12b1-theme-editor`: `crates/app/src/preferences/theme.rs` (temi
+personalizzati duplicati, rinominati, eliminati; ogni colore modificato come `#rrggbb` con
+l'anteprima dal vivo della metà mostrata; avvisi di contrasto con il separatore decimale della
+lingua, `number-decimal-separator`), `Swatch`, `DropDown::set_values`, `InputEvent::Appearance` e
+`Ui::appearance`. Da finire: test, screenshot, guide e il testo completo di questa sezione.
+
 #### Le finestre di scelta dei file
 
 **Che cosa vede l'utente** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Apri…* (Ctrl+O, ⌘O) e *File

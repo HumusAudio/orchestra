@@ -132,6 +132,7 @@ pub use widget::popup::{Popup, PopupSide};
 pub use widget::scroll::ScrollArea;
 pub use widget::slider::Slider;
 pub use widget::splitter::Splitter;
+pub use widget::swatch::Swatch;
 pub use widget::titlebar::{TitleBarSpec, WindowButton, WindowButtonNames};
 pub use widget::toggle::{Toggle, ToggleKind};
 pub use widget::tree::{

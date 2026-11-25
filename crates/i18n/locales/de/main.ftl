@@ -312,3 +312,55 @@ prefs-shortcuts-import-error-not-shortcuts = Die Datei ist keine { app-name }-Ta
 prefs-shortcuts-import-error-newer = Die Datei wurde mit einer neueren Version von { app-name } gespeichert. Installieren Sie die neueste Version, um sie zu importieren.
 prefs-shortcuts-import-error-damaged = Die Datei ist beschädigt: Sie kann nicht als { app-name }-Tastaturkürzel gelesen werden.
 prefs-shortcuts-export-error-title = „{ $file }“ kann nicht exportiert werden
+
+## The theme editor in the Preferences' Appearance section (F2.12b1, ADR-0037 T7–T8; glossary:
+## theme_color_names, accent_color, duplicate, delete, color, decimal_separator). The colour names
+## are those of the theme's tokens, as the editor lists them; the user picks a value for each.
+## number-decimal-separator is the character written between the whole part and the decimals of a
+## number in this language ("3.2" or "3,2"): the program writes the contrast ratios with it,
+## because Fluent does not localise decimals. $name is a theme's name; $color, $foreground and
+## $background are colour names (theme-color-*); $ratio and $minimum are ratios already written
+## with one decimal ("3,2"). The editing notes name the Mode control and its values
+## (prefs-mode, prefs-mode-light, prefs-mode-dark): keep them identical.
+
+number-decimal-separator = ,
+prefs-theme-duplicate = Duplizieren
+prefs-theme-delete = Löschen
+prefs-theme-name = Name
+prefs-theme-copy-name = { $name } (Kopie)
+prefs-theme-colors = Farben
+prefs-theme-builtin = Mitgelieferte Darstellungen können nicht geändert werden: Duplizieren Sie eine, um eine eigene zu erstellen.
+prefs-theme-editing-light = Dies sind die Farben der hellen Hälfte. Um die dunkle Hälfte zu ändern, wählen Sie Dunkel unter Modus.
+prefs-theme-editing-dark = Dies sind die Farben der dunklen Hälfte. Um die helle Hälfte zu ändern, wählen Sie Hell unter Modus.
+prefs-theme-restore = Wiederherstellen
+prefs-theme-value-name = Wert von „{ $color }“
+prefs-theme-contrast = Kontrast
+prefs-theme-contrast-ok = Alle Texte und Bedienelemente haben genug Kontrast.
+prefs-theme-contrast-low = { $foreground } auf { $background }: { $ratio }:1, mindestens { $minimum }:1
+prefs-theme-delete-title = Die Darstellung „{ $name }“ löschen?
+prefs-theme-delete-message = Ihre Farben gehen verloren.
+dialog-delete = Löschen
+theme-color-surface = Fenster-Hintergrund
+theme-color-surface-raised = Bereichs-Hintergrund
+theme-color-surface-sunken = Eingabefeld-Hintergrund
+theme-color-surface-overlay = Menü- und Dialog-Hintergrund
+theme-color-border = Rahmen und Trennlinien
+theme-color-control-border = Rahmen der Bedienelemente
+theme-color-text = Normaler Text
+theme-color-text-muted = Sekundärer Text
+theme-color-text-disabled = Deaktivierter Text
+theme-color-accent = Akzentfarbe
+theme-color-accent-hover = Akzentfarbe unter dem Zeiger
+theme-color-accent-pressed = Akzentfarbe (gedrückt)
+theme-color-on-accent = Text auf der Akzentfarbe
+theme-color-accent-text = Text in der Akzentfarbe
+theme-color-control = Knopf-Hintergrund
+theme-color-control-hover = Knopf-Hintergrund unter dem Zeiger
+theme-color-control-pressed = Knopf-Hintergrund (gedrückt)
+theme-color-selection = Auswahl-Hintergrund
+theme-color-on-selection = Ausgewählter Text
+theme-color-focus = Fokus-Dekoration
+theme-color-error = Fehler
+theme-color-warning = Warnungen
+theme-color-success = Erfolg
+theme-color-shadow = Schatten
