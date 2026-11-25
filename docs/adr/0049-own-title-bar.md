@@ -311,7 +311,7 @@ guides' picture a strip of the bar alone (choice 3). While writing, the rest:
   `appmenu:minimize,maximize,close`, in the frame. The guides still show placeholders for all
   their pictures; this one is named in its placeholder like the others.
 
-## Precisions of the implementation (F2.12a5b, owner's choices of 2026-11-25)
+## Precisions of the implementation (F2.12a5b, approved by the owner on 2026-11-25)
 
 - **The title changes.** `Ui::set_title` also gives our bar the new title (the project's name and
   its modification mark, ADR-0050 DG5): the bar is laid out and recorded again and its accessible

@@ -505,7 +505,7 @@ DG5). Choices 1–6 of F2.12a5a approved as recommended:
 The owner checked a real chooser by hand on KDE Plasma, on Wayland and on X11, on 2026-11-24: it
 works.
 
-## Precisions of the implementation (F2.12a5b, owner's choices of 2026-11-25)
+## Precisions of the implementation (F2.12a5b, approved by the owner on 2026-11-25)
 
 DG5 is implemented by `crates/app/src/project.rs` (the logic, without widgets) and the
 demonstration (the dialogs, the choosers, the title). The owner followed every recommendation
@@ -547,3 +547,6 @@ demonstration (the dialogs, the choosers, the title). The owner followed every r
   checks that every language has exactly one placeholder.
 - **The texts**: 25 new messages in the six catalogues; the glossary gains *don't save* (MuseScore
   Studio) and *replace* (GTK 4's file chooser, MuseScore Studio).
+
+The owner checked New, Open, Save, Save as, the title and the errors by hand on 2026-11-25: it
+works.

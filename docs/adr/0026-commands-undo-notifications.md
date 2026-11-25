@@ -341,7 +341,7 @@ above.
 | R11 | **Cost**: one `Replace` per event of the region, so time and history grow with the region's events (≈ 208 bytes of history per event: 2.9 MB for 60 bars of the heavy score, measured). **Budget note** (owner, 2026-11-05): a rewrite of 60 bars × 41 voices of the heavy score costs ≈ 118 million instructions (≈ 8 000 per event moved), which may exceed the 16 ms of §8 on the reference laptop; it is accepted for now, as a rare and explicit command, and is to be measured in real time with the interface (F2.23) and optimised then (for example with a bulk move of a run of events) if needed. On the normal score (10 bars) it costs ≈ 5 million. |
 | R12 | When the region ends at a **free bar** (R1), the meter in force **before** the command at the first bar after the free bars is set again there with an explicit meter change, unless that bar has a meter change of its own or the free bars reach the end of the score (owner's choice of 2026-11-06, option A of three; the others were to extend the rewrite past free bars, or to refuse). A free bar suspends the meter without ending it, so the change would otherwise reach the bars after it while their music stays where it was: overfull bars, music no longer where it sounded (against R2), and possibly a tie pointing backwards, the case the command property test found. Musically, the meter is printed again after a cadenza anyway. |
 
-### 12. Precision made in F2.12a5b (owner, 2026-11-25)
+### 12. Precision made in F2.12a5b (approved by the owner on 2026-11-25)
 
 **Bars inserted into a document without bars.** The meter map shifts every entry at or after the
 insertion point, and `InsertBars` at the first bar gives the new bars a copy of the meter in force

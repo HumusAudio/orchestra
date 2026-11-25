@@ -116,7 +116,7 @@ and the order of W7 (with a fake window). The window itself is checked by hand b
 Linux (X11 and Wayland). Windows and macOS are compiled and tested by CI but not looked at until
 decision D18 (machines for manual tests) is taken; accepted by the owner until milestone M2A.
 
-## Precisions of the implementation (F2.12a5b, owner's choices of 2026-11-25)
+## Precisions of the implementation (F2.12a5b, approved by the owner on 2026-11-25)
 
 - **The app decides about closing.** `WindowApp::close_requested(&mut self, list) -> bool`
   (default `true`) is asked when the user asks to close the window: `WindowEvent::CloseRequested`
