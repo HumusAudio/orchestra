@@ -111,3 +111,8 @@ each answer goes back to its asker.
 - A layout made on one system works on the others (abstract modifiers), except the keys a
   platform fixes (AM8), which are dropped there and counted.
 - Unknown actions survive a round trip through an older Orchestra.
+
+## Implementation (F2.12c2)
+
+Written as decided above; the owner checked exporting, importing (with the question and the
+report) and a file that is not a shortcut file by hand on 2026-11-25: it works.
