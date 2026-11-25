@@ -1741,6 +1741,14 @@ di portamento invece non controlla che i suoi eventi esistano, né un salto che 
 perché una modifica successiva della stessa transazione può averli tolti, e allora l'undo
 fallirebbe.
 
+**Un documento senza battute** (F2.12a5b). La mappa dei metri sposta le sue voci quando si
+inseriscono battute, quindi un inserimento in un documento senza battute spingerebbe il metro
+iniziale oltre l'ultima battuta nuova (la regola 13 della validazione lo vieta). `InsertBars` in un
+documento così tiene allora solo le voci dello span e il metro iniziale, rifiutando uno span la cui
+prima battuta ha un altro metro (`BarSpanMismatch`), e `RemoveBars` di tutte le battute (lo fa solo
+l'annulla) restituisce il metro della prima battuta come metro iniziale: i due restano inversi
+esatti.
+
 **Ordini che non dipendono dalla storia.** Dove un elenco può avere più oggetti nello stesso punto
 (dinamiche, forcelle, volte, ripetizioni di battuta, regole di passaggio) sono ordinati per (punto,
 ID), e l'indice "legature su un evento" per ID: togliere un oggetto e reinserirlo dà un elenco
@@ -5910,8 +5918,8 @@ Scena degli screenshot `preferences-playback`.
 dialoghi nativi su Windows e macOS (lì un foglio attaccato alla finestra), quella del portale XDG
 del desktop su Linux (la finestra di scelta di KDE o di GNOME, quella che il desktop fornisce). Il
 titolo è *Apri progetto* o *Salva progetto come*, mostra i file `*.orchestra` sotto il filtro
-*Progetto Orchestra*, e *Salva come* propone `Senza titolo.orchestra`. In questo passo il percorso
-scelto viene solo conservato: aprire e salvare il progetto arrivano con F2.12a5b. Mentre la scelta
+*Progetto Orchestra*, e *Salva come* propone `Senza titolo.orchestra` (o il nome del progetto, quando
+ne ha uno). Che cosa succede al percorso scelto è materia della sezione seguente (F2.12a5b). Mentre la scelta
 è aperta la nostra finestra continua a ridisegnarsi, ma niente al suo interno reagisce e non la si
 può chiudere. Su un Linux senza alcuna finestra di scelta, l'utente riceve un errore, *Impossibile
 scegliere i file*, che dice di installare `xdg-desktop-portal` e il pacchetto del desktop.
@@ -5943,7 +5951,7 @@ let _ = self.ui.choose_file(open_request(&self.files), list);
 fn file_chosen(&mut self, choice: FileChoice, list: &mut DisplayList) {
     self.ui.file_chosen(list); // the blocking layer goes
     match choice {
-        FileChoice::Chosen(path) => self.chosen = Some(path),
+        FileChoice::Chosen(path) => { /* the open project opens or saves it (F2.12a5b) */ }
         FileChoice::Cancelled => {}
         FileChoice::Unavailable => { /* the error dialog */ }
     }
@@ -5993,7 +6001,7 @@ isolamento che Fluent mette intorno al nome del programma. `open_request` e `sav
 costruiscono le due richieste con l'estensione `orchestra_io::PROJECT_EXTENSION` (una costante nuova
 di `io`, ADR-0029 S14, così il programma la scrive in un posto solo), e `unavailable_dialog`
 l'errore con il suo pulsante *OK*. Le azioni `file.open` e `file.save-as` adesso sono attive;
-`file.new` e `file.save` aspettano F2.12a5b. Il glossario ha due termini nuovi, *project* e
+`file.new` e `file.save` sono arrivati con F2.12a5b. Il glossario ha due termini nuovi, *project* e
 *untitled*, cercati nei cataloghi di MuseScore Studio e nei manuali tradotti di Logic Pro e Cubase.
 
 **Quanto costa.** Su Linux il binario release dopo lo `strip` cresce di 181 248 byte (+1,4%,
@@ -6010,8 +6018,112 @@ richiesta alla volta, il livello che blocca la digitazione, Tab, un clic, le sco
 fuoco che torna dopo la risposta, una scelta sopra un dialogo, nessun dialogo per le tecnologie
 assistive. `widgets_no_alloc.rs`: l'input dietro il livello non alloca nulla.
 `crates/app/tests/files.rs`: Ctrl+O e Ctrl+Maiusc+S con i loro testi e il filtro, un secondo Ctrl+O
-rifiutato, un percorso scelto conservato, *Cancelled*, la finestra di errore per *Unavailable*, i
+rifiutato, un file mancante scelto e segnalato (F2.12a5b), *Cancelled*, la finestra di errore per *Unavailable*, i
 testi nelle sei lingue. Una finestra di scelta vera ha bisogno di un desktop: si prova a mano.
+
+#### Il progetto aperto
+
+**Che cosa vede l'utente** (ADR-0050 DG5, SCALETTA F2.12a5b). La finestra porta il nome del
+progetto: *Senza titolo — Orchestra* per un progetto mai salvato, *Brano — Orchestra* per
+`Brano.orchestra`, con un pallino davanti (*• Brano — Orchestra*) finché ha modifiche non salvate;
+la nostra barra del titolo mostra lo stesso testo. *File → Nuovo* (Ctrl+N) crea un progetto nuovo,
+*Apri…* ne legge uno, *Salva* (Ctrl+S) scrive sopra il file del progetto (o ne chiede uno la prima
+volta), *Salva come…* scrive un file nuovo, che da quel momento è quello del progetto. Prima di
+*Nuovo*, prima di *Apri* e prima che la finestra si chiuda (Esci, il pulsante di chiusura del
+sistema, Alt+F4, il pulsante di chiusura della nostra barra) un progetto con modifiche non salvate
+chiede *Salvare le modifiche a «Brano»?* con *Salva*, *Non salvare* e *Annulla*. Un nome scritto
+senza `.orchestra` la riceve; se un file con il nome così ottenuto esiste già, il programma chiede
+*Esiste già un file con nome «Brano.orchestra». Sostituirlo?* (il focus su *Annulla*, così Invio ed
+Esc conservano entrambi il file). Ogni fallimento è un errore tradotto che nomina il file, con il
+percorso sotto il messaggio.
+
+**La logica** (`crates/app/src/project.rs`), senza widget, così i test percorrono ogni strada:
+
+- `new_document()`: ciò che crea *Nuovo*. Il modello non ha valori predefiniti di proposito
+  (`DocumentBuilder::new` li riceve), quindi finché non esiste la finestra "nuova partitura" sono
+  costanti qui: 4/4, ♩ = 120 non stampato, Do maggiore, **una battuta vuota**, nessuna traccia. Una
+  battuta perché il modello ne tiene almeno una ovunque (cancellare battute ne lascia sempre una).
+- `OpenProject`: l'`Editor` (l'unica cronologia, ADR-0026), il percorso del file (`None` per
+  *Senza titolo*) e la revisione del documento quando è stato aperto o salvato l'ultima volta.
+  `is_modified()` la confronta con la revisione attuale; poiché la revisione cresce anche con
+  l'annulla, modificare e annullare conta ancora come modificato (DG5 com'è scritto, un limite
+  annotato). `save_to(path)` scrive con `orchestra_io::save` e, solo se riesce, adotta il percorso e
+  la revisione.
+- `ProjectFlow`: il progetto e il passo (`Step`) in cui si trova, `Idle`, `Asking(Then)`,
+  `Saving(Option<Then>)`, `Replacing { path, then }` o `Opening`, dove `Then` è ciò che aspetta
+  che il progetto sia messo al sicuro (`New`, `Open`, `Close`). Ogni ingresso (`new_project`,
+  `open`, `save`, `save_as`, `close`, `save_answer`, `chosen`, `replace_answer`) risponde con un
+  `ProjectEffect` facoltativo: chiedere di salvare, aprire una finestra di scelta, confermare una
+  sostituzione, segnalare un fallimento, oppure chiudere. Un comando mentre un passo è aperto viene
+  ignorato; ciò che aspetta parte solo se il progetto è stato davvero messo al sicuro (*Non
+  salvare*, o un salvataggio riuscito).
+- `with_project_extension(path)`: aggiunge `.orchestra` a meno che l'estensione non sia già quella
+  (maiuscola o minuscola), lavorando sull'`OsStr` e mai su una stringa con perdite: `Brano.txt`
+  diventa `Brano.txt.orchestra`, `Brano.` diventa `Brano.orchestra`.
+
+```rust
+// Quit with unsaved changes, a project never saved:
+let mut flow = ProjectFlow::new(OpenProject::new()?);
+// … the document changes through flow.project_mut().editor_mut() …
+assert_eq!(flow.close(), Some(ProjectEffect::AskToSave { name: None }));
+assert_eq!(flow.save_answer(SaveAnswer::Save), Some(ProjectEffect::ChooseSave { name: None }));
+// The chooser answers "…/Song": saved as "…/Song.orchestra", then the window may close.
+assert_eq!(flow.chosen(Some(folder.join("Song"))), Some(ProjectEffect::Close));
+```
+
+Lettura e scrittura avvengono sul thread dell'interfaccia: i benchmark di `orchestra-io` danno
+circa 5,5 ms per salvare e 11 ms per caricare la partitura di riferimento normale; quella pesante
+(168 / 396 ms) sarebbe una pausa visibile. Il thread di lavoro arriva con il salvataggio automatico
+(F2.14).
+
+**I testi** (`crates/app/src/files.rs`). `ProjectTexts` contiene 25 messaggi nuovi dei cataloghi: i
+due titoli della finestra, le due domande, i pulsanti *Salva*, *Non salvare*, *Sostituisci*, e un
+titolo per ogni operazione fallita con un messaggio per ogni motivo su cui l'utente può agire (file
+mancante, permesso negato, illeggibile, troppo grande, non è un progetto, formato più recente,
+danneggiato; permesso, disco pieno, errore di scrittura, errore interno; e "il file che c'era è
+rimasto com'era" sotto ogni salvataggio fallito). I testi che contengono un nome sono formattati
+una volta con un segnaposto, U+E000, al posto del nome (`NameTemplate`), perché la dimostrazione
+conserva testi già formattati e non il localizzatore; è sempre Fluent a decidere dove va il nome, e
+un test controlla che ogni lingua abbia esattamente un segnaposto. `window_title`,
+`save_changes_dialog`, `replace_dialog` e `project_error_dialog` costruiscono il titolo e le
+finestre. Il glossario ha due termini nuovi, *don't save* e *replace*, presi dai cataloghi di
+MuseScore Studio e della finestra di scelta dei file di GTK 4 (scaricati e consultati il
+2026-11-25).
+
+**Nella dimostrazione** (`crates/app/src/demo.rs`). La `Demo` tiene il `ProjectFlow` ed esegue un
+passo per Nuovo, Apri, Salva, Salva come ed Esci (ora tutti attivi), per le risposte alle due
+domande e per la risposta di una finestra di scelta; `show_effect` trasforma un `ProjectEffect` in
+una finestra di dialogo, una scelta del file o `WindowRequest::Close`, e `refresh_title` dà
+all'interfaccia il titolo dopo ogni passo.
+
+**In `orchestra-ui`** (una precisione di ADR-0040). Due metodi nuovi di `WindowApp`:
+`close_requested(list) -> bool` (la finestra chiede prima di chiudersi: `false` la tiene aperta,
+l'app mostra la sua domanda e chiude più tardi con `WindowRequest::Close`) e
+`title() -> Option<&str>` (chiesto dopo ogni gruppo di eventi; la finestra chiama `set_title` solo
+quando è cambiato, e si apre già con quello). `Ui::set_title` ora aggiorna anche la nostra barra del
+titolo (ADR-0049), e `Ui::title` lo legge. Il pulsante di chiusura della nostra barra manda il nuovo
+`WindowRequest::RequestClose`, che la finestra tratta come il pulsante di chiusura del sistema,
+quindi chiede anche lui all'app.
+
+**Un bug trovato strada facendo** (`crates/core-model/src/edit.rs`). Inserire battute all'inizio di
+un documento **senza battute** lasciava il metro iniziale spostato oltre l'ultima battuta nuova,
+cosa che la regola 13 della validazione vieta e che il file di progetto non può scrivere
+(`SaveError::Encode`). Ora un inserimento in un documento senza battute prende le voci dello span e
+il metro iniziale, scartando la copia spostata, e togliere tutte le battute (lo fa solo l'annulla)
+aggiunge in fondo una copia del metro della prima battuta che scivola all'inizio; uno span la cui
+prima battuta ha un altro metro viene rifiutato, così l'annulla resta esatto. Test:
+`bars_inserted_into_a_document_without_bars_keep_it_valid`.
+
+**Test.** `crates/app/tests/project.rs` (14 test): il documento nuovo valido, salvato e riletto,
+l'estensione, Salva di un progetto senza titolo, Salva sopra il proprio file, Salva come, la
+domanda di sostituzione, la domanda prima di Nuovo, Apri e della chiusura con ogni risposta, un
+salvataggio fallito che tiene aperta la finestra, i tre tipi di file che non si possono aprire con i
+loro messaggi, il messaggio di ogni errore, i testi nelle sei lingue, e la dimostrazione: il titolo
+che segue il progetto, la chiusura con modifiche (Esc, poi Invio, la scelta del file, il
+salvataggio, la chiusura), Invio ed Esc che non sostituiscono mai un file. `files.rs`, `demo.rs` e
+`actions.rs` seguono il cambiamento (Nuovo e Salva attivi, il Chiudi della nostra barra che chiede,
+il nodo della finestra chiamato *Untitled — Orchestra*). Lo screenshot `save-changes-dialog` mostra
+la domanda. La chiusura e il titolo di una finestra vera si verificano a mano.
 
 #### La finestra e il ciclo degli eventi
 

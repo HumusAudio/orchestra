@@ -1635,6 +1635,13 @@ tuplets only when no event uses them (`TupletInUse`); a slur, on the other hand,
 that its events exist, nor a jump that its markers do, because a later edit of the same
 transaction may have removed them, and then undo would fail.
 
+**A document without bars** (F2.12a5b). The meter map shifts its entries when bars are inserted,
+so an insertion into a document without bars would push the initial meter past the new last bar
+(validation rule 13 forbids it). `InsertBars` into such a document therefore keeps the span's
+entries and the initial meter only, refusing a span whose first bar has another meter
+(`BarSpanMismatch`), and `RemoveBars` of every bar (only undo does it) gives the first bar's meter
+back as the initial one: the two stay exact inverses.
+
 **Orders that do not depend on history.** Where a list may hold several objects at one point
 (dynamics, hairpins, voltas, bar repeats, pass rules) they are sorted by (point, ID), and the
 "slurs at an event" index by ID: removing an object and inserting it back gives an identical list.
@@ -5550,8 +5557,8 @@ Save as…* (Ctrl+Shift+S, ⇧⌘S) open the **system's own** window for choosin
 dialogs on Windows and macOS (a sheet on the window there), the XDG desktop portal's on Linux (the
 KDE or GNOME chooser, whichever the desktop provides). The chooser is titled *Open project* or *Save
 project as*, shows `*.orchestra` files under the filter *Orchestra project*, and *Save as* proposes
-`Untitled.orchestra`. In this step the chosen path is only kept: opening and saving the project
-come with F2.12a5b. While the chooser is open our window keeps redrawing, but nothing in it reacts,
+`Untitled.orchestra` (or the project's own name once it has one). What happens to the chosen path is
+the next section's (F2.12a5b). While the chooser is open our window keeps redrawing, but nothing in it reacts,
 and it cannot be closed. On a Linux system with no file chooser at all, the user gets an error,
 *Files can't be chosen*, which says to install `xdg-desktop-portal` and the package for the desktop.
 
@@ -5581,7 +5588,7 @@ let _ = self.ui.choose_file(open_request(&self.files), list);
 fn file_chosen(&mut self, choice: FileChoice, list: &mut DisplayList) {
     self.ui.file_chosen(list); // the blocking layer goes
     match choice {
-        FileChoice::Chosen(path) => self.chosen = Some(path),
+        FileChoice::Chosen(path) => { /* the open project opens or saves it (F2.12a5b) */ }
         FileChoice::Cancelled => {}
         FileChoice::Unavailable => { /* the error dialog */ }
     }
@@ -5627,7 +5634,7 @@ as Windows and macOS do with the parent of a modal dialog.
 marks around the program's name. `open_request` and `save_request` build the two requests with the
 extension `orchestra_io::PROJECT_EXTENSION` (a new constant of `io`, ADR-0029 S14, so the program
 spells it once), and `unavailable_dialog` the error with its *OK* button. The actions `file.open`
-and `file.save-as` are now enabled; `file.new` and `file.save` wait for F2.12a5b. The glossary has
+and `file.save-as` are now enabled; `file.new` and `file.save` came with F2.12a5b. The glossary has
 two new terms, *project* and *untitled*, researched in MuseScore Studio's catalogues and in Logic
 Pro's and Cubase's localised manuals.
 
@@ -5643,9 +5650,103 @@ and with one woken from another thread (`program_in_path` is compiled on every s
 the layer blocking typing, Tab, a click, the shortcuts and F10, the focus back after the answer, a
 chooser above a dialog, no dialog for assistive technologies. `widgets_no_alloc.rs`: input behind
 the layer allocates nothing. `crates/app/tests/files.rs`: Ctrl+O and Ctrl+Shift+S with their texts
-and filter, a second Ctrl+O refused, a chosen path kept, *Cancelled*, the error dialog for
+and filter, a second Ctrl+O refused, a missing file chosen reported (F2.12a5b), *Cancelled*, the error dialog for
 *Unavailable*, the texts in the six languages. A real chooser needs a desktop: it is checked by
 hand.
+
+#### The open project
+
+**What the user sees** (ADR-0050 DG5, SCALETTA F2.12a5b). The window is named after the project:
+*Untitled — Orchestra* for a project never saved, *Song — Orchestra* for `Song.orchestra`, with a
+bullet in front (*• Song — Orchestra*) while it has unsaved changes; our own title bar shows the
+same text. *File → New* (Ctrl+N) makes a new project, *Open…* reads one, *Save* (Ctrl+S) writes
+over the project's file (or asks for one the first time), *Save as…* writes a new file, which from
+then on is the project's. Before *New*, before *Open* and before the window closes (Quit, the
+system's close button, Alt+F4, our title bar's close button) a project with unsaved changes asks
+*Save the changes to “Song”?* with *Save*, *Don't save* and *Cancel*. A name typed without
+`.orchestra` gets it; if a file with the name so made already exists, the program asks *“Song.orchestra”
+already exists. Do you want to replace it?* (the focus on *Cancel*, so Enter and Escape both keep
+the file). Every failure is a translated error that names the file, with its path under the
+message.
+
+**The logic** (`crates/app/src/project.rs`), without widgets, so the tests drive every path:
+
+- `new_document()`: what *New* makes. The model has no defaults on purpose
+  (`DocumentBuilder::new` takes them), so until the "new score" dialog exists they are constants
+  here: 4/4, ♩ = 120 not printed, C major, **one empty bar**, no tracks. One bar because the model
+  keeps at least one everywhere else (deleting bars always leaves one).
+- `OpenProject`: the `Editor` (the one history, ADR-0026), the file's path (`None` for
+  *Untitled*) and the document's revision when it was opened or last saved. `is_modified()`
+  compares that with the revision now; since the revision grows with undo too, changing and undoing
+  still counts as modified (DG5 as written, a recorded limit). `save_to(path)` writes with
+  `orchestra_io::save` and, only on success, adopts the path and the revision.
+- `ProjectFlow`: the project and the `Step` it is in, `Idle`, `Asking(Then)`, `Saving(Option<Then>)`,
+  `Replacing { path, then }` or `Opening`, where `Then` is what waits for the project to be put
+  away (`New`, `Open`, `Close`). Every input (`new_project`, `open`, `save`, `save_as`, `close`,
+  `save_answer`, `chosen`, `replace_answer`) answers an optional `ProjectEffect`: ask to save,
+  open a chooser, confirm a replacement, report a failure, or close. A command while a step is open
+  is ignored; what waits runs only if the project was really put away (*Don't save*, or a save that
+  succeeded).
+- `with_project_extension(path)`: adds `.orchestra` unless the extension already is that (in any
+  case), on the `OsStr`, never on a lossy string: `Song.txt` becomes `Song.txt.orchestra`, `Song.`
+  becomes `Song.orchestra`.
+
+```rust
+// Quit with unsaved changes, a project never saved:
+let mut flow = ProjectFlow::new(OpenProject::new()?);
+// … the document changes through flow.project_mut().editor_mut() …
+assert_eq!(flow.close(), Some(ProjectEffect::AskToSave { name: None }));
+assert_eq!(flow.save_answer(SaveAnswer::Save), Some(ProjectEffect::ChooseSave { name: None }));
+// The chooser answers "…/Song": saved as "…/Song.orchestra", then the window may close.
+assert_eq!(flow.chosen(Some(folder.join("Song"))), Some(ProjectEffect::Close));
+```
+
+Reading and writing happen on the interface's thread: `orchestra-io`'s benchmarks give about
+5.5 ms to save and 11 ms to load the normal reference score; the heavy one (168 / 396 ms) would be
+a visible pause. The worker thread comes with the automatic save (F2.14).
+
+**The texts** (`crates/app/src/files.rs`). `ProjectTexts` holds 25 new catalogue messages: the two
+window titles, the two questions, the buttons *Save*, *Don't save*, *Replace*, and one title per
+failed operation with one message per reason the user can act on (file missing, not allowed,
+unreadable, too large, not a project, newer format, damaged; permission, disk full, write error,
+internal error; and "the file already there was left as it was" under every failed save). The
+texts that hold a name are formatted once with a placeholder, U+E000, instead of the name
+(`NameTemplate`), because the demonstration keeps formatted texts, not the localizer; Fluent still
+decides where the name goes, and a test checks that every language has exactly one placeholder.
+`window_title`, `save_changes_dialog`, `replace_dialog` and `project_error_dialog` build the title
+and the dialogs. The glossary has two new terms, *don't save* and *replace*, from MuseScore
+Studio's and GTK 4's file chooser's catalogues (downloaded and searched on 2026-11-25).
+
+**In the demonstration** (`crates/app/src/demo.rs`). The `Demo` holds the `ProjectFlow` and runs a
+step for New, Open, Save, Save as and Quit (all enabled now), for the answers of the two questions
+and for a chooser's answer; `show_effect` turns a `ProjectEffect` into a dialog, a chooser or
+`WindowRequest::Close`, and `refresh_title` gives the interface the title after every step.
+
+**In `orchestra-ui`** (a precision of ADR-0040). Two new methods of `WindowApp`:
+`close_requested(list) -> bool` (the window asks before closing: `false` keeps it open, the app
+shows its question and closes later with `WindowRequest::Close`) and `title() -> Option<&str>`
+(asked after every batch of events; the window calls `set_title` only when it changed, and opens
+with it). `Ui::set_title` now also updates our title bar (ADR-0049), and `Ui::title` reads it. Our
+title bar's close button sends the new `WindowRequest::RequestClose`, which the window handles like
+the system's close button, so it asks the app too.
+
+**A bug found on the way** (`crates/core-model/src/edit.rs`). Inserting bars at the start of a
+document **without bars** left the initial meter shifted past the new last bar, which validation
+rule 13 forbids and the project file cannot write (`SaveError::Encode`). Now an insertion into a
+document without bars takes the span's entries and the initial meter, dropping the shifted copy,
+and removing every bar (only undo does it) appends a copy of the first bar's meter that slides to
+the start; a span whose first bar has another meter is refused, so undo stays exact. Test:
+`bars_inserted_into_a_document_without_bars_keep_it_valid`.
+
+**Tests.** `crates/app/tests/project.rs` (14 tests): the new document valid and saved and loaded
+back, the extension, Save of an untitled project, Save over its own file, Save as, the replacement
+question, the question before New, Open and closing with each answer, a failed save keeping the
+window, the three kinds of files that cannot be opened with their messages, every error's message,
+the texts in the six languages, and the demonstration: the title following the project, closing
+with changes (Escape, then Enter, the chooser, the save, the close), Enter and Escape never
+replacing a file. `files.rs`, `demo.rs` and `actions.rs` follow the change (New and Save enabled,
+Close of our title bar asking, the window node named *Untitled — Orchestra*). The screenshot
+`save-changes-dialog` shows the question. A real window's close and title are checked by hand.
 
 #### The window and the event loop
 

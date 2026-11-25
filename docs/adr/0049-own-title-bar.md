@@ -310,3 +310,13 @@ guides' picture a strip of the bar alone (choice 3). While writing, the rest:
   pixels: the program's four menus, its name, the three buttons of
   `appmenu:minimize,maximize,close`, in the frame. The guides still show placeholders for all
   their pictures; this one is named in its placeholder like the others.
+
+## Precisions of the implementation (F2.12a5b, owner's choices of 2026-11-25)
+
+- **The title changes.** `Ui::set_title` also gives our bar the new title (the project's name and
+  its modification mark, ADR-0050 DG5): the bar is laid out and recorded again and its accessible
+  node rebuilt, only when the text changed.
+- **Close asks first.** The Close button sends `WindowRequest::RequestClose`, not `Close`: the
+  window handles it like the system's close button and asks the app
+  (`WindowApp::close_requested`, ADR-0040's precision of F2.12a5b), so unsaved changes are never
+  lost through our bar (TB6 said "the same way as the system's close button": now it really is).

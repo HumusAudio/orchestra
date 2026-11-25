@@ -62,7 +62,7 @@ fn the_registry_builds_on_every_platform_with_its_defaults() {
             (platform != Platform::MacOs).then_some(ids.full_screen)
         );
         // Choice E: only Quit, Full screen, About (F2.12a3b), Preferences (F2.12a4a), Open and
-        // Save as (F2.12a5a) are enabled outside a field.
+        // Save as (F2.12a5a), New and Save (F2.12a5b) are enabled outside a field.
         for id in ids.all() {
             let enabled = registry.state(id).unwrap().enabled;
             let expected = [
@@ -70,7 +70,9 @@ fn the_registry_builds_on_every_platform_with_its_defaults() {
                 ids.full_screen,
                 ids.about,
                 ids.preferences,
+                ids.new,
                 ids.open,
+                ids.save,
                 ids.save_as,
             ]
             .contains(&id);
@@ -553,8 +555,8 @@ fn the_demonstrations_menu_bar_opens_from_the_keyboard() {
         return;
     }
     assert!(demo.menu_bar().is_some());
-    // F10, then Enter: File's menu, New highlighted (disabled, so the first enabled: Open…,
-    // F2.12a5a).
+    // F10, then Enter: File's menu, New highlighted (enabled since F2.12a5b); Down moves to
+    // Open….
     press(
         &mut demo,
         &mut list,
@@ -573,6 +575,13 @@ fn the_demonstrations_menu_bar_opens_from_the_keyboard() {
     // New, Open…, Save, Save as…, a separator, Quit.
     let items: Vec<_> = demo.ui().menu_items(menus[0]).collect();
     assert_eq!(items.len(), 6);
+    assert_eq!(demo.ui().highlighted_menu_item(), Some(items[0]));
+    press(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::ArrowDown),
+        Modifiers::default(),
+    );
     assert_eq!(demo.ui().highlighted_menu_item(), Some(items[1]));
     // Enter asks for the file chooser of *Open* (F2.12a5a).
     press(

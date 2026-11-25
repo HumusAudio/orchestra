@@ -116,6 +116,20 @@ and the order of W7 (with a fake window). The window itself is checked by hand b
 Linux (X11 and Wayland). Windows and macOS are compiled and tested by CI but not looked at until
 decision D18 (machines for manual tests) is taken; accepted by the owner until milestone M2A.
 
+## Precisions of the implementation (F2.12a5b, owner's choices of 2026-11-25)
+
+- **The app decides about closing.** `WindowApp::close_requested(&mut self, list) -> bool`
+  (default `true`) is asked when the user asks to close the window: `WindowEvent::CloseRequested`
+  (the system's button, Alt+F4, the window menu) and the new `WindowRequest::RequestClose`. `true`
+  closes now; `false` keeps the window, and the app, having shown what it needed (the question
+  about unsaved changes, ADR-0050 DG5), closes it later with `WindowRequest::Close`, which closes
+  without asking again. Nothing blocks the loop while the question is open. Still not asked while
+  a file chooser is open (ADR-0050, choice 4 of F2.12a5a).
+- **The title follows the app.** `WindowApp::title(&self) -> Option<&str>` (default `None`: the
+  options' title stays) is asked after every batch of events; the window keeps a copy and calls
+  `winit`'s `set_title` only when the text changed, and opens with the app's title if it already
+  has one. `WindowRequest` stays `Copy`: the title is read, not sent.
+
 ## Alternatives rejected
 
 - **`winit` types used across the interface:** every widget would depend on `winit`'s API, and

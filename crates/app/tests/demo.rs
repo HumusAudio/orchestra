@@ -70,7 +70,7 @@ fn every_control_is_named_for_assistive_technologies() {
             .iter()
             .any(|(r, label, _)| *r == role && label.as_deref() == Some(name))
     };
-    assert!(named(Role::Window, "Orchestra"));
+    assert!(named(Role::Window, "Untitled — Orchestra"));
     assert!(named(Role::Label, "Playback"));
     assert!(named(Role::CheckBox, "Metronome"));
     assert!(named(Role::Switch, "Count-in"));
@@ -253,8 +253,12 @@ fn without_the_systems_frame_the_menus_are_in_our_title_bar_and_close_reaches_th
     // GNOME's default: only Close, named from the catalogue.
     let buttons: Vec<WidgetId> = framed.ui().title_bar_buttons().collect();
     assert_eq!(buttons.len(), 1);
+    // Our Close asks the window to ask the app, as the system's own button does (F2.12a5b).
     click(&mut framed, &mut list, buttons[0]);
-    assert_eq!(framed.take_window_request(), Some(WindowRequest::Close));
+    assert_eq!(
+        framed.take_window_request(),
+        Some(WindowRequest::RequestClose)
+    );
     assert_eq!(framed.take_window_request(), None);
     // With the system's frame there is no title bar.
     let (plain, _) = demo();

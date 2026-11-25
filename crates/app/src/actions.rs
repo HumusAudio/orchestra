@@ -9,12 +9,12 @@
 //! *About Orchestra* (F2.12a3b, ADR-0050 DG10), fifteen in all:
 //! - **working:** Quit and Full screen (they ask the window, [`orchestra_ui::WindowRequest`]),
 //!   About (it opens the About dialog, [`crate::about`]), Preferences (F2.12a4a,
-//!   [`crate::preferences`]), Open and Save as (F2.12a5a: they open the system's file chooser,
-//!   [`crate::files`]; the chosen path is used from F2.12a5b), and the six editing actions on a
-//!   focused text field (AM13: the interface sends them to the field itself);
-//! - **registered but disabled** until what they do exists: New and Save (the open project,
-//!   F2.12a5b), Help (the guides), and the editing actions outside a field (there is no document
-//!   view yet to undo in or select from).
+//!   [`crate::preferences`]), New, Open, Save and Save as (F2.12a5a–b: the open project,
+//!   [`crate::project`], with the system's file chooser, [`crate::files`]; Quit goes through it
+//!   too, to ask about unsaved changes), and the six editing actions on a focused text field
+//!   (AM13: the interface sends them to the field itself);
+//! - **registered but disabled** until what they do exists: Help (the guides), and the editing
+//!   actions outside a field (there is no document view yet to undo in or select from).
 //!
 //! # Names (AM10)
 //! An action's name is the Fluent key of its menu item (`menu-edit-undo`), so the menus of
@@ -422,7 +422,9 @@ pub fn registry(platform: Platform) -> Result<(Registry, ActionIds), ActionsErro
         ids.full_screen,
         ids.about,
         ids.preferences,
+        ids.new,
         ids.open,
+        ids.save,
         ids.save_as,
     ];
     for id in ids.all() {

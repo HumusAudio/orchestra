@@ -504,3 +504,46 @@ DG5). Choices 1–6 of F2.12a5a approved as recommended:
 
 The owner checked a real chooser by hand on KDE Plasma, on Wayland and on X11, on 2026-11-24: it
 works.
+
+## Precisions of the implementation (F2.12a5b, owner's choices of 2026-11-25)
+
+DG5 is implemented by `crates/app/src/project.rs` (the logic, without widgets) and the
+demonstration (the dialogs, the choosers, the title). The owner followed every recommendation
+(choices 1–7) and, after a bug was found, chose both remedies of the last point.
+
+- **1, the new document**: 4/4, ♩ = 120 not printed, C major, **one empty bar**, no tracks;
+  constants of the app until the "new score" dialog exists. The proposal was no bar; the tests
+  found that inserting bars into a document without bars broke validation rule 13, and the owner
+  chose one bar (the model keeps at least one everywhere else) **and** the fix of the model
+  (ADR-0026's precision of F2.12a5b).
+- **2, closing**: Quit, the system's close button and our title bar's go through the open project
+  (ADR-0040's and ADR-0049's precisions of F2.12a5b). With unsaved changes the question opens and
+  the window stays; its answer closes it, or not. A second request while the question is open is
+  refused without a second question.
+- **3, the extension**: `.orchestra` is added to a chosen name whose extension is not already that
+  (in any case: `Song.txt` becomes `Song.txt.orchestra`, `Song.` becomes `Song.orchestra`), on the
+  `OsStr`. If the name so made is an existing file that the chooser did not confirm, we ask *“…”
+  already exists. Do you want to replace it?* (*Replace* destructive, *Cancel*; with no default
+  button the focus starts on *Cancel*, so Enter and Escape both keep the file).
+- **4, modified** is DG5 as written (the revision differs from the saved one): changing and
+  undoing still counts as modified, a recorded limit to review with note entry (F2.22).
+- **5, reading and writing on the interface's thread**, synchronously: about 5.5 ms to save and
+  11 ms to load the normal reference score (`orchestra-io`'s benchmarks), 168 / 396 ms for the
+  heavy one. A worker thread comes with the automatic save (F2.14).
+- **6, the errors**: one title per operation naming the file, one message per reason the user can
+  act on (missing, not allowed, unreadable, too large, not a project, newer, damaged; not allowed,
+  disk full, unwritable, internal), the path as the detail, and under a failed save "the file that
+  was already there, if any, has been left as it was". The developers' details (`Display`) are not
+  shown and wait for a log (the open decision S4 of F2.12a2). A failed open keeps the project; a
+  failed save keeps it modified and drops what waited (New, Open, closing).
+- **7, the question** *Save the changes to “Name”?* (*Untitled* for a project never saved), *Your
+  changes will be lost if you don't save them.*, with *Save* (default), *Don't save*
+  (destructive), *Cancel*. *Save* on a project never saved opens the *Save as* chooser first; what
+  waited runs only after a save that succeeded or after *Don't save*.
+- **The window title**: `Name — Orchestra`, with `• ` in front while modified, the same mark in
+  every language (`window-title`, `window-title-modified`). The texts that hold a name are
+  formatted once with a private-use placeholder (U+E000) and filled when shown, because the
+  demonstration keeps formatted texts, not the localizer; Fluent still places the name, and a test
+  checks that every language has exactly one placeholder.
+- **The texts**: 25 new messages in the six catalogues; the glossary gains *don't save* (MuseScore
+  Studio) and *replace* (GTK 4's file chooser, MuseScore Studio).

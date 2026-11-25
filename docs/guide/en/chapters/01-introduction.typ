@@ -191,14 +191,56 @@ proposes the name *Untitled*.
 While that window is open, Orchestra waits for it: nothing in Orchestra's own window reacts, and
 it cannot be closed until you choose a file or cancel.
 
-#tip("Note")[
-  In this preview a chosen file is not opened or saved yet: that comes in the next version.
-]
-
 On Linux the window for choosing files comes from a service of the desktop, the *XDG desktop
 portal*. If your system has none, Orchestra tells you so instead of doing nothing: install the
 package `xdg-desktop-portal` together with the one for your desktop (for example
 `xdg-desktop-portal-kde` on KDE Plasma or `xdg-desktop-portal-gnome` on GNOME), then try again.
+
+=== New, open and save a project
+
+Everything you write in Orchestra lives in one *project*: a single file ending in `.orchestra`.
+The window's title shows the project's name, followed by Orchestra's (*Song — Orchestra*); a
+project you have never saved is called *Untitled*. While the project has changes you have not
+saved yet, the title starts with a dot: *• Song — Orchestra*.
+
+- *File → New* (Ctrl+N, ⌘N) starts an empty project: one empty bar in 4/4, at ♩ = 120, in C
+  major. A window for choosing these values will come later.
+- *File → Open…* (Ctrl+O, ⌘O) opens a project you choose. It takes the place of the one you had
+  open.
+- *File → Save* (Ctrl+S, ⌘S) writes the project over its own file. The first time, it asks where
+  to save, as *Save as* does.
+- *File → Save as…* (Ctrl+Shift+S, ⇧⌘S) saves the project in a new file, which from then on is
+  the project's file.
+
+If you type a name without `.orchestra`, Orchestra adds it. If a file with that name is already
+there, Orchestra asks before replacing it. Enter and Escape both answer *Cancel*, which keeps the
+file: to replace it you have to choose *Replace* yourself, so it never happens by mistake.
+
+Saving never damages the file you had: Orchestra writes the new version next to it and puts it in
+place only when it is complete, so if anything goes wrong (a full disk, a removed USB stick) the
+old file is still there as it was.
+
+Before New, before Open and before closing the window, Orchestra checks for unsaved changes. If
+there are any, it asks whether to save them first:
+
+#screenshot-placeholder(
+  [Screenshot: the question about unsaved changes (save-changes-dialog.png)],
+  [Before closing a project with unsaved changes Orchestra asks whether to save them.],
+)
+
+- *Save* saves the project (asking where, if it was never saved), then goes on.
+- *Don't save* throws the changes away and goes on.
+- *Cancel* (or Escape) goes back to the project, and nothing happens.
+
+If a project cannot be opened or saved, Orchestra tells you why: the file does not exist any
+more, you are not allowed to read or write it, the disk is full, the file is not an Orchestra
+project, it was saved by a newer version of Orchestra, or it is damaged. Under the message you
+find the file's full path.
+
+#tip("Note")[
+  In this preview there is no view of the score yet, so nothing changes the project and the title
+  never shows the dot. New, Open and Save already work with real project files.
+]
 
 == Status of this guide
 

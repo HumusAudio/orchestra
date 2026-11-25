@@ -19,7 +19,8 @@
 //! - A **double click** there maximises or restores (`WindowRequest::ToggleMaximized`).
 //! - A **secondary click** there shows the system's window menu at the pointer
 //!   (`WindowRequest::ShowWindowMenu`).
-//! - The **buttons** close (`WindowRequest::Close`, the same way as the system's close button),
+//! - The **buttons** close (`WindowRequest::RequestClose`, the same way as the system's close
+//!   button: the window asks the application first, which may ask to save the changes, F2.12a5b),
 //!   maximise or restore, and minimise, on release over the button, as every button.
 //!
 //! # Full screen (a precision of TB6 proposed in F2.11b2)
@@ -181,6 +182,20 @@ impl TitleBar {
             fullscreen: false,
             press: None,
         }
+    }
+
+    /// Changes the title (F2.12a5b: the project's name and its modification mark follow the open
+    /// project). Answers whether it changed: then the bar must be laid out again (the title's
+    /// width moves where it is centred), recorded again, and its accessible node rebuilt (the
+    /// title is its name). The text is laid out again at the next measure, by forgetting the
+    /// generation it was laid out for. O(title length) for the comparison and the copy.
+    pub(crate) fn set_title(&mut self, title: &str) -> bool {
+        if self.title == title {
+            return false;
+        }
+        title.clone_into(&mut self.title);
+        self.laid_out_for = None;
+        true
     }
 
     /// Sets the window's focus and full screen. Answers `(record, layout)`: whether the bar must
@@ -406,7 +421,9 @@ impl WindowButtonWidget {
     /// What pressing it asks of the window.
     const fn request(&self) -> WindowRequest {
         match self.kind {
-            WindowButton::Close => WindowRequest::Close,
+            // Not `Close`: the window asks the application first, as for the system's own close
+            // button (F2.12a5b), so unsaved changes are never lost by this button.
+            WindowButton::Close => WindowRequest::RequestClose,
             WindowButton::Maximize => WindowRequest::ToggleMaximized,
             WindowButton::Minimize => WindowRequest::Minimize,
         }

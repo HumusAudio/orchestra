@@ -2,7 +2,7 @@
 
 //! The file choosers of the demonstration (ADR-0050 DG4, SCALETTA F2.12a5a), headless: *Open* and
 //! *Save as* ask the window for a chooser with the catalogues' texts and the `.orchestra` filter,
-//! a second request waits for the first answer, a chosen path is kept, *Cancelled* changes
+//! a second request waits for the first answer, a missing file chosen shows an error, *Cancelled* changes
 //! nothing, *Unavailable* opens the error dialog, and the texts exist in the six languages.
 
 #![allow(
@@ -71,7 +71,7 @@ fn open_asks_for_a_chooser_once() {
     assert_eq!(demo.take_file_request(), None, "one chooser at a time");
 }
 
-/// *Save as* (Ctrl+Shift+S, ⇧⌘S) proposes "Untitled.orchestra" (no project yet, F2.12a5b).
+/// *Save as* (Ctrl+Shift+S, ⇧⌘S) proposes "Untitled.orchestra" for a project never saved.
 #[test]
 fn save_as_proposes_untitled() {
     let (mut demo, mut list) = demo();
@@ -82,21 +82,22 @@ fn save_as_proposes_untitled() {
     assert_eq!(request.file_name.as_deref(), Some("Untitled.orchestra"));
 }
 
-/// A chosen path is kept and the interface is free again; *Cancelled* keeps the last path.
+/// A cancelled chooser frees the interface and changes nothing; a chosen file that cannot be
+/// opened (it does not exist) shows the error and keeps the project (F2.12a5b).
 #[test]
-fn a_chosen_path_is_kept() {
+fn a_cancelled_or_failed_open_keeps_the_project() {
     let (mut demo, mut list) = demo();
     primary(&mut demo, &mut list, "o", false);
     let _ = demo.take_file_request();
-    let path = PathBuf::from("songs").join("first.orchestra");
-    demo.file_chosen(FileChoice::Chosen(path.clone()), &mut list);
-    assert_eq!(demo.chosen_file(), Some(path.as_path()));
+    demo.file_chosen(FileChoice::Cancelled, &mut list);
     assert!(!demo.ui().choosing_file());
+    assert_eq!(demo.ui().dialogs().count(), 0);
     primary(&mut demo, &mut list, "o", false);
     assert!(demo.take_file_request().is_some(), "free again");
-    demo.file_chosen(FileChoice::Cancelled, &mut list);
-    assert_eq!(demo.chosen_file(), Some(path.as_path()));
-    assert_eq!(demo.ui().dialogs().count(), 0);
+    let path = PathBuf::from("no such folder").join("first.orchestra");
+    demo.file_chosen(FileChoice::Chosen(path), &mut list);
+    assert_eq!(demo.ui().dialogs().count(), 1, "the error");
+    assert_eq!(demo.project().unwrap().project().path(), None::<&Path>);
 }
 
 /// *Unavailable* opens the error dialog (never silence, ADR-0036 B4); its *OK* closes it.
@@ -107,7 +108,7 @@ fn unavailable_shows_the_error() {
     let _ = demo.take_file_request();
     demo.file_chosen(FileChoice::Unavailable, &mut list);
     assert_eq!(demo.ui().dialogs().count(), 1);
-    assert_eq!(demo.chosen_file(), None::<&Path>);
+    assert_eq!(demo.project().unwrap().project().path(), None::<&Path>);
     for state in [ButtonState::Pressed, ButtonState::Released] {
         demo.input(
             &InputEvent::Key {

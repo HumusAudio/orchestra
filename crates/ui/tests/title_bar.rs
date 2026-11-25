@@ -241,7 +241,7 @@ fn the_buttons_ask_on_release_over_them() {
     let expected = [
         WindowRequest::Minimize,
         WindowRequest::ToggleMaximized,
-        WindowRequest::Close,
+        WindowRequest::RequestClose,
     ];
     for (&button, request) in buttons.iter().zip(expected) {
         let at = bench.centre(button);

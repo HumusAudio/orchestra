@@ -33,7 +33,7 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0023](0023-pitch-spelling-intervals-keys.md) | Pitch with spelling, intervals, key signatures, transposition | Accepted |
 | [0024](0024-voice-content.md) | What a voice contains: events, note values, tuplets, ties, grace notes, markings, offsets | Accepted |
 | [0025](0025-form.md) | The form: repeats, voltas, jumps, bar repeats and pass-specific playing | Accepted |
-| [0026](0026-commands-undo-notifications.md) | Commands, one undo history, fine-grained change notifications | Accepted |
+| [0026](0026-commands-undo-notifications.md) | Commands, one undo history, fine-grained change notifications | Accepted (precision §12, F2.12a5b) |
 | [0027](0027-playback-rules-v0.md) | Playback rules v0: from the written intent to the played notes | Accepted (precision §16, 2026-11-23; §17, F2.12a4b2) |
 | [0028](0028-daw-move-tolerance-threshold.md) | Moving a note from the DAW side: tolerance threshold, performance-only edits, pass offsets | Accepted |
 | [0029](0029-project-file-format-v1.md) | Project file format v1: plain JSON, a schema of its own, strict loading | Accepted |
@@ -47,7 +47,7 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0037](0037-themes-tokens-and-customisation.md) | Themes: tokens, ten built-in pairs, user customisation (amends ADR-0014) | Accepted |
 | [0038](0038-system-theme-detection.md) | Reading the system light/dark preference: our portal code on Linux, winit elsewhere | Accepted |
 | [0039](0039-drawing-abstraction.md) | The drawing abstraction: a segmented display list of themed commands | Accepted (precision F2.11c) |
-| [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted (precisions F2.09e, F2.10b2, F2.10c1, F2.10c2, F2.11d1, F2.12a4a) |
+| [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted (precisions F2.09e, F2.10b2, F2.10c1, F2.10c2, F2.11d1, F2.12a4a, F2.12a5b) |
 | [0041](0041-headless-screenshots.md) | Headless screenshots: a scene catalogue, rendered by the app, never committed (amends ADR-0014 §7, ADR-0037 T10) | Accepted |
 | [0042](0042-cpu-renderer-vello-cpu.md) | The interface renderer: `vello_cpu` behind our display list, no GPU for now (amends ADR-0039 D9, ADR-0036, ADR-0012) | Accepted; R1, R3, R5, R6 superseded by ADR-0043 |
 | [0043](0043-keep-tiny-skia-cache-shadows.md) | Keep `tiny-skia`, cache shadows; `vello_cpu` is dropped (supersedes part of ADR-0042) | Accepted (precisions F2.09b2, F2.09d, F2.10b2) |
@@ -56,5 +56,5 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0046](0046-value-control-conventions.md) | Value-control conventions: wheel, double click to the default, fine adjustment | Accepted (precisions F2.12a4b1) |
 | [0047](0047-text-field.md) | The text field: byte offsets on graphemes, platform editing keys, a local undo, IME, the clipboard | Accepted (precisions F2.10b1, F2.10b2, F2.10b3, F2.10c1, F2.10c2) |
 | [0048](0048-actions-shortcuts-menus-popups.md) | Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer | Accepted (precisions F2.11c, F2.11d1, F2.11d2a, F2.11d2b, F2.11e1, F2.11e2, F2.12a4a) |
-| [0049](0049-own-title-bar.md) | Our own title bar, only where the system draws none | Accepted (precisions F2.11b2, F2.11b3) |
-| [0050](0050-dialogs-settings-file-preferences.md) | Dialogs, the settings file and the Preferences: modal layers, a lenient versioned file, changes applied at once | Accepted (precisions F2.12a2; DG2 amended and precisions F2.12a3a; precisions F2.12a3b, F2.12a4a, F2.12a4b1, F2.12a4b2, F2.12a5a) |
+| [0049](0049-own-title-bar.md) | Our own title bar, only where the system draws none | Accepted (precisions F2.11b2, F2.11b3, F2.12a5b) |
+| [0050](0050-dialogs-settings-file-preferences.md) | Dialogs, the settings file and the Preferences: modal layers, a lenient versioned file, changes applied at once | Accepted (precisions F2.12a2; DG2 amended and precisions F2.12a3a; precisions F2.12a3b, F2.12a4a, F2.12a4b1, F2.12a4b2, F2.12a5a, F2.12a5b) |
