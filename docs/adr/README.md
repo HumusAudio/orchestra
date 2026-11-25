@@ -58,3 +58,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0048](0048-actions-shortcuts-menus-popups.md) | Actions, shortcuts, menus and popups: one registry, contexts, one menu model, a popup layer | Accepted (precisions F2.11c, F2.11d1, F2.11d2a, F2.11d2b, F2.11e1, F2.11e2, F2.12a4a, F2.12c1) |
 | [0049](0049-own-title-bar.md) | Our own title bar, only where the system draws none | Accepted (precisions F2.11b2, F2.11b3, F2.12a5b) |
 | [0050](0050-dialogs-settings-file-preferences.md) | Dialogs, the settings file and the Preferences: modal layers, a lenient versioned file, changes applied at once | Accepted (precisions F2.12a2; DG2 amended and precisions F2.12a3a; precisions F2.12a3b, F2.12a4a, F2.12a4b1, F2.12a4b2, F2.12a5a, F2.12a5b, F2.12c1) |
+| [0051](0051-shortcut-files.md) | Shortcut files: the whole keyboard in a versioned file of its own | Accepted |

@@ -360,3 +360,202 @@ fn a_new_shortcut_runs_its_command() {
     key(&mut demo, &mut list, &Key::Character("k".into()), PRIMARY);
     assert!(demo.take_file_request().is_some(), "Open ran");
 }
+
+/// A fresh folder for the test `name`, in the system's temporary directory.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("orchestra-keys-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Presses Tab then Enter: in a question whose focus starts on *Cancel* (no default button,
+/// ADR-0050 C4), this presses the other button (*Replace*).
+fn tab_enter(demo: &mut Demo, list: &mut DisplayList) {
+    key(demo, list, &Key::Named(NamedKey::Tab), Modifiers::default());
+    key(
+        demo,
+        list,
+        &Key::Named(NamedKey::Enter),
+        Modifiers::default(),
+    );
+}
+
+/// *Export…* asks for a file with the shortcut files' filter, proposes the translated name, adds
+/// the extension and writes the whole keyboard (ADR-0051 SF2, SF5); the open project is not
+/// touched by the answer.
+#[test]
+fn export_writes_the_whole_keyboard() {
+    let dir = scratch("export");
+    let (mut demo, mut list) = keyboard_section();
+    let export = demo.shortcut_editor().unwrap().export_button();
+    click(&mut demo, &mut list, export);
+    let request = demo.take_file_request().unwrap();
+    assert_eq!(request.kind, orchestra_ui::FileRequestKind::Save);
+    assert_eq!(request.title, "Export shortcuts");
+    assert_eq!(request.filter_name, "Orchestra shortcuts");
+    assert_eq!(request.extensions, ["orchestra-shortcuts"]);
+    assert_eq!(
+        request.file_name.as_deref(),
+        Some("Shortcuts.orchestra-shortcuts")
+    );
+    demo.file_chosen(
+        orchestra_ui::FileChoice::Chosen(dir.join("Mine")),
+        &mut list,
+    );
+    let written = orchestra_io::shortcuts::load(&dir.join("Mine.orchestra-shortcuts")).unwrap();
+    assert_eq!(
+        written.entries.len(),
+        15,
+        "every command, defaults included"
+    );
+    assert_eq!(written.entries[0].action, "file.new");
+    assert_eq!(written.entries[0].keys, ["Primary+n"]);
+    assert_eq!(
+        demo.project().unwrap().project().path(),
+        None,
+        "not the project's"
+    );
+    assert_eq!(demo.ui().dialogs().count(), 1, "only the Preferences");
+    // Again onto the same name typed without the extension: asked; Escape keeps the file.
+    std::fs::write(dir.join("Mine.orchestra-shortcuts"), b"old").unwrap();
+    click(&mut demo, &mut list, export);
+    let _ = demo.take_file_request();
+    demo.file_chosen(
+        orchestra_ui::FileChoice::Chosen(dir.join("Mine")),
+        &mut list,
+    );
+    assert_eq!(demo.ui().dialogs().count(), 2, "the question");
+    key(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Escape),
+        Modifiers::default(),
+    );
+    assert_eq!(
+        std::fs::read(dir.join("Mine.orchestra-shortcuts")).unwrap(),
+        b"old"
+    );
+    // And replaced.
+    click(&mut demo, &mut list, export);
+    let _ = demo.take_file_request();
+    demo.file_chosen(
+        orchestra_ui::FileChoice::Chosen(dir.join("Mine")),
+        &mut list,
+    );
+    tab_enter(&mut demo, &mut list);
+    assert!(orchestra_io::shortcuts::load(&dir.join("Mine.orchestra-shortcuts")).is_ok());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// *Import…* replaces every shortcut with the file's (SF3), reports the entries not used (a fixed
+/// key, an entry the reader dropped) and saves the differences; an unknown action is kept, not
+/// reported.
+#[test]
+fn import_replaces_the_shortcuts_and_reports_what_was_not_used() {
+    let dir = scratch("import");
+    let path = dir.join("Theirs.orchestra-shortcuts");
+    std::fs::write(
+        &path,
+        br#"{ "orchestra_shortcuts": 1, "shortcuts": [
+              { "action": "file.open", "keys": ["Primary+k"] },
+              { "action": "edit.undo", "keys": ["Tab"] },
+              { "action": "future.action", "keys": ["F5"] },
+              { "keys": [] }
+            ] }"#,
+    )
+    .unwrap();
+    let (mut demo, mut list) = keyboard_section();
+    let ids = demo.actions().unwrap();
+    let import = demo.shortcut_editor().unwrap().import_button();
+    click(&mut demo, &mut list, import);
+    let request = demo.take_file_request().unwrap();
+    assert_eq!(request.kind, orchestra_ui::FileRequestKind::Open);
+    // The defaults are in use: nothing to lose, no question.
+    demo.file_chosen(orchestra_ui::FileChoice::Chosen(path.clone()), &mut list);
+    assert_eq!(shortcuts(&demo, ids.open), [primary('k')]);
+    assert_eq!(shortcuts(&demo, ids.undo), [], "Tab is fixed: dropped");
+    assert_eq!(demo.ui().dialogs().count(), 2, "the report");
+    let saved: Vec<String> = demo
+        .settings()
+        .settings()
+        .shortcuts
+        .iter()
+        .map(|entry| entry.action.clone())
+        .collect();
+    assert_eq!(saved, ["file.open", "edit.undo", "future.action"]);
+    key(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Enter),
+        Modifiers::default(),
+    );
+    assert_eq!(demo.ui().dialogs().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// With shortcuts of one's own, importing asks first: Escape keeps them, *Replace* replaces.
+#[test]
+fn import_asks_before_replacing_ones_own_shortcuts() {
+    let dir = scratch("import-ask");
+    let path = dir.join("Theirs.orchestra-shortcuts");
+    std::fs::write(
+        &path,
+        br#"{ "orchestra_shortcuts": 1, "shortcuts": [ { "action": "file.save", "keys": ["Primary+j"] } ] }"#,
+    )
+    .unwrap();
+    let (mut demo, mut list) = keyboard_section();
+    let ids = demo.actions().unwrap();
+    // One of one's own: Open without shortcut.
+    select_command(&mut demo, &mut list, 1);
+    let editor = demo.shortcut_editor().unwrap();
+    let (remove, import) = (editor.remove_button(), editor.import_button());
+    click(&mut demo, &mut list, remove);
+    assert_eq!(shortcuts(&demo, ids.open), []);
+    for replace in [false, true] {
+        click(&mut demo, &mut list, import);
+        let _ = demo.take_file_request();
+        demo.file_chosen(orchestra_ui::FileChoice::Chosen(path.clone()), &mut list);
+        assert_eq!(demo.ui().dialogs().count(), 2, "the question");
+        if replace {
+            tab_enter(&mut demo, &mut list);
+        } else {
+            key(
+                &mut demo,
+                &mut list,
+                &Key::Named(NamedKey::Escape),
+                Modifiers::default(),
+            );
+        }
+    }
+    // Replaced: Open has its default back (the file does not name it), Save has the file's.
+    assert_eq!(shortcuts(&demo, ids.open), [primary('o')]);
+    assert_eq!(shortcuts(&demo, ids.save), [primary('j')]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file that is not a shortcut file is an error that names it, and changes nothing.
+#[test]
+fn a_file_that_cannot_be_imported_changes_nothing() {
+    let dir = scratch("import-error");
+    let path = dir.join("Notes.orchestra-shortcuts");
+    std::fs::write(&path, b"just some text").unwrap();
+    let (mut demo, mut list) = keyboard_section();
+    let ids = demo.actions().unwrap();
+    let before = shortcuts(&demo, ids.new);
+    let import = demo.shortcut_editor().unwrap().import_button();
+    click(&mut demo, &mut list, import);
+    let _ = demo.take_file_request();
+    demo.file_chosen(orchestra_ui::FileChoice::Chosen(path), &mut list);
+    assert_eq!(demo.ui().dialogs().count(), 2, "the error");
+    assert_eq!(shortcuts(&demo, ids.new), before);
+    assert_eq!(demo.settings().settings().shortcuts.len(), 0);
+    key(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::Enter),
+        Modifiers::default(),
+    );
+    assert_eq!(demo.ui().dialogs().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

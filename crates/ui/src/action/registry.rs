@@ -734,6 +734,22 @@ impl Registry {
         known.chain(unknown)
     }
 
+    /// The whole keyboard (ADR-0051 SF2, F2.12c2): every action with its whole list, in
+    /// registration order, defaults included; then the kept entries of unknown actions. What a
+    /// shortcut file exports, so that it means the same whatever the defaults of the version that
+    /// reads it. [`Registry::load_overrides`] with it gives this registry's shortcuts back.
+    pub fn layout(&self) -> impl Iterator<Item = (&str, &[Shortcut])> + '_ {
+        let known = self
+            .actions
+            .iter()
+            .map(|entry| (entry.spec.identifier, entry.shortcuts.as_slice()));
+        let unknown = self
+            .unknown
+            .iter()
+            .map(|(identifier, shortcuts)| (identifier.as_str(), shortcuts.as_slice()));
+        known.chain(unknown)
+    }
+
     /// Starts from the defaults and applies the user's entries in order (AM7), as a settings file
     /// has them: the later entry wins a conflict (the earlier action loses that shortcut), fixed
     /// keys are dropped, unknown actions are kept and ignored. Returns what went wrong, for the

@@ -368,3 +368,17 @@ pub fn shortcuts_to_settings(registry: &Registry) -> Vec<ShortcutEntry> {
         })
         .collect()
 }
+
+/// The registry's whole keyboard as a shortcut file's entries (ADR-0051 SF2, F2.12c2): every
+/// action with its whole list, then the kept unknown ones ([`Registry::layout`]). O(actions +
+/// shortcuts).
+#[must_use]
+pub fn layout_to_entries(registry: &Registry) -> Vec<ShortcutEntry> {
+    registry
+        .layout()
+        .map(|(action, shortcuts)| ShortcutEntry {
+            action: action.to_owned(),
+            keys: shortcuts.iter().map(Shortcut::settings_text).collect(),
+        })
+        .collect()
+}

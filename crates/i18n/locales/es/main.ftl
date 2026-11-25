@@ -288,3 +288,27 @@ prefs-shortcut-conflict-message = ¿Asignarlo a «{ $command }» en su lugar? «
 prefs-shortcut-restore-conflict-title = Algunos atajos predeterminados de «{ $command }» están asignados a otros comandos
 prefs-shortcut-restore-conflict-message = ¿Devolverlos a «{ $command }»? Los otros comandos dejarán de tenerlos.
 dialog-reassign = Reasignar
+
+## Importing and exporting the shortcuts (F2.12c2, ADR-0051; glossary: import, export, shortcut,
+## replace). $file is a file's whole name ("Mine.orchestra-shortcuts"); $count a number of entries.
+## file-shortcuts-name is the name proposed when exporting, without the extension (the program adds
+## ".orchestra-shortcuts"). The question comes before an import replaces shortcuts the user had
+## changed (buttons: dialog-replace, dialog-cancel). The report comes after an import when some
+## entries of the file could not be used. The errors' other messages are those of the project's
+## (project-open-error-*, project-save-error-*).
+
+prefs-shortcuts-import = Importar…
+prefs-shortcuts-export = Exportar…
+file-filter-shortcuts = Atajos de { app-name }
+file-import-shortcuts-title = Importar atajos de teclado
+file-export-shortcuts-title = Exportar atajos de teclado
+file-shortcuts-name = Atajos de teclado
+prefs-shortcuts-import-question-title = ¿Sustituir sus atajos por los de «{ $file }»?
+prefs-shortcuts-import-question-message = Se perderán los atajos que ha cambiado.
+prefs-shortcuts-imported-title = Atajos importados
+prefs-shortcuts-imported-unused = Entradas de «{ $file }» no usadas: { $count }
+prefs-shortcuts-import-error-title = No se puede importar «{ $file }»
+prefs-shortcuts-import-error-not-shortcuts = El archivo no es un archivo de atajos de { app-name }.
+prefs-shortcuts-import-error-newer = El archivo se guardó con una versión más nueva de { app-name }. Instale la última versión para importarlo.
+prefs-shortcuts-import-error-damaged = El archivo está dañado: no se puede leer como atajos de { app-name }.
+prefs-shortcuts-export-error-title = No se puede exportar «{ $file }»

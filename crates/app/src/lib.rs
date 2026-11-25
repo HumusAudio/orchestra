@@ -64,7 +64,7 @@ pub use preferences::{
 };
 pub use project::{
     NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow, SaveAnswer, Step,
-    Then, file_name, new_document, project_name, with_project_extension,
+    Then, file_name, new_document, project_name, with_extension_added, with_project_extension,
 };
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
@@ -72,8 +72,8 @@ pub use screenshots::{
 pub use settings::convert::{
     SettingsProblem, apply_settings_shortcuts, custom_theme_from_settings,
     custom_theme_to_settings, fine_modifier_from_settings, fine_modifier_to_settings,
-    language_from_settings, language_to_settings, mode_to_settings, shortcuts_to_settings,
-    theme_from_settings, tuning_from_settings, tuning_to_settings,
+    language_from_settings, language_to_settings, layout_to_entries, mode_to_settings,
+    shortcuts_to_settings, theme_from_settings, tuning_from_settings, tuning_to_settings,
 };
 pub use settings::{SettingsStore, WRITE_DELAY};
 pub use template::Template;

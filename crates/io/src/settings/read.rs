@@ -287,7 +287,11 @@ pub(crate) fn parse_color(text: &str) -> Option<u32> {
 /// The shortcut entries, in the file's order: each needs a non-empty `action` and a `keys` list
 /// of strings (an empty list is "no shortcut"). A key that is not a string is dropped alone; an
 /// entry without `action` or `keys` is dropped.
-fn read_shortcuts(list: &[Value], path: &str, warnings: &mut Vec<Warning>) -> Vec<ShortcutEntry> {
+pub(crate) fn read_shortcuts(
+    list: &[Value],
+    path: &str,
+    warnings: &mut Vec<Warning>,
+) -> Vec<ShortcutEntry> {
     let mut entries = Vec::with_capacity(list.len());
     for (index, value) in list.iter().enumerate() {
         let path = format!("{path}[{index}]");

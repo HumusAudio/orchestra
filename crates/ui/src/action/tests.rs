@@ -610,3 +610,34 @@ fn reassigning_and_restoring_take_the_shortcut_from_its_owner() {
     );
     assert_eq!(registry.restore_conflicts(new).len(), 0);
 }
+
+/// The whole keyboard (ADR-0051 SF2): every action with its list, defaults included, then the
+/// unknown entries kept; loaded back, it gives the same shortcuts.
+#[test]
+fn the_layout_lists_every_action_and_loads_back() {
+    let mut registry = Registry::new(Platform::Linux);
+    let new = add(&mut registry, spec("file.new", &[ch(PRIMARY, 'n')]));
+    let open = add(&mut registry, spec("file.open", &[ch(PRIMARY, 'o')]));
+    let _ = registry.load_overrides(vec![
+        ("file.open".to_owned(), vec![ch(PRIMARY, 'k')]),
+        ("future.action".to_owned(), vec![ch(PRIMARY, 'j')]),
+    ]);
+    let layout: Vec<(String, Vec<Shortcut>)> = registry
+        .layout()
+        .map(|(action, shortcuts)| (action.to_owned(), shortcuts.to_vec()))
+        .collect();
+    assert_eq!(
+        layout,
+        vec![
+            ("file.new".to_owned(), vec![ch(PRIMARY, 'n')]),
+            ("file.open".to_owned(), vec![ch(PRIMARY, 'k')]),
+            ("future.action".to_owned(), vec![ch(PRIMARY, 'j')]),
+        ]
+    );
+    let mut other = Registry::new(Platform::Linux);
+    let _ = add(&mut other, spec("file.new", &[ch(PRIMARY, 'n')]));
+    let _ = add(&mut other, spec("file.open", &[ch(PRIMARY, 'o')]));
+    let _ = other.load_overrides(layout);
+    assert_eq!(other.shortcuts(new), &[ch(PRIMARY, 'n')]);
+    assert_eq!(other.shortcuts(open), &[ch(PRIMARY, 'k')]);
+}

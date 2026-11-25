@@ -5624,6 +5624,71 @@ registry's own `shortcut_label`, so the tests hold on the three platforms (macOS
 "↩": a first version that expected "Enter" failed there in CI). The screenshots
 `preferences-keyboard` and `shortcut-conflict` show the section and the question.
 
+#### The shortcut files
+
+**What the user sees** (ADR-0051, SCALETTA F2.12c2). *Import…* and *Export…* beside *Restore all
+shortcuts*. *Export…* opens the system's chooser (*Export shortcuts*, the filter *Orchestra
+shortcuts* on `*.orchestra-shortcuts`, the name *Shortcuts* proposed) and writes the whole
+keyboard. *Import…* reads a file and puts its shortcuts in place of the current ones, asking
+first if the user had changed some; afterwards it says how many entries could not be used, when
+some could not. A file that is not a shortcut file, is damaged, too large or newer is a translated
+error naming it, and nothing changes.
+
+**The file** (`crates/io/src/shortcuts.rs`, `orchestra_io::shortcuts`). JSON with the version
+first and the settings file's own entries, with the abstract modifiers:
+
+```json
+{
+  "orchestra_shortcuts": 1,
+  "shortcuts": [
+    { "action": "file.new", "keys": ["Primary+n"] },
+    { "action": "help.contents", "keys": [] }
+  ]
+}
+```
+
+`from_bytes` and `load` read it leniently entry by entry (the settings file's entry reader,
+`settings::read_shortcut_entries`, shared) and count what they drop (`ShortcutFile::dropped`);
+the whole file fails with a `ShortcutFileError` when it is unreadable, larger than 1 MiB, not
+JSON, without `orchestra_shortcuts`, or newer than version 1. `to_bytes` and `save` write safely
+(a temporary file renamed over the target). The migration chain is empty (version 1 is the
+first) and uses the engine shared with the project and settings files; a golden file of version
+1, `tests/golden/shortcuts-v1/keyboard.orchestra-shortcuts`, is read and written back byte for
+byte.
+
+**What is exported** (SF2). `Registry::layout()` lists every action with its whole list,
+defaults included, then the kept entries of unknown actions; `layout_to_entries` turns it into
+the file's entries. So the file means the same whatever the defaults of the version that reads
+it, while the settings file keeps storing only the differences.
+
+**Importing** (SF3). The file is read first (an error changes nothing). If the registry has
+differences from the defaults (`overrides()` is not empty) the question *Replace your shortcuts
+with those of "File"?* comes, with *Replace* (destructive) and *Cancel*. Then
+`apply_settings_shortcuts` starts from the defaults and applies the entries with AM7's rules, and
+the settings are written. The report counts the file's dropped entries and the registry's
+problems (keys that are not shortcuts, fixed keys, conflicts lost), not the unknown actions,
+which are kept.
+
+**Exporting** (SF5). The extension is added to a typed name that lacks it
+(`with_extension_added`, the generalisation of the project's `with_project_extension`), and a file
+the chooser did not confirm is asked about, as *Save as* does.
+
+**Who gets the chooser's answer** (SF6). The demonstration keeps `chooser: Option<ChooserOwner>`
+(`Project` or `Shortcuts`), set when it opens a chooser, so the answer goes to the open project or
+to the shortcut editor (`ShortcutEditor::file_chosen`). The editor answers
+`KeyboardOutcome::Choose(request)` to ask for one, and `Changed { report }` after an import.
+
+**Texts.** 15 new messages in the six catalogues (the system's reasons reuse the project's error
+texts); the glossary gains *import* and *export* (MuseScore Studio's *Import shortcuts*, *Export
+shortcuts*).
+
+**Tests.** `crates/io/tests/shortcuts_cases.rs` (4): the golden file, leniency, the files that
+are refused, saving and loading back with the failing path. `crates/ui/src/action/tests.rs`: the
+layout lists every action and loads back. `crates/app/tests/keyboard.rs` (4 more): the export's
+request and the whole keyboard written, the replacement question, the import with its report and
+the saved differences, the question before replacing one's own shortcuts, a file that cannot be
+imported. The screenshot `preferences-keyboard` shows the two buttons.
+
 #### The file choosers
 
 **What the user sees** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Open…* (Ctrl+O, ⌘O) and *File →

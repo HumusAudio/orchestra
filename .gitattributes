@@ -24,3 +24,4 @@
 *.wav  binary
 *.flac binary
 *.mid  binary
+*.orchestra-shortcuts text eol=lf

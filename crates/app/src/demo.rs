@@ -243,6 +243,8 @@ pub struct Demo {
     playback_labels: Vec<WidgetId>,
     /// The shortcut editor while the Keyboard section is shown (F2.12c1).
     shortcut_editor: Option<ShortcutEditor>,
+    /// Who asked for the file chooser that is open (F2.12c2): its answer goes back there.
+    chooser: Option<ChooserOwner>,
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
@@ -366,6 +368,7 @@ impl Demo {
             preferences: None,
             playback_labels: Vec::new(),
             shortcut_editor: None,
+            chooser: None,
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             files: texts.files.clone(),
             project_texts: texts.project.clone(),
@@ -548,12 +551,11 @@ impl Demo {
                 let _ = self.ui.open_dialog(spec, list);
             }
             ProjectEffect::ChooseOpen => {
-                let _ = self.ui.choose_file(open_request(&self.files), list);
+                self.choose(ChooserOwner::Project, open_request(&self.files), list);
             }
             ProjectEffect::ChooseSave { name } => {
-                let _ = self
-                    .ui
-                    .choose_file(save_request(&self.files, name.as_deref()), list);
+                let request = save_request(&self.files, name.as_deref());
+                self.choose(ChooserOwner::Project, request, list);
             }
             ProjectEffect::ConfirmReplace { path } => {
                 let spec = replace_dialog(
@@ -662,14 +664,25 @@ impl Demo {
             message,
             list,
         );
+        self.keyboard_outcome(outcome, list);
+    }
+
+    /// Carries out what the shortcut editor answered (F2.12c1–c2): the settings written after a
+    /// change (only the differences from the defaults, AM7), a dialog opened over the
+    /// Preferences, a file chooser opened for the editor.
+    fn keyboard_outcome(&mut self, outcome: KeyboardOutcome, list: &mut DisplayList) {
         match outcome {
             KeyboardOutcome::None => {}
-            KeyboardOutcome::Changed => {
+            KeyboardOutcome::Changed { report } => {
                 if let Some(registry) = self.ui.actions() {
                     let entries = crate::settings::convert::shortcuts_to_settings(registry);
                     let now = self.ui.now();
                     self.settings
                         .update(now, |settings| settings.shortcuts = entries);
+                }
+                // Fails only if the interface's own tree is inconsistent: then not shown.
+                if let Some(spec) = report {
+                    let _ = self.ui.open_dialog(spec, list);
                 }
             }
             // Fails only if the interface's own tree is inconsistent; the answer then never
@@ -677,8 +690,20 @@ impl Demo {
             KeyboardOutcome::Ask(spec) => {
                 let _ = self.ui.open_dialog(spec, list);
             }
+            KeyboardOutcome::Choose(request) => {
+                self.choose(ChooserOwner::Shortcuts, request, list);
+            }
         }
         self.ui.frame(list);
+    }
+
+    /// Opens the system's file chooser with `request` for `owner`, who gets the answer
+    /// ([`WindowApp::file_chosen`]). The interface refuses a second chooser while one is open
+    /// (its blocking layer keeps one from being asked anyway); the owner then stays as it was.
+    fn choose(&mut self, owner: ChooserOwner, request: FileRequest, list: &mut DisplayList) {
+        if self.ui.choose_file(request, list) {
+            self.chooser = Some(owner);
+        }
     }
 
     /// Acts on the widgets' messages (ADR-0045 WA7): *Restore defaults* puts the options back,
@@ -786,6 +811,15 @@ impl Demo {
             self.ui.frame(list);
         }
     }
+}
+
+/// Who asked for the open file chooser (F2.12c2, ADR-0051 SF6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChooserOwner {
+    /// The open project: *Open*, *Save*, *Save as* (F2.12a5b).
+    Project,
+    /// The shortcut editor: *Import…*, *Export…*.
+    Shortcuts,
 }
 
 /// A step of the open project asked by a message, run once the message queue is drained.
@@ -1107,8 +1141,9 @@ impl WindowApp for Demo {
     fn file_chosen(&mut self, choice: FileChoice, list: &mut DisplayList) {
         // The blocking layer goes first, so an error dialog opens over the interface itself.
         self.ui.file_chosen(list);
-        // The open project opens or saves the chosen file (F2.12a5b); a cancelled chooser, or
-        // one that could not open, puts the flow back to idle.
+        // The chosen file goes back to who asked (F2.12c2): the open project opens or saves it
+        // (F2.12a5b), the shortcut editor imports or exports it. A cancelled chooser, or one that
+        // could not open, puts the asker back to idle.
         let path = match choice {
             FileChoice::Chosen(path) => Some(path),
             FileChoice::Cancelled => None,
@@ -1122,7 +1157,18 @@ impl WindowApp for Demo {
                 None
             }
         };
-        self.project_step(|flow| flow.chosen(path), list);
+        match self.chooser.take() {
+            Some(ChooserOwner::Shortcuts) => {
+                if let Some(editor) = self.shortcut_editor.as_mut() {
+                    let outcome =
+                        editor.file_chosen(&mut self.ui, &self.preferences_texts.keyboard, path);
+                    self.keyboard_outcome(outcome, list);
+                }
+            }
+            Some(ChooserOwner::Project) | None => {
+                self.project_step(|flow| flow.chosen(path), list);
+            }
+        }
     }
 
     fn close_requested(&mut self, list: &mut DisplayList) -> bool {

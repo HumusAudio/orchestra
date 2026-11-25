@@ -149,9 +149,16 @@ pub fn new_document() -> Result<Document, NewDocumentError> {
 /// (possible on Linux) are kept byte for byte. O(path length).
 #[must_use]
 pub fn with_project_extension(path: PathBuf) -> PathBuf {
+    with_extension_added(path, PROJECT_EXTENSION)
+}
+
+/// `path` with `.extension` at its end, by [`with_project_extension`]'s rules for any extension
+/// (F2.12c2: the shortcut files' `orchestra-shortcuts`, ADR-0051 SF5). O(path length).
+#[must_use]
+pub fn with_extension_added(path: PathBuf, extension: &str) -> PathBuf {
     let has_it = path
         .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(PROJECT_EXTENSION));
+        .is_some_and(|own| own.eq_ignore_ascii_case(extension));
     if has_it {
         return path;
     }
@@ -161,7 +168,7 @@ pub fn with_project_extension(path: PathBuf) -> PathBuf {
     if !ends_with_dot {
         name.push(".");
     }
-    name.push(PROJECT_EXTENSION);
+    name.push(extension);
     PathBuf::from(name)
 }
 
