@@ -13,6 +13,11 @@
 //! an ellipsis ("Reverb send le…"), never past its rectangle; see
 //! [`ElidedText`](super::elide::ElidedText). A wrapping label wraps instead and is never elided.
 //! Assistive technologies always get the whole text.
+//!
+//! # An empty label takes no room (F2.12c1)
+//! A label whose text is empty measures zero, so a line that is shown only sometimes (the shortcut
+//! editor's "No command matches…", the reason a key cannot be assigned) does not leave an empty
+//! line while it says nothing. Its parent's spacing around it stays.
 
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::list::Recorder;
@@ -99,6 +104,9 @@ impl Label {
 
 impl<M: 'static> Widget<M> for Label {
     fn measure(&mut self, cx: &mut LayoutCx<'_, M>, constraints: Constraints) -> Size {
+        if self.text.is_empty() {
+            return constraints.constrain(Size::new(0.0, 0.0));
+        }
         let width =
             (self.wrap && constraints.max.width.is_finite()).then_some(constraints.max.width);
         // The natural size, also for a one-line label that will not get it: the parent decides

@@ -112,6 +112,7 @@ pub use widget::access::{
     ScrollInfo, TextInfo,
 };
 pub use widget::button::{Button, ButtonKind};
+pub use widget::capture::ShortcutCapture;
 pub use widget::choice::{DropDown, ListBox, RadioGroup};
 pub use widget::dialog::{
     ButtonRole, DialogButton, DialogKind, DialogSpec, LARGE_MIN_SIZE as DIALOG_LARGE_MIN_SIZE,

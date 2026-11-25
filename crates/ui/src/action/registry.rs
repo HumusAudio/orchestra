@@ -422,6 +422,30 @@ impl Registry {
             .and_then(|entry| entry.mnemonic)
     }
 
+    /// Every action, in registration order (the menus' order for the program's table): what the
+    /// shortcut editor lists (F2.12c1). O(1) per step, no allocation.
+    pub fn ids(&self) -> impl Iterator<Item = ActionId> + '_ {
+        (0..self.actions.len()).filter_map(|index| u16::try_from(index).ok().map(ActionId))
+    }
+
+    /// `shortcut` written for people in this registry's platform style with the keys' names of
+    /// [`Registry::set_texts`] (before it the named keys have empty names, as in the menus): what
+    /// the shortcut editor shows for each shortcut of an action, not only the first (F2.12c1).
+    /// O(length of the text).
+    #[must_use]
+    pub fn shortcut_label(&self, shortcut: Shortcut) -> String {
+        let mut out = String::new();
+        let fallback;
+        let names = if let Some(keys) = self.keys.as_ref() {
+            keys
+        } else {
+            fallback = KeyNames::default();
+            &fallback
+        };
+        shortcut.write_label(self.platform, names, &mut out);
+        out
+    }
+
     /// The name of `id` as people read it (empty until [`Registry::set_texts`], or for an unknown
     /// action).
     #[must_use]
@@ -584,6 +608,91 @@ impl Registry {
         self.check(id, context, &defaults)?;
         self.replace(id, context, defaults);
         Ok(())
+    }
+
+    /// The other action of `id`'s context that has `shortcut` now, if any: the conflict the
+    /// shortcut editor asks about before giving `shortcut` to `id` (AM7, F2.12c1). `None` for an
+    /// unknown action, or when nobody else has it.
+    ///
+    /// # Cost
+    /// O(1) expected (one probe of the lookup), no allocation.
+    #[must_use]
+    pub fn owner_of(&self, id: ActionId, shortcut: Shortcut) -> Option<ActionId> {
+        let context = self.actions.get(id.index())?.spec.context;
+        self.lookup
+            .get(&(context, shortcut))
+            .copied()
+            .filter(|&owner| owner != id)
+    }
+
+    /// Adds `shortcut` to `id`'s shortcuts (at the end: the first one, which the menus write,
+    /// stays), **taking it** from the other action of the context that had it, if any (the
+    /// answer *Reassign* of the shortcut editor, AM7, F2.12c1). All or nothing. Answers the action
+    /// that lost it. Nothing changes when `id` has it already.
+    ///
+    /// # Errors
+    /// [`RegistryError::UnknownAction`], or [`RegistryError::FixedKey`] (AM8).
+    ///
+    /// # Cost
+    /// O(shortcuts of the two actions); the menus' texts of both are written again.
+    pub fn reassign(
+        &mut self,
+        id: ActionId,
+        shortcut: Shortcut,
+    ) -> Result<Option<ActionId>, RegistryError> {
+        let entry = self
+            .actions
+            .get(id.index())
+            .ok_or(RegistryError::UnknownAction(id))?;
+        if shortcut.is_fixed(self.platform) {
+            return Err(RegistryError::FixedKey(shortcut));
+        }
+        if entry.shortcuts.contains(&shortcut) {
+            return Ok(None);
+        }
+        let context = entry.spec.context;
+        let mut shortcuts = entry.shortcuts.clone();
+        shortcuts.push(shortcut);
+        // Nothing can fail from here on: the loser gives the shortcut up, then `id` takes it.
+        let loser = self.owner_of(id, shortcut);
+        if let Some(loser) = loser {
+            self.take_from(loser, shortcut);
+        }
+        self.replace(id, context, shortcuts);
+        Ok(loser)
+    }
+
+    /// The defaults of `id` that other actions of its context have now, each with the action
+    /// that has it, in the defaults' order: why [`Registry::restore`] would refuse, for the
+    /// shortcut editor to ask (F2.12c1). Empty for an unknown action.
+    #[must_use]
+    pub fn restore_conflicts(&self, id: ActionId) -> Vec<(Shortcut, ActionId)> {
+        self.defaults(id)
+            .iter()
+            .filter_map(|&shortcut| self.owner_of(id, shortcut).map(|owner| (shortcut, owner)))
+            .collect()
+    }
+
+    /// Brings back the defaults of `id`, **taking** each from the other action that has it
+    /// meanwhile (the answer *Reassign* to the editor's question, F2.12c1). All or nothing.
+    /// Answers the actions that lost a shortcut, in the defaults' order (one may appear twice).
+    ///
+    /// # Errors
+    /// [`RegistryError::UnknownAction`].
+    pub fn restore_reassigning(&mut self, id: ActionId) -> Result<Vec<ActionId>, RegistryError> {
+        let entry = self
+            .actions
+            .get(id.index())
+            .ok_or(RegistryError::UnknownAction(id))?;
+        let (context, defaults) = (entry.spec.context, entry.defaults.clone());
+        // The defaults were checked against the fixed keys when the action was registered, so
+        // only the conflicts are left, and they are resolved here.
+        let conflicts = self.restore_conflicts(id);
+        for &(shortcut, loser) in &conflicts {
+            self.take_from(loser, shortcut);
+        }
+        self.replace(id, context, defaults);
+        Ok(conflicts.into_iter().map(|(_, loser)| loser).collect())
     }
 
     /// Brings back the defaults of every action (they never conflict: [`Registry::register`]
