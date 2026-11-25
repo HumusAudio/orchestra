@@ -207,6 +207,12 @@ pub const SCENES: &[Scene] = &[
         height: 600.0,
         record: record_preferences_keyboard,
     },
+    Scene {
+        name: "shortcut-conflict",
+        width: 960.0,
+        height: 600.0,
+        record: record_shortcut_conflict,
+    },
 ];
 
 /// The Preferences open on their section number `down` (F2.12a4b1): opened as their menu item
@@ -254,6 +260,69 @@ fn record_preferences_playback(bounds: Rect, list: &mut DisplayList, context: &S
 /// names the keys (the scenes are rendered on Linux).
 fn record_preferences_keyboard(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
     record_preferences_section(bounds, list, context, 3);
+}
+
+/// The shortcut editor's question about a conflict (F2.12c1, ADR-0048 AM7): in the Keyboard
+/// section, *Open…* selected, *Add…* pressed, then *Primary*+N, which *New* has: "Ctrl+N is
+/// already assigned to "New"", with *Reassign* (the default) and *Cancel*, over the Preferences.
+fn record_shortcut_conflict(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    if let Some(ids) = demo.actions() {
+        demo.run_action(ids.preferences, list);
+    }
+    let press = |demo: &mut Demo, list: &mut DisplayList, key: Key, modifiers: Modifiers| {
+        for state in [ButtonState::Pressed, ButtonState::Released] {
+            demo.input(
+                &InputEvent::Key {
+                    key: key.clone(),
+                    physical: orchestra_ui::PhysicalKey::Other,
+                    state,
+                    repeat: false,
+                    modifiers,
+                },
+                list,
+            );
+        }
+    };
+    // The Keyboard section (the last, End in the list of sections), then the focus on the
+    // commands' list, where Down selects *Open…*.
+    press(
+        &mut demo,
+        list,
+        Key::Named(NamedKey::End),
+        Modifiers::default(),
+    );
+    let Some((commands, add)) = demo
+        .shortcut_editor()
+        .map(|editor| (editor.commands(), editor.add_button()))
+    else {
+        return;
+    };
+    if demo.ui_mut().set_focus(Some(commands), list).is_err() {
+        return;
+    }
+    press(
+        &mut demo,
+        list,
+        Key::Named(NamedKey::ArrowDown),
+        Modifiers::default(),
+    );
+    // *Add…* from the keyboard, then the combination.
+    if demo.ui_mut().set_focus(Some(add), list).is_err() {
+        return;
+    }
+    press(
+        &mut demo,
+        list,
+        Key::Named(NamedKey::Space),
+        Modifiers::default(),
+    );
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    press(&mut demo, list, Key::Character("n".into()), primary);
 }
 
 /// The demonstration window with the Preferences open (F2.12a4a, ADR-0050 DG8–DG9), as their menu

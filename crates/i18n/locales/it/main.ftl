@@ -261,3 +261,30 @@ project-save-error-full = Non c'è abbastanza spazio sul disco.
 project-save-error-write = Non è stato possibile scrivere il file.
 project-save-error-internal = Non è stato possibile preparare il progetto per il salvataggio. È un errore di { app-name }: per favore segnalalo.
 project-save-error-kept = Il file che c'era già, se c'era, è rimasto com'era.
+
+## The shortcut editor in the Preferences' Keyboard section (F2.12c1, ADR-0048 AM7; glossary:
+## shortcut, command, reassign, add, remove, search, restore_defaults, key_escape). $command and
+## $owner are commands' names as the menus write them ("Save as…" keeps its ellipsis); $shortcut is a
+## shortcut written as the menus write it ("Ctrl+Shift+S", "⇧⌘S"); $search is what the user typed in
+## the search field. prefs-shortcut-capture is shown inside the box that waits for the keys;
+## prefs-shortcut-fixed under it when a key that cannot be assigned is pressed. The two questions
+## come when the shortcut, or a default being restored, belongs to another command; their button
+## is dialog-reassign, with dialog-cancel.
+
+prefs-shortcuts = Scorciatoie
+prefs-shortcuts-search = Cerca comandi
+prefs-shortcuts-commands = Comandi
+prefs-shortcuts-no-match = Nessun comando corrisponde a «{ $search }».
+prefs-shortcuts-of = Scorciatoie di «{ $command }»
+prefs-shortcuts-none = Nessuna scorciatoia
+prefs-shortcut-add = Aggiungi…
+prefs-shortcut-remove = Rimuovi
+prefs-shortcuts-restore-all = Ripristina tutte le scorciatoie
+prefs-shortcut-capture = Premi la scorciatoia, oppure Esc per annullare
+prefs-shortcut-capture-name = Nuova scorciatoia per «{ $command }»
+prefs-shortcut-fixed = { $shortcut } non si può assegnare: serve per spostarsi nel programma, per i menu o al sistema.
+prefs-shortcut-conflict-title = { $shortcut } è già assegnata a «{ $owner }»
+prefs-shortcut-conflict-message = Assegnarla invece a «{ $command }»? «{ $owner }» non l'avrà più.
+prefs-shortcut-restore-conflict-title = Alcune scorciatoie predefinite di «{ $command }» sono assegnate ad altri comandi
+prefs-shortcut-restore-conflict-message = Restituirle a «{ $command }»? Gli altri comandi non le avranno più.
+dialog-reassign = Riassegna

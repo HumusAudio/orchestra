@@ -5911,6 +5911,85 @@ sconosciuti), `playback.rs` (i testi dei valori, i messaggi), e in `crates/app/t
 cursore mosso da una freccia, la sua etichetta e le impostazioni, poi *Ripristina predefiniti*.
 Scena degli screenshot `preferences-playback`.
 
+#### L'editor delle scorciatoie
+
+**Che cosa vede l'utente** (ADR-0048 AM7, SCALETTA F2.12c1). La sezione Tastiera delle Preferenze
+mostra, sotto il modificatore fine, tutti i comandi con le loro scorciatoie (scritte come le
+scrive la piattaforma), un campo di ricerca e, per il comando selezionato, le sue scorciatoie con
+*Aggiungi…*, *Rimuovi* e *Ripristina predefiniti*; *Ripristina tutte le scorciatoie* chiude la
+sezione. *Aggiungi…* mostra un riquadro, "Premi la scorciatoia, oppure Esc per annullare": la
+combinazione premuta viene aggiunta. Un tasto fisso (AM8) fa comparire accanto al riquadro una
+riga attenuata che dice perché, e il riquadro continua ad aspettare. Una scorciatoia che ha già
+un altro comando apre una domanda sopra le Preferenze, *«Ctrl+N è già assegnata a "Nuovo"»*, con
+*Riassegna* (il predefinito) e *Annulla*; *Ripristina predefiniti* chiede lo stesso quando alcune
+predefinite ora appartengono ad altri, elencandole. Ogni cambiamento vale subito (i menu lo
+seguono) e viene salvato.
+
+**Il riquadro di cattura** (`crates/ui/src/widget/capture.rs`, `ShortcutCapture`). Un widget di
+`orchestra-ui` che sembra un campo di testo e legge i tasti:
+
+```rust
+match key {
+    Key::Named(NamedKey::Escape) => self.finish(cx, (self.on_cancel)()),
+    // A modifier alone: the user is still building the combination.
+    Key::Named(NamedKey::Alt) | Key::Unknown => {}
+    _ => {
+        let [logical, fallback] = candidates(key, physical, modifiers);
+        // … a fixed key → on_refused (and keep waiting); anything else → on_capture
+    }
+}
+```
+
+Legge il tasto esattamente come lo legge la ricerca delle azioni (`candidates`), così ciò che
+registra è ciò che poi corrisponderà; per questo `WidgetEvent::Key` porta ora anche il tasto
+fisico (`physical`: le cifre del tastierino restano distinte). Poiché il widget con il focus vede
+un tasto prima delle azioni (AM4), viene catturato perfino Ctrl+, (che chiuderebbe le Preferenze).
+Tab non viene gestito, così il focus passa oltre, e il focus che esce annulla; parte al massimo un
+messaggio.
+
+**Il registro** (`crates/ui/src/action/registry.rs`). Nuovi: `ids()` (tutte le azioni in ordine
+di registrazione), `shortcut_label(shortcut)` (una scorciatoia qualsiasi scritta per le persone,
+non solo la prima), `owner_of(id, shortcut)` (chi altro ce l'ha), `reassign(id, shortcut)` (la
+aggiunge togliendola al proprietario, tutto o niente; restituisce chi l'ha persa),
+`restore_conflicts(id)` e `restore_reassigning(id)` (le predefinite che altri hanno ora, e il
+ripristino che se le riprende).
+
+**L'elenco con i dettagli** (`crates/ui/src/widget/choice.rs`). `ListBox` acquista una seconda
+colonna attenuata a destra di ogni riga (`details`), `set_items` e `set_selected` (la ricerca
+sostituisce le voci), può essere vuota, e le tecnologie assistive la leggono come "voce,
+dettaglio". Quando la selezione si sposta da tastiera chiede alle aree di scorrimento attorno di
+mostrare la riga selezionata con il nuovo `EventCx::request_reveal`. E una `Label` con il testo
+vuoto ora misura zero, così una riga mostrata solo a volte non lascia una riga vuota.
+
+**L'editor** (`crates/app/src/preferences/keyboard.rs`). `ShortcutEditor` conserva gli ID dei
+widget, la ricerca, i comandi mostrati, la selezione e la domanda in sospeso; `handle(message)`
+cambia il registro e i widget e risponde con un `KeyboardOutcome`: niente, `Changed` (la
+dimostrazione scrive `shortcuts_to_settings(registry)` nelle impostazioni: solo le differenze
+dalle predefinite, AM7) oppure `Ask(dialog)`. La ricerca (`matches`) guarda nel nome e nel testo
+delle scorciatoie, senza distinguere maiuscole e minuscole. I testi con valori (`$command`,
+`$owner`, `$shortcut`, `$search`) sono `Template` (`crates/app/src/template.rs`), la
+generalizzazione a più variabili del `NameTemplate` di F2.12a5b: un segnaposto dell'area d'uso
+privato per variabile (U+E000, U+E001…), così è sempre Fluent a decidere il loro ordine in ogni
+lingua.
+
+**Testi.** 17 messaggi nuovi nei sei cataloghi; il glossario acquista *shortcut*, *command*,
+*reassign*, *add*, *remove* e *search* (cataloghi di MuseScore Studio e di GTK 4, e la guida di
+Logic Pro).
+
+**Limite annotato.** AM7 chiede di mostrare una scorciatoia di un contesto che ne copre una
+globale: oggi tutte le azioni sono globali, quindi non c'è niente da mostrare finché le viste non
+avranno contesti (F2.21).
+
+**Test.** `crates/ui/tests/capture.rs` (7): una combinazione con i suoi modificatori, un
+modificatore da solo atteso oltre, il tastierino, i tasti fissi rifiutati, Esc e Tab che annullano,
+Ctrl+, catturato dentro una finestra grande, i dettagli dell'elenco, le voci nuove e un elenco
+vuoto. `crates/ui/src/action/tests.rs`: riassegnare e ripristinare riprendendosi le scorciatoie.
+`crates/app/tests/keyboard.rs` (8): tutti i comandi elencati, la ricerca per nome e per
+scorciatoia, una scorciatoia aggiunta e salvata, un tasto fisso rifiutato, Esc, un conflitto
+riassegnato, una predefinita ripresa, *Rimuovi* e *Ripristina tutte*, la scorciatoia nuova che
+esegue il suo comando, i testi nelle sei lingue. Gli screenshot `preferences-keyboard` e
+`shortcut-conflict` mostrano la sezione e la domanda.
+
 #### Le finestre di scelta dei file
 
 **Che cosa vede l'utente** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Apri…* (Ctrl+O, ⌘O) e *File

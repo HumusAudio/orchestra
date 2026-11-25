@@ -56,7 +56,10 @@ use crate::files::{
     FileTexts, ProjectTexts, open_request, project_error_dialog, replace_dialog,
     save_changes_dialog, save_request, unavailable_dialog, window_title,
 };
-use crate::preferences::{self, Effect, PreferencesMessage, PreferencesTexts, PreferencesView};
+use crate::preferences::{
+    self, Effect, KeyboardMessage, KeyboardOutcome, PreferencesMessage, PreferencesTexts,
+    PreferencesView, ShortcutEditor,
+};
 use crate::project::{OpenProject, ProjectEffect, ProjectFlow, SaveAnswer};
 use crate::settings::SettingsStore;
 use crate::settings::convert::{
@@ -94,6 +97,8 @@ pub enum DemoMessage {
     Replace(bool),
     /// The *OK* of an error of the open project (F2.12a5b): the dialog closes by itself.
     ProjectErrorClosed,
+    /// The shortcut editor of the Preferences' Keyboard section (F2.12c1).
+    Keyboard(KeyboardMessage),
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -236,6 +241,8 @@ pub struct Demo {
     /// The labels of the playback values while the Playback section is shown, in
     /// `TuningValue::ALL`'s order (F2.12a4b2); empty otherwise.
     playback_labels: Vec<WidgetId>,
+    /// The shortcut editor while the Keyboard section is shown (F2.12c1).
+    shortcut_editor: Option<ShortcutEditor>,
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
@@ -358,6 +365,7 @@ impl Demo {
             preferences_texts: texts.preferences.clone(),
             preferences: None,
             playback_labels: Vec::new(),
+            shortcut_editor: None,
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             files: texts.files.clone(),
             project_texts: texts.project.clone(),
@@ -569,6 +577,12 @@ impl Demo {
         }
     }
 
+    /// The shortcut editor, while the Preferences show their Keyboard section (F2.12c1).
+    #[must_use]
+    pub const fn shortcut_editor(&self) -> Option<&ShortcutEditor> {
+        self.shortcut_editor.as_ref()
+    }
+
     /// The open Preferences' panel, while they are open.
     #[must_use]
     pub fn preferences(&self) -> Option<WidgetId> {
@@ -581,6 +595,8 @@ impl Demo {
     fn preference_changed(&mut self, message: PreferencesMessage, list: &mut DisplayList) {
         if message == PreferencesMessage::Closed {
             self.preferences = None;
+            self.playback_labels.clear();
+            self.shortcut_editor = None;
             return;
         }
         let now = self.ui.now();
@@ -605,7 +621,7 @@ impl Demo {
                 if let Some(view) = self.preferences {
                     // Fails only if the interface's own tree is inconsistent: the pane then keeps
                     // what it showed.
-                    self.playback_labels = preferences::show_section(
+                    let widgets = preferences::show_section(
                         &mut self.ui,
                         view,
                         section,
@@ -614,6 +630,8 @@ impl Demo {
                         list,
                     )
                     .unwrap_or_default();
+                    self.playback_labels = widgets.playback_labels;
+                    self.shortcut_editor = widgets.keyboard;
                 }
             }
             Effect::PlaybackValue(index, n) => {
@@ -631,6 +649,38 @@ impl Demo {
         }
     }
 
+    /// A message of the shortcut editor (F2.12c1): the editor changes the registry and its
+    /// widgets; a change is written into the settings (ADR-0050 DG8, ADR-0048 AM7: only the
+    /// differences from the defaults), a conflict opens its question over the Preferences.
+    fn keyboard_message(&mut self, message: KeyboardMessage, list: &mut DisplayList) {
+        let Some(editor) = self.shortcut_editor.as_mut() else {
+            return;
+        };
+        let outcome = editor.handle(
+            &mut self.ui,
+            &self.preferences_texts.keyboard,
+            message,
+            list,
+        );
+        match outcome {
+            KeyboardOutcome::None => {}
+            KeyboardOutcome::Changed => {
+                if let Some(registry) = self.ui.actions() {
+                    let entries = crate::settings::convert::shortcuts_to_settings(registry);
+                    let now = self.ui.now();
+                    self.settings
+                        .update(now, |settings| settings.shortcuts = entries);
+                }
+            }
+            // Fails only if the interface's own tree is inconsistent; the answer then never
+            // comes, and the editor keeps its question pending, harmlessly.
+            KeyboardOutcome::Ask(spec) => {
+                let _ = self.ui.open_dialog(spec, list);
+            }
+        }
+        self.ui.frame(list);
+    }
+
     /// Acts on the widgets' messages (ADR-0045 WA7): *Restore defaults* puts the options back,
     /// a committed track name is written above the staff.
     fn handle_messages(&mut self, list: &mut DisplayList) {
@@ -643,11 +693,14 @@ impl Demo {
         let mut steps: Vec<ProjectInput> = Vec::new();
         // The Preferences' changes, applied after the queue is drained (it borrows the interface).
         let mut changes = Vec::new();
+        // The shortcut editor's messages (F2.12c1), likewise.
+        let mut keyboard = Vec::new();
         for message in self.ui.take_messages() {
             match message {
                 DemoMessage::RestoreDefaults => restore = true,
                 DemoMessage::TrackName(text) => name = Some(text),
                 DemoMessage::Preferences(message) => changes.push(message),
+                DemoMessage::Keyboard(message) => keyboard.push(message),
                 DemoMessage::SaveChanges(answer) => steps.push(ProjectInput::SaveChanges(answer)),
                 DemoMessage::Replace(replace) => steps.push(ProjectInput::Replace(replace)),
                 // Full screen asks the window (F2.11d1), About opens its dialog (F2.12a3b), the
@@ -680,6 +733,9 @@ impl Demo {
         }
         for change in changes {
             self.preference_changed(change, list);
+        }
+        for message in keyboard {
+            self.keyboard_message(message, list);
         }
         // A dialog blocks the menus and the shortcuts while it is open (ADR-0050 DG1), so About
         // cannot be asked twice; `open_dialog` fails only if the interface's own tree is

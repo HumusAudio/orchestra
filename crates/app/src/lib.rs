@@ -41,6 +41,7 @@ mod preferences;
 mod project;
 mod screenshots;
 mod settings;
+mod template;
 
 pub use about::{AboutTexts, REPOSITORY, VERSION, about_dialog};
 pub use actions::{
@@ -57,6 +58,10 @@ pub use preferences::{
     PreferencesView, SECTIONS, Section, apply as apply_preference, open_preferences,
     playback_value_text, show_section,
 };
+pub use preferences::{
+    KeyboardMessage, KeyboardOutcome, KeyboardTexts, SectionWidgets, ShortcutEditor,
+    shortcut_matches, shortcuts_text, shown_commands,
+};
 pub use project::{
     NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow, SaveAnswer, Step,
     Then, file_name, new_document, project_name, with_project_extension,
@@ -71,3 +76,4 @@ pub use settings::convert::{
     theme_from_settings, tuning_from_settings, tuning_to_settings,
 };
 pub use settings::{SettingsStore, WRITE_DELAY};
+pub use template::Template;

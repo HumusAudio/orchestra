@@ -261,3 +261,30 @@ project-save-error-full = Auf dem Datenträger ist nicht genügend Speicherplatz
 project-save-error-write = Die Datei konnte nicht geschrieben werden.
 project-save-error-internal = Das Projekt konnte nicht zum Speichern vorbereitet werden. Dies ist ein Fehler in { app-name }: Bitte melden Sie ihn.
 project-save-error-kept = Die Datei, die bereits dort war, ist unverändert geblieben.
+
+## The shortcut editor in the Preferences' Keyboard section (F2.12c1, ADR-0048 AM7; glossary:
+## shortcut, command, reassign, add, remove, search, restore_defaults, key_escape). $command and
+## $owner are commands' names as the menus write them ("Save as…" keeps its ellipsis); $shortcut is a
+## shortcut written as the menus write it ("Ctrl+Shift+S", "⇧⌘S"); $search is what the user typed in
+## the search field. prefs-shortcut-capture is shown inside the box that waits for the keys;
+## prefs-shortcut-fixed under it when a key that cannot be assigned is pressed. The two questions
+## come when the shortcut, or a default being restored, belongs to another command; their button
+## is dialog-reassign, with dialog-cancel.
+
+prefs-shortcuts = Tastaturkürzel
+prefs-shortcuts-search = Befehle suchen
+prefs-shortcuts-commands = Befehle
+prefs-shortcuts-no-match = Kein Befehl passt zu „{ $search }“.
+prefs-shortcuts-of = Tastaturkürzel von „{ $command }“
+prefs-shortcuts-none = Kein Tastaturkürzel
+prefs-shortcut-add = Hinzufügen…
+prefs-shortcut-remove = Entfernen
+prefs-shortcuts-restore-all = Alle Tastaturkürzel zurücksetzen
+prefs-shortcut-capture = Drücken Sie das Tastaturkürzel oder Esc zum Abbrechen
+prefs-shortcut-capture-name = Neues Tastaturkürzel für „{ $command }“
+prefs-shortcut-fixed = { $shortcut } kann nicht zugewiesen werden: Es dient der Navigation im Programm, den Menüs oder dem System.
+prefs-shortcut-conflict-title = { $shortcut } ist bereits „{ $owner }“ zugewiesen
+prefs-shortcut-conflict-message = Stattdessen „{ $command }“ zuweisen? „{ $owner }“ verliert es.
+prefs-shortcut-restore-conflict-title = Einige Standard-Tastaturkürzel von „{ $command }“ sind anderen Befehlen zugewiesen
+prefs-shortcut-restore-conflict-message = An „{ $command }“ zurückgeben? Die anderen Befehle verlieren sie.
+dialog-reassign = Neu zuweisen
