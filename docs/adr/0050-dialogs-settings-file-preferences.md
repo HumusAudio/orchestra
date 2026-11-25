@@ -551,7 +551,7 @@ demonstration (the dialogs, the choosers, the title). The owner followed every r
 The owner checked New, Open, Save, Save as, the title and the errors by hand on 2026-11-25: it
 works.
 
-## Precisions of the implementation (F2.12c1, owner's choices of 2026-11-25)
+## Precisions of the implementation (F2.12c1, approved by the owner on 2026-11-25)
 
 - **The Keyboard section** (DG9, choice 1): under the modifier of fine adjustment, the heading
   *Shortcuts*, a search field (choice 4: by name and by shortcut text, ignoring case, not

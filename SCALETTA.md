@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.94, approvata dal proprietario il 2026-11-25.**
+> **Stato di questo documento: v0.95, approvata dal proprietario il 2026-11-25.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -738,7 +738,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12a5 | **Scelta dei file e progetto aperto** (DG4–DG5): `rfd` 0.18 rimisurato, finestra di scelta asincrona con il livello che blocca, errore senza portale; Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti; guide | ✅ (F2.12a5a–b) | 1–1,5 |
 | F2.12a5a | **Finestra di scelta dei file** (DG4): `rfd` 0.18 rimisurato con la funzionalità `wayland`, scelta asincrona con la finestra principale come genitore, livello che blocca, controllo del portale ed errore senza portale, filtro e titoli nei sei cataloghi, *Apri…* e *Salva con nome…* aprono la scelta; paragrafo delle guide | ✅ PR #99 | 0,5–1 |
 | F2.12a5b | **Progetto aperto** (DG5): contenuto di Nuovo, Nuovo, Apri, Salva, Salva con nome, titolo con il segno di modifica, "Salvare le modifiche?", errori tradotti, screenshot e guide | ✅ PR #100 | 0,5–1 |
-| F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ⬜ | 1–2 |
+| F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | 🔄 (F2.12c1–c2) | 1–2 |
+| F2.12c1 | **L'editor** (sezione Tastiera): elenco dei comandi con le scorciatoie, ricerca, cattura della scorciatoia, tasti fissi rifiutati, conflitti con *Riassegna*, rimozione, ripristino di uno o di tutti, salvataggio immediato; testi, screenshot e guide | ✅ PR #101 | 1–1,5 |
+| F2.12c2 | **Importazione ed esportazione** di un file di scorciatoie: formato da decidere, finestre di scelta dei file, conflitti e azioni sconosciute all'importazione; testi e guide | ⬜ | 0,5 |
 | F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ⬜ | 2 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | ⬜ | 1–2 |
@@ -1200,6 +1202,8 @@ controllo completo. Va fatta bene una volta sola.
   dell'utente nelle impostazioni. Restano fissi i tasti di navigazione dei widget (Tab, frecce,
   Spazio, Invio, Esc: convenzioni di sistema e accessibilità); il modificatore della regolazione
   fine (ADR-0046 V3) può diventare un'opzione.
+- **F2.12c1** **Fatto il 2026-11-25 (PR #101):** provato a mano dal proprietario, funziona. Scelte 1–8 approvate dal proprietario il 2026-11-25 (tutte le raccomandazioni): sezione Tastiera con ricerca (nome e testo della scorciatoia, solo maiuscole/minuscole), elenco dei 15 comandi con le scorciatoie a destra, cattura con `ShortcutCapture` (tasti fissi rifiutati con il motivo, Esc e Tab annullano), conflitti con *Riassegna* predefinito, cambiamenti applicati e salvati subito; precisioni di ADR-0048, ADR-0045 e ADR-0050 approvate. **Limite annotato:** la scorciatoia di un contesto che copre una globale non si mostra finché tutte le azioni sono globali (F2.21).
+- **F2.12c2** (da F2.12c1): decidere il formato del file di scorciatoie (probabilmente le stesse voci del file delle impostazioni, con versione), e che cosa fare all'importazione con conflitti e azioni sconosciute (AM7: vince l'ultima voce, le sconosciute si conservano).
 - **F2.12c** L'editor delle scorciatoie usa il registro di F2.11; approvato dal proprietario il
   2026-11-12.
 - **F2.12b** Da F2.07c (2026-11-12): cambiare un token del testo (famiglia o dimensione) vuol dire
@@ -1545,3 +1549,4 @@ raccomandato.
 | 2026-11-24 | 0.92 | F2.12a5 diviso in F2.12a5a (finestra di scelta dei file) e F2.12a5b (progetto aperto); scelte 1–6 di F2.12a5a approvate; prossimo passo F2.12a5a | proprietario |
 | 2026-11-24 | 0.93 | F2.12a5a fatto (PR #99: finestre di scelta dei file con `rfd` 0.18, sonda del portale, livello che blocca; provato a mano dal proprietario su KDE Wayland e X11); nota in F2.12a5b (estensione aggiunta al nome salvato); prossimo passo F2.12a5b | proprietario |
 | 2026-11-25 | 0.94 | F2.12a5b fatto, quindi F2.12a5 fatto (PR #100: il progetto aperto, Nuovo con una battuta, il bug delle battute in un documento vuoto corretto in `core-model`; provato a mano dal proprietario); limiti annotati per F2.14 e F2.22; prossimo passo F2.12c | proprietario |
+| 2026-11-25 | 0.95 | F2.12c diviso in F2.12c1 (l'editor) e F2.12c2 (importazione ed esportazione); F2.12c1 fatto (PR #101; provato a mano dal proprietario); limite dei contesti annotato; prossimo passo F2.12c2 | proprietario |

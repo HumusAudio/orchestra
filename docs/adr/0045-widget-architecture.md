@@ -396,7 +396,7 @@ neighbours anywhere else.
   click inside a composing field); the interface counts the requests and `TextInput::reset`
   carries the count, so the window acts on a change.
 
-## Precisions of the implementation (F2.12c1, owner's choices of 2026-11-25)
+## Precisions of the implementation (F2.12c1, approved by the owner on 2026-11-25)
 
 - **A list with details** (choice 6): `ListBox` may show a second, muted column at the right of
   each row (`details`); its items may be replaced (`set_items`, `set_selected`, without a

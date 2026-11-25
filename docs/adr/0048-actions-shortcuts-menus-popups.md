@@ -597,7 +597,7 @@ the fixed keys there (4). While writing, the rest:
 - **One shortcut behind a dialog.** The action a large dialog names as `closed_by` closes that dialog
   while it is on top (ADR-0050 DG8); every other non-editing action stays off behind a dialog.
 
-## Precisions of the implementation (F2.12c1, owner's choices of 2026-11-25)
+## Precisions of the implementation (F2.12c1, approved by the owner on 2026-11-25)
 
 The shortcut editor of AM7, in the Preferences' Keyboard section (ADR-0050's precisions of
 F2.12c1 for its layout). The owner followed every recommendation (choices 1–8).
@@ -623,3 +623,6 @@ F2.12c1 for its layout). The owner followed every recommendation (choices 1–8)
   is global; it comes with the views' contexts (F2.21), a recorded limit.
 - **New registry methods** for the editor: `ids()` (registration order) and
   `shortcut_label(shortcut)` (any shortcut in the platform's style, not only the first).
+
+The owner checked the editor by hand on 2026-11-25 (search, adding, a fixed key, a conflict,
+removing, restoring, the shortcuts kept after a restart): it works.
