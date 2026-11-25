@@ -50,7 +50,9 @@
 
 use std::mem::size_of;
 
-use orchestra_core_time::{BarIndex, BarSpan, BeatGrouping, Duration, IrregularBar, MeterChange};
+use orchestra_core_time::{
+    BarIndex, BarSpan, BeatGrouping, Duration, IrregularBar, MeterChange, MeterMap,
+};
 
 use crate::bar_repeat::{BarRepeat, PassRule};
 use crate::change::ChangeSet;
@@ -1714,6 +1716,18 @@ impl Document {
 
     /// Inserts empty bars (see [`Edit::InsertBars`]). On error nothing changed. O(B × V) pointer
     /// moves plus the meter map's rebuild.
+    ///
+    /// # A document without bars (F2.12a5b)
+    /// The meter map shifts every entry at or after `at` by the bars inserted, and the command
+    /// gives the new first bars a copy of the meter in force at the start, so with bars already
+    /// there the old first bar keeps a redundant copy of it. A document without bars has only its
+    /// initial meter (validation rule 13): shifted, that entry would land past the new last bar,
+    /// where rule 13 forbids entries and the project file has no bar to name. So into a document
+    /// without bars the new bars take the span's entries and the initial meter, which the span
+    /// must agree with (it is copied into the span when the span has none at the first bar), and
+    /// the shifted copy is dropped. A span with a different meter at the first bar is refused
+    /// ([`DocumentError::BarSpanMismatch`]): undoing the insertion gives the first bar's meter
+    /// back as the initial one ([`Self::remove_bars`]), so only an agreeing span keeps undo exact.
     fn insert_bars(
         &mut self,
         at: BarIndex,
@@ -1738,7 +1752,11 @@ impl Document {
             self.check_new(ObjectRef::Bar(id))?;
         }
         // The meter map is all or nothing; once it has accepted, nothing below can fail.
-        self.meter_map.insert_bars(at, meter)?;
+        if self.bars.is_empty() {
+            self.meter_map = self.meter_map_filled(meter)?;
+        } else {
+            self.meter_map.insert_bars(at, meter)?;
+        }
         self.bars.insert(position, ids)?;
         for voice in self
             .tracks
@@ -1756,9 +1774,44 @@ impl Document {
         Ok(())
     }
 
+    /// The meter map of a document without bars once `meter`'s bars are in it (see
+    /// [`Self::insert_bars`]): the span's entries, with the initial meter at the first bar. Works
+    /// on a copy, so on error the document's map is untouched. O(entries) for the copy and the
+    /// two rebuilds (one entry in the document's map, a few in the span).
+    ///
+    /// # Errors
+    /// [`DocumentError::BarSpanMismatch`] when the span's first bar has another meter; the meter
+    /// map's error if it refuses the span.
+    fn meter_map_filled(&self, meter: &BarSpan) -> Result<MeterMap, DocumentError> {
+        let initial = self
+            .meter_map
+            .meter_change_at(BarIndex::FIRST)
+            .ok_or(DocumentError::inconsistent())?;
+        let mut span = meter.clone();
+        match span.meter_change_at(BarIndex::FIRST) {
+            Some(first) if first != initial => return Err(DocumentError::BarSpanMismatch),
+            Some(_) => {}
+            None => {
+                let _ = span.set_meter_change(BarIndex::FIRST, initial);
+            }
+        }
+        let mut map = self.meter_map.clone();
+        map.insert_bars(BarIndex::FIRST, &span)?;
+        // The initial meter, shifted to just past the new bars: the only entry there (rule 13).
+        let _shifted_copy = map.remove_bars(BarIndex::new(span.count()), 1)?;
+        Ok(map)
+    }
+
     /// Removes bars that carry nothing (see [`Edit::RemoveBars`]) and returns their IDs and meter
     /// map data. On error nothing changed. O(B × V) pointer moves, O(objects anchored on bars) for
     /// the check, plus the meter map's rebuild.
+    ///
+    /// # Removing every bar (F2.12a5b)
+    /// Only undo does it (deleting bars always leaves one, ADR-0026 §6), taking back an insertion
+    /// into a document without bars. The map must keep a meter at the start, so the first bar's
+    /// meter becomes the initial one again: a copy of it is appended past the last bar before the
+    /// bars go, and slides to the start when they do. With [`Self::insert_bars`]'s rule this is
+    /// the exact inverse.
     fn remove_bars(
         &mut self,
         at: BarIndex,
@@ -1781,7 +1834,22 @@ impl Document {
         {
             self.check_nothing_at_start_of(next)?;
         }
-        let meter = self.meter_map.remove_bars(at, count)?;
+        let meter = if start == 0 && end == self.bars.len() && len > 0 {
+            let first = self
+                .meter_map
+                .meter_change_at(BarIndex::FIRST)
+                .ok_or(DocumentError::inconsistent())?;
+            let mut tail = BarSpan::empty(1);
+            let _ = tail.set_meter_change(BarIndex::FIRST, first);
+            // On a copy: all or nothing.
+            let mut map = self.meter_map.clone();
+            map.insert_bars(BarIndex::new(count), &tail)?;
+            let meter = map.remove_bars(at, count)?;
+            self.meter_map = map;
+            meter
+        } else {
+            self.meter_map.remove_bars(at, count)?
+        };
         self.bars.remove(start, len);
         for voice in self
             .tracks

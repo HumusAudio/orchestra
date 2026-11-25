@@ -896,3 +896,64 @@ fn structural_refusals() {
     }
     assert!(editor.document().same_content(&doc));
 }
+
+/// A document without bars (the program's *New*, F2.12a5b): bars inserted at the start take the
+/// initial meter with no entry left past the last bar (validation rule 13), so the document stays
+/// valid; undo gives the empty document back, redo the bars again, both valid. A span whose
+/// first bar has another meter than the initial one is refused, so undo stays exact.
+#[test]
+fn bars_inserted_into_a_document_without_bars_keep_it_valid() {
+    let meters = MeterMap::new(MeterChange::new(Meter::new(&[3], 4).unwrap())).unwrap();
+    let initial = TempoMark::immediate(None, Metronome::shown(tempo(90))).unwrap();
+    let empty = DocumentBuilder::new(meters, initial, Key::traditional(0, Mode::Major).unwrap())
+        .unwrap()
+        .build()
+        .unwrap();
+    let mut editor = Editor::new(empty.clone());
+    editor
+        .execute(&crate::command::Command::InsertBars {
+            at: BarIndex::FIRST,
+            count: 2,
+        })
+        .unwrap();
+    let filled = editor.document().clone();
+    filled.validate().unwrap();
+    assert_eq!(filled.bars().len(), 2);
+    assert_eq!(filled.meter_map().meter_changes().len(), 1);
+    // More bars at the start of a document with bars: the usual path, still valid.
+    editor
+        .execute(&crate::command::Command::InsertBars {
+            at: BarIndex::FIRST,
+            count: 1,
+        })
+        .unwrap();
+    editor.document().validate().unwrap();
+    editor.undo().unwrap().unwrap();
+    assert!(editor.document().same_content(&filled));
+    editor.undo().unwrap().unwrap();
+    editor.document().validate().unwrap();
+    assert!(editor.document().same_content(&empty));
+    editor.redo().unwrap().unwrap();
+    editor.document().validate().unwrap();
+    assert!(editor.document().same_content(&filled));
+    // A raw insertion whose first bar has another meter is refused, leaving the document alone.
+    let mut editor = Editor::new(empty.clone());
+    let mut span = BarSpan::empty(1);
+    let _ = span.set_meter_change(
+        BarIndex::FIRST,
+        MeterChange::new(Meter::new(&[4], 4).unwrap()),
+    );
+    let refused = editor.transact(|tx| {
+        let id = BarId::from_counter(tx.new_id()?);
+        tx.apply(Edit::InsertBars {
+            at: BarIndex::FIRST,
+            ids: vec![id],
+            meter: span.clone(),
+        })
+    });
+    assert_eq!(
+        refused.unwrap_err(),
+        CommandError::Document(DocumentError::BarSpanMismatch)
+    );
+    assert!(editor.document().same_content(&empty));
+}
