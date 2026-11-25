@@ -99,12 +99,16 @@ pub(crate) struct Shell<A> {
     /// no other one and ignores the requests to close it (choice 4 of F2.12a5a; see
     /// `crate::platform::file_chooser`).
     choosing: bool,
+    /// The title the window was last given (F2.12a5b): the one it opened with, then the app's
+    /// ([`WindowApp::title`]) whenever it changed. Kept so the system is told only of changes.
+    title: String,
 }
 
 impl<A: WindowApp> Shell<A> {
     /// A handler for `app`, with no window yet. `proxy` belongs to the event loop that will run it.
     pub(crate) fn new(app: A, options: WindowOptions, proxy: EventLoopProxy<ShellEvent>) -> Self {
         let renderer = CpuRenderer::new(options.faces.clone());
+        let title = options.title.clone();
         Self {
             app,
             theme: ThemeState::new(options.pair, options.mode),
@@ -125,6 +129,7 @@ impl<A: WindowApp> Shell<A> {
             menu_updates: Vec::new(),
             chooser: Box::new(SystemChooser),
             choosing: false,
+            title,
         }
     }
 
@@ -169,8 +174,13 @@ impl<A: WindowApp> Shell<A> {
 
     /// Creates the window (invisible), its surface and the first frame, then shows it (W7).
     fn open_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), WindowError> {
+        // The app's title if it has one already (F2.12a5b: "Untitled — Orchestra"), so the window
+        // never shows the options' title for a moment before changing it.
+        if let Some(title) = self.app.title() {
+            title.clone_into(&mut self.title);
+        }
         let attributes = Window::default_attributes()
-            .with_title(self.options.title.clone())
+            .with_title(self.title.clone())
             .with_inner_size(LogicalSize::new(
                 f64::from(self.options.width),
                 f64::from(self.options.height),
@@ -437,6 +447,8 @@ impl<A: WindowApp> Shell<A> {
                         event_loop.exit();
                     }
                 }
+                // Our title bar's close button (F2.12a5b): as the system's own.
+                WindowRequest::RequestClose => self.ask_close(event_loop),
                 WindowRequest::ToggleFullScreen => {
                     if let Some(open) = self.open.as_ref() {
                         // Borderless on the window's monitor (`None`): no change of video mode.
@@ -598,6 +610,36 @@ impl<A: WindowApp> Shell<A> {
         );
     }
 
+    /// The user asked to close the window ([`WindowEvent::CloseRequested`] or our title bar's
+    /// [`WindowRequest::RequestClose`], F2.12a5b): ignored while a file chooser is open (choice 4
+    /// of F2.12a5a: its answer would have nobody to go to), otherwise the app decides
+    /// ([`WindowApp::close_requested`]). What it shows instead (a question) is damaged in the
+    /// list, and the caller asks for the frame as after every event.
+    fn ask_close(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.choosing && self.app.close_requested(&mut self.list) {
+            event_loop.exit();
+        }
+    }
+
+    /// Gives the system the app's title when it changed ([`WindowApp::title`], F2.12a5b): the
+    /// frame's text, the task switcher's, the dock's. Called after every batch of events.
+    ///
+    /// # Cost
+    /// O(title length) for the comparison; a change copies the title once and asks the system,
+    /// which is rare (the project was saved, opened or modified for the first time).
+    fn sync_title(&mut self) {
+        let Some(title) = self.app.title() else {
+            return;
+        };
+        if title == self.title {
+            return;
+        }
+        title.clone_into(&mut self.title);
+        if let Some(open) = self.open.as_ref() {
+            open.window.set_title(&self.title);
+        }
+    }
+
     /// The scale in effect, 1 before the window exists.
     fn scale(&self) -> f64 {
         self.open.as_ref().map_or(1.0, |open| open.scale)
@@ -628,6 +670,8 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
     /// (a key that restarted the caret's blink) is in effect before the loop sleeps.
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.sync_system_menu();
+        // After every batch, so the title follows whatever changed the project in it.
+        self.sync_title();
         // After every batch, so a chooser asked by any event of it (a shortcut, a menu item, an
         // assistive technology's action, the system's menu) starts before the loop sleeps.
         self.start_file_chooser();
@@ -676,11 +720,8 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
         match event {
             // Not while a file chooser is open (choice 4 of F2.12a5a; see `WindowRequest::Close`):
             // Windows and macOS keep the chooser's parent from closing anyway.
-            WindowEvent::CloseRequested => {
-                if !self.choosing {
-                    event_loop.exit();
-                }
-            }
+            // The app is asked first (F2.12a5b): it may have unsaved changes to ask about.
+            WindowEvent::CloseRequested => self.ask_close(event_loop),
             WindowEvent::Resized(size) => {
                 if let Err(error) = self.resize(size) {
                     self.fail(event_loop, error);

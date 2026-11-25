@@ -764,13 +764,29 @@ impl<M: 'static> Ui<M> {
         self.fine_modifier
     }
 
-    /// Names the window for assistive technologies (its title, already localised).
+    /// Sets the window's title, already localised: the name of the accessibility tree's window
+    /// node, the text of our title bar when there is one (ADR-0049), and what the window shows
+    /// in the system's frame and task switcher, which reads it with [`Ui::title`] after every
+    /// batch of events ([`WindowApp::title`](crate::WindowApp::title), F2.12a5b). Nothing happens
+    /// when the title is the same, so the application may call it after every change of its
+    /// project without checking.
+    ///
+    /// # Cost
+    /// O(title length) for the comparison; a change rebuilds the whole accessible tree once (the
+    /// window node is rebuilt only with a full tree) and lays the title bar out again.
     pub fn set_title(&mut self, title: &str) {
         if title != self.title {
             title.clone_into(&mut self.title);
             // The window node is rebuilt with every full tree; a changed title needs one.
             self.access_sent = false;
+            self.title_bar_title(title);
         }
+    }
+
+    /// The window's title as last set with [`Ui::set_title`] (empty until then).
+    #[must_use]
+    pub fn title(&self) -> &str {
+        &self.title
     }
 
     /// Marks every widget for layout and recording.

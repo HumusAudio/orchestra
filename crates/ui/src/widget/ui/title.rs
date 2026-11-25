@@ -237,6 +237,26 @@ impl<M: 'static> Ui<M> {
         }
     }
 
+    /// Gives our title bar, if there is one, the window's new title (F2.12a5b): it is laid out
+    /// and recorded again and its accessible node rebuilt, only when the text really changed.
+    ///
+    /// # Cost
+    /// O(title length); no allocation unless the title grew past the bar's buffer.
+    pub(super) fn title_bar_title(&mut self, title: &str) {
+        let Some(root) = self.title_bar.as_ref().map(|state| state.root) else {
+            return;
+        };
+        let changed = self
+            .tree
+            .slot_mut(root)
+            .and_then(|slot| slot.widget.as_deref_mut())
+            .and_then(|widget| widget.as_any_mut().downcast_mut::<TitleBar>())
+            .is_some_and(|bar| bar.set_title(title));
+        if changed {
+            self.mark(root, true, true, true);
+        }
+    }
+
     /// Asks the tree to record `slot` again, lay it out again, or rebuild its accessible node.
     fn mark(&mut self, slot: usize, record: bool, layout: bool, access: bool) {
         if layout {

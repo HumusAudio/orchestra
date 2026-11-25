@@ -225,3 +225,39 @@ file-open-title = Apri progetto
 file-save-title = Salva progetto come
 file-chooser-unavailable-title = Impossibile scegliere i file
 file-chooser-unavailable-message = { app-name } usa la finestra del desktop per scegliere i file, ma nessun servizio del desktop la fornisce. Serve il pacchetto xdg-desktop-portal insieme a quello del desktop in uso (per esempio xdg-desktop-portal-kde o xdg-desktop-portal-gnome).
+
+## The open project (F2.12a5b, ADR-0050 DG5; glossary: project, untitled, save, dont_save,
+## replace). $name is the project's name: its file's name without ".orchestra", or file-untitled
+## for a project never saved; $file is a file's whole name ("Song.orchestra"). The window title
+## puts the name before the program's; while the project has unsaved changes it starts with a
+## bullet and a space, the same mark in every language. The question about unsaved changes comes
+## before New, Open and closing; its three buttons are dialog-save, dialog-dont-save and
+## dialog-cancel. The question about replacing comes when the program added ".orchestra" to the
+## name typed and a file with that name exists. The errors' titles name the file; their messages
+## are shown under them, with the file's path, and for a save with project-save-error-kept.
+
+window-title = { $name } — { app-name }
+window-title-modified = • { $name } — { app-name }
+project-save-changes-title = Salvare le modifiche a «{ $name }»?
+project-save-changes-message = Le modifiche andranno perse se non le salvi.
+dialog-save = Salva
+dialog-dont-save = Non salvare
+project-replace-title = Esiste già un file con nome «{ $file }». Sostituirlo?
+project-replace-message = Sostituendolo, il suo contenuto verrà sovrascritto.
+dialog-replace = Sostituisci
+project-new-error-title = Impossibile creare un nuovo progetto
+project-new-error-message = È un errore di { app-name }: per favore segnalalo.
+project-open-error-title = Impossibile aprire «{ $file }»
+project-open-error-not-found = Il file non esiste o non è accessibile al momento.
+project-open-error-permission = { app-name } non ha il permesso di leggere questo file.
+project-open-error-read = Non è stato possibile leggere il file.
+project-open-error-too-large = Il file è più grande di quanto { app-name } possa aprire.
+project-open-error-not-project = Il file non è un progetto di { app-name }.
+project-open-error-newer = Il progetto è stato salvato con una versione più recente di { app-name }. Installa l'ultima versione per aprirlo.
+project-open-error-damaged = Il file è danneggiato: una sua parte non si può leggere come progetto di { app-name }.
+project-save-error-title = Impossibile salvare «{ $file }»
+project-save-error-permission = { app-name } non ha il permesso di scrivere questo file o la sua cartella.
+project-save-error-full = Non c'è abbastanza spazio sul disco.
+project-save-error-write = Non è stato possibile scrivere il file.
+project-save-error-internal = Non è stato possibile preparare il progetto per il salvataggio. È un errore di { app-name }: per favore segnalalo.
+project-save-error-kept = Il file che c'era già, se c'era, è rimasto com'era.

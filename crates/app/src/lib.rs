@@ -38,6 +38,7 @@ mod actions;
 mod demo;
 mod files;
 mod preferences;
+mod project;
 mod screenshots;
 mod settings;
 
@@ -47,11 +48,18 @@ pub use actions::{
     system_texts,
 };
 pub use demo::{Demo, DemoMessage, DemoTexts, StaffPreview};
-pub use files::{FileTexts, open_request, save_request, unavailable_dialog};
+pub use files::{
+    FileTexts, NameTemplate, ProjectTexts, open_request, project_error_dialog, replace_dialog,
+    save_changes_dialog, save_request, unavailable_dialog, window_title,
+};
 pub use preferences::{
     Effect, FINE_MODIFIERS, MODES, PlaybackTexts, PreferencesMessage, PreferencesTexts,
     PreferencesView, SECTIONS, Section, apply as apply_preference, open_preferences,
     playback_value_text, show_section,
+};
+pub use project::{
+    NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow, SaveAnswer, Step,
+    Then, file_name, new_document, project_name, with_project_extension,
 };
 pub use screenshots::{
     SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,

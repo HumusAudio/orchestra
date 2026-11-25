@@ -64,6 +64,7 @@ gnome-settings = "https://gitlab.gnome.org/GNOME/gnome-control-center/-/tree/mai
 firefox-appearance = "https://github.com/mozilla-l10n/firefox-l10n — <lang>/browser/browser/preferences/preferences.ftl: the appearance choices of Firefox's settings (System, Light, Dark) in it, fr, de, es-ES, en-GB"
 musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the Appearance page of MuseScore Studio's Preferences ('Appearance', 'Theme', 'Follow system theme')"
 musescore-preferences = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: MuseScore Studio's Preferences ('Language', 'Keyboard', 'Shortcuts', 'Restart required')"
+gtk-file-chooser = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the file chooser's question about an existing file ('A file named “%s” already exists.  Do you want to replace it?', '_Replace', '_Cancel', '_Save')"
 musescore-articulations = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the articulation symbols' names ('Accent above', 'Soft accent above', 'Stress above', 'Unstress above', 'Marcato above'), 'Articulations', 'Dynamics'"
 
 # ================================================================================================
@@ -842,6 +843,32 @@ de = "Unbenannt"
 es = "Sin título"
 sources = ["musescore-ui"]
 note = "The name of a project never saved (ADR-0050 DG4–DG5: Save as proposes it, the window title shows it). MuseScore Studio's 'Untitled' gives exactly these five translations, and en-GB as en-US. Capitalised: it stands alone as a name. Not 'Unnamed' (playback-track-name-placeholder: a track without a name, 'Senza nome'), which is a placeholder, not a document's name. Research 2026-11-24 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "dont_save"
+category = "general"
+en-US = "Don't save"
+en-GB = "Don't save"
+it = "Non salvare"
+fr = "Ne pas enregistrer"
+de = "Nicht speichern"
+es = "No guardar"
+sources = ["musescore-ui"]
+note = "The button of the question about unsaved changes that throws them away (ADR-0050 DG5, F2.12a5b). MuseScore Studio's 'Don’t save' gives exactly these five translations, and en-GB as en-US. The question itself follows MuseScore's 'Do you want to save changes to the score “%1” before closing?' and 'Your changes will be lost if you don’t save them.' (it 'Le modifiche andranno perse se non le salvi.', fr 'Vos modifications seront perdues si vous ne les sauvegardez pas.', de 'Ihre Änderungen gehen verloren, wenn sie nicht gespeichert werden.', es 'Los cambios se perderán si no se guardan.'), shortened to 'Save the changes to «Name»?' because ours comes before New and Open too, not only before closing; fr writes 'enregistrez' for MuseScore's 'sauvegardez', to keep the verb of 'Enregistrer' (glossary: save). Straight apostrophe, as in every other message of the catalogues. Research 2026-11-25 on the shipped catalogues."
+review = false
+
+[[term]]
+id = "replace"
+category = "general"
+en-US = "Replace"
+en-GB = "Replace"
+it = "Sostituisci"
+fr = "Remplacer"
+de = "Ersetzen"
+es = "Reemplazar"
+sources = ["gtk-file-chooser", "musescore-ui"]
+note = "The button that saves over an existing file (F2.12a5b: the program added '.orchestra' to the name typed, and a file with that name exists). GTK 4's file chooser asks 'A file named “%s” already exists.  Do you want to replace it?' with '_Replace': it 'Esiste già un file con nome «%s». Sostituirlo?' / 'Sostituisci', fr 'Un fichier nommé « %s » existe déjà. Voulez-vous le remplacer ?' / 'Remplacer', de 'Eine Datei namens »%s« existiert bereits. Möchten Sie diese ersetzen?' / 'Ersetzen', es 'Ya existe un archivo llamado «%s». ¿Quiere reemplazarlo?' / 'Reemplazar', en_GB as en-US; our question is the same, so the program asks as the system's chooser would have. MuseScore Studio's 'Replace' agrees in the five languages. de writes „…“ and 'sie' (die Datei) where GTK writes »…« and 'diese': „…“ are the quotation marks of the other German messages. Research 2026-11-25 on the shipped catalogues."
 review = false
 
 [[term]]

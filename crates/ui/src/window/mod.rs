@@ -178,6 +178,36 @@ pub trait WindowApp {
     fn file_chosen(&mut self, choice: crate::FileChoice, list: &mut DisplayList) {
         let _ = (choice, list);
     }
+
+    /// The user asked to close the window (a precision of ADR-0040 written in F2.12a5b): the
+    /// system's close button, Alt+F4, the window menu's *Close*, or our title bar's close button
+    /// ([`WindowRequest::RequestClose`]). `true` closes it now and ends the event loop (the
+    /// default); `false` keeps it open, re-recording what the app showed instead: a question
+    /// about unsaved changes (ADR-0050 DG5), whose answer later closes it with
+    /// [`WindowRequest::Close`]. Never asked while a file chooser is open: the window is then
+    /// kept open anyway (choice 4 of F2.12a5a).
+    ///
+    /// # Why the app decides, not the window
+    /// Only the app knows whether there is something to lose. The window cannot wait for an
+    /// answer itself (nothing may block the event loop), so a refusal now and a `Close` later is
+    /// the only shape that keeps the loop running while the question is open.
+    fn close_requested(&mut self, list: &mut DisplayList) -> bool {
+        let _ = list;
+        true
+    }
+
+    /// The window's title now (F2.12a5b: the project's name, with a mark while it has unsaved
+    /// changes, ADR-0050 DG5), usually [`Ui::title`](crate::Ui::title). Asked after every batch
+    /// of events; the window gives it to the system only when it differs from the last one it
+    /// gave. `None` (the default) keeps [`WindowOptions::title`](crate::WindowOptions), the one it
+    /// opened with.
+    ///
+    /// # Cost
+    /// Called once per batch: answer with a borrowed string, without allocating. The window
+    /// compares it with its own copy, O(title length).
+    fn title(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// A borrowed app is an app ([`run`] borrows it): every method is forwarded unchanged.
@@ -241,6 +271,14 @@ impl<A: WindowApp + ?Sized> WindowApp for &mut A {
     fn file_chosen(&mut self, choice: crate::FileChoice, list: &mut DisplayList) {
         (**self).file_chosen(choice, list);
     }
+
+    fn close_requested(&mut self, list: &mut DisplayList) -> bool {
+        (**self).close_requested(list)
+    }
+
+    fn title(&self) -> Option<&str> {
+        (**self).title()
+    }
 }
 
 /// Something the app asks of its window ([`WindowApp::take_window_request`]). `PartialEq` only:
@@ -252,8 +290,12 @@ impl<A: WindowApp + ?Sized> WindowApp for &mut A {
               live in a short queue, so the size costs nothing, while boxing would end `Copy`"
 )]
 pub enum WindowRequest {
-    /// Close the window and end the event loop (Quit).
+    /// Close the window and end the event loop, now: the app has decided (Quit with nothing to
+    /// save, or after the answer to "Save the changes?", ADR-0050 DG5).
     Close,
+    /// Ask to close, as the system's close button does (our title bar's close button, F2.12a5b):
+    /// the window asks the app with [`WindowApp::close_requested`] and closes only if it agrees.
+    RequestClose,
     /// Enter full screen when windowed, leave it when in full screen (Full screen). Borderless
     /// on the current monitor: the system's video mode is never changed.
     ToggleFullScreen,

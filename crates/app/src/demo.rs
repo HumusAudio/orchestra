@@ -24,12 +24,16 @@
 //! - text, symbols and crisp lines at every scale factor;
 //! - following the system's theme while the window is open (ADR-0038).
 //!
+//! Its window holds the **open project** (F2.12a5b, [`crate::project`]): the title names it, the
+//! File menu's New, Open, Save and Save as act on it with the system's file chooser, and Quit or
+//! the window's close button ask about unsaved changes first. Nothing in the demonstration changes
+//! the document yet (the views arrive in F2.21); the tests change it through the editor.
+//!
 //! The options do nothing yet (playback arrives in F3); *Restore defaults* puts the controls back
 //! to their default values, to show the application changing widgets itself (ADR-0045 WA7).
 //! Nothing here is business logic (the crate's rule): it is a throw-away view.
 
 use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use orchestra_i18n::{I18nError, Localizer};
@@ -48,8 +52,12 @@ use orchestra_ui::{
 
 use crate::about::{AboutTexts, about_dialog};
 use crate::actions::{self, ActionIds, ActionTexts};
-use crate::files::{FileTexts, open_request, save_request, unavailable_dialog};
+use crate::files::{
+    FileTexts, ProjectTexts, open_request, project_error_dialog, replace_dialog,
+    save_changes_dialog, save_request, unavailable_dialog, window_title,
+};
 use crate::preferences::{self, Effect, PreferencesMessage, PreferencesTexts, PreferencesView};
+use crate::project::{OpenProject, ProjectEffect, ProjectFlow, SaveAnswer};
 use crate::settings::SettingsStore;
 use crate::settings::convert::{
     SettingsProblem, apply_settings_shortcuts, fine_modifier_from_settings,
@@ -80,6 +88,12 @@ pub enum DemoMessage {
     /// The *OK* of the error "Files can't be chosen" was pressed (F2.12a5a): the dialog closes
     /// by itself, nothing else to do.
     FileErrorClosed,
+    /// An answer to "Save the changes?" (F2.12a5b, ADR-0050 DG5).
+    SaveChanges(SaveAnswer),
+    /// An answer to "Replace it?" (F2.12a5b): `true` for *Replace*.
+    Replace(bool),
+    /// The *OK* of an error of the open project (F2.12a5b): the dialog closes by itself.
+    ProjectErrorClosed,
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -114,6 +128,8 @@ pub struct DemoTexts {
     pub preferences: PreferencesTexts,
     /// The file choosers' texts (F2.12a5a).
     pub files: FileTexts,
+    /// The open project's texts: the window title, the questions, the errors (F2.12a5b).
+    pub project: ProjectTexts,
 }
 
 impl DemoTexts {
@@ -144,6 +160,7 @@ impl DemoTexts {
             about: AboutTexts::new(localizer)?,
             preferences: PreferencesTexts::new(localizer, Platform::CURRENT, actions.keys())?,
             files: FileTexts::new(localizer)?,
+            project: ProjectTexts::new(localizer)?,
         })
     }
 }
@@ -224,9 +241,12 @@ pub struct Demo {
     settings: SettingsStore,
     /// The file choosers' texts, for *Open* and *Save as* (F2.12a5a).
     files: FileTexts,
-    /// The last path a file chooser answered (F2.12a5a): nothing uses it until the open project
-    /// arrives (F2.12a5b, ADR-0050 DG5); kept so the tests and a look in a debugger see it.
-    chosen: Option<PathBuf>,
+    /// The open project's texts (F2.12a5b).
+    project_texts: ProjectTexts,
+    /// The open project and its flow (F2.12a5b, ADR-0050 DG5): `None` only if the new document
+    /// could not be made, which its constant values never cause (the tests check it); the file
+    /// actions then do nothing, as the actions do without their tables.
+    flow: Option<ProjectFlow>,
 }
 
 impl Demo {
@@ -330,7 +350,7 @@ impl Demo {
                     .height(Length::Fixed(110.0)),
             )
             .unwrap_or_else(|_| ui.root());
-        Self {
+        let mut demo = Self {
             ui,
             actions,
             requests: VecDeque::new(),
@@ -340,7 +360,8 @@ impl Demo {
             playback_labels: Vec::new(),
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             files: texts.files.clone(),
-            chosen: None,
+            project_texts: texts.project.clone(),
+            flow: OpenProject::new().ok().map(ProjectFlow::new),
             title,
             metronome,
             count_in,
@@ -350,7 +371,10 @@ impl Demo {
             restore_defaults,
             menu_bar,
             mac_menu: MacMenu::new(actions, texts, window_title),
-        }
+        };
+        // The window is named after the project from the start: "Untitled — Orchestra".
+        demo.refresh_title();
+        demo
     }
 
     /// The program's actions (F2.11d1), if their tables were valid.
@@ -450,10 +474,99 @@ impl Demo {
         )
     }
 
-    /// The last path a file chooser answered (F2.12a5a), not used yet (F2.12a5b).
+    /// The open project and its flow (F2.12a5b): `None` only if the new document could not be
+    /// made (never, see the field).
     #[must_use]
-    pub fn chosen_file(&self) -> Option<&Path> {
-        self.chosen.as_deref()
+    pub const fn project(&self) -> Option<&ProjectFlow> {
+        self.flow.as_ref()
+    }
+
+    /// The open project and its flow, to change the document (the tests: nothing in the
+    /// demonstration changes it yet, F2.21). Call [`Demo::refresh_title`] after a change.
+    pub const fn project_mut(&mut self) -> Option<&mut ProjectFlow> {
+        self.flow.as_mut()
+    }
+
+    /// The window title of the open project now: `Name — Orchestra`, with the modification mark
+    /// while it has unsaved changes (ADR-0050 DG5).
+    #[must_use]
+    pub fn window_title(&self) -> &str {
+        self.ui.title()
+    }
+
+    /// Gives the interface the open project's title (see [`Demo::window_title`]): the window, our
+    /// title bar and the accessibility tree follow it, and nothing happens when it did not
+    /// change. Called after every step of the flow.
+    pub fn refresh_title(&mut self) {
+        if let Some(flow) = self.flow.as_ref() {
+            let project = flow.project();
+            let title = window_title(
+                &self.project_texts,
+                project.name().as_deref(),
+                project.is_modified(),
+            );
+            self.ui.set_title(&title);
+        }
+    }
+
+    /// Runs one step of the open project's flow (F2.12a5b), then shows what it answered and
+    /// updates the title. Nothing without a flow.
+    fn project_step(
+        &mut self,
+        step: impl FnOnce(&mut ProjectFlow) -> Option<ProjectEffect>,
+        list: &mut DisplayList,
+    ) {
+        let effect = self.flow.as_mut().and_then(step);
+        if let Some(effect) = effect {
+            self.show_effect(effect, list);
+        }
+        self.refresh_title();
+    }
+
+    /// Shows what a step of the flow asked for (see `crate::project`): a question, a chooser, an
+    /// error, or closing the window. `open_dialog` and `choose_file` fail only if the interface's
+    /// own tree is inconsistent; then nothing is shown, and the flow waits for an answer that
+    /// never comes, a state the tests rule out.
+    fn show_effect(&mut self, effect: ProjectEffect, list: &mut DisplayList) {
+        match effect {
+            ProjectEffect::AskToSave { name } => {
+                let spec = save_changes_dialog(
+                    &self.project_texts,
+                    name.as_deref(),
+                    DemoMessage::SaveChanges(SaveAnswer::Save),
+                    DemoMessage::SaveChanges(SaveAnswer::Discard),
+                    DemoMessage::SaveChanges(SaveAnswer::Cancel),
+                );
+                let _ = self.ui.open_dialog(spec, list);
+            }
+            ProjectEffect::ChooseOpen => {
+                let _ = self.ui.choose_file(open_request(&self.files), list);
+            }
+            ProjectEffect::ChooseSave { name } => {
+                let _ = self
+                    .ui
+                    .choose_file(save_request(&self.files, name.as_deref()), list);
+            }
+            ProjectEffect::ConfirmReplace { path } => {
+                let spec = replace_dialog(
+                    &self.project_texts,
+                    &path,
+                    DemoMessage::Replace(true),
+                    DemoMessage::Replace(false),
+                );
+                let _ = self.ui.open_dialog(spec, list);
+            }
+            ProjectEffect::Failed(error) => {
+                let spec = project_error_dialog(
+                    &self.project_texts,
+                    &error,
+                    DemoMessage::ProjectErrorClosed,
+                );
+                let _ = self.ui.open_dialog(spec, list);
+            }
+            // The project was put away: the window closes (Quit, or the answer to the question).
+            ProjectEffect::Close => self.requests.push_back(WindowRequest::Close),
+        }
     }
 
     /// The open Preferences' panel, while they are open.
@@ -525,8 +638,9 @@ impl Demo {
         let mut name = None;
         let mut about = false;
         let mut open_preferences = false;
-        // The file chooser asked by *Open* or *Save as* (F2.12a5a).
-        let mut chooser: Option<FileRequest> = None;
+        // The steps of the open project (F2.12a5b), run after the queue is drained (they open
+        // dialogs and choosers, which borrow the interface), in the order they came.
+        let mut steps: Vec<ProjectInput> = Vec::new();
         // The Preferences' changes, applied after the queue is drained (it borrows the interface).
         let mut changes = Vec::new();
         for message in self.ui.take_messages() {
@@ -534,24 +648,30 @@ impl Demo {
                 DemoMessage::RestoreDefaults => restore = true,
                 DemoMessage::TrackName(text) => name = Some(text),
                 DemoMessage::Preferences(message) => changes.push(message),
-                // Quit and Full screen ask the window (F2.11d1), About opens its dialog
-                // (F2.12a3b); the other actions are disabled until they exist, so their messages
-                // never come.
+                DemoMessage::SaveChanges(answer) => steps.push(ProjectInput::SaveChanges(answer)),
+                DemoMessage::Replace(replace) => steps.push(ProjectInput::Replace(replace)),
+                // Full screen asks the window (F2.11d1), About opens its dialog (F2.12a3b), the
+                // file actions and Quit go through the open project (F2.12a5b: Quit asks about
+                // unsaved changes first); the other actions are disabled until they exist, so
+                // their messages never come.
                 DemoMessage::Action(id) => {
                     if let Some(ids) = self.actions {
                         if id == ids.quit {
-                            self.requests.push_back(WindowRequest::Close);
+                            steps.push(ProjectInput::Close);
                         } else if id == ids.full_screen {
                             self.requests.push_back(WindowRequest::ToggleFullScreen);
                         } else if id == ids.about {
                             about = true;
                         } else if id == ids.preferences {
                             open_preferences = true;
+                        } else if id == ids.new {
+                            steps.push(ProjectInput::New);
                         } else if id == ids.open {
-                            chooser = Some(open_request(&self.files));
+                            steps.push(ProjectInput::Open);
+                        } else if id == ids.save {
+                            steps.push(ProjectInput::Save);
                         } else if id == ids.save_as {
-                            // No project yet (F2.12a5b): the name proposed is "Untitled".
-                            chooser = Some(save_request(&self.files, None));
+                            steps.push(ProjectInput::SaveAs);
                         }
                     }
                 }
@@ -582,10 +702,10 @@ impl Demo {
             )
             .ok();
         }
-        // The interface blocks itself until the answer (ADR-0050 DG4) and refuses a second chooser
-        // while one is open; the window takes the request after this batch of events.
-        if let Some(request) = chooser {
-            let _ = self.ui.choose_file(request, list);
+        // The flow ignores a command while a question or a chooser is open (and the interface's
+        // modal layers keep it from coming), so a batch with two shortcuts runs only the first.
+        for input in steps {
+            self.project_step(|flow| input.run(flow), list);
         }
         if let Some(name) = name {
             if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.staff) {
@@ -608,6 +728,40 @@ impl Demo {
                 self.ui.request_record(id);
             }
             self.ui.frame(list);
+        }
+    }
+}
+
+/// A step of the open project asked by a message, run once the message queue is drained.
+#[derive(Debug, Clone, Copy)]
+enum ProjectInput {
+    /// *New*.
+    New,
+    /// *Open*.
+    Open,
+    /// *Save*.
+    Save,
+    /// *Save as*.
+    SaveAs,
+    /// Quit.
+    Close,
+    /// An answer to "Save the changes?".
+    SaveChanges(SaveAnswer),
+    /// An answer to "Replace it?".
+    Replace(bool),
+}
+
+impl ProjectInput {
+    /// Runs the step on `flow`.
+    fn run(self, flow: &mut ProjectFlow) -> Option<ProjectEffect> {
+        match self {
+            Self::New => flow.new_project(),
+            Self::Open => flow.open(),
+            Self::Save => flow.save(),
+            Self::SaveAs => flow.save_as(),
+            Self::Close => flow.close(),
+            Self::SaveChanges(answer) => flow.save_answer(answer),
+            Self::Replace(replace) => flow.replace_answer(replace),
         }
     }
 }
@@ -897,10 +1051,11 @@ impl WindowApp for Demo {
     fn file_chosen(&mut self, choice: FileChoice, list: &mut DisplayList) {
         // The blocking layer goes first, so an error dialog opens over the interface itself.
         self.ui.file_chosen(list);
-        match choice {
-            // Kept for the open project (F2.12a5b, ADR-0050 DG5), which will open or save it.
-            FileChoice::Chosen(path) => self.chosen = Some(path),
-            FileChoice::Cancelled => {}
+        // The open project opens or saves the chosen file (F2.12a5b); a cancelled chooser, or
+        // one that could not open, puts the flow back to idle.
+        let path = match choice {
+            FileChoice::Chosen(path) => Some(path),
+            FileChoice::Cancelled => None,
             // Never silence (ADR-0036 B4): the error says what to install. `open_dialog` fails
             // only if the interface's own tree is inconsistent; then nothing is shown.
             FileChoice::Unavailable => {
@@ -908,8 +1063,33 @@ impl WindowApp for Demo {
                     unavailable_dialog(&self.files, DemoMessage::FileErrorClosed),
                     list,
                 );
+                None
             }
+        };
+        self.project_step(|flow| flow.chosen(path), list);
+    }
+
+    fn close_requested(&mut self, list: &mut DisplayList) -> bool {
+        // As Quit (F2.12a5b): closing now when there is nothing to save; otherwise the question
+        // opens and its answer closes the window later (`ProjectEffect::Close`). While a question or a
+        // chooser is open the flow answers nothing, and the window stays.
+        let Some(flow) = self.flow.as_mut() else {
+            return true;
+        };
+        match flow.close() {
+            Some(ProjectEffect::Close) => true,
+            Some(effect) => {
+                self.show_effect(effect, list);
+                self.refresh_title();
+                false
+            }
+            None => false,
         }
+    }
+
+    fn title(&self) -> Option<&str> {
+        // The open project's (F2.12a5b), kept by the interface.
+        Some(self.ui.title())
     }
 
     fn take_window_request(&mut self) -> Option<WindowRequest> {

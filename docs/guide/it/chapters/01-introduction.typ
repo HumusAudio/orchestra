@@ -203,15 +203,57 @@ progetto per la prima volta propone il nome *Senza titolo*.
 Finché quella finestra è aperta, Orchestra la aspetta: nella finestra di Orchestra non reagisce
 nulla, e non la si può chiudere finché non scegli un file o annulli.
 
-#tip("Nota")[
-  In questa anteprima il file scelto non viene ancora aperto né salvato: arriva con la prossima
-  versione.
-]
-
 Su Linux la finestra per scegliere i file viene da un servizio del desktop, il *portale XDG del
 desktop*. Se il tuo sistema non ce l'ha, Orchestra te lo dice invece di non fare nulla: installa il
 pacchetto `xdg-desktop-portal` insieme a quello del tuo desktop (per esempio
 `xdg-desktop-portal-kde` su KDE Plasma o `xdg-desktop-portal-gnome` su GNOME), poi riprova.
+
+=== Nuovo progetto, aprire e salvare
+
+Tutto quello che scrivi in Orchestra sta in un *progetto*: un solo file che finisce con
+`.orchestra`. Il titolo della finestra mostra il nome del progetto, seguito da quello di Orchestra
+(*Brano — Orchestra*); un progetto che non hai mai salvato si chiama *Senza titolo*. Finché il
+progetto ha modifiche non ancora salvate, il titolo comincia con un pallino: *• Brano — Orchestra*.
+
+- *File → Nuovo* (Ctrl+N, ⌘N) comincia un progetto vuoto: una battuta vuota in 4/4, a ♩ = 120, in
+  Do maggiore. Una finestra per scegliere questi valori arriverà più avanti.
+- *File → Apri…* (Ctrl+O, ⌘O) apre un progetto che scegli. Prende il posto di quello che avevi
+  aperto.
+- *File → Salva* (Ctrl+S, ⌘S) scrive il progetto sopra il suo file. La prima volta chiede dove
+  salvarlo, come *Salva come*.
+- *File → Salva come…* (Ctrl+Maiusc+S, ⇧⌘S) salva il progetto in un file nuovo, che da quel
+  momento è il file del progetto.
+
+Se scrivi un nome senza `.orchestra`, Orchestra lo aggiunge. Se un file con quel nome c'è già,
+Orchestra chiede prima di sostituirlo. Invio ed Esc rispondono entrambi *Annulla*, che conserva il
+file: per sostituirlo devi scegliere tu *Sostituisci*, così non succede mai per sbaglio.
+
+Salvare non rovina mai il file che avevi: Orchestra scrive la nuova versione accanto e la mette al
+suo posto solo quando è completa, così se qualcosa va storto (il disco pieno, una chiavetta USB
+tolta) il vecchio file è ancora lì com'era.
+
+Prima di Nuovo, prima di Apri e prima di chiudere la finestra, Orchestra controlla se ci sono
+modifiche non salvate. Se ci sono, chiede se salvarle prima:
+
+#screenshot-placeholder(
+  [Screenshot: la domanda sulle modifiche non salvate (save-changes-dialog.png)],
+  [Prima di chiudere un progetto con modifiche non salvate Orchestra chiede se salvarle.],
+)
+
+- *Salva* salva il progetto (chiedendo dove, se non è mai stato salvato), poi prosegue.
+- *Non salvare* butta via le modifiche e prosegue.
+- *Annulla* (o Esc) torna al progetto, e non succede nulla.
+
+Se un progetto non si può aprire o salvare, Orchestra ti dice perché: il file non esiste più, non
+hai il permesso di leggerlo o di scriverlo, il disco è pieno, il file non è un progetto di
+Orchestra, è stato salvato da una versione più recente di Orchestra, oppure è danneggiato. Sotto il
+messaggio trovi il percorso completo del file.
+
+#tip("Nota")[
+  In questa anteprima non c'è ancora una vista della partitura, quindi nulla modifica il progetto e
+  il titolo non mostra mai il pallino. Nuovo, Apri e Salva funzionano già con veri file di
+  progetto.
+]
 
 == Stato di questa guida
 

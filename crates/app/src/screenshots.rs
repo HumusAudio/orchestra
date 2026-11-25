@@ -178,6 +178,12 @@ pub const SCENES: &[Scene] = &[
         record: record_about_dialog,
     },
     Scene {
+        name: "save-changes-dialog",
+        width: 640.0,
+        height: ABOUT_SCENE_HEIGHT,
+        record: record_save_changes_dialog,
+    },
+    Scene {
         name: "preferences-dialog",
         width: 960.0,
         height: 600.0,
@@ -278,6 +284,27 @@ fn record_about_dialog(bounds: Rect, list: &mut DisplayList, context: &SceneCont
     }
 }
 
+/// The question "Save the changes?" (F2.12a5b, ADR-0050 DG5): the open project, never saved,
+/// has a change (two bars inserted, the same edit as the tests), and the window was asked to
+/// close. The title shows *Untitled*, the three buttons are in the interface's default order
+/// (the scenes never read the desktop's), *Save* is the default.
+fn record_save_changes_dialog(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    let Some(flow) = demo.project_mut() else {
+        return;
+    };
+    let insert = orchestra_core_model::Command::InsertBars {
+        at: orchestra_core_time::BarIndex::FIRST,
+        count: 2,
+    };
+    if flow.project_mut().editor_mut().execute(&insert).is_err() {
+        return;
+    }
+    demo.refresh_title();
+    let _ = demo.close_requested(list);
+}
+
 /// The height of the title bar's strip (F2.11b3): the bar (a control's height at Studio's
 /// density) and the resize band under it, with the frame's line around.
 const TITLE_BAR_HEIGHT: f32 = 36.0;
@@ -314,8 +341,8 @@ fn record_title_bar(bounds: Rect, list: &mut DisplayList, context: &SceneContext
 }
 
 /// The demonstration window with the menu bar used from the keyboard (F2.11d2b, ADR-0048 AM12):
-/// F10 puts the keyboard on *File*, Enter opens its menu; its first enabled item (*Quit*) is
-/// highlighted and the mnemonics are underlined, as they are while the bar is used from the
+/// F10 puts the keyboard on *File*, Enter opens its menu; its first enabled item (*New*, since
+/// F2.12a5b) is highlighted and the mnemonics are underlined, as they are while the bar is used from the
 /// keyboard. The scenes are rendered on Linux, where the bar is drawn.
 fn record_demo_menu_bar(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
     let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
