@@ -5789,7 +5789,12 @@ none, a muted line says every text and control is easy to read. Never a block.
 
 **Text, lines and density** (SCALETTA F2.12b2a, owner's choices of 2026-11-26;
 `crates/app/src/preferences/theme/shared.rs`). Between the readability warnings and the colours,
-one grid (so every control and every *Restore* stands in the same column) holds: **Text**, a slider
+each setting is a block with its name on a line of its own and, below it, the control (taking the
+room left), the value (fixed width) and *Restore*, so the values and the buttons still line up on
+the right edge. A first version put the names in a column of a grid: in Italian, and with the text
+at 150%, the grid was wider than the section and *Restore* was cut at the window's edge (owner's
+report); with the name above, nothing can overflow, and a drop-down too narrow shortens its text
+with an ellipsis. The blocks are: **Text**, a slider
 for the size of all the text, 85–150% of the base's in steps of 5, and drop-downs for the
 interface's, the numbers' and the file paths' fonts among the bundled text faces (the music face,
 Bravura, is not offered: it would draw symbols instead of letters); **Lines, corners and shadows**,
@@ -5822,7 +5827,9 @@ glossary entries; the scene `theme-text-lines` shows text at 110% and 12 px corn
 in `shared.rs` (scaling, every step read back, both halves and only the differences with the
 limits, colours untouched) and three integration tests (the rows before the colours, the text
 size in both halves and restored with its slider, shapes, density and a font saved, sent to the
-window and each restored); five injected bugs were caught, one only once the test checked each
+window and each restored, and every control of every Preferences section inside the pane in the
+six languages with the text at 150%, which also made the colours' names and the Playback
+section's columns share the width instead of taking their content's); five injected bugs were caught, one only once the test checked each
 control right after its own *Restore* (a later *Restore*, which moves every control back, had been
 hiding it).
 

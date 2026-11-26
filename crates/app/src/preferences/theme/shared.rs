@@ -29,9 +29,9 @@
 use orchestra_i18n::{I18nError, Localizer};
 use orchestra_io::settings::{Settings, ThemeOverride};
 use orchestra_ui::{
-    Align, Appearance, BuiltInTheme, Button, Density, DropDown, Family, FamilyToken, Grid, Label,
+    Align, Appearance, BuiltInTheme, Button, Density, DropDown, Family, FamilyToken, Flex, Label,
     LayoutProps, Length, MAX_TEXT_SIZE, MIN_TEXT_SIZE, RadioGroup, ShapeToken, SizeToken, Slider,
-    Space, Theme, Track, Ui, UiError, Weight, WidgetId,
+    Space, Theme, Ui, UiError, Weight, WidgetId,
 };
 
 use super::{ThemeMessage, chosen_custom, instance, set_label};
@@ -388,71 +388,82 @@ fn heading(text: &str) -> Label {
     Label::new(text.to_owned()).styled(FamilyToken::Ui, SizeToken::Body, Weight::SemiBold)
 }
 
-/// A grid of `rows` rows: the name, the control, the value (sliders only) and *Restore*.
-fn grid(ui: &mut Ui<DemoMessage>, parent: WidgetId, rows: usize) -> Result<WidgetId, UiError> {
-    ui.add(
-        parent,
-        Grid::new(
-            vec![
-                Track::Content,
-                Track::Content,
-                Track::Content,
-                Track::Content,
-            ],
-            vec![Track::Content; rows],
-            Space::S,
-            Space::None,
-        ),
-        LayoutProps::default(),
-    )
+/// The layout that fills the width it is given.
+fn wide() -> LayoutProps {
+    LayoutProps::default().width(Length::Fill(1.0))
 }
 
-/// The layout of the cell (`row`, `column`), centred vertically.
-fn cell(row: u16, column: u16) -> LayoutProps {
-    LayoutProps::default()
-        .cell(row, column)
-        .align(Align::Start, Align::Center)
-}
-
-/// A row of `grid`: `name`, a slider from `min` to `max` by `step` at `value` (double click:
-/// `default`, ADR-0046), its value written by `write`, and *Restore* sending `restore`.
+/// One setting's block in `group`: its `name` on a line of its own (wrapping when long), then a
+/// row for its control, its value and *Restore*. Answers that row.
+///
+/// # Why a name above and not beside
+/// A grid with the names in a column of their own was wider than the section in Italian and with
+/// the text at 150% (owner's report of 2026-11-26: the controls and *Restore* were cut at the
+/// window's edge): names like "Spessore della decorazione del focus", fonts like "Inter, cifre
+/// della stessa larghezza" and *Restore* side by side need more than the section's 540 or so
+/// logical pixels. With the name above, the row only holds the control (which takes the room
+/// left, a drop-down shortening its text with an ellipsis if it must, F2.09f), the value (fixed
+/// width) and *Restore*: every row ends on the same right edge, so the values and the buttons
+/// still stand in columns, and nothing can overflow at any width or text size.
 ///
 /// # Errors
 /// The interface's.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "one row's description; a struct for it would only rename the arguments"
-)]
+fn setting(ui: &mut Ui<DemoMessage>, group: WidgetId, name: &str) -> Result<WidgetId, UiError> {
+    let block = ui.add(group, Flex::column(Space::Xs, Space::None), wide())?;
+    ui.add(block, Label::new(name.to_owned()).wrapping(), wide())?;
+    ui.add(block, Flex::row(Space::S, Space::None), wide())
+}
+
+/// The value's place in a row: its label, or (no value) an empty one of the same width, so that
+/// *Restore* stands in the same place on every row.
+fn value_label(ui: &mut Ui<DemoMessage>, row: WidgetId, text: String) -> Result<WidgetId, UiError> {
+    ui.add(
+        row,
+        Label::new(text),
+        LayoutProps::default()
+            .width(Length::Fixed(VALUE_WIDTH))
+            .align(Align::Start, Align::Center),
+    )
+}
+
+/// *Restore* at the end of `row`, sending `message`.
+fn restore_button(
+    ui: &mut Ui<DemoMessage>,
+    row: WidgetId,
+    text: &str,
+    message: ThemeMessage,
+) -> Result<WidgetId, UiError> {
+    ui.add(
+        row,
+        Button::new(text.to_owned(), DemoMessage::Theme(message)),
+        LayoutProps::default().align(Align::Start, Align::Center),
+    )
+}
+
+/// A slider setting in `group`: `name`, a slider from `min` to `max` by `step` at `value` (double
+/// click: `default`, ADR-0046), its value written by `written`, and *Restore* sending `restore`.
+///
+/// # Errors
+/// The interface's.
 fn slider_row(
     ui: &mut Ui<DemoMessage>,
-    grid: WidgetId,
-    row: u16,
+    group: WidgetId,
     name: &str,
     (min, max, step): (f64, f64, f64),
     (value, default): (f64, f64),
     (message, restore): (fn(f64) -> DemoMessage, ThemeMessage),
     (written, restore_text): (String, &str),
 ) -> Result<SliderRow, UiError> {
-    ui.add(grid, Label::new(name.to_owned()), cell(row, 0))?;
+    let row = setting(ui, group, name)?;
     let slider = ui.add(
-        grid,
+        row,
         Slider::new(min, max, step, value, message)
             .default_value(default)
             .labelled(name.to_owned()),
-        // As wide as the column, which the widest drop-down or the density's group sets: the
-        // sliders, the drop-downs and the group end on the same line.
-        cell(row, 1).width(Length::Fill(1.0)),
+        wide().align(Align::Start, Align::Center),
     )?;
-    let value = ui.add(
-        grid,
-        Label::new(written),
-        cell(row, 2).width(Length::Fixed(VALUE_WIDTH)),
-    )?;
-    let restore = ui.add(
-        grid,
-        Button::new(restore_text.to_owned(), DemoMessage::Theme(restore)),
-        cell(row, 3),
-    )?;
+    let value = value_label(ui, row, written)?;
+    let restore = restore_button(ui, row, restore_text, restore)?;
     Ok(SliderRow {
         slider,
         value,
@@ -460,10 +471,9 @@ fn slider_row(
     })
 }
 
-/// Adds the shared values' rows to `area`, under three headings: **Text** (the size, then the
-/// three families), **Lines, corners and shadows** (the six shapes) and **Density**, all in one
-/// grid so that their controls and *Restore* buttons line up. `state` gives
-/// the values; *Restore* states and the values' texts are set by [`refresh`]. O(rows).
+/// Adds the shared values' settings to `area`, under three headings: **Text** (the size, then
+/// the three families), **Lines, corners and shadows** (the six shapes) and **Density**, each
+/// setting a block with its name above its control (see [`setting`]). O(rows).
 ///
 /// # Errors
 /// The interface's, if its own tree is inconsistent (never expected).
@@ -474,17 +484,15 @@ pub(crate) fn build(
     restore: &str,
     state: &SharedState,
 ) -> Result<SharedRows, UiError> {
-    // One grid for the text and the lines, so their controls and *Restore* buttons stand in
-    // the same columns (two grids sized their columns apart); the headings are rows of it, in the
-    // names' column. Rows: the text heading (0), the size (1), the families (2–4), the lines'
-    // heading (5), the shapes (6–11).
-    let rows = 2 + EDITABLE_FAMILIES.len() + 1 + SHAPE_LIMITS.len() + 2;
-    let text_grid = grid(ui, area, rows)?;
-    ui.add(text_grid, heading(&texts.text), cell(0, 0))?;
+    // The settings of one heading sit closer together than the editor's parts.
+    let group = |ui: &mut Ui<DemoMessage>, title: &str| -> Result<WidgetId, UiError> {
+        ui.add(area, heading(title), LayoutProps::default())?;
+        ui.add(area, Flex::column(Space::S, Space::None), wide())
+    };
+    let text_group = group(ui, &texts.text)?;
     let text_scale = slider_row(
         ui,
-        text_grid,
-        1,
+        text_group,
         &texts.text_size,
         (
             f64::from(TEXT_SCALE_MIN),
@@ -498,10 +506,8 @@ pub(crate) fn build(
             restore,
         ),
     )?;
-    let families = family_rows(ui, text_grid, texts, restore, state)?;
-    // Lines, corners and shadows, in the same grid.
-    let lines_row = u16::try_from(2 + EDITABLE_FAMILIES.len()).unwrap_or(u16::MAX);
-    ui.add(text_grid, heading(&texts.lines), cell(lines_row, 0))?;
+    let families = family_rows(ui, text_group, texts, restore, state)?;
+    let lines_group = group(ui, &texts.lines)?;
     let mut shapes = Vec::with_capacity(SHAPE_LIMITS.len());
     for (index, (((name, (_, min, max)), message), (value, base))) in texts
         .shape_rows
@@ -511,11 +517,9 @@ pub(crate) fn build(
         .zip(state.shapes.into_iter().zip(state.base.2))
         .enumerate()
     {
-        let row = lines_row.saturating_add(1 + u16::try_from(index).unwrap_or(u16::MAX));
         shapes.push(slider_row(
             ui,
-            text_grid,
-            row,
+            lines_group,
             name,
             (f64::from(min), f64::from(max), 1.0),
             (f64::from(value), f64::from(base)),
@@ -523,9 +527,8 @@ pub(crate) fn build(
             (texts.pixels.fill(&[&value.to_string()]), restore),
         )?);
     }
-    let density_row_index =
-        lines_row.saturating_add(1 + u16::try_from(SHAPE_LIMITS.len()).unwrap_or(0));
-    let density = density_row(ui, text_grid, density_row_index, texts, restore, state)?;
+    let density_group = group(ui, &texts.density)?;
+    let density = density_row(ui, density_group, texts, restore, state)?;
     let shapes: [SliderRow; 6] = shapes
         .try_into()
         .map_err(|_| UiError::UnknownWidget(area))?;
@@ -537,14 +540,14 @@ pub(crate) fn build(
     })
 }
 
-/// The three family rows of the text grid (rows 2–4), in [`EDITABLE_FAMILIES`]' order: the name,
-/// a drop-down of [`FAMILY_CHOICES`], *Restore*.
+/// The three family settings, in [`EDITABLE_FAMILIES`]' order: the name, a drop-down of
+/// [`FAMILY_CHOICES`] taking the row's room, an empty value's place, *Restore*.
 ///
 /// # Errors
 /// The interface's.
 fn family_rows(
     ui: &mut Ui<DemoMessage>,
-    text_grid: WidgetId,
+    group: WidgetId,
     texts: &SharedTexts,
     restore: &str,
     state: &SharedState,
@@ -557,74 +560,52 @@ fn family_rows(
         .zip(FAMILY_MESSAGES)
         .enumerate()
     {
-        let row = u16::try_from(index + 2).unwrap_or(u16::MAX);
         let selected = FAMILY_CHOICES
             .iter()
             .position(|choice| *choice == family)
             .unwrap_or(0);
-        ui.add(text_grid, Label::new(name.clone()), cell(row, 0))?;
+        let row = setting(ui, group, name)?;
         let control = ui.add(
-            text_grid,
+            row,
             DropDown::new(texts.family_names.clone(), selected, message).label(name.clone()),
-            // Measured at its natural width (the longest family name whole, "Inter, cifre della
-            // stessa larghezza", never cut short), which sets the column with the density's
-            // group; then as wide as the column, so every control of the column ends on one line.
-            cell(row, 1).width(Length::Fill(1.0)),
+            wide().align(Align::Start, Align::Center),
         )?;
-        let restore = ui.add(
-            text_grid,
-            Button::new(
-                restore.to_owned(),
-                DemoMessage::Theme(ThemeMessage::RestoreFamily(index)),
-            ),
-            cell(row, 3),
-        )?;
+        value_label(ui, row, String::new())?;
+        let restore = restore_button(ui, row, restore, ThemeMessage::RestoreFamily(index))?;
         families.push(ChoiceRow { control, restore });
     }
     families
         .try_into()
-        .map_err(|_| UiError::UnknownWidget(text_grid))
+        .map_err(|_| UiError::UnknownWidget(group))
 }
 
-/// The density heading (row `heading_row` of the grid) and its row below: the group of
-/// densities, *Restore*.
+/// The density setting: the group of densities at its natural width (a segmented control is not
+/// stretched), the room left empty, then *Restore* on the rows' right edge.
 ///
 /// # Errors
 /// The interface's.
 fn density_row(
     ui: &mut Ui<DemoMessage>,
-    density_grid: WidgetId,
-    heading_row: u16,
+    group: WidgetId,
     texts: &SharedTexts,
     restore: &str,
     state: &SharedState,
 ) -> Result<ChoiceRow, UiError> {
-    // The heading on its own row, the group and *Restore* on the next, in the columns of the
-    // sliders and of the other *Restore* buttons.
-    let row = heading_row.saturating_add(1);
-    ui.add(density_grid, heading(&texts.density), cell(heading_row, 0))?;
+    let row = ui.add(group, Flex::row(Space::S, Space::None), wide())?;
     let selected = Density::ALL
         .iter()
         .position(|density| *density == state.density)
         .unwrap_or(0);
     let control = ui.add(
-        density_grid,
+        row,
         RadioGroup::new(texts.densities.clone(), selected, density_message)
             .label(texts.density.clone()),
-        cell(row, 1),
+        LayoutProps::default().align(Align::Start, Align::Center),
     )?;
-    let density_restore = ui.add(
-        density_grid,
-        Button::new(
-            restore.to_owned(),
-            DemoMessage::Theme(ThemeMessage::RestoreDensity),
-        ),
-        cell(row, 3),
-    )?;
-    Ok(ChoiceRow {
-        control,
-        restore: density_restore,
-    })
+    // The room between the group and *Restore*: an empty label that takes it (it draws nothing).
+    ui.add(row, Label::new(String::new()), wide())?;
+    let restore = restore_button(ui, row, restore, ThemeMessage::RestoreDensity)?;
+    Ok(ChoiceRow { control, restore })
 }
 
 /// Shows `state` in `rows`: the values written beside the sliders and *Restore* enabled where a

@@ -987,9 +987,10 @@ impl ThemeEditor {
     ///
     /// # Layout
     /// Five columns: the warning mark (empty, or "●" when the token is part of a pair below its
-    /// contrast threshold, set by [`Self::refresh_marks`]), the token's name, its swatch (drawn
-    /// with the live token, so it follows every change without being told), the value field
-    /// (the only column that grows), *Restore*. One row per token, as tall as its content.
+    /// contrast threshold, set by [`Self::refresh_marks`]), the token's name (sharing the room
+    /// with the field, wrapping when long), its swatch (drawn with the live token, so it follows
+    /// every change without being told), the value field, *Restore*. One row per token, as tall
+    /// as its content.
     ///
     /// # Why separate from [`Self::rebuild`]?
     /// The rows are most of the area's widgets; split out, `rebuild` stays within the length the
@@ -1008,9 +1009,13 @@ impl ThemeEditor {
         let grid = ui.add(
             self.area,
             Grid::new(
+                // The names' column shares the room with the fields' column instead of taking
+                // its content's width: long names (French, German, the text at 150%) wrap on two
+                // lines rather than pushing *Restore* out of the window (owner's report of
+                // 2026-11-26, found for the colours by the test of every language).
                 vec![
                     Track::Content,
-                    Track::Content,
+                    Track::Fill(1.0),
                     Track::Content,
                     Track::Fill(1.0),
                     Track::Content,
@@ -1033,7 +1038,11 @@ impl ThemeEditor {
                 Label::new(String::new()).color(ColorToken::Warning),
                 center(r, 0),
             )?;
-            ui.add(grid, Label::new(name.clone()), center(r, 1))?;
+            ui.add(
+                grid,
+                Label::new(name.clone()).wrapping(),
+                center(r, 1).width(Length::Fill(1.0)),
+            )?;
             ui.add(grid, Swatch::new(*token), center(r, 2))?;
             let message = COLOR_MESSAGES
                 .get(index)

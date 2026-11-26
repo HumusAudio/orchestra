@@ -49,7 +49,9 @@ rounded the corners are, how thick the lines, the focus decoration and the dialo
 how soft and how far the shadows fall. *Density* can be *Comfortable*, with room around the
 controls, or *Compact*, with the controls closer together. Each value has its *Restore*, and the window changes as
 you move the control. These choices are the same in the light and in the dark half; each slider
-stops where the interface would become hard to use.
+stops where the interface would become hard to use. Even with the largest text nothing is pushed
+out of the window: the settings rearrange themselves to fit, and a name too long for its place
+goes on to a second line.
 
 #screenshot-placeholder(
   [Screenshot: the text, lines and density of a theme of your own (theme-text-lines.png)],

@@ -476,8 +476,8 @@ fn scroll_section(demo: &mut Demo, list: &mut DisplayList, pixels: f32) {
 
 /// The theme editor's text, lines and density (F2.12b2a): a custom theme from Studio with its
 /// text at 110% and its corners rounder (12 px), set with the keyboard as a user would; the whole
-/// window already draws with them, *Restore* is enabled on those two rows; the rows from the
-/// readability line to the density are in view.
+/// window already draws with them, *Restore* is enabled on the corners' row; the focus on the
+/// density's group brings the lines' settings and the density into view.
 fn record_theme_text_lines(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme {
     custom_theme_scene(bounds, list, context, |demo, list| {
         let rows = *demo.theme_editor()?.shared_rows()?;

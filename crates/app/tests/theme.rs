@@ -745,3 +745,88 @@ fn shapes_families_and_density_are_saved_and_sent() {
         format!("{corners}\u{a0}px")
     );
 }
+
+/// Every control of the Appearance section fits the section's width, its focus ring included, in
+/// every language and with the text at its largest (150%): the owner saw the text rows and their
+/// *Restore* buttons cut at the window's right edge in Italian (2026-11-26).
+#[test]
+fn the_rows_fit_in_every_language_with_the_largest_text() {
+    const REACH: f32 = 3.0;
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    for locale in Locale::ALL {
+        let localizer = Localizer::new(locale).unwrap();
+        let texts = orchestra_app::DemoTexts::new(&localizer).unwrap();
+        let mut demo = Demo::new(&faces, &orchestra_app::theme(), "Orchestra", &texts);
+        let mut list = DisplayList::new();
+        demo.layout(Rect::from_origin_size(0.0, 0.0, 960.0, 600.0), &mut list);
+        let ids = demo.actions().unwrap();
+        demo.run_action(ids.preferences, &mut list);
+        duplicate(&mut demo, &mut list);
+        let rows = *demo.theme_editor().unwrap().shared_rows().unwrap();
+        demo.ui_mut()
+            .set_focus(Some(rows.text_scale.slider), &mut list)
+            .unwrap();
+        press_key(&mut demo, &mut list, NamedKey::End);
+        demo.layout(Rect::from_origin_size(0.0, 0.0, 960.0, 600.0), &mut list);
+        let panel = demo.preferences().unwrap();
+        let (viewport, rects) = ring_room(&demo, panel).unwrap();
+        for rect in rects {
+            assert!(
+                rect.x1 + REACH <= viewport.x1 && rect.x0 - REACH >= viewport.x0,
+                "{locale:?}: {rect:?} outside {viewport:?}"
+            );
+        }
+        // The other sections, with the same large text: every control inside the pane. The
+        // list of sections has the focus after Home on it; Down goes to the next section.
+        for section in 1..4 {
+            demo.ui_mut().set_focus(None, &mut list).unwrap();
+            let ids = demo.actions().unwrap();
+            // Close and open again: the list of sections takes the focus, then Down `section`
+            // times.
+            demo.run_action(ids.preferences, &mut list);
+            demo.run_action(ids.preferences, &mut list);
+            for _ in 0..section {
+                press_key(&mut demo, &mut list, NamedKey::ArrowDown);
+            }
+            let panel = demo.preferences().unwrap();
+            let pane = demo.ui().rect(panel).unwrap();
+            let mut rects = Vec::new();
+            all_controls(&demo, panel, &mut rects);
+            for rect in rects {
+                assert!(
+                    rect.x1 + REACH <= pane.x1,
+                    "{locale:?}, section {section}: {rect:?} outside {pane:?}"
+                );
+            }
+        }
+    }
+}
+
+/// The rectangles of every control under `id` (buttons, fields, drop-downs, groups, toggles,
+/// sliders, lists), depth first.
+fn all_controls(demo: &Demo, id: WidgetId, out: &mut Vec<Rect>) {
+    for child in demo.ui().children(id) {
+        let ui = demo.ui();
+        let control = ui.widget::<Button<DemoMessage>>(child).is_some()
+            || ui.widget::<TextField<DemoMessage>>(child).is_some()
+            || ui
+                .widget::<orchestra_ui::DropDown<DemoMessage>>(child)
+                .is_some()
+            || ui
+                .widget::<orchestra_ui::RadioGroup<DemoMessage>>(child)
+                .is_some()
+            || ui
+                .widget::<orchestra_ui::Toggle<DemoMessage>>(child)
+                .is_some()
+            || ui
+                .widget::<orchestra_ui::Slider<DemoMessage>>(child)
+                .is_some()
+            || ui
+                .widget::<orchestra_ui::ListBox<DemoMessage>>(child)
+                .is_some();
+        if control {
+            out.push(ui.rect(child).unwrap());
+        }
+        all_controls(demo, child, out);
+    }
+}

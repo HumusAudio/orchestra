@@ -6169,8 +6169,13 @@ righe; se non ce n'è nessuno, una riga attenuata dice che tutti i testi e i con
 bene. Mai un blocco.
 
 **Testo, linee e densità** (SCALETTA F2.12b2a, scelte del proprietario del 2026-11-26;
-`crates/app/src/preferences/theme/shared.rs`). Tra gli avvisi di leggibilità e i colori, una sola
-griglia (così ogni controllo e ogni *Ripristina* stanno nella stessa colonna) contiene: **Testo**, un
+`crates/app/src/preferences/theme/shared.rs`). Tra gli avvisi di leggibilità e i colori, ogni
+impostazione è un blocco con il nome su una riga sua e, sotto, il controllo (che prende lo spazio
+rimasto), il valore (larghezza fissa) e *Ripristina*, così i valori e i pulsanti restano allineati sul
+bordo destro. Una prima versione metteva i nomi in una colonna di una griglia: in italiano, e con il
+testo al 150%, la griglia era più larga della sezione e *Ripristina* veniva tagliato al bordo della
+finestra (segnalazione del proprietario); con il nome sopra niente può uscire, e un menu a tendina
+troppo stretto accorcia il testo con i puntini. I blocchi sono: **Testo**, un
 cursore per la dimensione di tutto il testo, 85–150% di quella della base a passi di 5, e menu a
 tendina per i caratteri dell'interfaccia, dei numeri e dei percorsi dei file tra i caratteri di
 testo inclusi (quello musicale, Bravura, non si offre: disegnerebbe simboli al posto delle lettere);
@@ -6204,7 +6209,10 @@ stessa larghezza"), con cinque voci del glossario; la scena `theme-text-lines` m
 110% e gli angoli a 12 px. Test: quattro in `shared.rs` (la scala, ogni passo riletto, le due metà e
 solo le differenze con i limiti, i colori intatti) e tre test d'integrazione (le righe prima dei
 colori, la dimensione del testo nelle due metà e ripristinata con il suo cursore, forme, densità e
-un carattere salvati, mandati alla finestra e ognuno ripristinato); cinque bug inseriti di
+un carattere salvati, mandati alla finestra e ognuno ripristinato, e ogni controllo di ogni sezione delle Preferenze dentro
+il pannello nelle sei lingue con il testo al 150%, che ha fatto dividere la larghezza anche ai nomi
+dei colori e alle colonne della sezione Riproduzione invece di prendere quella del loro
+contenuto); cinque bug inseriti di
 proposito sono stati presi, uno solo dopo che il test ha controllato ogni controllo subito dopo il
 suo *Ripristina* (un *Ripristina* successivo, che riporta indietro tutti i controlli, lo
 nascondeva).

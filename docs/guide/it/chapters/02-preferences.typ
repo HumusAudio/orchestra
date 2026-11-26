@@ -50,7 +50,9 @@ quanto sono arrotondati gli angoli, quanto sono spesse le linee, la decorazione 
 cornice dei dialoghi, e quanto sono morbide e lontane le ombre. La *Densità* può essere
 *Comoda*, con spazio intorno ai controlli, o *Compatta*, con i controlli più vicini tra loro. Ogni valore ha il suo *Ripristina*,
 e la finestra cambia mentre muovi il controllo. Queste scelte sono uguali nella metà chiara e in
-quella scura; ogni cursore si ferma dove l'interfaccia diventerebbe difficile da usare.
+quella scura; ogni cursore si ferma dove l'interfaccia diventerebbe difficile da usare. Anche con il
+testo più grande niente esce dalla finestra: le impostazioni si risistemano per starci, e un nome
+troppo lungo per il suo posto va su una seconda riga.
 
 #screenshot-placeholder(
   [Screenshot: testo, linee e densità di un tema tuo (theme-text-lines.png)],
