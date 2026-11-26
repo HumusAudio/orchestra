@@ -299,6 +299,34 @@ impl DisplayList {
         Ok(ImageId(id))
     }
 
+    /// Puts `image` in place of the picture `id`, keeping the id (F2.12b3a, a precision of
+    /// ADR-0039 D4 approved by the owner on 2026-11-26): a widget whose picture changes (the
+    /// colour picker's square follows the hue) replaces it instead of adding a new one, so the
+    /// store does not grow with every change. Damages nothing itself: the caller records the
+    /// segments that show the picture again, which damages their area (the widget whose picture
+    /// changed is being recorded anyway). O(1).
+    ///
+    /// # Errors
+    /// The picture given back, nothing changed, when `id` was freed or never given (the caller
+    /// then adds it as a new one, without copying it).
+    pub fn replace_image(&mut self, id: ImageId, image: Image) -> Result<(), Image> {
+        match self.images.get_mut(id.0 as usize) {
+            Some(slot @ Some(_)) => {
+                *slot = Some(image);
+                Ok(())
+            }
+            _ => Err(image),
+        }
+    }
+
+    /// How many pictures the store holds now (freed ones not counted): lets the tests check that
+    /// a widget replacing its pictures does not grow the store, and that removing it frees them
+    /// (F2.12b3a). O(pictures ever stored).
+    #[must_use]
+    pub fn live_images(&self) -> usize {
+        self.images.iter().filter(|slot| slot.is_some()).count()
+    }
+
     /// Frees a picture. Commands that still refer to it draw nothing; the caller re-records the
     /// segments that showed it (which damages their area). The id is not reused.
     pub fn remove_image(&mut self, id: ImageId) {

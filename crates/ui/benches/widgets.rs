@@ -560,6 +560,103 @@ fn slider_wheel_notch(mut sliders: Sliders) -> Sliders {
     sliders
 }
 
+// A colour picker of 240 logical pixels alone in a 400 × 400 window, shown once, with a drag
+// started in its square or in its hue strip (F2.12b3a): one move of the drag is measured, with the
+// pictures it makes, the drawing and the accessibility update. In the square the hue stays, so the
+// square's picture is reused; on the hue strip every move rebuilds it (64 × 64 colours).
+struct Picker {
+    ui: Ui<orchestra_ui::Color>,
+    list: DisplayList,
+    renderer: CpuRenderer,
+    image: Image,
+    area: Rect,
+}
+
+fn picker_dragging(hue_strip: bool) -> Picker {
+    let faces = orchestra_text::Faces::bundled().unwrap();
+    let mut ui = Ui::new(Flex::column(Space::M, Space::M), &theme(), faces.clone());
+    let root = ui.root();
+    let picker = ui
+        .add(
+            root,
+            orchestra_ui::ColorPicker::new(orchestra_ui::Color::rgba(0x3366_ccff), |color| color)
+                .labelled(
+                    "Accent color",
+                    "Intensity and brightness",
+                    "Hue",
+                    "Transparency",
+                ),
+            LayoutProps::default().width(Length::Fixed(240.0)),
+        )
+        .unwrap();
+    let mut list = DisplayList::new();
+    ui.layout(Rect::new(0.0, 0.0, 400.0, 400.0), &mut list);
+    let r = ui.rect(picker).unwrap();
+    // The square is the top 150 pixels; the hue strip 16 pixels high, 8 below it.
+    let area = if hue_strip {
+        Rect::new(r.x0, r.y0 + 158.0, r.x1, r.y0 + 174.0)
+    } else {
+        Rect::new(r.x0, r.y0, r.x1, r.y0 + 150.0)
+    };
+    let mut renderer = CpuRenderer::new(faces);
+    let mut image = Image::new(400, 400).unwrap();
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    ui.input(
+        &InputEvent::PointerButton {
+            button: PointerButton::Left,
+            state: ButtonState::Pressed,
+            position: Point::new(area.x0 + 40.0, f32::midpoint(area.y0, area.y1)),
+            clicks: 1,
+        },
+        &mut list,
+    );
+    let damage = list.take_damage();
+    renderer
+        .render(&list, &theme(), &damage, 1.0, &mut image)
+        .unwrap();
+    let _ = ui.take_access_update();
+    let _ = ui.take_messages().count();
+    Picker {
+        ui,
+        list,
+        renderer,
+        image,
+        area,
+    }
+}
+
+fn picker_move(mut picker: Picker) -> Picker {
+    let position = Point::new(picker.area.x0 + 160.0, picker.area.y0 + 10.0);
+    picker.ui.input(
+        black_box(&InputEvent::PointerMoved { position }),
+        &mut picker.list,
+    );
+    black_box(picker.ui.take_messages().count());
+    let damage = picker.list.take_damage();
+    picker
+        .renderer
+        .render(&picker.list, &theme(), &damage, 1.0, &mut picker.image)
+        .unwrap();
+    black_box(picker.ui.take_access_update());
+    picker
+}
+
+#[library_benchmark]
+#[bench::square(picker_dragging(false))]
+fn picker_square_drag_move(picker: Picker) -> Picker {
+    picker_move(picker)
+}
+
+#[library_benchmark]
+#[bench::hue(picker_dragging(true))]
+fn picker_hue_drag_move(picker: Picker) -> Picker {
+    picker_move(picker)
+}
+
 library_benchmark_group!(
     name = controls,
     benchmarks = [
@@ -567,7 +664,9 @@ library_benchmark_group!(
         real_click,
         real_access_full,
         slider_drag_move,
-        slider_wheel_notch
+        slider_wheel_notch,
+        picker_square_drag_move,
+        picker_hue_drag_move
     ]
 );
 

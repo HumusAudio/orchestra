@@ -410,3 +410,17 @@ neighbours anywhere else.
 - **The physical key reaches the widgets**: `WidgetEvent::Key` carries `physical` (ADR-0040 W5's
   `PhysicalKey`), so a widget can read a key as the actions' lookup does (the shortcut capture,
   ADR-0048's precisions of F2.12c1).
+
+## Precision of the implementation (F2.12b3a, approved by the owner on 2026-11-26)
+
+- **`Widget::take_images`** (default `None`): a widget gives its pictures when they changed, as
+  pixel data; it asks to be recorded again when they change. The interface takes them just before
+  recording the widget (so a widget without pictures pays one call per recording, never one per
+  frame), stores each in place of the widget's earlier picture of the same index or as a new one,
+  frees the extra ones, and frees all of them when the widget is removed.
+- **`RecordCx::images`**: the ids of the widget's pictures, in the order it gave them, at most
+  `MAX_WIDGET_IMAGES` (4): a fixed array keeps the record context free of lifetimes.
+- **The colour picker** (`ColorPicker`) is the first widget to use them: one focusable widget with
+  parts (the square, the hue strip, the transparency strip when asked); Tab and Shift+Tab move
+  between its parts before leaving it, and assistive technologies hear the part with the focus as
+  a slider (name, value, range) with the colour's code as its description.

@@ -26,6 +26,7 @@ use std::time::Instant;
 
 use crate::draw::geometry::{Point, Rect};
 use crate::draw::glyph_cache::KeyHasher;
+use crate::draw::image::{Image, ImageId};
 use crate::draw::list::Recorder;
 use orchestra_text::{Elision, Faces, Shaper, TextError, TextLayout};
 
@@ -300,7 +301,16 @@ pub struct RecordCx {
     pub spacing: Spacing,
     /// The theme's shape tokens (corner radius, line width, focus width).
     pub shape: Shape,
+    /// The widget's own pictures in the display list's image store, in the order its last
+    /// [`Widget::take_images`] gave them; `None` past their number (F2.12b3a, a precision of
+    /// ADR-0045 approved by the owner on 2026-11-26). At most [`MAX_WIDGET_IMAGES`].
+    pub images: [Option<ImageId>; MAX_WIDGET_IMAGES],
 }
+
+/// How many pictures one widget may own (F2.12b3a): the colour picker needs four (its square,
+/// its hue strip, its transparency strip, its two swatches as one picture); a fixed array keeps
+/// [`RecordCx`] `Copy`-sized and free of lifetimes.
+pub const MAX_WIDGET_IMAGES: usize = 4;
 
 /// One widget of the interface (ADR-0045 WA1, WB3). `M` is the application's message type
 /// (WA7). Containers are widgets too.
@@ -318,6 +328,29 @@ pub trait Widget<M>: AsAny + std::fmt::Debug {
     /// Records the widget's segment: its own drawing, not its children's (they have their own
     /// segments, WA6). A widget that draws nothing records nothing.
     fn record(&self, cx: &RecordCx, recorder: &mut Recorder<'_>);
+
+    /// New pictures for the widget, when they changed since it last gave them (F2.12b3a, a
+    /// precision of ADR-0039 D4 and ADR-0045 approved by the owner on 2026-11-26). `None` (the
+    /// default, and the answer whenever nothing changed) keeps the pictures it has.
+    ///
+    /// # How it works
+    /// The theme's tokens are the only colours of the drawing (ADR-0039 D3); the only other
+    /// pixels are pictures, which live in the display list's store (D4). A widget that must show
+    /// colours of its own (a colour picker's gradients) makes them as pictures: it keeps their
+    /// pixels and a "changed" flag, asks to be recorded again ([`EventCx::request_record`]) when
+    /// they change, and answers them here. Just before recording the widget, the interface takes
+    /// them, puts each in the store (in place of the widget's earlier picture of the same index,
+    /// [`DisplayList::replace_image`](crate::DisplayList::replace_image), or as a new one) and
+    /// hands their ids to [`Widget::record`] in [`RecordCx::images`]; the widget draws them with
+    /// [`Recorder::image`](crate::Recorder::image). Pictures beyond [`MAX_WIDGET_IMAGES`] are
+    /// ignored; fewer than before free the rest. They are freed when the widget is removed.
+    ///
+    /// # Cost
+    /// Asked only of a widget being recorded, so a widget without pictures pays one call per
+    /// recording, never one per frame.
+    fn take_images(&mut self) -> Option<Vec<Image>> {
+        None
+    }
 
     /// Handles an event; `Handled::No` lets it bubble to the parent (WB7). The default ignores
     /// everything.
