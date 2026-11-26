@@ -20,6 +20,7 @@ pub(crate) mod access;
 pub(crate) mod button;
 pub(crate) mod capture;
 pub(crate) mod choice;
+pub(crate) mod color_picker;
 pub(crate) mod dialog;
 pub(crate) mod edit;
 pub(crate) mod elide;

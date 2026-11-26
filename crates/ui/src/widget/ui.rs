@@ -111,6 +111,7 @@
 //! Routing an event allocates nothing (hit testing recurses on the tree, bubbling follows parent
 //! links, Tab order walks with a reused stack). Messages go into a queue that keeps its capacity.
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use crate::action::registry::{ActionId, ActionState, Context, EditRole, Registry};
@@ -142,9 +143,10 @@ mod title;
 
 use super::tooltip::Tooltip;
 use super::tree::{
-    ChoicesRequest, EventCx, Handled, RecordCx, WakeRequest, Widget, WidgetEvent, WidgetId,
-    WidgetTree,
+    ChoicesRequest, EventCx, Handled, MAX_WIDGET_IMAGES, RecordCx, WakeRequest, Widget,
+    WidgetEvent, WidgetId, WidgetTree,
 };
+use crate::draw::image::{Image, ImageId};
 use bar::BarState;
 use menus::{MenuChain, ModelMenu, SubmenuTimer};
 use system::SystemTracking;
@@ -201,6 +203,9 @@ pub struct Ui<M> {
     /// A reused stack for the recording walk: each slot with the clip its parent gives it
     /// (F2.09d).
     walk: Vec<(usize, Option<Rect>)>,
+    /// The pictures each widget owns in the display list's store ([`Widget::take_images`],
+    /// F2.12b3a), by widget; absent for the many widgets without any.
+    images: HashMap<WidgetId, Vec<ImageId>>,
     /// Widgets that asked to be arranged again in their rectangle (scrolled, divider moved),
     /// handled at the next frame (F2.09d). Reused.
     rearrange: Vec<usize>,
@@ -424,6 +429,7 @@ impl<M: 'static> Ui<M> {
             modifiers: Modifiers::default(),
             stack: Vec::new(),
             walk: Vec::new(),
+            images: HashMap::new(),
             rearrange: Vec::new(),
             removed: Vec::new(),
         }
@@ -497,6 +503,12 @@ impl<M: 'static> Ui<M> {
             // An overlay segment exists only for widgets with an overlay; removing an unknown id
             // is one hash lookup.
             list.remove(gone.overlay_segment());
+            // Its pictures too (F2.12b3a).
+            if let Some(ids) = self.images.remove(gone) {
+                for id in ids {
+                    list.remove_image(id);
+                }
+            }
         }
         self.wakeups.retain(|(id, _)| !removed.contains(id));
         self.removed = removed;
@@ -970,11 +982,29 @@ impl<M: 'static> Ui<M> {
                 // assistive technology sees.
                 slot.needs_access = true;
             }
+            // New pictures first (F2.12b3a): put in the store, so this recording can use them.
+            if main
+                && let Some(widget) = slot.widget.as_deref_mut()
+                && let Some(pictures) = widget.take_images()
+            {
+                store_images(self.images.entry(slot.id).or_default(), pictures, list);
+            }
+            let mut images = [None; MAX_WIDGET_IMAGES];
+            // No lookup at all while no widget owns a picture (nearly always): the recording walk
+            // is the hot path of every frame, and the benchmarks measure it.
+            if !self.images.is_empty()
+                && let Some(ids) = self.images.get(&slot.id)
+            {
+                for (place, id) in images.iter_mut().zip(ids) {
+                    *place = Some(*id);
+                }
+            }
             let cx = RecordCx {
                 rect: slot.rect,
                 focused: focused == Some(index),
                 spacing,
                 shape,
+                images,
             };
             let Some(widget) = slot.widget.as_deref() else {
                 continue;
@@ -2402,4 +2432,33 @@ impl WidgetId {
 /// panic-free answer for the impossible case.
 const fn unreachable_root() -> WidgetId {
     WidgetId::MAX
+}
+
+/// Puts a widget's new `pictures` in the display list's store (F2.12b3a): each in place of the
+/// widget's earlier picture of the same index (`ids`), or as a new one; earlier pictures beyond
+/// the new number are freed, and pictures beyond [`MAX_WIDGET_IMAGES`] are ignored. A picture the
+/// store refuses (2³² − 1 of them already, never expected) is left out, and the widget draws
+/// nothing in its place. O(pictures).
+fn store_images(ids: &mut Vec<ImageId>, pictures: Vec<Image>, list: &mut DisplayList) {
+    let count = pictures.len().min(MAX_WIDGET_IMAGES);
+    for (index, picture) in pictures.into_iter().take(MAX_WIDGET_IMAGES).enumerate() {
+        // In place of the earlier picture of this index; given back when there is none.
+        let picture = match ids.get(index) {
+            Some(&id) => match list.replace_image(id, picture) {
+                Ok(()) => continue,
+                Err(picture) => picture,
+            },
+            None => picture,
+        };
+        if let Ok(id) = list.add_image(picture) {
+            if let Some(place) = ids.get_mut(index) {
+                *place = id;
+            } else {
+                ids.push(id);
+            }
+        }
+    }
+    for id in ids.drain(count.min(ids.len())..) {
+        list.remove_image(id);
+    }
 }

@@ -114,6 +114,7 @@ pub use widget::access::{
 pub use widget::button::{Button, ButtonKind};
 pub use widget::capture::ShortcutCapture;
 pub use widget::choice::{DropDown, ListBox, RadioGroup};
+pub use widget::color_picker::{ColorPicker, Hsv, PickerPart};
 pub use widget::dialog::{
     ButtonRole, DialogButton, DialogKind, DialogSpec, LARGE_MIN_SIZE as DIALOG_LARGE_MIN_SIZE,
     LARGE_SIZE as DIALOG_LARGE_SIZE, LOGO_SIDE as DIALOG_LOGO_SIDE, LargeDialog,
@@ -136,7 +137,8 @@ pub use widget::swatch::Swatch;
 pub use widget::titlebar::{TitleBarSpec, WindowButton, WindowButtonNames};
 pub use widget::toggle::{Toggle, ToggleKind};
 pub use widget::tree::{
-    AsAny, EventCx, Handled, LayoutCx, RecordCx, ScrollDirection, Widget, WidgetEvent, WidgetId,
+    AsAny, EventCx, Handled, LayoutCx, MAX_WIDGET_IMAGES, RecordCx, ScrollDirection, Widget,
+    WidgetEvent, WidgetId,
 };
 pub use widget::ui::{TextInput, Ui, UiError};
 pub use window::input::{

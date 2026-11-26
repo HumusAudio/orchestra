@@ -3838,6 +3838,56 @@ Shift; the coarse step's rounding; double click with and without `default_value`
 and re-anchoring both ways; modifiers forgotten on focus loss) and the click counter's unit test.
 Twenty-five injected bugs: twenty-four caught (three after the tests written for them), one equivalent (a redundant line, removed). The benchmark `slider_wheel_notch` measures one notch: **0.36 M instructions** with drawing and the accessibility update (the slider is focused by its earlier press, so its focus ring is drawn again too), within the 0.5 M of ADR-0045; a drag move stays at 0.22 M.
 
+#### The colour picker and the widgets' pictures
+
+**Why pictures** (SCALETTA F2.12b3a, precisions of ADR-0039 D4 and ADR-0045 approved by the owner on
+2026-11-26). The drawing carries theme tokens only (ADR-0039 D3), so no widget can paint a colour of
+its own; the only other pixels are pictures, kept in the display list's store. A colour picker must
+show any colour, so it makes its gradients as pictures. Until now no widget could hand a picture to
+the list: now a widget answers `Widget::take_images` with its pictures when they changed, and asks to
+be recorded again when they change:
+
+```rust
+fn take_images(&mut self) -> Option<Vec<Image>> {
+    if !self.pictures_changed {
+        return None;
+    }
+    self.pictures_changed = false;
+    // … the square (reused while the hue is the same), the hue strip, the transparency strip,
+    // the swatches: four pictures 64 pixels across
+}
+```
+
+Just before recording the widget, the interface takes them (`ui.rs`, the recording walk and
+`store_images`): each goes in place of the widget's earlier picture of the same index with the new
+`DisplayList::replace_image` (same id, new pixels, so the store does not grow while the user drags),
+or as a new one; the extra ones are freed, and all of them when the widget is removed. Their ids reach
+`record` in `RecordCx::images` (at most `MAX_WIDGET_IMAGES`, 4), and the widget draws them with
+`Recorder::image`; the renderer stretches them with bilinear filtering.
+
+**The picker** (`crates/ui/src/widget/color_picker.rs`, `ColorPicker`). One widget, from top to
+bottom: the square (brightness upwards, intensity to the right), the hue strip, the transparency
+strip only when the application asks (`with_alpha`), and the two swatches, before and now. It keeps
+its own hue, saturation and value (`Hsv`), not only the colour, so a grey does not lose the hue the
+user was on. The pictures are 64 pixels across: the square (64 × 64) is rebuilt only when the hue
+changes, the strips and the swatches are 64 × 1; the checkerboard behind transparency, the outlines
+and the markers are drawn with tokens. A press jumps to the pointer and captures it, a drag follows,
+the modifier of fine adjustment makes it a tenth as fast (ADR-0046 V3). From the keyboard the widget
+has parts: Tab and Shift+Tab move between them before leaving the widget; the arrows move the
+intensity and the brightness in the square, the value on a strip, by 4% (6° of hue), 1% (1°) with
+the fine modifier; Home and End go to the ends. Assistive technologies hear the part with the focus
+as a slider (its name, its value and range) with the colour's code as the description. Each change
+emits the application's message with the new colour.
+
+**Tests and measures.** `crates/ui/tests/color_picker.rs` (7): HSV there and back for a grid of the
+colour cube, a press and a drag (captured outside the widget, the hue kept through black), a fine
+drag a tenth as fast, the keyboard and Tab through the parts and out, no transparency strip unless
+asked, the pictures drawn (the square's corner really red), replaced without growing the store and
+freed with the widget, what assistive technologies hear. Five injected bugs were caught. The
+benchmarks `picker_square_drag_move` and `picker_hue_drag_move` (`benches/widgets.rs`) measure one
+move of a drag, pictures, drawing and accessibility included: about 8.9 and 10.4 million
+instructions (the hue strip rebuilds the square).
+
 #### Scroll areas and splitters
 
 Step F2.09d (choices WF1–WF8 and their precisions, in ADR-0045, ADR-0043 and ADR-0046), in

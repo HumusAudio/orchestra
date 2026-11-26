@@ -198,3 +198,17 @@ now. Its replacement of `tiny-skia` by `vello_cpu` was reverted by ADR-0043: `ti
   before. Rejected: one list per layer, which would have changed the renderer and the damage for
   an order one number per segment already gives. Measured: a widget recorded for the first time
   under an open menu of ten items, in the 200-widget panel, 0.35 M instructions with drawing.
+
+## Precision of the implementation (F2.12b3a, approved by the owner on 2026-11-26)
+
+- **Widgets own pictures** (D4). The theme's tokens stay the only colours of the drawing (D3); a
+  widget that must show colours of its own (the colour picker's gradients and swatches) makes them
+  as pictures and hands them to the interface, which puts them in the display list's image store
+  just before recording the widget and frees them when the widget is removed (ADR-0045's precision
+  of F2.12b3a).
+- **A picture can be replaced in place** (`DisplayList::replace_image`): the same id, new pixels,
+  so a picture that follows the user's input (the picker's square follows the hue) does not grow
+  the store at every change. The segments showing it are recorded again, which damages their
+  area. `DisplayList::live_images` counts the pictures held, for the tests.
+- Gradients stay out of the command set (D4's "not now"): pictures stretched with bilinear
+  filtering are smooth enough for 64 pixels across, and keep the command set unchanged.

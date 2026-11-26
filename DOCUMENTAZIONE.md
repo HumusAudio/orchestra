@@ -4104,6 +4104,60 @@ trascinamento fine e riancoraggio nei due versi; modificatori dimenticati alla p
 il test unitario del contatore di clic. Venticinque difetti iniettati: ventiquattro presi (tre dopo i test scritti apposta), uno equivalente (una riga superflua, tolta). Il benchmark `slider_wheel_notch` misura uno
 scatto: **0,36 M istruzioni** con il disegno e l'aggiornamento accessibile (il cursore ha il fuoco dalla pressione precedente, quindi si ridisegna anche l'anello del fuoco), entro gli 0,5 M dell'ADR-0045; uno spostamento del trascinamento resta a 0,22 M.
 
+#### Il selettore dei colori e le immagini dei widget
+
+**Perché le immagini** (SCALETTA F2.12b3a, precisioni di ADR-0039 D4 e ADR-0045 approvate dal
+proprietario il 2026-11-26). Il disegno porta solo token del tema (ADR-0039 D3), quindi nessun widget
+può dipingere un colore suo; gli unici altri pixel sono immagini, tenute nel deposito della lista di
+disegno. Un selettore di colori deve mostrare qualunque colore, quindi fa le sue sfumature come
+immagini. Finora nessun widget poteva consegnare un'immagine alla lista: adesso un widget risponde a
+`Widget::take_images` con le sue immagini quando sono cambiate, e chiede di essere registrato di nuovo
+quando cambiano:
+
+```rust
+fn take_images(&mut self) -> Option<Vec<Image>> {
+    if !self.pictures_changed {
+        return None;
+    }
+    self.pictures_changed = false;
+    // … the square (reused while the hue is the same), the hue strip, the transparency strip,
+    // the swatches: four pictures 64 pixels across
+}
+```
+
+Appena prima di registrare il widget, l'interfaccia le prende (`ui.rs`, il giro di registrazione e
+`store_images`): ognuna va al posto dell'immagine precedente del widget con lo stesso indice con il
+nuovo `DisplayList::replace_image` (stesso identificativo, pixel nuovi, così il deposito non cresce
+mentre l'utente trascina), oppure come immagine nuova; quelle in più si liberano, e tutte quando il
+widget viene tolto. I loro identificativi arrivano a `record` in `RecordCx::images` (al massimo
+`MAX_WIDGET_IMAGES`, 4), e il widget le disegna con `Recorder::image`; il renderer le allarga con il
+filtro bilineare.
+
+**Il selettore** (`crates/ui/src/widget/color_picker.rs`, `ColorPicker`). Un solo widget, dall'alto
+in basso: il quadrato (luminosità verso l'alto, intensità verso destra), la striscia della tinta, la
+striscia della trasparenza solo quando l'applicazione la chiede (`with_alpha`), e i due campioni,
+prima e adesso. Tiene tinta, saturazione e valore suoi (`Hsv`), non solo il colore, così un grigio non
+perde la tinta su cui era l'utente. Le immagini sono larghe 64 pixel: il quadrato (64 × 64) si rifà
+solo quando cambia la tinta, le strisce e i campioni sono 64 × 1; la scacchiera dietro la
+trasparenza, i contorni e i segni si disegnano con i token. Una pressione salta al puntatore e lo
+cattura, un trascinamento lo segue, il modificatore di regolazione fine lo rende dieci volte più
+lento (ADR-0046 V3). Da tastiera il widget ha delle parti: Tab e Maiusc+Tab si spostano tra di esse
+prima di uscire dal widget; le frecce muovono l'intensità e la luminosità nel quadrato, il valore su
+una striscia, del 4% (6° di tinta), dell'1% (1°) con il modificatore fine; Home e Fine vanno agli
+estremi. Le tecnologie assistive sentono la parte con il focus come un cursore (nome, valore e
+intervallo) con il codice del colore come descrizione. Ogni cambiamento manda il messaggio
+dell'applicazione con il colore nuovo.
+
+**Test e misure.** `crates/ui/tests/color_picker.rs` (7): HSV andata e ritorno per una griglia del
+cubo dei colori, una pressione e un trascinamento (catturato fuori dal widget, la tinta conservata
+attraverso il nero), un trascinamento fine dieci volte più lento, la tastiera e Tab attraverso le
+parti e fuori, nessuna striscia della trasparenza se non richiesta, le immagini disegnate (l'angolo
+del quadrato davvero rosso), sostituite senza far crescere il deposito e liberate con il widget, ciò
+che sentono le tecnologie assistive. Cinque bug inseriti di proposito sono stati presi. I benchmark
+`picker_square_drag_move` e `picker_hue_drag_move` (`benches/widgets.rs`) misurano uno spostamento di
+un trascinamento, immagini, disegno e accessibilità compresi: circa 8,9 e 10,4 milioni di istruzioni
+(la striscia della tinta rifà il quadrato).
+
 #### Aree scorrevoli e divisori
 
 Passo F2.09d (scelte WF1–WF8 e loro precisazioni, in ADR-0045, ADR-0043 e ADR-0046), in
