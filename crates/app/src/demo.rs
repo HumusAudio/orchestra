@@ -58,7 +58,7 @@ use crate::files::{
 };
 use crate::preferences::{
     self, Effect, KeyboardMessage, KeyboardOutcome, PreferencesMessage, PreferencesTexts,
-    PreferencesView, ShortcutEditor,
+    PreferencesView, ShortcutEditor, ThemeEditor, ThemeMessage, ThemeOutcome,
 };
 use crate::project::{OpenProject, ProjectEffect, ProjectFlow, SaveAnswer};
 use crate::settings::SettingsStore;
@@ -99,6 +99,8 @@ pub enum DemoMessage {
     ProjectErrorClosed,
     /// The shortcut editor of the Preferences' Keyboard section (F2.12c1).
     Keyboard(KeyboardMessage),
+    /// The theme editor of the Preferences' Appearance section (F2.12b1).
+    Theme(ThemeMessage),
 }
 
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
@@ -245,6 +247,8 @@ pub struct Demo {
     shortcut_editor: Option<ShortcutEditor>,
     /// Who asked for the file chooser that is open (F2.12c2): its answer goes back there.
     chooser: Option<ChooserOwner>,
+    /// The theme editor while the Appearance section is shown (F2.12b1).
+    theme_editor: Option<ThemeEditor>,
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
@@ -369,6 +373,7 @@ impl Demo {
             playback_labels: Vec::new(),
             shortcut_editor: None,
             chooser: None,
+            theme_editor: None,
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             files: texts.files.clone(),
             project_texts: texts.project.clone(),
@@ -585,6 +590,14 @@ impl Demo {
         self.shortcut_editor.as_ref()
     }
 
+    /// The theme editor, while the Preferences show their Appearance section (F2.12b1): the
+    /// integration tests reach its fields and buttons through it, as they reach the shortcut
+    /// editor's through [`Demo::shortcut_editor`].
+    #[must_use]
+    pub const fn theme_editor(&self) -> Option<&ThemeEditor> {
+        self.theme_editor.as_ref()
+    }
+
     /// The open Preferences' panel, while they are open.
     #[must_use]
     pub fn preferences(&self) -> Option<WidgetId> {
@@ -599,8 +612,10 @@ impl Demo {
             self.preferences = None;
             self.playback_labels.clear();
             self.shortcut_editor = None;
+            self.theme_editor = None;
             return;
         }
+        let chose_theme = matches!(message, PreferencesMessage::Theme(_));
         let now = self.ui.now();
         let mut effect = Effect::None;
         self.settings.update(now, |settings| {
@@ -609,13 +624,17 @@ impl Demo {
         match effect {
             Effect::None => {}
             Effect::Theme(pair, mode) => {
-                self.requests
-                    .push_back(WindowRequest::SetTheme { pair, mode });
-                // The tokens of the light half: the same in both halves of every built-in pair
-                // (see `main.rs`); the colours follow the mode through the window.
-                self.ui
-                    .set_theme(pair.instance(orchestra_ui::Appearance::Light));
-                self.ui.frame(list);
+                self.apply_theme(pair, mode, list);
+                // Another theme chosen in the drop-down: the theme editor shows it (F2.12b1).
+                if chose_theme && let Some(editor) = self.theme_editor.as_mut() {
+                    editor.chosen_changed(
+                        &mut self.ui,
+                        &self.preferences_texts.theme_editor,
+                        &self.preferences_texts.pairs,
+                        self.settings.settings(),
+                        list,
+                    );
+                }
             }
             Effect::CaretBlink(on) => self.ui.set_caret_blink(on),
             Effect::FineModifier(fine) => self.ui.set_fine_modifier(fine),
@@ -623,17 +642,20 @@ impl Demo {
                 if let Some(view) = self.preferences {
                     // Fails only if the interface's own tree is inconsistent: the pane then keeps
                     // what it showed.
+                    let appearance = self.ui.appearance();
                     let widgets = preferences::show_section(
                         &mut self.ui,
                         view,
                         section,
                         &self.preferences_texts,
                         self.settings.settings(),
+                        appearance,
                         list,
                     )
                     .unwrap_or_default();
                     self.playback_labels = widgets.playback_labels;
                     self.shortcut_editor = widgets.keyboard;
+                    self.theme_editor = widgets.theme;
                 }
             }
             Effect::PlaybackValue(index, n) => {
@@ -649,6 +671,61 @@ impl Demo {
                 }
             }
         }
+    }
+
+    /// Draws with `pair` in `mode` from now on: the window's colours (the request) and the
+    /// interface's density, text and shape tokens (the light half's: the same in both halves of
+    /// every built-in pair, see `main.rs`; a custom theme changes colours only, F2.12b1).
+    fn apply_theme(
+        &mut self,
+        pair: orchestra_ui::ThemePair,
+        mode: orchestra_ui::ThemeMode,
+        list: &mut DisplayList,
+    ) {
+        self.requests
+            .push_back(WindowRequest::SetTheme { pair, mode });
+        self.ui
+            .set_theme(pair.instance(orchestra_ui::Appearance::Light));
+        self.ui.frame(list);
+    }
+
+    /// A message of the theme editor (F2.12b1): the editor changes the settings (saved half a
+    /// second later, DG6) and its widgets; a changed theme is applied at once (the whole window
+    /// is the preview), a question opens over the Preferences.
+    fn theme_message(&mut self, message: ThemeMessage, list: &mut DisplayList) {
+        let Some(editor) = self.theme_editor.as_mut() else {
+            return;
+        };
+        let now = self.ui.now();
+        let ui = &mut self.ui;
+        let texts = &self.preferences_texts;
+        let mut outcome = ThemeOutcome::None;
+        self.settings.update(now, |settings| {
+            outcome = editor.handle(
+                ui,
+                &texts.theme_editor,
+                &texts.pairs,
+                settings,
+                message,
+                list,
+            );
+        });
+        match outcome {
+            ThemeOutcome::None => {}
+            ThemeOutcome::Theme => {
+                let (pair, mode) = crate::settings::convert::theme_from_settings(
+                    &self.settings.settings().theme,
+                    &mut Vec::new(),
+                );
+                self.apply_theme(pair, mode, list);
+            }
+            // Fails only if the interface's own tree is inconsistent: the question is then not
+            // shown, and nothing is deleted.
+            ThemeOutcome::Ask(spec) => {
+                let _ = self.ui.open_dialog(spec, list);
+            }
+        }
+        self.ui.frame(list);
     }
 
     /// A message of the shortcut editor (F2.12c1): the editor changes the registry and its
@@ -720,12 +797,15 @@ impl Demo {
         let mut changes = Vec::new();
         // The shortcut editor's messages (F2.12c1), likewise.
         let mut keyboard = Vec::new();
+        // The theme editor's messages (F2.12b1), likewise.
+        let mut theme = Vec::new();
         for message in self.ui.take_messages() {
             match message {
                 DemoMessage::RestoreDefaults => restore = true,
                 DemoMessage::TrackName(text) => name = Some(text),
                 DemoMessage::Preferences(message) => changes.push(message),
                 DemoMessage::Keyboard(message) => keyboard.push(message),
+                DemoMessage::Theme(message) => theme.push(message),
                 DemoMessage::SaveChanges(answer) => steps.push(ProjectInput::SaveChanges(answer)),
                 DemoMessage::Replace(replace) => steps.push(ProjectInput::Replace(replace)),
                 // Full screen asks the window (F2.11d1), About opens its dialog (F2.12a3b), the
@@ -762,6 +842,9 @@ impl Demo {
         for message in keyboard {
             self.keyboard_message(message, list);
         }
+        for message in theme {
+            self.theme_message(message, list);
+        }
         // A dialog blocks the menus and the shortcuts while it is open (ADR-0050 DG1), so About
         // cannot be asked twice; `open_dialog` fails only if the interface's own tree is
         // inconsistent, and then the dialog is simply not shown.
@@ -774,14 +857,18 @@ impl Demo {
         // they are open (the interface turns it into their Escape), so it never comes here then.
         if open_preferences && self.preferences.is_none() {
             let closed_by = self.actions.map(|ids| ids.preferences);
-            self.preferences = preferences::open_preferences(
+            let appearance = self.ui.appearance();
+            if let Ok((view, widgets)) = preferences::open_preferences(
                 &mut self.ui,
                 &self.preferences_texts,
                 self.settings.settings(),
                 closed_by,
+                appearance,
                 list,
-            )
-            .ok();
+            ) {
+                self.preferences = Some(view);
+                self.theme_editor = widgets.theme;
+            }
         }
         // The flow ignores a command while a question or a chooser is open (and the interface's
         // modal layers keep it from coming), so a batch with two shortcuts runs only the first.
@@ -1071,6 +1158,18 @@ impl WindowApp for Demo {
 
     fn input(&mut self, event: &InputEvent, list: &mut DisplayList) {
         self.ui.input(event, list);
+        // The window shows another half (F2.12b1): the theme editor's fields follow it.
+        if let InputEvent::Appearance(half) = event
+            && let Some(editor) = self.theme_editor.as_mut()
+        {
+            editor.show_half(
+                &mut self.ui,
+                &self.preferences_texts.theme_editor,
+                self.settings.settings(),
+                *half,
+                list,
+            );
+        }
         self.handle_messages(list);
     }
 

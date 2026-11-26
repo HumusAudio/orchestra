@@ -261,9 +261,13 @@ pub(super) fn build(
         .width(Length::Fill(1.0))
         .height(Length::Fill(1.0));
     let scroll = ui.add(pane, ScrollArea::vertical(), fill)?;
+    // The small padding keeps the focus rings of the sliders at the column's edges inside the
+    // viewport, which clips everything (a ring reaches 3 px beyond its control; the small gap is
+    // 8 px, 4 px compact): the rule of `ScrollArea`'s documentation, found missing here with the
+    // theme editor's (owner's report of 2026-11-26).
     let column = ui.add(
         scroll,
-        Flex::column(Space::M, Space::None),
+        Flex::column(Space::M, Space::S),
         LayoutProps::default().width(Length::Fill(1.0)),
     )?;
     let wide = LayoutProps::default().width(Length::Fill(1.0));

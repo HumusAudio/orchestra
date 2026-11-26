@@ -210,6 +210,9 @@ pub struct Ui<M> {
     shape: Shape,
     /// The window's title, the name of the accessibility tree's window node (WC4).
     title: String,
+    /// The half of the theme the window draws with, as last told ([`InputEvent::Appearance`],
+    /// F2.12b1); light until the window says.
+    appearance: crate::Appearance,
     /// `false` until the whole accessibility tree has been handed out (and again when an
     /// assistive technology asks for it from the start).
     access_sent: bool,
@@ -380,6 +383,7 @@ impl<M: 'static> Ui<M> {
             tree: WidgetTree::new(Box::new(root), theme.spacing(), faces, theme.typography()),
             shape: theme.shape(),
             title: String::new(),
+            appearance: crate::Appearance::Light,
             access_sent: false,
             now: Instant::now(),
             clipboard: Box::new(MemoryClipboard::default()),
@@ -783,6 +787,12 @@ impl<M: 'static> Ui<M> {
         }
     }
 
+    /// The half of the theme the window draws with ([`InputEvent::Appearance`], F2.12b1).
+    #[must_use]
+    pub const fn appearance(&self) -> crate::Appearance {
+        self.appearance
+    }
+
     /// The window's title as last set with [`Ui::set_title`] (empty until then).
     #[must_use]
     pub fn title(&self) -> &str {
@@ -1176,6 +1186,8 @@ impl<M: 'static> Ui<M> {
             InputEvent::Focus(true) => {}
             // The window's own state, for our title bar (F2.11b2, ADR-0049 TB6, TB8).
             InputEvent::WindowState(state) => self.title_bar_window(*state),
+            // Kept for the application (the theme editor, F2.12b1); nothing to draw.
+            InputEvent::Appearance(appearance) => self.appearance = *appearance,
         }
         // The window's focus changes the colour of our title bar (TB8).
         if let InputEvent::Focus(focused) = event {

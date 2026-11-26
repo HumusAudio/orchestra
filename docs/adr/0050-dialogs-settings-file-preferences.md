@@ -566,3 +566,12 @@ works.
 - **The texts** (choice 7): 17 new messages in the six catalogues; the glossary gains *shortcut*,
   *command*, *reassign*, *add*, *remove* and *search*. Texts holding several values (a command, its
   owner, a shortcut) use `Template`, F2.12a5b's placeholders generalised to several variables.
+
+## Precisions of the implementation (F2.12b1, approved by the owner on 2026-11-26)
+
+- **The Appearance section scrolls** (DG9): the theme editor's 24 colour rows do not fit a small
+  window. The editor stands under the theme, the mode and the blinking cursor.
+- **The theme drop-down lists every custom theme** after the ten built-in pairs, in the settings'
+  order; a custom choice whose theme is missing shows Studio, as the window draws it.
+- **Every change of the editor is applied and saved at once** (DG8): the whole window is the
+  preview; deleting a theme asks first.

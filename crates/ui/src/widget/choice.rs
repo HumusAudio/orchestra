@@ -214,6 +214,21 @@ impl<M> DropDown<M> {
         }
     }
 
+    /// Replaces the values and chooses `selected` (clamped), without sending the message (the
+    /// application's own change: F2.12b1, a theme duplicated, renamed or deleted); the caller
+    /// asks the interface to lay the drop-down out again (its width follows its widest value).
+    pub fn set_values(&mut self, values: Vec<String>, selected: usize) {
+        self.selected = selected.min(values.len().saturating_sub(1));
+        self.values = Values::new(values);
+        self.shown.invalidate();
+    }
+
+    /// The values' texts, in order (tests).
+    #[must_use]
+    pub fn values(&self) -> &[String] {
+        &self.values.texts
+    }
+
     /// `true` while its list is open.
     #[must_use]
     pub const fn is_open(&self) -> bool {

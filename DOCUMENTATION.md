@@ -5689,6 +5689,135 @@ request and the whole keyboard written, the replacement question, the import wit
 the saved differences, the question before replacing one's own shortcuts, a file that cannot be
 imported. The screenshot `preferences-keyboard` shows the two buttons.
 
+#### The theme editor
+
+**What the user sees** (ADR-0037 T7–T8, SCALETTA F2.12b1, owner's choices 1–8 of 2026-11-25).
+Under *Theme*, *Mode* and *Blinking cursor*, the Appearance section (which now scrolls) shows
+*Duplicate* and *Delete*. With a built-in pair chosen, a muted line says it cannot be changed and
+*Delete* is disabled. *Duplicate* makes a custom theme from the chosen one, named "Studio (copy)"
+(a number is added when the name is taken), and chooses it; the theme drop-down lists the ten
+pairs, then every custom theme. A custom theme shows its **Name** (a field, committed with Enter
+or when left), then **Readability** (below), then the heading **Colors** with a line saying which
+half is shown, and one row per colour token (a warning dot, its name, a swatch, its value,
+*Restore*). *Delete* asks *Delete the theme "Name"?* and goes back to the theme's base.
+
+**Values** (`crates/app/src/preferences/theme.rs`). A value is read by `parse_color`: `#rrggbb` or
+`#rrggbbaa`, the `#` optional, any case, spaces ignored; anything else is `None` and changes
+nothing (the text stays in the field). `color_text` writes it back (`#rrggbb` when opaque).
+
+**The settings are the theme.** Every action is a function on `Settings`: `duplicate`,
+`rename_chosen` (trimmed, made unique by `unique_name`, empty or unchanged does nothing),
+`delete_chosen` (back to the base), `choose` (the drop-down's index), `set_color(settings, half,
+token, color)`. `set_color` keeps only the differences (T7): the token's earlier overrides of that
+half go, and a value equal to the base's adds none, so *Restore* is just `set_color(…, None)`:
+
+```rust
+overrides.retain(
+    |item| !matches!(item, ThemeOverride::Color { token: name, .. } if name == token.name()),
+);
+if let Some(color) = color.filter(|color| *color != base) {
+    overrides.push(ThemeOverride::Color { token: token.name().to_owned(), rgba: /* … */ });
+}
+```
+
+The window's theme is then derived from the settings again (`theme_from_settings`), so there is
+one source of truth: what is saved is what is drawn. `theme_values` lists the drop-down's values;
+a custom choice whose theme is missing shows Studio, as the window draws it.
+
+**The half edited** (choice 2). The editor shows and edits the half the window draws. The window
+tells the interface which one with the new `InputEvent::Appearance(half)`, sent as soon as the
+window exists and whenever the half changes (the system switched, or the user chose a mode);
+`Ui::appearance()` remembers it. The demonstration passes it to `ThemeEditor::show_half`, which
+rewrites the fields, the note, the marks and the contrast lines without rebuilding anything (the
+focus stays where it is).
+
+**The widgets.** `ThemeEditor` keeps the IDs of the drop-down, *Duplicate*, *Delete*, the area
+rebuilt when another theme is chosen, the name field, the note, the rows and the contrast column.
+`handle(message)` changes the settings and the widgets and answers a `ThemeOutcome`: nothing,
+`Theme` (the demonstration applies the settings' theme to the window and to the interface: the
+whole window is the preview) or `Ask(dialog)`. Each colour field sends its message through a plain
+function, one per token (`color_message::<I>`, ADR-0045 WA7), on every change, so a value is
+applied as soon as it is a colour. Two new widgets help: `Swatch` (`crates/ui/src/widget/swatch.rs`)
+draws a small square filled with a colour token, so it follows every change by itself, and
+`DropDown::set_values` replaces a drop-down's values and choice (the custom themes come and go).
+
+**Readability** (choice 5, T8, owner's requests of 2026-11-26;
+`crates/app/src/preferences/theme/readability.rs`). At the top of a custom theme, so it is seen
+without scrolling, and **in plain words, without numbers**: the owner found the ratios ("1.9:1, at
+least 4.5:1") meaningless to most people. A first version advised "move the colour away from the
+one behind it", and told black text on a dark background to get darker, which is impossible
+(owner's report). The warnings now follow three rules.
+
+*The colour to fix.* For each failing pair of `Theme::contrast_failures`, the "culprit" is the
+colour the user edited last in this session (`ThemeEditor` remembers it, forgetting it when
+another theme or half is shown or the colour is restored), else the one of the two that differs
+from the theme's base, else the foreground. The pairs are grouped by culprit, so a white window
+background in a dark theme is one warning about the background, not nine about the texts on it.
+
+*Advice that works.* The culprit is moved step by step towards white, then towards black,
+keeping its transparency; a direction is advised only if some colour on that path makes **every**
+pair the culprit belongs to pass (the failing ones and those that pass now):
+
+```rust
+fn all_pass(theme: &Theme, token: ColorToken, color: Color) -> bool {
+    let theme = theme.with_color(token, color);
+    pairs_of(token).all(|pair| {
+        contrast_ratio(theme.color(pair.foreground), theme.color(pair.background))
+            >= pair.kind.minimum()
+    })
+}
+```
+
+The path is walked in 64 steps, then the step that first passes is refined by 16 bisections: a
+plain bisection would not do, because a pair that passes now may fail half way (the colour
+crosses its partner's lightness) and pass again further on. If both directions work, the smaller
+change wins (`best_fix`); if neither, the advice is *Restore*. When the warning is about a single
+pair, the other colour's way out is added too (choice c): with several pairs, changing all the
+backgrounds would break the theme.
+
+*Plain words.* How bad, from the worst pair: below 2:1 *almost invisible*, below 3:1 *hard to
+read* (*hard to make out* for graphics, whose threshold is 3:1), up to 4.5:1 *readable, but not
+well enough for people who don't see well*. A warning is up to three whole sentences, each its own
+Fluent message: `prefs-theme-readability-problem` (kind and severity; the two colours),
+`prefs-theme-readability-same` (a plural on the other pairs' count; the culprit) and
+`prefs-theme-readability-advice` (*change*, *either* or *restore*, with the directions; the
+culprit and the other colour). They select on values, so `Template::with_values` formats each
+once per combination (5 + 8 + 7 formats when the language is chosen), with only the colours'
+names left as placeholders; `issue_line` joins the sentences with a space, which is not
+concatenation: no word of one depends on another. Each warning has the same dot as the rows; with
+none, a muted line says every text and control is easy to read. Never a block.
+
+**Focus rings in the scroll areas.** `ScrollArea` clips everything to its viewport, and a focus
+ring is drawn 3 px outside its control (1 px + `focus-width`): its documentation asks the content
+to leave a padding. The Appearance and Playback sections' columns had none, and the Keyboard
+section's list of commands filled the viewport, so the rings of controls at the edges were cut
+(the owner saw *Duplicate*'s). The two columns now have the small padding (`Space::S`, 8 px, 4 px
+compact) and the list sits in a column with it.
+
+**Texts.** The 24 colour names (`theme-color-*`) and the editor's texts in the six catalogues;
+`number-decimal-separator` is gone with the numbers. The glossary gains the colour names, the
+editor's words and *readability* (it *leggibilità*, fr *lisibilité*, de *Lesbarkeit*, es
+*legibilidad*; KDE's colour scheme catalogues, MuseScore Studio's, WCAG's Understanding page,
+web.dev in Spanish, a German WCAG 2.2 map).
+
+**Tests.** In `theme.rs` (4): colours read and written, unique names, duplicate, choose, rename
+and delete, only the differences kept. In `readability.rs` (7): the thresholds; the owner's case
+(black secondary text on the dark half: one warning, *lighter*); a white background (one warning
+about the background, *darker*); a single pair offering both colours; the nearer way winning; the
+colour edited last as the culprit; and **every case a user can make with one colour**: each
+built-in pair, both halves, every colour set to black, white or a middle grey, with and without
+the last edit remembered. For every warning the test checks, with the theme's own
+`contrast_failures` (independent of the code under test), that doing what it says works, that the
+way advised is right, that the colour advised is the nearest, that the smaller way is chosen, and
+that *Restore* comes only when nothing else works. `crates/app/tests/theme.rs` (8), through the
+demonstration and the keyboard: a pair duplicated, a colour typed and restored, a value that is
+not a colour, the fields following the half, a colour hard to read explained at the top, the name
+committed and made unique, *Delete* asked and answered, the texts in six languages (every
+sentence's placeholders), and the focus rings of every control of Appearance, Playback and
+Keyboard inside their scroll area. Eight injected bugs were caught (five in the advice, three paddings
+removed); one injected change was equivalent. The screenshots `theme-editor` and `theme-contrast` show a theme with its accent
+changed and a readability warning; `preferences-dialog` now shows *Duplicate* and *Delete*.
+
 #### The file choosers
 
 **What the user sees** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Open…* (Ctrl+O, ⌘O) and *File →
@@ -6000,7 +6129,7 @@ pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
     height: 370.0,
-    record: record_demo_window,
+    record: Record::Plain(record_demo_window),
 }];
 
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
@@ -6009,6 +6138,8 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneConte
     demo.input(&InputEvent::Key { key: Key::Named(NamedKey::Tab), /* … */ }, list);
 }
 ```
+
+Since F2.12b1 `record` is a `Record`: `Plain` scenes (all but two) are drawn with `theme()`; `Themed` scenes answer the theme to draw with. The theme editor's scenes need it: their colours change the theme itself, which a real window receives as a request (`WindowRequest::SetTheme`) and a headless scene must hand to `render`. They also tell the demonstration first that the half on screen is the dark one (`InputEvent::Appearance`), as a window does when it opens.
 
 `render` draws a scene with `CpuRenderer::render_to_image` at **scale 2** (a 640-pixel-wide scene
 becomes 1280 pixels, about 200 dpi across the text width of an A4 page) in **Studio's dark half**,

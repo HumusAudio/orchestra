@@ -62,12 +62,13 @@ pub use preferences::{
     KeyboardMessage, KeyboardOutcome, KeyboardTexts, SectionWidgets, ShortcutEditor,
     shortcut_matches, shortcuts_text, shown_commands,
 };
+pub use preferences::{ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts, theme_values};
 pub use project::{
     NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow, SaveAnswer, Step,
     Then, file_name, new_document, project_name, with_extension_added, with_project_extension,
 };
 pub use screenshots::{
-    SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
+    Record, SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
 };
 pub use settings::convert::{
     SettingsProblem, apply_settings_shortcuts, custom_theme_from_settings,

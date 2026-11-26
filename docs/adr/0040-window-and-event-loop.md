@@ -221,3 +221,10 @@ carried out in the order the actions ran (Quit and Full screen, ADR-0048 AM6).
 - **`run` borrows the app.** `run(&mut app, options)`: the caller keeps the app and what it owns
   (the settings file, closed after the loop). A `&mut A` is itself a `WindowApp`, forwarding every
   method.
+
+## Precisions of the implementation (F2.12b1, approved by the owner on 2026-11-26)
+
+- **`InputEvent::Appearance(half)`** (W5): the window tells the interface which half of the theme
+  it draws, once as soon as the window exists and again whenever the half changes (the system
+  switched while the mode is *System*, or the user chose a mode). `Ui::appearance()` remembers it
+  (light until told). The theme editor edits that half.

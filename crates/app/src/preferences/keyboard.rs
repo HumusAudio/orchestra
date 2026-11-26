@@ -481,8 +481,13 @@ impl ShortcutEditor {
         let no_match = ui.add(pane, muted(String::new()), wide)?;
         // The commands take the room left, and scroll.
         let scroll = ui.add(pane, ScrollArea::vertical(), wide.height(Length::Fill(1.0)))?;
+        // The list inside a column with the small padding: the viewport clips everything, and the
+        // list's focus ring is drawn 3 px outside it, so a list filling the viewport had its ring
+        // cut on every side (the rule of `ScrollArea`'s documentation; found with the theme
+        // editor's, 2026-11-26).
+        let padded = ui.add(scroll, Flex::column(Space::None, Space::S), wide)?;
         let commands = ui.add(
-            scroll,
+            padded,
             ListBox::new(Vec::new(), 0, |index| {
                 DemoMessage::Keyboard(KeyboardMessage::Command(index))
             })

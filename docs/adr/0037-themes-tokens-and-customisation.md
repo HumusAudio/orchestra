@@ -209,3 +209,33 @@ explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark
   text (links, the "Figure N" of captions), at 2.68:1, below 4.5:1: recorded as an open item in
   `ROADMAP.md`, to be fixed in the guides' template with the owner's ok.
 - SCALETTA gains step F2.12b and notes in F2.07 (text tokens) and F2.09 (density).
+
+## Precisions of the implementation (F2.12b1, approved by the owner on 2026-11-26)
+
+- **The half edited.** The theme editor shows and edits the half the window draws; to edit the
+  other half the user chooses it in *Mode*, and the rows follow at once.
+- **A value applies as soon as it is a colour** (`#rrggbb`, or `#rrggbbaa` with transparency; the
+  `#` optional, any case). A value that is not a colour stays in the field and changes nothing.
+- **Only the differences are stored** (T7): a value equal to the base's removes the token's
+  override instead of adding one, and *Restore* removes it.
+- **Contrast** (T8; owner's choices of 2026-11-26): the warnings stand **at the top** of a custom
+  theme, under its name, under the heading *Readability*, and are written **in plain words,
+  without numbers**. The failing pairs are grouped by the colour to fix, one warning each. A
+  warning is about **the colour the user changed** (the one edited last in the
+  session, else the one that differs from the base, else the foreground): a white window
+  background in a dark theme is one warning about the background, not one per text. It says on
+  which colour the problem is worst and with how many others it recurs, how bad it is (below 2:1
+  "almost invisible"; below 3:1 "hard to read", or "hard to make out" for graphics; up to the
+  threshold "readable, but not well enough for people who don't see well") and what to do. The
+  advice is **computed so that it works** (owner's report of 2026-11-26: black text on a dark
+  background was told to get darker): a direction is advised only if some lighter, or darker,
+  colour makes every pair of that colour pass; if both work, the smaller change; if neither,
+  *Restore*. The other colour's way out is added only when a single pair is involved. The worst
+  first; the rows of the tokens involved carry a warning dot. With no problem, one line says
+  every text and control is easy to read. Never a block.
+- **Custom themes.** *Duplicate* copies the chosen theme (a built-in pair: its base, no
+  overrides; a custom theme: its base and every override) under the name "Name (copy)"; a name
+  already taken gets " (2)", " (3)"…, as does a rename. *Delete* asks first, then chooses the
+  deleted theme's base.
+- **Scope.** F2.12b1 edits colour tokens only. Shape and text tokens (with the new layout text
+  tokens need, ADR-0044 TX9) and importing and exporting a theme are F2.12b2.

@@ -99,6 +99,9 @@ pub(crate) struct Shell<A> {
     /// no other one and ignores the requests to close it (choice 4 of F2.12a5a; see
     /// `crate::platform::file_chooser`).
     choosing: bool,
+    /// The half of the theme last told to the app ([`InputEvent::Appearance`], F2.12b1); `None`
+    /// before the first time.
+    told_appearance: Option<crate::Appearance>,
     /// The title the window was last given (F2.12a5b): the one it opened with, then the app's
     /// ([`WindowApp::title`]) whenever it changed. Kept so the system is told only of changes.
     title: String,
@@ -130,6 +133,7 @@ impl<A: WindowApp> Shell<A> {
             chooser: Box::new(SystemChooser),
             choosing: false,
             title,
+            told_appearance: None,
         }
     }
 
@@ -621,6 +625,25 @@ impl<A: WindowApp> Shell<A> {
         }
     }
 
+    /// Tells the app the half of the theme drawn now when it differs from what it was last told
+    /// ([`InputEvent::Appearance`], F2.12b1). Only once the window exists: before, nothing is
+    /// drawn and the system has not answered yet. O(1).
+    fn sync_appearance(&mut self) {
+        if self.open.is_none() {
+            return;
+        }
+        let now = self.theme.appearance();
+        if self.told_appearance != Some(now) {
+            self.told_appearance = Some(now);
+            self.deliver(&InputEvent::Appearance(now));
+            if !self.list.damage().is_empty()
+                && let Some(open) = self.open.as_ref()
+            {
+                open.window.request_redraw();
+            }
+        }
+    }
+
     /// Gives the system the app's title when it changed ([`WindowApp::title`], F2.12a5b): the
     /// frame's text, the task switcher's, the dock's. Called after every batch of events.
     ///
@@ -672,6 +695,9 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
         self.sync_system_menu();
         // After every batch, so the title follows whatever changed the project in it.
         self.sync_title();
+        // After every batch, so a change of half (the system, the user's mode) reaches the app
+        // before the loop sleeps (F2.12b1).
+        self.sync_appearance();
         // After every batch, so a chooser asked by any event of it (a shortcut, a menu item, an
         // assistive technology's action, the system's menu) starts before the loop sleeps.
         self.start_file_chooser();

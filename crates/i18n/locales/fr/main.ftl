@@ -313,3 +313,106 @@ prefs-shortcuts-import-error-not-shortcuts = Ce fichier n'est pas un fichier de 
 prefs-shortcuts-import-error-newer = Ce fichier a été enregistré avec une version plus récente d'{ app-name }. Installez la dernière version pour l'importer.
 prefs-shortcuts-import-error-damaged = Le fichier est endommagé : il ne peut pas être lu comme des raccourcis { app-name }.
 prefs-shortcuts-export-error-title = Impossible d'exporter « { $file } »
+
+## The theme editor in the Preferences' Appearance section (F2.12b1, ADR-0037 T7–T8; glossary:
+## theme_color_names, accent_color, duplicate, delete, color, readability). The colour names
+## are those of the theme's tokens, as the editor lists them; the user picks a value for each.
+## $name is a theme's name; $color and $background are colour names (theme-color-*). The editing
+## notes name the Mode control and its values (prefs-mode, prefs-mode-light, prefs-mode-dark):
+## keep them identical.
+## The readability warnings (owner's choices of 2026-11-26): plain words, no numbers. A warning
+## is up to three sentences, each its own message, shown one after the other with a space:
+## prefs-theme-readability-problem says how hard $color is to see on $background (both names of
+## rows of the editor, so the user finds them). $kind is "text" (letters) or "graphic" (a line or
+## a shape: borders, the focus ring, a switch that is on); $severity is "invisible" (almost
+## invisible), "hard" (hard to read, or to make out for graphics) or "weak" (readable, but not
+## well enough for people who do not see well; text only).
+## prefs-theme-readability-same says that $culprit (the colour to fix) has the same problem with
+## $count other colours (1 or more).
+## prefs-theme-readability-advice says what to do with $culprit: $advice is "change" (make it
+## lighter or darker, $direction "lighter" or "darker"), "either" (the same, or make $partner, the
+## other colour, lighter or darker: $partner-direction) or "restore" (no lighter or darker colour
+## is enough: press the row's Restore button, prefs-theme-restore). Say "the colour" before each
+## name, so that adjectives agree with "colour" and not with the name (which may be plural).
+## Address the user as the rest of the catalogue does.
+
+prefs-theme-duplicate = Dupliquer
+prefs-theme-delete = Supprimer
+prefs-theme-name = Nom
+prefs-theme-copy-name = { $name } (copie)
+prefs-theme-colors = Couleurs
+prefs-theme-builtin = Les thèmes intégrés ne peuvent pas être modifiés : dupliquez-en un pour créer le vôtre.
+prefs-theme-editing-light = Voici les couleurs de la moitié claire. Pour modifier la moitié sombre, choisissez Sombre dans Mode.
+prefs-theme-editing-dark = Voici les couleurs de la moitié sombre. Pour modifier la moitié claire, choisissez Clair dans Mode.
+prefs-theme-restore = Restaurer
+prefs-theme-value-name = Valeur de « { $color } »
+prefs-theme-readability = Lisibilité
+prefs-theme-readability-ok = Tous les textes et contrôles se lisent bien.
+prefs-theme-readability-problem =
+    { $kind ->
+        [graphic]
+            { $severity ->
+                [invisible] La couleur « { $color } » est presque invisible sur « { $background } ».
+               *[hard] La couleur « { $color } » se distingue mal sur « { $background } ».
+            }
+       *[text]
+            { $severity ->
+                [invisible] La couleur « { $color } » est presque invisible sur « { $background } ».
+                [hard] La couleur « { $color } » se lit difficilement sur « { $background } ».
+               *[weak] La couleur « { $color } » se lit sur « { $background } », mais pas assez bien pour les personnes qui voient mal.
+            }
+    }
+prefs-theme-readability-same =
+    { $count ->
+        [one] La couleur « { $culprit } » a le même problème avec une autre couleur.
+       *[other] La couleur « { $culprit } » a le même problème avec { $count } autres couleurs.
+    }
+prefs-theme-readability-advice =
+    { $advice ->
+        [either]
+            { $direction ->
+                [lighter]
+                    { $partner-direction ->
+                        [lighter] Éclaircissez la couleur « { $culprit } », ou éclaircissez la couleur « { $partner } ».
+                       *[darker] Éclaircissez la couleur « { $culprit } », ou assombrissez la couleur « { $partner } ».
+                    }
+               *[darker]
+                    { $partner-direction ->
+                        [lighter] Assombrissez la couleur « { $culprit } », ou éclaircissez la couleur « { $partner } ».
+                       *[darker] Assombrissez la couleur « { $culprit } », ou assombrissez la couleur « { $partner } ».
+                    }
+            }
+        [restore] Aucune couleur plus claire ou plus foncée à la place de « { $culprit } » ne suffit : cliquez sur « { prefs-theme-restore } » sur sa ligne.
+       *[change]
+            { $direction ->
+                [lighter] Éclaircissez la couleur « { $culprit } ».
+               *[darker] Assombrissez la couleur « { $culprit } ».
+            }
+    }
+prefs-theme-delete-title = Supprimer le thème « { $name } » ?
+prefs-theme-delete-message = Ses couleurs seront perdues.
+dialog-delete = Supprimer
+theme-color-surface = Arrière-plan des fenêtres
+theme-color-surface-raised = Arrière-plan des panneaux
+theme-color-surface-sunken = Arrière-plan des champs
+theme-color-surface-overlay = Arrière-plan des menus et dialogues
+theme-color-border = Bordures et séparateurs
+theme-color-control-border = Bordures des contrôles
+theme-color-text = Texte standard
+theme-color-text-muted = Texte secondaire
+theme-color-text-disabled = Texte désactivé
+theme-color-accent = Couleur d'accentuation
+theme-color-accent-hover = Couleur d'accentuation sous le pointeur
+theme-color-accent-pressed = Couleur d'accentuation enfoncée
+theme-color-on-accent = Texte sur la couleur d'accentuation
+theme-color-accent-text = Texte en couleur d'accentuation
+theme-color-control = Arrière-plan des boutons
+theme-color-control-hover = Arrière-plan des boutons sous le pointeur
+theme-color-control-pressed = Arrière-plan des boutons enfoncés
+theme-color-selection = Arrière-plan de sélection
+theme-color-on-selection = Texte sélectionné
+theme-color-focus = Décoration du focus
+theme-color-error = Erreurs
+theme-color-warning = Avertissements
+theme-color-success = Succès
+theme-color-shadow = Ombre

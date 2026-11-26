@@ -132,8 +132,8 @@ impl ThemeState {
         self.pair.instance(self.appearance)
     }
 
-    /// The half in use (for tests and diagnostics).
-    #[cfg(test)]
+    /// The half in use: the window tells the application when it changes
+    /// ([`InputEvent::Appearance`](crate::InputEvent::Appearance), F2.12b1).
     pub(crate) const fn appearance(&self) -> Appearance {
         self.appearance
     }

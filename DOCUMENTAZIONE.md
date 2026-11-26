@@ -6061,6 +6061,147 @@ scritta, la domanda di sostituzione, l'importazione con il resoconto e le differ
 domanda prima di sostituire le scorciatoie proprie, un file che non si può importare. Lo
 screenshot `preferences-keyboard` mostra i due pulsanti.
 
+#### L'editor dei temi
+
+**Che cosa vede l'utente** (ADR-0037 T7–T8, SCALETTA F2.12b1, scelte 1–8 del proprietario del
+2026-11-25). Sotto *Tema*, *Modalità* e *Cursore lampeggiante*, la sezione Aspetto (che adesso
+scorre) mostra *Duplica* ed *Elimina*. Con una coppia integrata scelta, una riga attenuata dice che
+non si può cambiare ed *Elimina* è disattivato. *Duplica* fa un tema personalizzato da quello
+scelto, chiamato "Studio (copia)" (con un numero aggiunto quando il nome è già preso), e lo sceglie;
+il menu a tendina del tema elenca le dieci coppie, poi ogni tema personalizzato. Un tema
+personalizzato mostra il suo **Nome** (un campo, confermato con Invio o quando lo si lascia), poi
+**Leggibilità** (sotto), poi il titolo **Colori** con una riga che dice quale metà è mostrata, e una
+riga per ogni token di colore (un pallino di avviso, il nome, un campione, il valore,
+*Ripristina*). *Elimina* chiede *Eliminare il tema «Nome»?* e torna alla base del tema.
+
+**I valori** (`crates/app/src/preferences/theme.rs`). Un valore è letto da `parse_color`:
+`#rrggbb` o `#rrggbbaa`, il `#` facoltativo, maiuscole o minuscole, spazi ignorati; qualunque altra
+cosa è `None` e non cambia nulla (il testo resta nel campo). `color_text` lo riscrive (`#rrggbb`
+quando è opaco).
+
+**Le impostazioni sono il tema.** Ogni azione è una funzione su `Settings`: `duplicate`,
+`rename_chosen` (spazi tolti, reso unico da `unique_name`, vuoto o invariato non fa nulla),
+`delete_chosen` (torna alla base), `choose` (l'indice del menu a tendina), `set_color(settings,
+half, token, color)`. `set_color` tiene solo le differenze (T7): le sostituzioni precedenti del
+token in quella metà se ne vanno, e un valore uguale a quello della base non ne aggiunge nessuna,
+quindi *Ripristina* è semplicemente `set_color(…, None)`:
+
+```rust
+overrides.retain(
+    |item| !matches!(item, ThemeOverride::Color { token: name, .. } if name == token.name()),
+);
+if let Some(color) = color.filter(|color| *color != base) {
+    overrides.push(ThemeOverride::Color { token: token.name().to_owned(), rgba: /* … */ });
+}
+```
+
+Il tema della finestra si ricava poi di nuovo dalle impostazioni (`theme_from_settings`), così la
+fonte di verità è una sola: ciò che è salvato è ciò che si disegna. `theme_values` elenca i valori
+del menu a tendina; una scelta personalizzata il cui tema manca mostra Studio, come lo disegna la
+finestra.
+
+**La metà modificata** (scelta 2). L'editor mostra e modifica la metà che la finestra disegna. La
+finestra la comunica all'interfaccia con il nuovo `InputEvent::Appearance(half)`, mandato appena la
+finestra esiste e ogni volta che la metà cambia (il sistema è passato all'altra, o l'utente ha
+scelto una modalità); `Ui::appearance()` la ricorda. La finestra di prova la passa a
+`ThemeEditor::show_half`, che riscrive i campi, la nota, i segni e le righe di contrasto senza
+ricostruire nulla (il focus resta dov'è).
+
+**I widget.** `ThemeEditor` tiene gli ID del menu a tendina, di *Duplica*, di *Elimina*, dell'area
+ricostruita quando si sceglie un altro tema, del campo del nome, della nota, delle righe e della
+colonna del contrasto. `handle(message)` cambia le impostazioni e i widget e risponde un
+`ThemeOutcome`: nulla, `Theme` (la finestra di prova applica il tema delle impostazioni alla
+finestra e all'interfaccia: tutta la finestra è l'anteprima) oppure `Ask(dialog)`. Ogni campo di
+colore manda il suo messaggio con una funzione semplice, una per token (`color_message::<I>`,
+ADR-0045 WA7), a ogni modifica, così un valore si applica appena è un colore. Aiutano due widget
+nuovi: `Swatch` (`crates/ui/src/widget/swatch.rs`) disegna un quadratino pieno di un token di
+colore, quindi segue da solo ogni cambiamento, e `DropDown::set_values` sostituisce i valori e la
+scelta di un menu a tendina (i temi personalizzati vanno e vengono).
+
+**La leggibilità** (scelta 5, T8, richieste del proprietario del 2026-11-26;
+`crates/app/src/preferences/theme/readability.rs`). In cima a un tema personalizzato, così si
+vede senza scorrere, e **con parole semplici, senza numeri**: il proprietario ha trovato i rapporti
+("1,9:1, almeno 4,5:1") incomprensibili per la maggior parte delle persone. Una prima versione
+consigliava "allontana il colore da quello che ha dietro", e diceva al testo nero su sfondo scuro di
+diventare più scuro, cosa impossibile (segnalazione del proprietario). Adesso gli avvisi seguono tre
+regole.
+
+*Il colore da correggere.* Per ogni coppia che non passa di `Theme::contrast_failures`, il
+"colpevole" è il colore che l'utente ha modificato per ultimo in questa sessione (`ThemeEditor` lo
+ricorda, e lo dimentica quando si mostra un altro tema o un'altra metà o quando il colore è
+ripristinato), altrimenti quello dei due che differisce dalla base del tema, altrimenti quello
+davanti. Le coppie si raggruppano per colpevole, così uno sfondo della finestra bianco in un tema
+scuro dà un avviso sullo sfondo, non nove sui testi che ci stanno sopra.
+
+*Un consiglio che funziona.* Il colpevole viene spostato passo passo verso il bianco, poi verso il
+nero, mantenendo la sua trasparenza; una direzione si consiglia solo se un colore su quel percorso
+fa passare **tutte** le coppie di cui il colpevole fa parte (quelle che non passano e quelle che
+passano adesso):
+
+```rust
+fn all_pass(theme: &Theme, token: ColorToken, color: Color) -> bool {
+    let theme = theme.with_color(token, color);
+    pairs_of(token).all(|pair| {
+        contrast_ratio(theme.color(pair.foreground), theme.color(pair.background))
+            >= pair.kind.minimum()
+    })
+}
+```
+
+Il percorso si fa in 64 passi, poi il primo passo che passa viene rifinito con 16 bisezioni: una
+bisezione semplice non basterebbe, perché una coppia che passa adesso può non passare a metà strada
+(il colore attraversa la luminosità del suo compagno) e passare di nuovo più avanti. Se funzionano
+tutte e due le direzioni vince il cambiamento più piccolo (`best_fix`); se non ne funziona nessuna,
+il consiglio è *Ripristina*. Quando l'avviso riguarda una sola coppia si aggiunge anche la via
+d'uscita dell'altro colore (scelta c): con più coppie, cambiare tutti gli sfondi romperebbe il tema.
+
+*Parole semplici.* Quanto è grave, dalla coppia peggiore: sotto 2:1 *quasi invisibile*, sotto 3:1
+*si legge a fatica* (*si distingue a fatica* per la grafica, la cui soglia è 3:1), fino a 4,5:1 *si
+legge, ma non abbastanza bene per chi vede poco*. Un avviso è fatto di al massimo tre frasi intere,
+ognuna un messaggio Fluent suo: `prefs-theme-readability-problem` (tipo e gravità; i due colori),
+`prefs-theme-readability-same` (un plurale sul numero delle altre coppie; il colpevole) e
+`prefs-theme-readability-advice` (*change*, *either* o *restore*, con le direzioni; il colpevole e
+l'altro colore). Scelgono in base a dei valori, quindi `Template::with_values` formatta ciascuno una
+volta per combinazione (5 + 8 + 7 formattazioni quando si sceglie la lingua), lasciando come
+segnaposto solo i nomi dei colori; `issue_line` unisce le frasi con uno spazio, che non è
+concatenazione: nessuna parola di una dipende da un'altra. Ogni avviso ha lo stesso pallino delle
+righe; se non ce n'è nessuno, una riga attenuata dice che tutti i testi e i controlli si leggono
+bene. Mai un blocco.
+
+**Gli anelli del fuoco nelle aree che scorrono.** `ScrollArea` taglia tutto al suo riquadro
+visibile, e l'anello del fuoco si disegna 3 px fuori dal suo controllo (1 px + `focus-width`): la
+sua documentazione chiede al contenuto di lasciare un margine. Le colonne delle sezioni Aspetto e
+Riproduzione non ne avevano, e l'elenco dei comandi della sezione Tastiera riempiva tutto il
+riquadro, quindi gli anelli dei controlli ai bordi venivano tagliati (il proprietario ha visto
+quello di *Duplica*). Adesso le due colonne hanno il margine piccolo (`Space::S`, 8 px, 4 px in
+compatto) e l'elenco sta in una colonna che ce l'ha.
+
+**Testi.** I 24 nomi dei colori (`theme-color-*`) e i testi dell'editor nei sei cataloghi;
+`number-decimal-separator` se n'è andato insieme ai numeri. Il glossario si arricchisce dei nomi
+dei colori, delle parole dell'editor e di *leggibilità* (en *readability*, fr *lisibilité*, de
+*Lesbarkeit*, es *legibilidad*; cataloghi degli schemi di colore di KDE, quelli di MuseScore
+Studio, la pagina Understanding delle WCAG, web.dev in spagnolo, una mappa tedesca delle WCAG 2.2).
+
+**Test.** In `theme.rs` (4): colori letti e scritti, nomi unici, duplica, scelta, rinomina ed
+elimina, solo le differenze conservate. In `readability.rs` (7): le soglie; il caso del
+proprietario (testo secondario nero sulla metà scura: un avviso, *più chiaro*); uno sfondo bianco
+(un avviso sullo sfondo, *più scuro*); una coppia singola che offre tutti e due i colori; la via più
+vicina che vince; il colore modificato per ultimo come colpevole; e **ogni caso che un utente può
+creare con un colore**: ogni coppia integrata, tutte e due le metà, ogni colore messo a nero, bianco
+o un grigio medio, con e senza l'ultima modifica ricordata. Per ogni avviso il test controlla, con il
+`contrast_failures` del tema stesso (indipendente dal codice provato), che fare ciò che dice
+funzioni, che la direzione consigliata sia giusta, che il colore consigliato sia il più vicino, che
+venga scelta la via più breve, e che *Ripristina* arrivi solo quando nient'altro funziona.
+`crates/app/tests/theme.rs` (8), attraverso la finestra di prova e la tastiera: una coppia
+duplicata, un colore scritto e ripristinato, un valore che non è un colore, i campi che seguono la
+metà, un colore che si legge male spiegato in cima, il nome confermato e reso unico, *Elimina*
+chiesto e risposto, i testi nelle sei lingue (i segnaposto di ogni frase), e gli anelli del fuoco di
+ogni controllo di Aspetto, Riproduzione e Tastiera dentro la loro area che scorre. Otto bug
+inseriti di proposito sono stati presi (cinque nei consigli, tre margini tolti); una modifica
+inserita era equivalente. Gli screenshot
+`theme-editor` e `theme-contrast` mostrano un tema con l'accento cambiato e un avviso di
+leggibilità; `preferences-dialog` adesso mostra *Duplica* ed *Elimina*.
+
 #### Le finestre di scelta dei file
 
 **Che cosa vede l'utente** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Apri…* (Ctrl+O, ⌘O) e *File
@@ -6394,7 +6535,7 @@ pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
     height: 370.0,
-    record: record_demo_window,
+    record: Record::Plain(record_demo_window),
 }];
 
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
@@ -6403,6 +6544,8 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneConte
     demo.input(&InputEvent::Key { key: Key::Named(NamedKey::Tab), /* … */ }, list);
 }
 ```
+
+Da F2.12b1 `record` è un `Record`: le scene `Plain` (tutte tranne due) si disegnano con `theme()`; le scene `Themed` rispondono il tema con cui disegnarle. Servono alle scene dell'editor dei temi: i loro colori cambiano il tema stesso, che una finestra vera riceve come richiesta (`WindowRequest::SetTheme`) e che una scena senza finestra deve passare a `render`. Prima dicono anche alla finestra di prova che la metà mostrata è quella scura (`InputEvent::Appearance`), come fa una finestra quando si apre.
 
 `render` disegna una scena con `CpuRenderer::render_to_image` a **scala 2** (una scena larga 640
 pixel diventa di 1280, circa 200 dpi sulla larghezza del testo di una pagina A4) nella **metà scura
