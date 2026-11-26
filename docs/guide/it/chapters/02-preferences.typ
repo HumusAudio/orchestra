@@ -62,15 +62,18 @@ risultato. *Ripristina* ridà al colore il valore del tema da cui era nato.
 ]
 
 Sotto il nome, *Leggibilità* ti dice se tutto si legge ancora. Se un colore è troppo vicino a quello
-che ha dietro, una frase lo dice con parole semplici: quanto si vede male ("quasi invisibile", "si
-legge a fatica", oppure si legge "ma non abbastanza bene per chi vede poco"), su quale colore, e
-cosa fare, per esempio "Rendilo più chiaro, oppure rendi più scuri i colori che ha dietro". Le righe
-dei colori coinvolti sono segnate con un pallino, così le trovi subito. È solo un consiglio: il
-colore resta il tuo. Quando va tutto bene, una riga breve lo dice.
+che ha dietro, qualche frase semplice dice quanto si vede male ("quasi invisibile", "si legge a
+fatica", oppure si legge "ma non abbastanza bene per chi vede poco"), su quale colore, e cosa fare.
+Il consiglio riguarda il colore che hai cambiato, e Orchestra controlla che funzioni davvero: ti
+dice di schiarire un colore solo se un colore più chiaro può risolvere il problema, e lo stesso per
+scurirlo. Quando c'è di mezzo una sola coppia di colori, ti dice anche come cambiare l'altro. Se
+nessun colore più chiaro o più scuro può aiutare, ti dice di premere *Ripristina*. Le righe dei
+colori coinvolti sono segnate con un pallino, così le trovi subito. È solo un consiglio: il colore
+resta il tuo. Quando va tutto bene, una riga breve lo dice.
 
 #screenshot-placeholder(
   [Screenshot: un avviso di leggibilità in cima alla sezione (theme-contrast.png)],
-  [Il testo secondario reso troppo scuro: quasi invisibile su quattro sfondi, con cosa fare.],
+  [Il testo secondario reso troppo scuro: quasi invisibile su quattro sfondi; il consiglio è di schiarirlo.],
 )
 
 #tip("Suggerimento")[

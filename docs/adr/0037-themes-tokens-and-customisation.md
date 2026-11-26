@@ -220,12 +220,18 @@ explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark
   override instead of adding one, and *Restore* removes it.
 - **Contrast** (T8; owner's choices of 2026-11-26): the warnings stand **at the top** of a custom
   theme, under its name, under the heading *Readability*, and are written **in plain words,
-  without numbers**. The failing pairs are grouped by the colour that is hard to see: one
-  sentence each, naming the colour behind it where it is worst and how many others fail too,
-  saying how bad it is (below 2:1 "almost invisible"; below 3:1 "hard to read", or "hard to make
-  out" for graphics; up to the threshold "readable, but not well enough for people who don't see
-  well") and what to do (make it lighter or darker, away from the colour behind it), the worst
-  first. The rows of the tokens involved carry a warning dot. With no problem, one line says
+  without numbers**. The failing pairs are grouped by the colour to fix, one warning each. A
+  warning is about **the colour the user changed** (the one edited last in the
+  session, else the one that differs from the base, else the foreground): a white window
+  background in a dark theme is one warning about the background, not one per text. It says on
+  which colour the problem is worst and with how many others it recurs, how bad it is (below 2:1
+  "almost invisible"; below 3:1 "hard to read", or "hard to make out" for graphics; up to the
+  threshold "readable, but not well enough for people who don't see well") and what to do. The
+  advice is **computed so that it works** (owner's report of 2026-11-26: black text on a dark
+  background was told to get darker): a direction is advised only if some lighter, or darker,
+  colour makes every pair of that colour pass; if both work, the smaller change; if neither,
+  *Restore*. The other colour's way out is added only when a single pair is involved. The worst
+  first; the rows of the tokens involved carry a warning dot. With no problem, one line says
   every text and control is easy to read. Never a block.
 - **Custom themes.** *Duplicate* copies the chosen theme (a built-in pair: its base, no
   overrides; a custom theme: its base and every override) under the name "Name (copy)"; a name

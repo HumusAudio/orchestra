@@ -336,9 +336,14 @@ pub fn show_section(
             .width(Length::Fill(1.0))
             .height(Length::Fill(1.0));
         let scroll = ui.add(view.pane, orchestra_ui::ScrollArea::vertical(), fill)?;
+        // The small padding keeps the focus rings of the controls at the column's edges (the
+        // theme editor's *Duplicate*, the name field, *Restore*) inside the viewport, which clips
+        // everything: a ring reaches 1 px + `focus-width` (3 px) beyond its control, and the
+        // small gap is 8 px (4 px compact). Without it the ring's left side was cut (owner's
+        // report of 2026-11-26; the rule is in `ScrollArea`'s documentation).
         ui.add(
             scroll,
-            Flex::column(Space::M, Space::None),
+            Flex::column(Space::M, Space::S),
             LayoutProps::default().width(Length::Fill(1.0)),
         )?
     } else {

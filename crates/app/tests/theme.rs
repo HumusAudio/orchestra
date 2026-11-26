@@ -336,15 +336,11 @@ fn a_colour_hard_to_read_is_explained_at_the_top() {
     assert_eq!(lines.len(), 2, "the dot and one sentence: {lines:?}");
     assert_eq!(lines[0], "\u{25cf}");
     let sentence = &lines[1];
-    assert!(
-        sentence.starts_with(
-            "The color “Normal text” is almost invisible on “Window background” and on "
-        ),
-        "{sentence}"
-    );
-    assert!(
-        sentence.ends_with("other colors. Make it lighter, or make the colors behind it darker."),
-        "{sentence}"
+    // Light text on the light half: the advice is to make it darker, the only way that works.
+    assert_eq!(
+        sentence,
+        "The color “Normal text” is almost invisible on “Window background”. The color “Normal \
+         text” has the same problem with 6 other colors. Make the color “Normal text” darker."
     );
     assert!(!sentence.contains(':'), "no ratio: {sentence}");
     // Never a block: the colour is the theme's all the same.
@@ -447,16 +443,129 @@ fn the_texts_exist_in_the_six_languages() {
             assert_eq!(template.slots(0), 1, "{locale:?}: {template:?}");
             assert_eq!(template.slots(1), 0, "{locale:?}: {template:?}");
         }
-        // The readability sentences: the colour named once, the colour behind at least once (a
-        // form may name it again in its advice), nothing else left to fill, no number but the
-        // count of other colours.
-        assert_eq!(texts.issues.len(), 70, "{locale:?}");
-        for template in &texts.issues {
-            assert_eq!(template.slots(0), 1, "{locale:?}: {template:?}");
-            assert!(template.slots(1) >= 1, "{locale:?}: {template:?}");
+        // The readability sentences: each colour's name where it belongs, nothing else left to
+        // fill, no Fluent syntax left over.
+        for (template, [first, second]) in texts.readability_templates() {
+            assert_eq!(template.slots(0), first, "{locale:?}: {template:?}");
+            assert_eq!(template.slots(1), second, "{locale:?}: {template:?}");
             assert_eq!(template.slots(2), 0, "{locale:?}: {template:?}");
             let text = template.fill(&["A", "B"]);
-            assert!(!text.contains(['{', '}', ':']), "{locale:?}: {text}");
+            assert!(!text.contains(['{', '}']), "{locale:?}: {text}");
         }
     }
+}
+
+/// The controls of `demo`'s open Preferences section that draw a focus ring, under the first
+/// scroll area found below `id`, with that area: (viewport, controls' rectangles).
+fn ring_room(demo: &Demo, id: WidgetId) -> Option<(Rect, Vec<Rect>)> {
+    /// Collects the rectangles of the controls under `id`, depth first.
+    fn controls(demo: &Demo, id: WidgetId, out: &mut Vec<Rect>) {
+        for child in demo.ui().children(id) {
+            let ui = demo.ui();
+            let control = ui.widget::<Button<DemoMessage>>(child).is_some()
+                || ui.widget::<TextField<DemoMessage>>(child).is_some()
+                || ui
+                    .widget::<orchestra_ui::DropDown<DemoMessage>>(child)
+                    .is_some()
+                || ui
+                    .widget::<orchestra_ui::RadioGroup<DemoMessage>>(child)
+                    .is_some()
+                || ui
+                    .widget::<orchestra_ui::Toggle<DemoMessage>>(child)
+                    .is_some()
+                || ui
+                    .widget::<orchestra_ui::Slider<DemoMessage>>(child)
+                    .is_some()
+                || ui
+                    .widget::<orchestra_ui::ListBox<DemoMessage>>(child)
+                    .is_some();
+            if control {
+                out.push(ui.rect(child).unwrap());
+            }
+            controls(demo, child, out);
+        }
+    }
+    for child in demo.ui().children(id) {
+        if demo
+            .ui()
+            .widget::<orchestra_ui::ScrollArea>(child)
+            .is_some()
+        {
+            let mut out = Vec::new();
+            controls(demo, child, &mut out);
+            return Some((demo.ui().rect(child).unwrap(), out));
+        }
+        if let Some(found) = ring_room(demo, child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Every control of the Appearance section (with a custom theme, so the editor's rows are there)
+/// and of the Playback section leaves room for its focus ring inside the scroll area, which clips:
+/// a ring reaches 1 px + `focus-width` (2 px) beyond its control. Left and right for every
+/// control; at the top for those in view with the area scrolled to its start. The owner saw
+/// *Duplicate*'s ring cut on the left (2026-11-26).
+#[test]
+fn focus_rings_are_not_cut_by_the_scroll_areas() {
+    const REACH: f32 = 3.0;
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let check = |demo: &Demo, section: &str| {
+        let panel = demo.preferences().unwrap();
+        let (viewport, rects) = ring_room(demo, panel).unwrap();
+        assert!(rects.len() > 3, "{section}: controls found");
+        for rect in rects {
+            assert!(
+                rect.x0 - REACH >= viewport.x0,
+                "{section}: {rect:?} in {viewport:?}"
+            );
+            assert!(
+                rect.x1 + REACH <= viewport.x1,
+                "{section}: {rect:?} in {viewport:?}"
+            );
+            if rect.y1 > viewport.y0 && rect.y0 < viewport.y1 {
+                assert!(
+                    rect.y0 - REACH >= viewport.y0,
+                    "{section}: {rect:?} in {viewport:?}"
+                );
+            }
+        }
+    };
+    // *Duplicate* with the focus: the section scrolls back to its top.
+    let duplicate_button = demo.theme_editor().unwrap().duplicate_button();
+    demo.ui_mut()
+        .set_focus(Some(duplicate_button), &mut list)
+        .unwrap();
+    check(&demo, "Appearance");
+    // Playback, in a new demonstration: the Preferences open with the focus on the list of
+    // sections, where Down twice chooses the third section.
+    let (mut demo, mut list) = appearance_section();
+    for _ in 0..2 {
+        key(
+            &mut demo,
+            &mut list,
+            &Key::Named(NamedKey::ArrowDown),
+            Modifiers::default(),
+        );
+    }
+    assert!(demo.theme_editor().is_none(), "another section");
+    check(&demo, "Playback");
+    // Keyboard, the next section: the commands' list is the scroll area's only control.
+    key(
+        &mut demo,
+        &mut list,
+        &Key::Named(NamedKey::ArrowDown),
+        Modifiers::default(),
+    );
+    let panel = demo.preferences().unwrap();
+    let (viewport, rects) = ring_room(&demo, panel).unwrap();
+    assert_eq!(rects.len(), 1, "the list of commands");
+    let rect = rects[0];
+    assert!(
+        rect.x0 - REACH >= viewport.x0 && rect.x1 + REACH <= viewport.x1,
+        "{rect:?}"
+    );
+    assert!(rect.y0 - REACH >= viewport.y0, "{rect:?} in {viewport:?}");
 }

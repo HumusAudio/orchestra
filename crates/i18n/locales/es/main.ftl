@@ -319,16 +319,21 @@ prefs-shortcuts-export-error-title = No se puede exportar «{ $file }»
 ## $name is a theme's name; $color and $background are colour names (theme-color-*). The editing
 ## notes name the Mode control and its values (prefs-mode, prefs-mode-light, prefs-mode-dark):
 ## keep them identical.
-## prefs-theme-readability-issue tells, in plain words and without numbers, that a colour is hard
-## to read on a colour behind it, and what to do. $color is the colour that is hard to see,
-## $background the colour behind it where it is worst (both names of rows of the editor, so the
-## user finds them), $count how many OTHER colours behind it are a problem too (0 or more).
-## $kind is "text" (letters) or "graphic" (a line or a shape: borders, the focus ring, a switch
-## that is on). $severity is "invisible" (almost invisible), "hard" (hard to read or to make out)
-## or "weak" (readable, but not well enough for people who do not see well; text only).
-## $direction is "lighter" when $color is the lighter of the two (so the advice is to make it
-## lighter still, or the colours behind it darker) and "darker" otherwise. Address the user as
-## the rest of the catalogue does.
+## The readability warnings (owner's choices of 2026-11-26): plain words, no numbers. A warning
+## is up to three sentences, each its own message, shown one after the other with a space:
+## prefs-theme-readability-problem says how hard $color is to see on $background (both names of
+## rows of the editor, so the user finds them). $kind is "text" (letters) or "graphic" (a line or
+## a shape: borders, the focus ring, a switch that is on); $severity is "invisible" (almost
+## invisible), "hard" (hard to read, or to make out for graphics) or "weak" (readable, but not
+## well enough for people who do not see well; text only).
+## prefs-theme-readability-same says that $culprit (the colour to fix) has the same problem with
+## $count other colours (1 or more).
+## prefs-theme-readability-advice says what to do with $culprit: $advice is "change" (make it
+## lighter or darker, $direction "lighter" or "darker"), "either" (the same, or make $partner, the
+## other colour, lighter or darker: $partner-direction) or "restore" (no lighter or darker colour
+## is enough: press the row's Restore button, prefs-theme-restore). Say "the colour" before each
+## name, so that adjectives agree with "colour" and not with the name (which may be plural).
+## Address the user as the rest of the catalogue does.
 
 prefs-theme-duplicate = Duplicar
 prefs-theme-delete = Eliminar
@@ -342,33 +347,45 @@ prefs-theme-restore = Restaurar
 prefs-theme-value-name = Valor de «{ $color }»
 prefs-theme-readability = Legibilidad
 prefs-theme-readability-ok = Todos los textos y controles se leen bien.
-prefs-theme-readability-issue =
+prefs-theme-readability-problem =
     { $kind ->
         [graphic]
             { $severity ->
-                [invisible] El color «{ $color }» es casi invisible sobre «{ $background }»
-               *[hard] El color «{ $color }» se distingue con dificultad sobre «{ $background }»
+                [invisible] El color «{ $color }» es casi invisible sobre «{ $background }».
+               *[hard] El color «{ $color }» se distingue con dificultad sobre «{ $background }».
             }
        *[text]
             { $severity ->
-                [invisible] El color «{ $color }» es casi invisible sobre «{ $background }»
-                [hard] El color «{ $color }» se lee con dificultad sobre «{ $background }»
-               *[weak] El color «{ $color }» se lee sobre «{ $background }», pero no lo bastante bien para quien ve poco
+                [invisible] El color «{ $color }» es casi invisible sobre «{ $background }».
+                [hard] El color «{ $color }» se lee con dificultad sobre «{ $background }».
+               *[weak] El color «{ $color }» se lee sobre «{ $background }», pero no lo bastante bien para quien ve poco.
             }
-    }{ $count ->
-        [0] .
-        [one] {" "}y sobre otro color.
-       *[other] {" "}y sobre otros { $count } colores.
-    } { $direction ->
-        [lighter]
-            { $count ->
-                [0] Aclárelo, o oscurezca «{ $background }».
-               *[other] Aclárelo, o oscurezca los colores que tiene detrás.
+    }
+prefs-theme-readability-same =
+    { $count ->
+        [one] El color «{ $culprit }» tiene el mismo problema con otro color.
+       *[other] El color «{ $culprit }» tiene el mismo problema con otros { $count } colores.
+    }
+prefs-theme-readability-advice =
+    { $advice ->
+        [either]
+            { $direction ->
+                [lighter]
+                    { $partner-direction ->
+                        [lighter] Aclare el color «{ $culprit }», o aclare el color «{ $partner }».
+                       *[darker] Aclare el color «{ $culprit }», o oscurezca el color «{ $partner }».
+                    }
+               *[darker]
+                    { $partner-direction ->
+                        [lighter] Oscurezca el color «{ $culprit }», o aclare el color «{ $partner }».
+                       *[darker] Oscurezca el color «{ $culprit }», o oscurezca el color «{ $partner }».
+                    }
             }
-       *[darker]
-            { $count ->
-                [0] Oscurézcalo, o aclare «{ $background }».
-               *[other] Oscurézcalo, o aclare los colores que tiene detrás.
+        [restore] Ningún color más claro o más oscuro en lugar de «{ $culprit }» es suficiente: pulse «{ prefs-theme-restore }» en su fila.
+       *[change]
+            { $direction ->
+                [lighter] Aclare el color «{ $culprit }».
+               *[darker] Oscurezca el color «{ $culprit }».
             }
     }
 prefs-theme-delete-title = ¿Eliminar el tema «{ $name }»?

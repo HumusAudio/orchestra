@@ -61,15 +61,18 @@ gives the colour back the value of the theme it came from.
 ]
 
 Under the name, *Readability* tells you whether everything can still be read. If a colour is too
-close to the one behind it, a sentence says so in plain words: how hard it is to see ("almost
-invisible", "hard to read", or readable "but not well enough for people who don't see well"), on
-which colour, and what to do, for example "Make it lighter, or make the colors behind it darker".
-The rows of the colours involved are marked with a dot, so you find them at once. It is only
-advice: the colour stays yours. When everything is fine, a short line says so.
+close to the one behind it, a few plain sentences say how hard it is to see ("almost invisible",
+"hard to read", or readable "but not well enough for people who don't see well"), on which colour,
+and what to do. The advice is about the colour you changed, and Orchestra checks that it really
+works: it tells you to make a colour lighter only if a lighter one can fix the problem, and the
+same for darker. When a single pair of colours is involved, it also tells you how to change the
+other one. If no lighter or darker colour can help, it tells you to press *Restore*. The rows of
+the colours involved are marked with a dot, so you find them at once. It is only advice: the
+colour stays yours. When everything is fine, a short line says so.
 
 #screenshot-placeholder(
   [Screenshot: a readability warning at the top of the section (theme-contrast.png)],
-  [Secondary text made too dark: almost invisible on four backgrounds, with what to do.],
+  [Secondary text made too dark: almost invisible on four backgrounds; the advice is to make it lighter.],
 )
 
 #tip("Tip")[

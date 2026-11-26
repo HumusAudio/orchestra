@@ -45,18 +45,21 @@
 //! demonstration then applies the theme the settings choose (`theme_from_settings`) to the window
 //! and to the interface.
 
-use orchestra_i18n::{FluentValue, I18nError, Localizer};
+use orchestra_i18n::{I18nError, Localizer};
 use orchestra_io::settings::{CustomTheme as FileCustom, Settings, ThemeChoice, ThemeOverride};
 use orchestra_ui::{
-    Appearance, BuiltInTheme, Button, ButtonRole, CONTRAST_PAIRS, Color, ColorToken, ContrastKind,
-    DialogKind, DialogSpec, DisplayList, DropDown, FamilyToken, Flex, Grid, Label, LayoutProps,
-    Length, SizeToken, Space, Swatch, TextField, Theme, Track, Ui, UiError, Weight, WidgetId,
-    relative_luminance,
+    Appearance, BuiltInTheme, Button, ButtonRole, Color, ColorToken, DialogKind, DialogSpec,
+    DisplayList, DropDown, FamilyToken, Flex, Grid, Label, LayoutProps, Length, SizeToken, Space,
+    Swatch, TextField, Theme, Track, Ui, UiError, Weight, WidgetId,
 };
 
 use crate::demo::DemoMessage;
 use crate::settings::convert::theme_from_settings;
 use crate::template::{ISOLATION_MARKS, Template};
+
+mod readability;
+
+use readability::{ReadabilityTexts, issue_line, readability_issues};
 
 /// What the theme editor's widgets send (inside [`DemoMessage::Theme`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,10 +105,9 @@ pub struct ThemeTexts {
     pub readability: String,
     /// `prefs-theme-readability-ok`.
     pub readability_ok: String,
-    /// `prefs-theme-readability-issue`, with `$color` and `$background`, formatted once per
-    /// combination of the values it selects on (see [`issue_template_index`]): a message that
-    /// selects cannot take placeholders for them (`crate::template`).
-    pub issues: Vec<Template>,
+    /// The readability warnings' sentences (`prefs-theme-readability-problem`, `-same`,
+    /// `-advice`), formatted once per combination of the values they select on.
+    pub(crate) issues: ReadabilityTexts,
     /// `prefs-theme-delete-title`, with `$name`.
     pub delete_title: Template,
     /// `prefs-theme-delete-message`.
@@ -145,7 +147,7 @@ impl ThemeTexts {
             value_name: template("prefs-theme-value-name", &["color"])?,
             readability: text("prefs-theme-readability")?,
             readability_ok: text("prefs-theme-readability-ok")?,
-            issues: issue_templates(localizer)?,
+            issues: ReadabilityTexts::new(localizer)?,
             delete_title: template("prefs-theme-delete-title", &["name"])?,
             delete_message: text("prefs-theme-delete-message")?,
             delete_button: text("dialog-delete")?,
@@ -159,6 +161,13 @@ impl ThemeTexts {
     #[must_use]
     pub fn templates(&self) -> [&Template; 3] {
         [&self.copy_name, &self.value_name, &self.delete_title]
+    }
+
+    /// Every readability sentence's template with how many times each of its two placeholders
+    /// must appear in it (tests: the six catalogues must keep every colour's name in place).
+    #[must_use]
+    pub fn readability_templates(&self) -> Vec<(&Template, [usize; 2])> {
+        self.issues.expectations()
     }
 
     /// The name of `token`.
@@ -398,215 +407,6 @@ pub(crate) fn instance(settings: &Settings, half: Appearance) -> Theme {
 }
 
 // ------------------------------------------------------------------------------------------------
-// Readability: the contrast failures in plain words
-// ------------------------------------------------------------------------------------------------
-
-/// How hard a colour is to see on the colour behind it, in words (owner's thresholds of
-/// 2026-11-26). Ordered from the worst, so sorting puts the worst problems first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Severity {
-    /// Below 2:1: almost invisible.
-    Invisible,
-    /// From 2:1 to below 3:1: hard to read (text) or to make out (graphics).
-    Hard,
-    /// From 3:1 to below 4.5:1, text only (graphics need 3:1): readable, but not well enough for
-    /// people who do not see well.
-    Weak,
-}
-
-impl Severity {
-    /// The severity of a pair that reaches `ratio` (below its threshold: the caller only asks
-    /// for failures). 2:1 and 3:1 are the owner's choice; 3:1 is also WCAG's line for graphics
-    /// and for large text, the point below which even large letters are hard to read.
-    fn of(ratio: f64) -> Self {
-        if ratio < 2.0 {
-            Self::Invisible
-        } else if ratio < 3.0 {
-            Self::Hard
-        } else {
-            Self::Weak
-        }
-    }
-}
-
-/// Which way the hard-to-see colour should move: away from the colour behind it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Direction {
-    /// It is the lighter of the two: make it lighter still, or the colours behind it darker.
-    Lighter,
-    /// It is the darker: make it darker still, or the colours behind it lighter.
-    Darker,
-}
-
-/// One readability problem: a colour hard to see on one or more colours behind it (all the
-/// failing pairs that share the same foreground, grouped into one sentence).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Issue {
-    /// The colour that is hard to see (the pairs' foreground).
-    pub(crate) color: ColorToken,
-    /// The colour behind it where it is worst.
-    pub(crate) background: ColorToken,
-    /// Letters or a graphic (the worst pair's kind: a foreground is only ever one of them).
-    pub(crate) kind: ContrastKind,
-    /// How bad it is on `background`.
-    pub(crate) severity: Severity,
-    /// Which way to move `color`, measured against `background`.
-    pub(crate) direction: Direction,
-    /// How many other colours behind it fail too.
-    pub(crate) others: usize,
-    /// The worst ratio reached (never shown: it only chooses `background` and `severity`).
-    worst: f64,
-}
-
-/// The readability problems of `theme`: one per foreground with a pair below its threshold, the
-/// worst first (then in `CONTRAST_PAIRS`' order). None for every built-in pair (ADR-0037 T5).
-///
-/// # Complexity
-/// O(pairs × issues): at most 33 pairs and 11 foregrounds, a few hundred comparisons, run once
-/// per edit (never per frame).
-pub(crate) fn readability_issues(theme: &Theme) -> Vec<Issue> {
-    let mut issues: Vec<Issue> = Vec::new();
-    for failure in theme.contrast_failures() {
-        let (color, background) = (failure.pair.foreground, failure.pair.background);
-        if let Some(issue) = issues.iter_mut().find(|issue| issue.color == color) {
-            issue.others += 1;
-            if failure.ratio < issue.worst {
-                issue.background = background;
-                issue.kind = failure.pair.kind;
-                issue.worst = failure.ratio;
-            }
-        } else {
-            issues.push(Issue {
-                color,
-                background,
-                kind: failure.pair.kind,
-                severity: Severity::Weak,
-                direction: Direction::Lighter,
-                others: 0,
-                worst: failure.ratio,
-            });
-        }
-    }
-    for issue in &mut issues {
-        issue.severity = Severity::of(issue.worst);
-        // The colour as drawn: a translucent one is blended over the colour behind it first,
-        // as the contrast check itself does, then the two luminances are compared.
-        let behind = theme.color(issue.background);
-        let seen = theme.color(issue.color).over(behind);
-        issue.direction = if relative_luminance(seen) >= relative_luminance(behind) {
-            Direction::Lighter
-        } else {
-            Direction::Darker
-        };
-    }
-    // Stable: equal severities keep the pairs' order.
-    issues.sort_by_key(|issue| issue.severity);
-    issues
-}
-
-/// The five combinations of kind and severity that can occur (graphics are never `Weak`: their
-/// threshold is 3:1), in the templates' order, with the values the message selects on.
-const KIND_SEVERITY: [(ContrastKind, Severity, &str, &str); 5] = [
-    (ContrastKind::Text, Severity::Invisible, "text", "invisible"),
-    (ContrastKind::Text, Severity::Hard, "text", "hard"),
-    (ContrastKind::Text, Severity::Weak, "text", "weak"),
-    (
-        ContrastKind::Graphic,
-        Severity::Invisible,
-        "graphic",
-        "invisible",
-    ),
-    (ContrastKind::Graphic, Severity::Hard, "graphic", "hard"),
-];
-
-/// The two directions in the templates' order, with the value the message selects on.
-const DIRECTIONS: [(Direction, &str); 2] = [
-    (Direction::Lighter, "lighter"),
-    (Direction::Darker, "darker"),
-];
-
-/// The largest number of *other* colours behind one foreground: the most pairs any foreground
-/// has in `CONTRAST_PAIRS`, minus one (7 for normal text, so 6). O(pairs²), at start-up only.
-fn max_others() -> usize {
-    CONTRAST_PAIRS
-        .iter()
-        .map(|pair| {
-            CONTRAST_PAIRS
-                .iter()
-                .filter(|other| other.foreground == pair.foreground)
-                .count()
-        })
-        .max()
-        .unwrap_or(1)
-        .saturating_sub(1)
-}
-
-/// The index in [`ThemeTexts::issues`] of the sentence for `kind`, `severity`, `direction` and
-/// `others`; `None` for a combination that cannot occur (a graphic that is `Weak`, or more
-/// others than any foreground has). The layout is kind-and-severity major, then direction, then
-/// the count: `(ks × 2 + d) × (max + 1) + others`.
-pub(crate) fn issue_template_index(
-    kind: ContrastKind,
-    severity: Severity,
-    direction: Direction,
-    others: usize,
-) -> Option<usize> {
-    let max = max_others();
-    let ks = KIND_SEVERITY
-        .iter()
-        .position(|(k, s, _, _)| *k == kind && *s == severity)?;
-    let d = DIRECTIONS
-        .iter()
-        .position(|(known, _)| *known == direction)?;
-    (others <= max).then_some((ks * DIRECTIONS.len() + d) * (max + 1) + others)
-}
-
-/// Formats `prefs-theme-readability-issue` once for every combination [`issue_template_index`]
-/// lists, with `$color` and `$background` left as placeholders: 5 × 2 × 7 = 70 short formats per
-/// language, once when the language is chosen (well under a millisecond in all).
-///
-/// # Errors
-/// The localizer's, if the message is missing.
-fn issue_templates(localizer: &Localizer) -> Result<Vec<Template>, I18nError> {
-    let max = max_others();
-    let mut templates = Vec::with_capacity(KIND_SEVERITY.len() * DIRECTIONS.len() * (max + 1));
-    for (_, _, kind, severity) in KIND_SEVERITY {
-        for (_, direction) in DIRECTIONS {
-            for others in 0..=max {
-                // A plural needs a number, not a text: Fluent picks "one" or "other" from it.
-                let count = FluentValue::from(u32::try_from(others).unwrap_or(u32::MAX));
-                templates.push(Template::with_values(
-                    localizer,
-                    "prefs-theme-readability-issue",
-                    &["color", "background"],
-                    &[
-                        ("kind", FluentValue::from(kind)),
-                        ("severity", FluentValue::from(severity)),
-                        ("direction", FluentValue::from(direction)),
-                        ("count", count),
-                    ],
-                )?);
-            }
-        }
-    }
-    Ok(templates)
-}
-
-/// The sentence of `issue` in the texts' language: the two colours named as the editor's rows
-/// name them. Empty for a combination that cannot occur (see [`issue_template_index`]).
-pub(crate) fn issue_line(texts: &ThemeTexts, issue: &Issue) -> String {
-    issue_template_index(issue.kind, issue.severity, issue.direction, issue.others)
-        .and_then(|index| texts.issues.get(index))
-        .map(|template| {
-            template.fill(&[
-                texts.color_name(issue.color),
-                texts.color_name(issue.background),
-            ])
-        })
-        .unwrap_or_default()
-}
-
-// ------------------------------------------------------------------------------------------------
 // The widgets
 // ------------------------------------------------------------------------------------------------
 
@@ -692,6 +492,10 @@ pub struct ThemeEditor {
     readability: Option<WidgetId>,
     /// The half the fields show.
     half: Appearance,
+    /// The colour the user changed last since this theme and half were shown: the readability
+    /// warnings name it as the colour to fix (`readability`'s "culprit"). Forgotten when another
+    /// theme or half is shown, and when the colour is restored.
+    last_edited: Option<ColorToken>,
 }
 
 impl ThemeEditor {
@@ -745,6 +549,7 @@ impl ThemeEditor {
             rows: Vec::new(),
             readability: None,
             half,
+            last_edited: None,
         };
         editor.rebuild(ui, texts, settings, list)?;
         Ok(editor)
@@ -874,6 +679,7 @@ impl ThemeEditor {
                     return ThemeOutcome::None;
                 };
                 set_color(settings, self.half, token, Some(color));
+                self.last_edited = Some(token);
                 self.refresh_marks(ui, texts, settings, list);
                 ThemeOutcome::Theme
             }
@@ -882,6 +688,10 @@ impl ThemeEditor {
                     return ThemeOutcome::None;
                 };
                 set_color(settings, self.half, token, None);
+                // Back to its base value: no longer a change to blame.
+                if self.last_edited == Some(token) {
+                    self.last_edited = None;
+                }
                 // The field shows the base's value again.
                 let value = color_text(instance(settings, self.half).color(token));
                 if let Some(row) = self.rows.get(index)
@@ -911,6 +721,7 @@ impl ThemeEditor {
             return;
         }
         self.half = half;
+        self.last_edited = None;
         let theme = instance(settings, half);
         for (row, token) in self.rows.iter().zip(ColorToken::ALL) {
             if let Some(widget) = ui.widget_mut::<TextField<DemoMessage>>(row.field) {
@@ -963,6 +774,7 @@ impl ThemeEditor {
         self.half_note = None;
         self.rows.clear();
         self.readability = None;
+        self.last_edited = None;
         let custom = chosen_custom(settings).and_then(|index| settings.theme.custom.get(index));
         if let Some(widget) = ui.widget_mut::<Button<DemoMessage>>(self.delete) {
             widget.set_enabled(custom.is_some());
@@ -1141,7 +953,7 @@ impl ThemeEditor {
             for child in ui.children(column) {
                 let _ = ui.remove(child, list);
             }
-            let issues = readability_issues(&theme);
+            let issues = readability_issues(&theme, &base, self.last_edited);
             let wide = LayoutProps::default().width(Length::Fill(1.0));
             if issues.is_empty() {
                 let _ = ui.add(
@@ -1162,7 +974,16 @@ impl ThemeEditor {
                     Label::new("\u{25cf}".to_owned()).color(ColorToken::Warning),
                     LayoutProps::default(),
                 );
-                let _ = ui.add(row, Label::new(issue_line(texts, issue)).wrapping(), wide);
+                let _ = ui.add(
+                    row,
+                    Label::new(issue_line(
+                        &texts.issues,
+                        |token| texts.color_name(token),
+                        issue,
+                    ))
+                    .wrapping(),
+                    wide,
+                );
             }
         }
         ui.frame(list);
@@ -1207,17 +1028,6 @@ mod tests {
         }
         assert_eq!(color_text(Color::rgba(0x3366_ccff)), "#3366cc");
         assert_eq!(color_text(Color::rgba(0x3366_cc80)), "#3366cc80");
-    }
-
-    /// The owner's thresholds: below 2:1 almost invisible, below 3:1 hard, then weak.
-    #[test]
-    fn severity_follows_the_thresholds() {
-        assert_eq!(Severity::of(1.0), Severity::Invisible);
-        assert_eq!(Severity::of(1.99), Severity::Invisible);
-        assert_eq!(Severity::of(2.0), Severity::Hard);
-        assert_eq!(Severity::of(2.99), Severity::Hard);
-        assert_eq!(Severity::of(3.0), Severity::Weak);
-        assert_eq!(Severity::of(4.49), Severity::Weak);
     }
 
     /// The en-US texts (the catalogues' parity and the six languages are tested elsewhere).
@@ -1387,120 +1197,5 @@ mod tests {
             instance(&settings, Appearance::Light).color(ColorToken::Accent),
             base
         );
-    }
-
-    /// A custom theme duplicated from Studio with `token` set to `rgba` in `half`.
-    fn with_color(half: Appearance, token: ColorToken, rgba: u32) -> Settings {
-        let mut settings = Settings::default();
-        duplicate(&mut settings, &texts(), &pairs());
-        set_color(&mut settings, half, token, Some(Color::rgba(rgba)));
-        settings
-    }
-
-    /// No built-in pair has a problem (ADR-0037 T5). Secondary text made a light grey on the
-    /// light half: one issue (its four backgrounds grouped), almost invisible, to be made darker;
-    /// a dark grey on the dark half: to be made lighter.
-    #[test]
-    fn problems_are_grouped_by_colour_with_their_direction() {
-        for pair in BuiltInTheme::ALL {
-            for half in [Appearance::Light, Appearance::Dark] {
-                assert_eq!(
-                    readability_issues(pair.pair().instance(half)),
-                    [],
-                    "{pair:?} {half:?}"
-                );
-            }
-        }
-        let light = with_color(Appearance::Light, ColorToken::TextMuted, 0xc8c8_c8ff);
-        let issues = readability_issues(&instance(&light, Appearance::Light));
-        assert_eq!(issues.len(), 1, "{issues:?}");
-        let issue = issues[0];
-        assert_eq!(issue.color, ColorToken::TextMuted);
-        assert_eq!(issue.kind, ContrastKind::Text);
-        assert_eq!(issue.severity, Severity::Invisible);
-        assert_eq!(issue.direction, Direction::Darker);
-        assert_eq!(issue.others, 3, "four surfaces in all");
-        let dark = with_color(Appearance::Dark, ColorToken::TextMuted, 0x4a4a_48ff);
-        let issues = readability_issues(&instance(&dark, Appearance::Dark));
-        assert_eq!(issues[0].direction, Direction::Lighter);
-        // The half not edited has no problem.
-        assert_eq!(readability_issues(&instance(&dark, Appearance::Light)), []);
-    }
-
-    /// A grey between 3:1 and 4.5:1 on every light surface is readable but weak; a control
-    /// border the colour of the window is a graphic almost invisible; the worst problem comes
-    /// first.
-    #[test]
-    fn weak_text_and_graphics() {
-        let weak = with_color(Appearance::Light, ColorToken::TextMuted, 0x7777_77ff);
-        let issues = readability_issues(&instance(&weak, Appearance::Light));
-        assert_eq!(issues.len(), 1, "{issues:?}");
-        assert_eq!(issues[0].severity, Severity::Weak);
-        let mut both = weak;
-        let surface = instance(&both, Appearance::Light).color(ColorToken::Surface);
-        set_color(
-            &mut both,
-            Appearance::Light,
-            ColorToken::ControlBorder,
-            Some(surface),
-        );
-        let issues = readability_issues(&instance(&both, Appearance::Light));
-        assert_eq!(issues.len(), 2, "{issues:?}");
-        assert_eq!(
-            issues[0].color,
-            ColorToken::ControlBorder,
-            "the worst first"
-        );
-        assert_eq!(issues[0].kind, ContrastKind::Graphic);
-        assert_eq!(issues[0].severity, Severity::Invisible);
-        assert_eq!(issues[0].background, ColorToken::Surface);
-        assert_eq!(issues[1].color, ColorToken::TextMuted);
-    }
-
-    /// Every possible combination has its own sentence; impossible ones have none; a sentence
-    /// names both colours.
-    #[test]
-    fn every_combination_has_a_sentence() {
-        let texts = texts();
-        let max = max_others();
-        assert_eq!(max, 6, "normal text has seven backgrounds");
-        let mut seen = Vec::new();
-        for (kind, severity, _, _) in KIND_SEVERITY {
-            for (direction, _) in DIRECTIONS {
-                for others in 0..=max {
-                    let index = issue_template_index(kind, severity, direction, others).unwrap();
-                    assert!(index < texts.issues.len());
-                    seen.push(index);
-                }
-            }
-        }
-        seen.sort_unstable();
-        seen.dedup();
-        assert_eq!(seen.len(), texts.issues.len(), "no index used twice");
-        assert_eq!(
-            issue_template_index(ContrastKind::Graphic, Severity::Weak, Direction::Darker, 0),
-            None
-        );
-        assert_eq!(
-            issue_template_index(
-                ContrastKind::Text,
-                Severity::Hard,
-                Direction::Darker,
-                max + 1
-            ),
-            None
-        );
-        let line = issue_line(
-            &texts,
-            &readability_issues(&instance(
-                &with_color(Appearance::Light, ColorToken::TextMuted, 0xc8c8_c8ff),
-                Appearance::Light,
-            ))[0],
-        );
-        assert!(
-            line.contains(texts.color_name(ColorToken::TextMuted)),
-            "{line}"
-        );
-        assert!(!line.contains(':'), "no ratio: {line}");
     }
 }

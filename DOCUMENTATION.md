@@ -5741,36 +5741,58 @@ applied as soon as it is a colour. Two new widgets help: `Swatch` (`crates/ui/sr
 draws a small square filled with a colour token, so it follows every change by itself, and
 `DropDown::set_values` replaces a drop-down's values and choice (the custom themes come and go).
 
-**Readability** (choice 5, T8, owner's requests of 2026-11-26). At the top of a custom theme, so it
-is seen without scrolling, and **in plain words, without numbers**: the owner found the ratios
-("1.9:1, at least 4.5:1") meaningless to most people. `readability_issues(theme)` groups the
-failing pairs of `Theme::contrast_failures` by the colour that is hard to see (secondary text too
-dark gives one sentence, not four) and keeps, for each, the colour behind it where it is worst,
-how many others fail too, and two things worked out from the worst ratio and the colours:
+**Readability** (choice 5, T8, owner's requests of 2026-11-26;
+`crates/app/src/preferences/theme/readability.rs`). At the top of a custom theme, so it is seen
+without scrolling, and **in plain words, without numbers**: the owner found the ratios ("1.9:1, at
+least 4.5:1") meaningless to most people. A first version advised "move the colour away from the
+one behind it", and told black text on a dark background to get darker, which is impossible
+(owner's report). The warnings now follow three rules.
+
+*The colour to fix.* For each failing pair of `Theme::contrast_failures`, the "culprit" is the
+colour the user edited last in this session (`ThemeEditor` remembers it, forgetting it when
+another theme or half is shown or the colour is restored), else the one of the two that differs
+from the theme's base, else the foreground. The pairs are grouped by culprit, so a white window
+background in a dark theme is one warning about the background, not nine about the texts on it.
+
+*Advice that works.* The culprit is moved step by step towards white, then towards black,
+keeping its transparency; a direction is advised only if some colour on that path makes **every**
+pair the culprit belongs to pass (the failing ones and those that pass now):
 
 ```rust
-fn of(ratio: f64) -> Self {
-    if ratio < 2.0 { Self::Invisible } else if ratio < 3.0 { Self::Hard } else { Self::Weak }
+fn all_pass(theme: &Theme, token: ColorToken, color: Color) -> bool {
+    let theme = theme.with_color(token, color);
+    pairs_of(token).all(|pair| {
+        contrast_ratio(theme.color(pair.foreground), theme.color(pair.background))
+            >= pair.kind.minimum()
+    })
 }
-// …
-issue.direction = if relative_luminance(seen) >= relative_luminance(behind) {
-    Direction::Lighter
-} else {
-    Direction::Darker
-};
 ```
 
-The thresholds are the owner's: below 2:1 *almost invisible*, below 3:1 *hard to read* (or *hard
-to make out* for graphics, whose threshold is 3:1), then up to 4.5:1 *readable, but not well enough
-for people who don't see well*. The direction says which way to move the colour: away from the
-one behind it. The worst problems come first. The sentence is one Fluent message,
-`prefs-theme-readability-issue`, which **selects** on four values (kind, severity, direction, and
-the count of other colours, a plural) and names two colours. Since a message that selects cannot
-take placeholders for those values, `Template::with_values` formats it once per possible
-combination (5 kinds and severities × 2 directions × 0–6 others = 70 short formats when the
-language is chosen) with only the two colour names left as placeholders; `issue_line` picks the
-right one and fills them. Each problem is shown with the same warning dot as the rows; with none,
-a muted line says every text and control is easy to read. Never a block.
+The path is walked in 64 steps, then the step that first passes is refined by 16 bisections: a
+plain bisection would not do, because a pair that passes now may fail half way (the colour
+crosses its partner's lightness) and pass again further on. If both directions work, the smaller
+change wins (`best_fix`); if neither, the advice is *Restore*. When the warning is about a single
+pair, the other colour's way out is added too (choice c): with several pairs, changing all the
+backgrounds would break the theme.
+
+*Plain words.* How bad, from the worst pair: below 2:1 *almost invisible*, below 3:1 *hard to
+read* (*hard to make out* for graphics, whose threshold is 3:1), up to 4.5:1 *readable, but not
+well enough for people who don't see well*. A warning is up to three whole sentences, each its own
+Fluent message: `prefs-theme-readability-problem` (kind and severity; the two colours),
+`prefs-theme-readability-same` (a plural on the other pairs' count; the culprit) and
+`prefs-theme-readability-advice` (*change*, *either* or *restore*, with the directions; the
+culprit and the other colour). They select on values, so `Template::with_values` formats each
+once per combination (5 + 8 + 7 formats when the language is chosen), with only the colours'
+names left as placeholders; `issue_line` joins the sentences with a space, which is not
+concatenation: no word of one depends on another. Each warning has the same dot as the rows; with
+none, a muted line says every text and control is easy to read. Never a block.
+
+**Focus rings in the scroll areas.** `ScrollArea` clips everything to its viewport, and a focus
+ring is drawn 3 px outside its control (1 px + `focus-width`): its documentation asks the content
+to leave a padding. The Appearance and Playback sections' columns had none, and the Keyboard
+section's list of commands filled the viewport, so the rings of controls at the edges were cut
+(the owner saw *Duplicate*'s). The two columns now have the small padding (`Space::S`, 8 px, 4 px
+compact) and the list sits in a column with it.
 
 **Texts.** The 24 colour names (`theme-color-*`) and the editor's texts in the six catalogues;
 `number-decimal-separator` is gone with the numbers. The glossary gains the colour names, the
@@ -5778,16 +5800,23 @@ editor's words and *readability* (it *leggibilità*, fr *lisibilité*, de *Lesba
 *legibilidad*; KDE's colour scheme catalogues, MuseScore Studio's, WCAG's Understanding page,
 web.dev in Spanish, a German WCAG 2.2 map).
 
-**Tests.** In `theme.rs` (8): colours read and written, unique names, duplicate, choose, rename
-and delete, only the differences kept, the severity thresholds, problems grouped by colour with
-their direction, weak text and graphics with the worst first, every combination with its own
-sentence. `crates/app/tests/theme.rs` (7), through the demonstration and the keyboard (the section
-scrolls, so a click could miss): a pair duplicated, a colour typed and restored, a value that is
-not a colour, the fields following the half, a colour hard to read explained at the top in one
-sentence without numbers, the name committed and made unique, *Delete* asked and answered, the
-texts in six languages (the 70 sentences included). Seven injected bugs were caught. The
-screenshots `theme-editor` and `theme-contrast` show a theme with its accent changed and a
-readability warning; `preferences-dialog` now shows *Duplicate* and *Delete*.
+**Tests.** In `theme.rs` (4): colours read and written, unique names, duplicate, choose, rename
+and delete, only the differences kept. In `readability.rs` (7): the thresholds; the owner's case
+(black secondary text on the dark half: one warning, *lighter*); a white background (one warning
+about the background, *darker*); a single pair offering both colours; the nearer way winning; the
+colour edited last as the culprit; and **every case a user can make with one colour**: each
+built-in pair, both halves, every colour set to black, white or a middle grey, with and without
+the last edit remembered. For every warning the test checks, with the theme's own
+`contrast_failures` (independent of the code under test), that doing what it says works, that the
+way advised is right, that the colour advised is the nearest, that the smaller way is chosen, and
+that *Restore* comes only when nothing else works. `crates/app/tests/theme.rs` (8), through the
+demonstration and the keyboard: a pair duplicated, a colour typed and restored, a value that is
+not a colour, the fields following the half, a colour hard to read explained at the top, the name
+committed and made unique, *Delete* asked and answered, the texts in six languages (every
+sentence's placeholders), and the focus rings of every control of Appearance, Playback and
+Keyboard inside their scroll area. Eight injected bugs were caught (five in the advice, three paddings
+removed); one injected change was equivalent. The screenshots `theme-editor` and `theme-contrast` show a theme with its accent
+changed and a readability warning; `preferences-dialog` now shows *Duplicate* and *Delete*.
 
 #### The file choosers
 
