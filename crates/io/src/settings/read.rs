@@ -168,20 +168,7 @@ fn read_custom_themes(list: &[Value], warnings: &mut Vec<Warning>) -> Vec<Custom
         let Some(map) = object(value, &path, warnings) else {
             continue;
         };
-        let mut name = None;
-        let mut base = None;
-        let mut light = Vec::new();
-        let mut dark = Vec::new();
-        for (key, value) in map {
-            let field = join(&path, key);
-            match key.as_str() {
-                "name" => name = non_empty(value, &field, warnings),
-                "base" => base = non_empty(value, &field, warnings),
-                "light" => light = read_overrides(value, &field, warnings),
-                "dark" => dark = read_overrides(value, &field, warnings),
-                _ => warnings.push(Warning::UnknownField(field)),
-            }
-        }
+        let (name, base, light, dark) = read_custom_theme(map, &path, warnings);
         let (Some(name), Some(base)) = (name, base) else {
             // Without a name it cannot be chosen, without a base it cannot be resolved: dropped.
             warnings.push(Warning::InvalidValue(path));
@@ -199,6 +186,36 @@ fn read_custom_themes(list: &[Value], warnings: &mut Vec<Warning>) -> Vec<Custom
         });
     }
     themes
+}
+
+/// The fields of one custom theme's object at `path`: its name and base (each `None` when absent
+/// or empty, with a warning) and the overrides of its halves; unknown fields are warned about and
+/// ignored. Shared by the settings file's list of themes and the theme file (ADR-0052 TF1).
+pub(crate) fn read_custom_theme(
+    map: &Map<String, Value>,
+    path: &str,
+    warnings: &mut Vec<Warning>,
+) -> (
+    Option<String>,
+    Option<String>,
+    Vec<ThemeOverride>,
+    Vec<ThemeOverride>,
+) {
+    let mut name = None;
+    let mut base = None;
+    let mut light = Vec::new();
+    let mut dark = Vec::new();
+    for (key, value) in map {
+        let field = join(path, key);
+        match key.as_str() {
+            "name" => name = non_empty(value, &field, warnings),
+            "base" => base = non_empty(value, &field, warnings),
+            "light" => light = read_overrides(value, &field, warnings),
+            "dark" => dark = read_overrides(value, &field, warnings),
+            _ => warnings.push(Warning::UnknownField(field)),
+        }
+    }
+    (name, base, light, dark)
 }
 
 /// One half's overrides; an override that is not usable is dropped with a warning, the others are

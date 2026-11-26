@@ -42,6 +42,11 @@ starting from any of them.
 - *Name* renames the theme: type the new name and press Enter, or move to another control. If
   another theme of yours already has that name, Orchestra adds a number to it.
 - *Delete* removes the theme after asking you, and goes back to the built-in theme it came from.
+- *Export…* saves the theme you are using in a file of its own (`.orchestra-theme`), to carry it
+  to another computer or give it to someone. *Import…* reads such a file and adds its theme to
+  yours, without replacing any: if the name is taken, a number is added. The imported theme is
+  chosen at once. If the file holds something this version of Orchestra cannot use, a short
+  message says how many entries were left out.
 
 Under *Text* you choose how large all the interface's text is, from 85% to 150%, and the font
 of the interface, of numbers and of file paths. Under *Lines, corners and shadows* you choose how

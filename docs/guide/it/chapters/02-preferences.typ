@@ -43,6 +43,11 @@ uno qualunque di loro.
 - *Nome* rinomina il tema: scrivi il nuovo nome e premi Invio, oppure passa a un altro controllo. Se
   un altro tuo tema ha già quel nome, Orchestra ci aggiunge un numero.
 - *Elimina* toglie il tema dopo avertelo chiesto, e torna al tema integrato da cui era nato.
+- *Esporta…* salva il tema che stai usando in un file suo (`.orchestra-theme`), per portarlo su un
+  altro computer o darlo a qualcuno. *Importa…* legge un file così e aggiunge il suo tema ai tuoi,
+  senza sostituirne nessuno: se il nome è già usato, ci aggiunge un numero. Il tema importato viene
+  scelto subito. Se il file contiene qualcosa che questa versione di Orchestra non sa usare, un breve
+  messaggio dice quante voci sono state lasciate fuori.
 
 Sotto *Testo* scegli quanto è grande tutto il testo dell'interfaccia, dall'85% al 150%, e il
 carattere dell'interfaccia, dei numeri e dei percorsi dei file. Sotto *Linee, angoli e ombre* scegli

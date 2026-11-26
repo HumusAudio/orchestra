@@ -710,20 +710,33 @@ impl Demo {
                 list,
             );
         });
+        self.theme_outcome(outcome, list);
+    }
+
+    /// What the theme editor asked for (F2.12b1, F2.12b2b): the settings' theme applied (the
+    /// window's colours, the interface's tokens), a question, report or error opened over the
+    /// Preferences, or the system's file chooser, whose answer comes back to the editor.
+    fn theme_outcome(&mut self, outcome: ThemeOutcome, list: &mut DisplayList) {
+        let apply = |demo: &mut Self, list: &mut DisplayList| {
+            let (pair, mode) = crate::settings::convert::theme_from_settings(
+                &demo.settings.settings().theme,
+                &mut Vec::new(),
+            );
+            demo.apply_theme(pair, mode, list);
+        };
         match outcome {
             ThemeOutcome::None => {}
-            ThemeOutcome::Theme => {
-                let (pair, mode) = crate::settings::convert::theme_from_settings(
-                    &self.settings.settings().theme,
-                    &mut Vec::new(),
-                );
-                self.apply_theme(pair, mode, list);
-            }
-            // Fails only if the interface's own tree is inconsistent: the question is then not
-            // shown, and nothing is deleted.
+            ThemeOutcome::Theme => apply(self, list),
+            // `open_dialog` fails only if the interface's own tree is inconsistent: the dialog is
+            // then not shown, and nothing else happens.
             ThemeOutcome::Ask(spec) => {
                 let _ = self.ui.open_dialog(spec, list);
             }
+            ThemeOutcome::ThemeAndReport(spec) => {
+                apply(self, list);
+                let _ = self.ui.open_dialog(spec, list);
+            }
+            ThemeOutcome::Choose(request) => self.choose(ChooserOwner::Theme, request, list),
         }
         self.ui.frame(list);
     }
@@ -907,6 +920,8 @@ enum ChooserOwner {
     Project,
     /// The shortcut editor: *Import…*, *Export…*.
     Shortcuts,
+    /// The theme editor: *Import…*, *Export…* (F2.12b2b, ADR-0052 TF6).
+    Theme,
 }
 
 /// A step of the open project asked by a message, run once the message queue is drained.
@@ -1262,6 +1277,26 @@ impl WindowApp for Demo {
                     let outcome =
                         editor.file_chosen(&mut self.ui, &self.preferences_texts.keyboard, path);
                     self.keyboard_outcome(outcome, list);
+                }
+            }
+            Some(ChooserOwner::Theme) => {
+                if let Some(editor) = self.theme_editor.as_mut() {
+                    let now = self.ui.now();
+                    let ui = &mut self.ui;
+                    let texts = &self.preferences_texts;
+                    let mut outcome = ThemeOutcome::None;
+                    // The import changes the settings (a new theme, chosen): saved as any change.
+                    self.settings.update(now, |settings| {
+                        outcome = editor.file_chosen(
+                            ui,
+                            &texts.theme_editor,
+                            &texts.pairs,
+                            settings,
+                            path,
+                            list,
+                        );
+                    });
+                    self.theme_outcome(outcome, list);
                 }
             }
             Some(ChooserOwner::Project) | None => {

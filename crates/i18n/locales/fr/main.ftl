@@ -417,6 +417,23 @@ prefs-theme-density-comfortable = Confortable
 prefs-theme-density-compact = Compacte
 prefs-theme-pixels = { $value } px
 prefs-theme-percent = { $value } %
+## Theme files (F2.12b2b, ADR-0052; glossary: import, export, theme). As the shortcut files' texts
+## above: file-filter-themes names the file type in the system's chooser; the error texts follow
+## the project's and the shortcuts' wording. $file is a file's whole name, $count a number of
+## entries.
+
+prefs-theme-import = Importer…
+prefs-theme-export = Exporter…
+file-filter-themes = Thèmes { app-name }
+file-import-theme-title = Importer un thème
+file-export-theme-title = Exporter le thème
+prefs-theme-imported-title = Thème importé
+prefs-theme-imported-unused = Entrées de « { $file } » non utilisées : { $count }
+prefs-theme-import-error-title = Impossible d'importer « { $file } »
+prefs-theme-import-error-not-theme = Ce fichier n'est pas un fichier de thème { app-name }.
+prefs-theme-import-error-newer = Ce fichier a été enregistré avec une version plus récente d'{ app-name }. Installez la dernière version pour l'importer.
+prefs-theme-import-error-damaged = Le fichier est endommagé : il ne peut pas être lu comme un thème { app-name }.
+prefs-theme-export-error-title = Impossible d'exporter « { $file } »
 prefs-theme-delete-title = Supprimer le thème « { $name } » ?
 prefs-theme-delete-message = Ses couleurs seront perdues.
 dialog-delete = Supprimer

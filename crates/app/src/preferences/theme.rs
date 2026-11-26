@@ -46,7 +46,11 @@
 //! and to the interface.
 
 use orchestra_i18n::{I18nError, Localizer};
+use std::path::PathBuf;
+
 use orchestra_io::settings::{CustomTheme as FileCustom, Settings, ThemeChoice, ThemeOverride};
+use orchestra_io::theme_file;
+use orchestra_ui::FileRequest;
 use orchestra_ui::{
     Appearance, BuiltInTheme, Button, ButtonRole, Color, ColorToken, DialogKind, DialogSpec,
     DisplayList, DropDown, FamilyToken, Flex, Grid, Label, LayoutProps, Length, SizeToken, Space,
@@ -57,6 +61,7 @@ use crate::demo::DemoMessage;
 use crate::settings::convert::theme_from_settings;
 use crate::template::{ISOLATION_MARKS, Template};
 
+mod files;
 mod readability;
 mod shared;
 
@@ -99,6 +104,14 @@ pub enum ThemeMessage {
     RestoreShape(usize),
     /// *Restore* of the density.
     RestoreDensity,
+    /// *Import…*: the chooser of a theme file to read (F2.12b2b, ADR-0052).
+    Import,
+    /// *Export…*: the chooser of a theme file to write.
+    Export,
+    /// The answer to "… already exists. Replace it?" when exporting: `true` for *Replace*.
+    ExportReplace(bool),
+    /// A report or an error of a theme file was closed.
+    Closed,
 }
 
 /// The theme editor's texts in one language (CLAUDE.md §7).
@@ -143,6 +156,8 @@ pub struct ThemeTexts {
     pub color_names: Vec<String>,
     /// The texts of the text, lines and density rows (F2.12b2a).
     pub(crate) shared: SharedTexts,
+    /// The texts of the theme files (F2.12b2b).
+    pub(crate) files: files::FileTexts,
 }
 
 impl ThemeTexts {
@@ -179,6 +194,7 @@ impl ThemeTexts {
             cancel: text("dialog-cancel")?,
             color_names,
             shared: SharedTexts::new(localizer)?,
+            files: files::FileTexts::new(localizer)?,
         })
     }
 
@@ -194,6 +210,12 @@ impl ThemeTexts {
     #[must_use]
     pub fn readability_templates(&self) -> Vec<(&Template, [usize; 2])> {
         self.issues.expectations()
+    }
+
+    /// The texts of the theme files that hold values, with their number of variables (tests).
+    #[must_use]
+    pub fn file_templates(&self) -> [(&Template, usize); 4] {
+        self.files.templates()
     }
 
     /// The texts of the text, lines and density rows that hold a value, each holding its
@@ -502,6 +524,20 @@ pub enum ThemeOutcome {
     Theme,
     /// Open this question; its answer comes back as a [`ThemeMessage`].
     Ask(DialogSpec<DemoMessage>),
+    /// The theme changed (an import, F2.12b2b): apply it, then show this report.
+    ThemeAndReport(DialogSpec<DemoMessage>),
+    /// Open the system's file chooser with this request (F2.12b2b); its answer goes back to
+    /// [`ThemeEditor::file_chosen`].
+    Choose(FileRequest),
+}
+
+/// Which file chooser the editor is waiting for (F2.12b2b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Choosing {
+    /// A theme file to import.
+    Import,
+    /// A file to export the chosen theme to.
+    Export,
 }
 
 /// The theme editor while the Appearance section is shown (see the module documentation).
@@ -513,6 +549,14 @@ pub struct ThemeEditor {
     duplicate: WidgetId,
     /// *Delete* (enabled for a custom theme).
     delete: WidgetId,
+    /// *Import…* (F2.12b2b; always enabled).
+    import: WidgetId,
+    /// *Export…* (enabled for a custom theme: a built-in pair has nothing of the user's, TF2).
+    export: WidgetId,
+    /// The chooser the editor is waiting for.
+    choosing: Option<Choosing>,
+    /// The file to export to once its replacement is confirmed.
+    pending_export: Option<PathBuf>,
     /// The part rebuilt when another theme is chosen: the note, or the name and the colours.
     area: WidgetId,
     /// The name field (a custom theme).
@@ -569,6 +613,23 @@ impl ThemeEditor {
             ),
             LayoutProps::default(),
         )?;
+        // Import and export beside them (ADR-0052 TF6).
+        let import = ui.add(
+            buttons,
+            Button::new(
+                texts.files.import.clone(),
+                DemoMessage::Theme(ThemeMessage::Import),
+            ),
+            LayoutProps::default(),
+        )?;
+        let export = ui.add(
+            buttons,
+            Button::new(
+                texts.files.export.clone(),
+                DemoMessage::Theme(ThemeMessage::Export),
+            ),
+            LayoutProps::default(),
+        )?;
         let area = ui.add(
             parent,
             Flex::column(Space::M, Space::None),
@@ -578,6 +639,10 @@ impl ThemeEditor {
             themes,
             duplicate,
             delete,
+            import,
+            export,
+            choosing: None,
+            pending_export: None,
             area,
             name: None,
             half_note: None,
@@ -692,7 +757,10 @@ impl ThemeEditor {
                 self.chosen_changed(ui, texts, pairs, settings, list);
                 ThemeOutcome::Theme
             }
-            ThemeMessage::DeleteAnswer(false) => ThemeOutcome::None,
+            ThemeMessage::DeleteAnswer(false) | ThemeMessage::Closed => ThemeOutcome::None,
+            message @ (ThemeMessage::Import
+            | ThemeMessage::Export
+            | ThemeMessage::ExportReplace(_)) => self.handle_files(texts, settings, &message),
             ThemeMessage::Rename(name) => {
                 if rename_chosen(settings, &name) {
                     self.refresh_themes(ui, pairs, settings);
@@ -748,6 +816,134 @@ impl ThemeEditor {
             | ThemeMessage::RestoreShape(_)
             | ThemeMessage::RestoreDensity) => self.handle_shared(ui, texts, settings, &message),
         }
+    }
+
+    /// A message of *Import…* and *Export…* (F2.12b2b, ADR-0052): the chooser asked for, or the
+    /// answer to the question about replacing a file.
+    fn handle_files(
+        &mut self,
+        texts: &ThemeTexts,
+        settings: &Settings,
+        message: &ThemeMessage,
+    ) -> ThemeOutcome {
+        match *message {
+            ThemeMessage::Import => {
+                self.choosing = Some(Choosing::Import);
+                ThemeOutcome::Choose(FileRequest::open(
+                    texts.files.import_title.clone(),
+                    texts.files.filter.clone(),
+                    theme_file::EXTENSION,
+                ))
+            }
+            ThemeMessage::Export => {
+                let Some(custom) =
+                    chosen_custom(settings).and_then(|index| settings.theme.custom.get(index))
+                else {
+                    return ThemeOutcome::None;
+                };
+                self.choosing = Some(Choosing::Export);
+                ThemeOutcome::Choose(FileRequest::save(
+                    texts.files.export_title.clone(),
+                    texts.files.filter.clone(),
+                    theme_file::EXTENSION,
+                    format!("{}.{}", custom.name, theme_file::EXTENSION),
+                ))
+            }
+            ThemeMessage::ExportReplace(replace) => match self.pending_export.take() {
+                Some(path) if replace => Self::export(texts, settings, &path),
+                _ => ThemeOutcome::None,
+            },
+            _ => ThemeOutcome::None,
+        }
+    }
+
+    /// The file chooser answered (F2.12b2b): `path`, or `None` when cancelled. An import reads
+    /// the file (an error says why and changes nothing, TF5), adds its theme and chooses it (TF3),
+    /// then reports the entries not used if there are some (TF4); an export adds the extension
+    /// when the typed name lacks it and asks before replacing a file the chooser did not confirm
+    /// (TF2).
+    pub fn file_chosen(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &ThemeTexts,
+        pairs: &[String],
+        settings: &mut Settings,
+        path: Option<PathBuf>,
+        list: &mut DisplayList,
+    ) -> ThemeOutcome {
+        let (Some(choosing), Some(path)) = (self.choosing.take(), path) else {
+            return ThemeOutcome::None;
+        };
+        match choosing {
+            Choosing::Import => {
+                let name = crate::project::file_name(&path);
+                let file = match theme_file::load(&path) {
+                    Ok(file) => file,
+                    Err(error) => {
+                        return ThemeOutcome::Ask(files::error_dialog(
+                            &texts.files,
+                            texts.files.import_error.fill(&[&name]),
+                            &error,
+                            &path,
+                            false,
+                        ));
+                    }
+                };
+                let stem = path
+                    .file_stem()
+                    .map(|stem| stem.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let unused = files::import(settings, file, &stem);
+                self.chosen_changed(ui, texts, pairs, settings, list);
+                files::report(&texts.files, &name, unused)
+                    .map_or(ThemeOutcome::Theme, ThemeOutcome::ThemeAndReport)
+            }
+            Choosing::Export => {
+                let target =
+                    crate::project::with_extension_added(path.clone(), theme_file::EXTENSION);
+                if target != path && target.try_exists().unwrap_or(false) {
+                    let spec = files::replace_question(&texts.files, &texts.cancel, &target);
+                    self.pending_export = Some(target);
+                    ThemeOutcome::Ask(spec)
+                } else {
+                    Self::export(texts, settings, &target)
+                }
+            }
+        }
+    }
+
+    /// Writes the chosen custom theme to `path` (TF2); an error says why, the file there intact.
+    fn export(texts: &ThemeTexts, settings: &Settings, path: &std::path::Path) -> ThemeOutcome {
+        let Some(custom) =
+            chosen_custom(settings).and_then(|index| settings.theme.custom.get(index))
+        else {
+            return ThemeOutcome::None;
+        };
+        match theme_file::save(custom, path) {
+            Ok(()) => ThemeOutcome::None,
+            Err(error) => ThemeOutcome::Ask(files::error_dialog(
+                &texts.files,
+                texts
+                    .files
+                    .export_error
+                    .fill(&[&crate::project::file_name(path)]),
+                &error,
+                path,
+                true,
+            )),
+        }
+    }
+
+    /// *Import…* (tests).
+    #[must_use]
+    pub const fn import_button(&self) -> WidgetId {
+        self.import
+    }
+
+    /// *Export…* (tests).
+    #[must_use]
+    pub const fn export_button(&self) -> WidgetId {
+        self.export
     }
 
     /// A message of the text, lines and density rows (F2.12b2a): the value it sets (`None` for
@@ -922,10 +1118,12 @@ impl ThemeEditor {
         self.shared = None;
         self.last_edited = None;
         let custom = chosen_custom(settings).and_then(|index| settings.theme.custom.get(index));
-        if let Some(widget) = ui.widget_mut::<Button<DemoMessage>>(self.delete) {
-            widget.set_enabled(custom.is_some());
+        for button in [self.delete, self.export] {
+            if let Some(widget) = ui.widget_mut::<Button<DemoMessage>>(button) {
+                widget.set_enabled(custom.is_some());
+            }
+            ui.request_record(button);
         }
-        ui.request_record(self.delete);
         let wide = LayoutProps::default().width(Length::Fill(1.0));
         let muted = |text: &str| {
             Label::new(text.to_owned())
