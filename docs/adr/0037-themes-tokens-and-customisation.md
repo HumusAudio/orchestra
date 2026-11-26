@@ -239,3 +239,21 @@ explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark
   deleted theme's base.
 - **Scope.** F2.12b1 edits colour tokens only. Shape and text tokens (with the new layout text
   tokens need, ADR-0044 TX9) and importing and exporting a theme are F2.12b2.
+
+## Precisions of the implementation (F2.12b2a, approved by the owner on 2026-11-26)
+
+- **Text, lines and density are the same in both halves.** The editor writes their overrides
+  (`text-size`, `family`, `shape`, `density`) into both of a custom theme's lists; the interface
+  reads them from the light half, as it already did for the built-in pairs. Only colours differ
+  between halves. A file written by hand with different values keeps working: the light half's
+  win.
+- **Text size is one percentage**, 85–150% of the base's sizes in steps of 5, applied to the six
+  size tokens with integer rounding (half up); the file still stores six sizes, so the tokens can
+  be offered one by one later. The families offered are the bundled text faces for the interface,
+  numbers and code; the music family is not editable.
+- **Safe limits instead of warnings**: corners 0–16 px, lines 1–4 px (WCAG 1.4.11), the focus
+  decoration 2–6 px (WCAG 2.4.13), the shadow's blur 0–32 px and distance 0–16 px, the dialogs'
+  frame 1–8 px. The model's own limits (T3, `MIN_TEXT_SIZE`–`MAX_TEXT_SIZE`) are unchanged: a file
+  may still hold other values, brought within the model's range when read.
+- **Order in the editor**: name, readability, text, lines, density, then the colours.
+

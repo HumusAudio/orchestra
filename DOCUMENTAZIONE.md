@@ -6168,6 +6168,55 @@ concatenazione: nessuna parola di una dipende da un'altra. Ogni avviso ha lo ste
 righe; se non ce n'è nessuno, una riga attenuata dice che tutti i testi e i controlli si leggono
 bene. Mai un blocco.
 
+**Testo, linee e densità** (SCALETTA F2.12b2a, scelte del proprietario del 2026-11-26;
+`crates/app/src/preferences/theme/shared.rs`). Tra gli avvisi di leggibilità e i colori, ogni
+impostazione è un blocco con il nome su una riga sua e, sotto, il controllo (che prende lo spazio
+rimasto), il valore (larghezza fissa) e *Ripristina*, così i valori e i pulsanti restano allineati sul
+bordo destro. Una prima versione metteva i nomi in una colonna di una griglia: in italiano, e con il
+testo al 150%, la griglia era più larga della sezione e *Ripristina* veniva tagliato al bordo della
+finestra (segnalazione del proprietario); con il nome sopra niente può uscire, e un menu a tendina
+troppo stretto accorcia il testo con i puntini. I blocchi sono: **Testo**, un
+cursore per la dimensione di tutto il testo, 85–150% di quella della base a passi di 5, e menu a
+tendina per i caratteri dell'interfaccia, dei numeri e dei percorsi dei file tra i caratteri di
+testo inclusi (quello musicale, Bravura, non si offre: disegnerebbe simboli al posto delle lettere);
+**Linee, angoli e ombre**, sei cursori con limiti sicuri (angoli 0–16 px, linee 1–4, la decorazione
+del focus 2–6 come chiedono le WCAG 2.4.13, la sfocatura dell'ombra 0–32 e la distanza 0–16, la
+cornice dei dialoghi 1–8); **Densità**, *Comoda* o *Compatta*. Ogni valore ha il suo *Ripristina*;
+anche il doppio clic su un cursore dà il valore della base (ADR-0046).
+
+Questi valori sono **uguali nelle due metà** (scelta del proprietario): `set_shared` scrive la
+sostituzione in tutte e due le liste del tema personalizzato, e si leggono dalla metà chiara, quella
+da cui li prende l'interfaccia. Come per i colori, un valore uguale a quello della base toglie la
+sostituzione. Una sola percentuale rappresenta le sei dimensioni del testo, ognuna scalata con
+l'aritmetica intera:
+
+```rust
+pub(crate) fn scaled(size: u8, percent: u16) -> u8 {
+    let pixels = (u32::from(size) * u32::from(percent) + 50) / 100;
+    u8::try_from(pixels)
+        .unwrap_or(MAX_TEXT_SIZE)
+        .clamp(MIN_TEXT_SIZE, MAX_TEXT_SIZE)
+}
+```
+
+`text_scale` rilegge la percentuale come il passo le cui sei dimensioni scalate sono esattamente
+quelle salvate (i test controllano ogni passo di ogni coppia integrata), così il cursore non salta
+quando le Preferenze si riaprono. Un cambiamento si applica subito: `Ui::set_theme` reimpagina tutta
+la finestra quando cambia il testo (ADR-0044 TX9); un passo del cursore del testo costa circa 0,7 ms
+in nativo sulla macchina di sviluppo, molto dentro i 16 ms di una reimpaginazione. I testi sono 20
+messaggi nuovi nei sei cataloghi, con parole semplici ("Angoli arrotondati", "Inter, cifre della
+stessa larghezza"), con cinque voci del glossario; la scena `theme-text-lines` mostra il testo al
+110% e gli angoli a 12 px. Test: quattro in `shared.rs` (la scala, ogni passo riletto, le due metà e
+solo le differenze con i limiti, i colori intatti) e tre test d'integrazione (le righe prima dei
+colori, la dimensione del testo nelle due metà e ripristinata con il suo cursore, forme, densità e
+un carattere salvati, mandati alla finestra e ognuno ripristinato, e ogni controllo di ogni sezione delle Preferenze dentro
+il pannello nelle sei lingue con il testo al 150%, che ha fatto dividere la larghezza anche ai nomi
+dei colori e alle colonne della sezione Riproduzione invece di prendere quella del loro
+contenuto); cinque bug inseriti di
+proposito sono stati presi, uno solo dopo che il test ha controllato ogni controllo subito dopo il
+suo *Ripristina* (un *Ripristina* successivo, che riporta indietro tutti i controlli, lo
+nascondeva).
+
 **Gli anelli del fuoco nelle aree che scorrono.** `ScrollArea` taglia tutto al suo riquadro
 visibile, e l'anello del fuoco si disegna 3 px fuori dal suo controllo (1 px + `focus-width`): la
 sua documentazione chiede al contenuto di lasciare un margine. Le colonne delle sezioni Aspetto e

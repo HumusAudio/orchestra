@@ -54,6 +54,10 @@ pub use files::{
     save_changes_dialog, save_request, unavailable_dialog, window_title,
 };
 pub use preferences::{
+    ChoiceRow, SharedRows, SliderRow, ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts,
+    theme_values,
+};
+pub use preferences::{
     Effect, FINE_MODIFIERS, MODES, PlaybackTexts, PreferencesMessage, PreferencesTexts,
     PreferencesView, SECTIONS, Section, apply as apply_preference, open_preferences,
     playback_value_text, show_section,
@@ -62,7 +66,6 @@ pub use preferences::{
     KeyboardMessage, KeyboardOutcome, KeyboardTexts, SectionWidgets, ShortcutEditor,
     shortcut_matches, shortcuts_text, shown_commands,
 };
-pub use preferences::{ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts, theme_values};
 pub use project::{
     NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow, SaveAnswer, Step,
     Then, file_name, new_document, project_name, with_extension_added, with_project_extension,

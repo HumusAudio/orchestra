@@ -44,6 +44,21 @@ uno qualunque di loro.
   un altro tuo tema ha già quel nome, Orchestra ci aggiunge un numero.
 - *Elimina* toglie il tema dopo avertelo chiesto, e torna al tema integrato da cui era nato.
 
+Sotto *Testo* scegli quanto è grande tutto il testo dell'interfaccia, dall'85% al 150%, e il
+carattere dell'interfaccia, dei numeri e dei percorsi dei file. Sotto *Linee, angoli e ombre* scegli
+quanto sono arrotondati gli angoli, quanto sono spesse le linee, la decorazione del focus e la
+cornice dei dialoghi, e quanto sono morbide e lontane le ombre. La *Densità* può essere
+*Comoda*, con spazio intorno ai controlli, o *Compatta*, con i controlli più vicini tra loro. Ogni valore ha il suo *Ripristina*,
+e la finestra cambia mentre muovi il controllo. Queste scelte sono uguali nella metà chiara e in
+quella scura; ogni cursore si ferma dove l'interfaccia diventerebbe difficile da usare. Anche con il
+testo più grande niente esce dalla finestra: le impostazioni si risistemano per starci, e un nome
+troppo lungo per il suo posto va su una seconda riga.
+
+#screenshot-placeholder(
+  [Screenshot: testo, linee e densità di un tema tuo (theme-text-lines.png)],
+  [Testo al 110% e angoli più arrotondati: tutta la finestra li usa già.],
+)
+
 Sotto *Colori* ogni colore dell'interfaccia ha una riga: il suo nome, un campione del colore, il suo
 valore e *Ripristina*. Scrivi il valore come sul web, `#` seguito da sei cifre esadecimali
 (`#5b9bf0`), oppure otto cifre per aggiungere la trasparenza (`#00000080` è nero a metà intensità).

@@ -58,8 +58,14 @@ use crate::settings::convert::theme_from_settings;
 use crate::template::{ISOLATION_MARKS, Template};
 
 mod readability;
+mod shared;
 
 use readability::{ReadabilityTexts, issue_line, readability_issues};
+pub use shared::{ChoiceRow, SharedRows, SliderRow};
+use shared::{
+    EDITABLE_FAMILIES, FAMILY_CHOICES, SHAPE_LIMITS, SharedState, SharedTexts, SharedValue,
+    set_shared,
+};
 
 /// What the theme editor's widgets send (inside [`DemoMessage::Theme`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +82,23 @@ pub enum ThemeMessage {
     Color(usize, String),
     /// *Restore* of the colour token number `.0`.
     Restore(usize),
+    /// The text size slider moved: percent of the base's sizes (F2.12b2a), rounded to a whole
+    /// number by the slider's message (so messages stay comparable, as the Playback section's).
+    TextScale(u16),
+    /// The family drop-down number `.0` (in the editable families' order) chose `.1`.
+    Family(usize, usize),
+    /// The shape slider number `.0` (in the shapes' order) moved, logical pixels (whole).
+    Shape(usize, u16),
+    /// The density group chose `.0` (in `Density::ALL`'s order).
+    Density(usize),
+    /// *Restore* of the text size.
+    RestoreText,
+    /// *Restore* of the family number `.0`.
+    RestoreFamily(usize),
+    /// *Restore* of the shape number `.0`.
+    RestoreShape(usize),
+    /// *Restore* of the density.
+    RestoreDensity,
 }
 
 /// The theme editor's texts in one language (CLAUDE.md §7).
@@ -118,6 +141,8 @@ pub struct ThemeTexts {
     pub cancel: String,
     /// The colour tokens' names (`theme-color-*`), in `ColorToken::ALL`'s order.
     pub color_names: Vec<String>,
+    /// The texts of the text, lines and density rows (F2.12b2a).
+    pub(crate) shared: SharedTexts,
 }
 
 impl ThemeTexts {
@@ -153,6 +178,7 @@ impl ThemeTexts {
             delete_button: text("dialog-delete")?,
             cancel: text("dialog-cancel")?,
             color_names,
+            shared: SharedTexts::new(localizer)?,
         })
     }
 
@@ -168,6 +194,13 @@ impl ThemeTexts {
     #[must_use]
     pub fn readability_templates(&self) -> Vec<(&Template, [usize; 2])> {
         self.issues.expectations()
+    }
+
+    /// The texts of the text, lines and density rows that hold a value, each holding its
+    /// placeholder once (tests).
+    #[must_use]
+    pub fn shared_templates(&self) -> [&Template; 2] {
+        self.shared.templates()
     }
 
     /// The name of `token`.
@@ -492,6 +525,8 @@ pub struct ThemeEditor {
     readability: Option<WidgetId>,
     /// The half the fields show.
     half: Appearance,
+    /// The text, lines and density rows (a custom theme, F2.12b2a).
+    shared: Option<SharedRows>,
     /// The colour the user changed last since this theme and half were shown: the readability
     /// warnings name it as the colour to fix (`readability`'s "culprit"). Forgotten when another
     /// theme or half is shown, and when the colour is restored.
@@ -548,6 +583,7 @@ impl ThemeEditor {
             half_note: None,
             rows: Vec::new(),
             readability: None,
+            shared: None,
             half,
             last_edited: None,
         };
@@ -703,7 +739,116 @@ impl ThemeEditor {
                 self.refresh_marks(ui, texts, settings, list);
                 ThemeOutcome::Theme
             }
+            message @ (ThemeMessage::TextScale(_)
+            | ThemeMessage::Family(..)
+            | ThemeMessage::Shape(..)
+            | ThemeMessage::Density(_)
+            | ThemeMessage::RestoreText
+            | ThemeMessage::RestoreFamily(_)
+            | ThemeMessage::RestoreShape(_)
+            | ThemeMessage::RestoreDensity) => self.handle_shared(ui, texts, settings, &message),
         }
+    }
+
+    /// A message of the text, lines and density rows (F2.12b2a): the value it sets (`None` for
+    /// *Restore*, which also moves the control back), applied by [`Self::change_shared`]. An
+    /// index out of its list (never sent) changes nothing.
+    fn handle_shared(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &ThemeTexts,
+        settings: &mut Settings,
+        message: &ThemeMessage,
+    ) -> ThemeOutcome {
+        match *message {
+            ThemeMessage::TextScale(value) => {
+                let value = SharedValue::TextScale(Some(value));
+                self.change_shared(ui, texts, settings, value, false)
+            }
+            ThemeMessage::Family(row, choice) => {
+                let (Some(&token), Some(&family)) =
+                    (EDITABLE_FAMILIES.get(row), FAMILY_CHOICES.get(choice))
+                else {
+                    return ThemeOutcome::None;
+                };
+                self.change_shared(
+                    ui,
+                    texts,
+                    settings,
+                    SharedValue::Family(token, Some(family)),
+                    false,
+                )
+            }
+            ThemeMessage::Shape(row, value) => {
+                let Some(&(token, _, _)) = SHAPE_LIMITS.get(row) else {
+                    return ThemeOutcome::None;
+                };
+                let value = u8::try_from(value).unwrap_or(u8::MAX);
+                self.change_shared(
+                    ui,
+                    texts,
+                    settings,
+                    SharedValue::Shape(token, Some(value)),
+                    false,
+                )
+            }
+            ThemeMessage::Density(choice) => {
+                let Some(&density) = orchestra_ui::Density::ALL.get(choice) else {
+                    return ThemeOutcome::None;
+                };
+                self.change_shared(
+                    ui,
+                    texts,
+                    settings,
+                    SharedValue::Density(Some(density)),
+                    false,
+                )
+            }
+            ThemeMessage::RestoreText => {
+                self.change_shared(ui, texts, settings, SharedValue::TextScale(None), true)
+            }
+            ThemeMessage::RestoreFamily(row) => {
+                let Some(&token) = EDITABLE_FAMILIES.get(row) else {
+                    return ThemeOutcome::None;
+                };
+                self.change_shared(ui, texts, settings, SharedValue::Family(token, None), true)
+            }
+            ThemeMessage::RestoreShape(row) => {
+                let Some(&(token, _, _)) = SHAPE_LIMITS.get(row) else {
+                    return ThemeOutcome::None;
+                };
+                self.change_shared(ui, texts, settings, SharedValue::Shape(token, None), true)
+            }
+            ThemeMessage::RestoreDensity => {
+                self.change_shared(ui, texts, settings, SharedValue::Density(None), true)
+            }
+            _ => ThemeOutcome::None,
+        }
+    }
+
+    /// Sets a shared value (text, lines, density; F2.12b2a) in both halves of the theme and shows
+    /// it in the rows; `controls` also moves the controls (after *Restore*). The theme changed, so
+    /// the demonstration applies it: a new text size lays the whole window out again (ADR-0044
+    /// TX9, done by `Ui::set_theme`).
+    fn change_shared(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &ThemeTexts,
+        settings: &mut Settings,
+        value: SharedValue,
+        controls: bool,
+    ) -> ThemeOutcome {
+        set_shared(settings, value);
+        if let (Some(rows), Some(state)) = (self.shared.as_ref(), SharedState::of(settings)) {
+            shared::refresh(ui, rows, &texts.shared, &state, controls);
+        }
+        ThemeOutcome::Theme
+    }
+
+    /// The text size, family, shape and density rows, for a custom theme (tests).
+    #[must_use]
+    pub const fn shared_rows(&self) -> Option<&SharedRows> {
+        self.shared.as_ref()
     }
 
     /// The window now shows `half` (the system switched, or the user chose another mode): the
@@ -774,6 +919,7 @@ impl ThemeEditor {
         self.half_note = None;
         self.rows.clear();
         self.readability = None;
+        self.shared = None;
         self.last_edited = None;
         let custom = chosen_custom(settings).and_then(|index| settings.theme.custom.get(index));
         if let Some(widget) = ui.widget_mut::<Button<DemoMessage>>(self.delete) {
@@ -814,6 +960,13 @@ impl ThemeEditor {
             LayoutProps::default(),
         )?;
         self.readability = Some(ui.add(self.area, Flex::column(Space::Xs, Space::None), wide)?);
+        // Text, lines and density before the 24 colours, so they are reached without scrolling
+        // past them (owner's choice of 2026-11-26).
+        if let Some(state) = SharedState::of(settings) {
+            let rows = shared::build(ui, self.area, &texts.shared, &texts.restore, &state)?;
+            shared::refresh(ui, &rows, &texts.shared, &state, false);
+            self.shared = Some(rows);
+        }
         ui.add(
             self.area,
             Label::new(texts.colors.clone()).styled(
@@ -834,9 +987,10 @@ impl ThemeEditor {
     ///
     /// # Layout
     /// Five columns: the warning mark (empty, or "●" when the token is part of a pair below its
-    /// contrast threshold, set by [`Self::refresh_marks`]), the token's name, its swatch (drawn
-    /// with the live token, so it follows every change without being told), the value field
-    /// (the only column that grows), *Restore*. One row per token, as tall as its content.
+    /// contrast threshold, set by [`Self::refresh_marks`]), the token's name (sharing the room
+    /// with the field, wrapping when long), its swatch (drawn with the live token, so it follows
+    /// every change without being told), the value field, *Restore*. One row per token, as tall
+    /// as its content.
     ///
     /// # Why separate from [`Self::rebuild`]?
     /// The rows are most of the area's widgets; split out, `rebuild` stays within the length the
@@ -855,9 +1009,13 @@ impl ThemeEditor {
         let grid = ui.add(
             self.area,
             Grid::new(
+                // The names' column shares the room with the fields' column instead of taking
+                // its content's width: long names (French, German, the text at 150%) wrap on two
+                // lines rather than pushing *Restore* out of the window (owner's report of
+                // 2026-11-26, found for the colours by the test of every language).
                 vec![
                     Track::Content,
-                    Track::Content,
+                    Track::Fill(1.0),
                     Track::Content,
                     Track::Fill(1.0),
                     Track::Content,
@@ -880,7 +1038,11 @@ impl ThemeEditor {
                 Label::new(String::new()).color(ColorToken::Warning),
                 center(r, 0),
             )?;
-            ui.add(grid, Label::new(name.clone()), center(r, 1))?;
+            ui.add(
+                grid,
+                Label::new(name.clone()).wrapping(),
+                center(r, 1).width(Length::Fill(1.0)),
+            )?;
             ui.add(grid, Swatch::new(*token), center(r, 2))?;
             let message = COLOR_MESSAGES
                 .get(index)

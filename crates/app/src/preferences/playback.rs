@@ -237,10 +237,6 @@ const GROUPS: [Group; 3] = {
     ]
 };
 
-/// The width of a slider in the section, logical pixels: enough for the step of a 10 ms time to
-/// be a pixel or more over 0–2000 ms (ADR-0046 V3's fine drag finds every value).
-const SLIDER_WIDTH: f32 = 160.0;
-
 /// The width of a value's label, logical pixels: "2000 ms" and "−40" fit, so the columns do not
 /// move while a value changes.
 const VALUE_WIDTH: f32 = 72.0;
@@ -285,8 +281,12 @@ pub(super) fn build(
             Label::new(heading.clone()).styled(FamilyToken::Ui, SizeToken::Body, Weight::SemiBold),
             LayoutProps::default(),
         )?;
-        let mut tracks = vec![Track::Content];
-        tracks.extend(columns.iter().map(|_| Track::Content));
+        // Every column shares the section's width (the names' too, wrapping when long) instead of
+        // taking its content's: with the text at 150% (F2.12b2a) and Italian or French names,
+        // content-wide columns ran past the window's edge (found by the test of every language,
+        // 2026-11-26). The sliders fill their share.
+        let mut tracks = vec![Track::Fill(1.0)];
+        tracks.extend(columns.iter().map(|_| Track::Fill(1.0)));
         let grid = ui.add(
             column,
             Grid::new(
@@ -295,24 +295,25 @@ pub(super) fn build(
                 Space::S,
                 Space::None,
             ),
-            LayoutProps::default(),
+            LayoutProps::default().width(Length::Fill(1.0)),
         )?;
         // The columns' headings on the first row, above their sliders.
         for (c, heading) in (1_u16..).zip(columns.iter()) {
             let name = texts.columns.get(*heading).cloned().unwrap_or_default();
             ui.add(
                 grid,
-                Label::new(name).color(ColorToken::TextMuted),
-                LayoutProps::default().cell(0, c),
+                Label::new(name).color(ColorToken::TextMuted).wrapping(),
+                LayoutProps::default().cell(0, c).width(Length::Fill(1.0)),
             )?;
         }
         for (r, (name, cells)) in (1_u16..).zip(rows.iter()) {
             let name = texts.rows.get(*name).cloned().unwrap_or_default();
             ui.add(
                 grid,
-                Label::new(name.clone()),
+                Label::new(name.clone()).wrapping(),
                 LayoutProps::default()
                     .cell(r, 0)
+                    .width(Length::Fill(1.0))
                     .align(Align::Start, Align::Center),
             )?;
             for (c, cell) in (1_u16..).zip(cells.iter()) {
@@ -368,7 +369,9 @@ fn add_cell(
     let cell = ui.add(
         grid,
         Flex::row(Space::S, Space::None),
-        LayoutProps::default().cell(row, column),
+        LayoutProps::default()
+            .cell(row, column)
+            .width(Length::Fill(1.0)),
     )?;
     let (min, max) = value.range();
     let step = match value.unit() {
@@ -391,7 +394,7 @@ fn add_cell(
     ui.add(
         cell,
         Slider::new(min, max, step, current, message).labelled(accessible),
-        LayoutProps::default().width(Length::Fixed(SLIDER_WIDTH)),
+        LayoutProps::default().width(Length::Fill(1.0)),
     )?;
     ui.add(
         cell,

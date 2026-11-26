@@ -5787,6 +5787,52 @@ names left as placeholders; `issue_line` joins the sentences with a space, which
 concatenation: no word of one depends on another. Each warning has the same dot as the rows; with
 none, a muted line says every text and control is easy to read. Never a block.
 
+**Text, lines and density** (SCALETTA F2.12b2a, owner's choices of 2026-11-26;
+`crates/app/src/preferences/theme/shared.rs`). Between the readability warnings and the colours,
+each setting is a block with its name on a line of its own and, below it, the control (taking the
+room left), the value (fixed width) and *Restore*, so the values and the buttons still line up on
+the right edge. A first version put the names in a column of a grid: in Italian, and with the text
+at 150%, the grid was wider than the section and *Restore* was cut at the window's edge (owner's
+report); with the name above, nothing can overflow, and a drop-down too narrow shortens its text
+with an ellipsis. The blocks are: **Text**, a slider
+for the size of all the text, 85–150% of the base's in steps of 5, and drop-downs for the
+interface's, the numbers' and the file paths' fonts among the bundled text faces (the music face,
+Bravura, is not offered: it would draw symbols instead of letters); **Lines, corners and shadows**,
+six sliders with safe limits (corners 0–16 px, lines 1–4, the focus decoration 2–6 as WCAG 2.4.13
+asks, the shadow's blur 0–32 and distance 0–16, the dialogs' frame 1–8); **Density**, *Comfortable*
+or *Compact*. Each value has its *Restore*; a slider's double click also gives the base's value
+(ADR-0046).
+
+These values are **the same in both halves** (owner's choice): `set_shared` writes the override into
+both lists of the custom theme, and they are read from the light half, the one the interface takes
+them from. As for colours, a value equal to the base's removes the override. One percentage
+stands for the six text sizes, each scaled with integer arithmetic:
+
+```rust
+pub(crate) fn scaled(size: u8, percent: u16) -> u8 {
+    let pixels = (u32::from(size) * u32::from(percent) + 50) / 100;
+    u8::try_from(pixels)
+        .unwrap_or(MAX_TEXT_SIZE)
+        .clamp(MIN_TEXT_SIZE, MAX_TEXT_SIZE)
+}
+```
+
+`text_scale` reads the percentage back as the step whose six scaled sizes are exactly the saved
+ones (the tests check every step of every built-in pair), so the slider never jumps when the
+Preferences open again. A change is applied at once: `Ui::set_theme` lays the whole window out
+again when the text changes (ADR-0044 TX9); a step of the text slider costs about 0.7 ms natively
+on the development machine, far within the 16 ms of a re-layout. The texts are 20 new messages in
+the six catalogues, in plain words ("Rounded corners", "Inter, equal-width digits"), with five
+glossary entries; the scene `theme-text-lines` shows text at 110% and 12 px corners. Tests: four
+in `shared.rs` (scaling, every step read back, both halves and only the differences with the
+limits, colours untouched) and three integration tests (the rows before the colours, the text
+size in both halves and restored with its slider, shapes, density and a font saved, sent to the
+window and each restored, and every control of every Preferences section inside the pane in the
+six languages with the text at 150%, which also made the colours' names and the Playback
+section's columns share the width instead of taking their content's); five injected bugs were caught, one only once the test checked each
+control right after its own *Restore* (a later *Restore*, which moves every control back, had been
+hiding it).
+
 **Focus rings in the scroll areas.** `ScrollArea` clips everything to its viewport, and a focus
 ring is drawn 3 px outside its control (1 px + `focus-width`): its documentation asks the content
 to leave a padding. The Appearance and Playback sections' columns had none, and the Keyboard
