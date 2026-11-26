@@ -209,3 +209,21 @@ explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark
   text (links, the "Figure N" of captions), at 2.68:1, below 4.5:1: recorded as an open item in
   `ROADMAP.md`, to be fixed in the guides' template with the owner's ok.
 - SCALETTA gains step F2.12b and notes in F2.07 (text tokens) and F2.09 (density).
+
+## Precisions of the implementation (F2.12b1, approved by the owner on 2026-11-26)
+
+- **The half edited.** The theme editor shows and edits the half the window draws; to edit the
+  other half the user chooses it in *Mode*, and the rows follow at once.
+- **A value applies as soon as it is a colour** (`#rrggbb`, or `#rrggbbaa` with transparency; the
+  `#` optional, any case). A value that is not a colour stays in the field and changes nothing.
+- **Only the differences are stored** (T7): a value equal to the base's removes the token's
+  override instead of adding one, and *Restore* removes it.
+- **Contrast** (T8): every pair of `CONTRAST_PAIRS` below its threshold is shown, and the rows of
+  its two tokens carry a warning mark; never a block. How the warnings are worded and where they
+  stand is settled with the owner within F2.12b1 (see below, if amended).
+- **Custom themes.** *Duplicate* copies the chosen theme (a built-in pair: its base, no
+  overrides; a custom theme: its base and every override) under the name "Name (copy)"; a name
+  already taken gets " (2)", " (3)"…, as does a rename. *Delete* asks first, then chooses the
+  deleted theme's base.
+- **Scope.** F2.12b1 edits colour tokens only. Shape and text tokens (with the new layout text
+  tokens need, ADR-0044 TX9) and importing and exporting a theme are F2.12b2.

@@ -104,3 +104,11 @@ pointing here.
   `png`, `flate2`, `miniz_oxide`, `fdeflate`, `crc32fast`, `simd-adler32`, `adler2`, all under
   MIT, Apache-2.0, Zlib or 0BSD licences (accepted by `deny.toml`). No native library.
 - Every future view that the guides show adds one entry to `SCENES`.
+
+## Precisions of the implementation (F2.12b1, approved by the owner on 2026-11-26)
+
+- **A scene may answer the theme it is drawn with** (S3): `Record::Plain` scenes are drawn with
+  Studio's dark half as before; a `Record::Themed` scene, which changes the theme itself (the
+  theme editor's), answers the theme the window would now draw with, derived from Studio's dark
+  half. Such a scene first tells the demonstration that the half on screen is the dark one
+  (`InputEvent::Appearance`), as a window does when it opens.
