@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v0.99, approvata dal proprietario il 2026-11-26.**
+> **Stato di questo documento: v1.00, approvata dal proprietario il 2026-11-26.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -744,7 +744,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | 🔄 (F2.12b1–b3) | 3 |
 | F2.12b1 | **Temi personalizzati e colori**: duplica, rinomina, elimina; ogni token di colore della metà mostrata con anteprima dal vivo e *Ripristina*; avvisi di leggibilità; testi, screenshot e guide | ✅ PR #103 | 1 |
 | F2.12b2 | **Forme, testo, file**: token di forma e di testo (con la reimpaginazione di ADR-0044 TX9), importazione ed esportazione di un tema | 🔄 (F2.12b2a–b) | 1–1,5 |
-| F2.12b2a | **Testo, forme, densità** nell'editor: dimensione del testo in percentuale (85–150%), famiglie di interfaccia, numeri e codice, sei forme con limiti sicuri, densità; uguali nelle due metà; testi, screenshot e guide | 🔄 | 0,5–1 |
+| F2.12b2a | **Testo, forme, densità** nell'editor: dimensione del testo in percentuale (85–150%), famiglie di interfaccia, numeri e codice, sei forme con limiti sicuri, densità; uguali nelle due metà; testi, screenshot e guide | ✅ PR #104 | 0,5–1 |
 | F2.12b2b | **File dei temi**: ADR nuovo (`.orchestra-theme`, JSON con versione, un tema), *Importa…* ed *Esporta…*, nome reso unico, voci sconosciute riportate, file golden | ⬜ | 0,5 |
 | F2.12b3 | **Selettore visivo dei colori**: scegliere un colore senza scriverne il codice (area colore e tonalità, trascinamento, tastiera, accessibilità), accanto al campo `#rrggbb` | ⬜ | 1 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
@@ -1213,7 +1213,7 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.12c** L'editor delle scorciatoie usa il registro di F2.11; approvato dal proprietario il
   2026-11-12.
 - **F2.12b1** **Fatto il 2026-11-26 (PR #103):** provato a mano dal proprietario, funziona. Scelte 1–8 approvate dal proprietario il 2026-11-25 (scelta 6 corretta: il separatore decimale nei cataloghi); precisioni di ADR-0037, ADR-0040, ADR-0050 e ADR-0041 approvate il 2026-11-26; provato a mano dal proprietario il 2026-11-26. Il proprietario chiede avvisi di contrasto più visibili (in cima) e scritti in modo colloquiale, comprensibile anche a chi non sa nulla di grafica: fatto il 2026-11-26 ("Leggibilità" sotto il nome, una frase per colore senza numeri, soglie 2:1 e 3:1 approvate).
-- **F2.12b2a** Scelte approvate dal proprietario il 2026-11-26: Nome → Leggibilità → Testo → Forme → Densità → Colori; dimensione del testo con un cursore unico in percentuale (85–150%, le sei misure scalate insieme); famiglie solo per interfaccia, numeri e codice (Bravura fissa); forme con limiti (raggio 0–16, linee 1–4, fuoco 2–6, sfocatura 0–32, spostamento 0–16, cornice 1–8 px); densità comoda o compatta; testo, forme e densità uguali nelle due metà; *Ripristina* per riga.
+- **F2.12b2a** **Fatto il 2026-11-26 (PR #104):** provato a mano dal proprietario, funziona. Scelte approvate dal proprietario il 2026-11-26: Nome → Leggibilità → Testo → Forme → Densità → Colori; dimensione del testo con un cursore unico in percentuale (85–150%, le sei misure scalate insieme); famiglie solo per interfaccia, numeri e codice (Bravura fissa); forme con limiti (raggio 0–16, linee 1–4, fuoco 2–6, sfocatura 0–32, spostamento 0–16, cornice 1–8 px); densità comoda o compatta; testo, forme e densità uguali nelle due metà; *Ripristina* per riga.
 - **F2.12b3** (proprietario, 2026-11-26): scegliere un colore anche **visivamente** (un selettore di colore), non solo con il codice `#rrggbb`, che la maggior parte delle persone non sa interpretare.
 - **F2.12b** Da F2.07c (2026-11-12): cambiare un token del testo (famiglia o dimensione) vuol dire
   impaginare di nuovo i testi e registrare di nuovo i loro segmenti, non solo ridisegnare
@@ -1563,3 +1563,4 @@ raccomandato.
 | 2026-11-26 | 0.97 | F2.12b diviso in F2.12b1 (temi personalizzati e colori, in corso) e F2.12b2 (forme, testo, importazione ed esportazione); F2.12b3 (selettore visivo dei colori, chiesto dal proprietario); nota in F2.12b1: avvisi di leggibilità in cima, a parole e senza numeri | proprietario |
 | 2026-11-26 | 0.98 | F2.12b1 fatto (PR #103: temi personalizzati, colori della metà mostrata, avvisi di leggibilità con consigli calcolati, anelli del fuoco non più tagliati nelle aree che scorrono; provato a mano dal proprietario); prossimo passo F2.12b2 | proprietario |
 | 2026-11-26 | 0.99 | F2.12b2 diviso in F2.12b2a (testo, forme, densità; uguali nelle due metà, cursore unico in percentuale per il testo, limiti sicuri, nessun avviso aggiuntivo, ordine Testo → Forme → Densità prima dei colori) e F2.12b2b (file dei temi) | proprietario |
+| 2026-11-26 | 1.00 | F2.12b2a fatto (PR #104: testo, linee e densità nell'editor dei temi, uguali nelle due metà; le Preferenze stanno nella finestra in ogni lingua con il testo al 150%; provato a mano dal proprietario); prossimo passo F2.12b2b | proprietario |
