@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v1.04, approvata dal proprietario il 2026-11-26.**
+> **Stato di questo documento: v1.05, approvata dal proprietario il 2026-11-26.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -724,7 +724,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.11b1 | **ADR della barra del titolo**: ricerca, schema TB1–TB13, scelte del proprietario | ✅ ADR-0049 | 0,5 |
 | F2.11b2 | **Sonda, barra e pulsanti** (ADR-0049 TB1–TB6, TB8–TB10): sonda delle decorazioni con la sua misura, finestra senza decorazioni, `sctk-adwaita` fuori, barra con menu, titolo e pulsanti, trascinamento, doppio clic, menu della finestra, schermo intero, accessibilità, testi nei sei cataloghi | ✅ | 1 |
 | F2.11b3 | **Bordi e disposizione dei pulsanti** (ADR-0049 TB4, TB7, TB11, TB12): fascia di ridimensionamento e angoli con le forme del puntatore, bordo, `button-layout` dal portale, benchmark, screenshot e capitolo delle guide, prove a mano su GNOME, KDE Wayland e X11 | ✅ | 0,5–1 |
-| F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | 🔄 (F2.12a1–a5) | 2–3 |
+| F2.12 | **Dialoghi**: file nativi (`rfd`), finestre modali nostre, finestra **Preferenze** (tema, lingua, opzioni di riproduzione) | ✅ (F2.12a–c) | 2–3 |
 | F2.12a1 | **ADR delle finestre di dialogo, del file delle impostazioni e delle Preferenze**: livelli modali nella finestra, velo `scrim`, ordine dei pulsanti, `rfd` 0.18 asincrono, Nuovo/Apri/Salva collegati, file JSON con versione e lettura tollerante, cartella per piattaforma, modifiche applicate subito, sezioni, Informazioni su | ✅ ADR-0050 | 0,5 |
 | F2.12a2 | **File delle impostazioni** (ADR-0050 DG6–DG7): schema in `io`, lettura tollerante, file di una versione più nuova mai sovrascritto, migrazioni e file golden, cartella per piattaforma, scrittura ritardata, conversione in `app`, benchmark | ✅ | 1 |
 | F2.12a3 | **Finestre di dialogo nostre** (DG1–DG3, DG10): livello nella pila dei popup, token `scrim` nelle dieci coppie, pulsanti nell'ordine della piattaforma, domande ed errori, accessibilità, **Informazioni su Orchestra** con il logo, testi nei sei cataloghi | ✅ (F2.12a3a–b) | 1,5–2 |
@@ -741,14 +741,14 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ✅ (F2.12c1–c2) | 1–2 |
 | F2.12c1 | **L'editor** (sezione Tastiera): elenco dei comandi con le scorciatoie, ricerca, cattura della scorciatoia, tasti fissi rifiutati, conflitti con *Riassegna*, rimozione, ripristino di uno o di tutti, salvataggio immediato; testi, screenshot e guide | ✅ PR #101 | 1–1,5 |
 | F2.12c2 | **Importazione ed esportazione** di un file di scorciatoie: formato da decidere, finestre di scelta dei file, conflitti e azioni sconosciute all'importazione; testi e guide | ✅ PR #102 | 0,5 |
-| F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | 🔄 (F2.12b1–b3) | 3 |
+| F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | ✅ (F2.12b1–b3) | 3 |
 | F2.12b1 | **Temi personalizzati e colori**: duplica, rinomina, elimina; ogni token di colore della metà mostrata con anteprima dal vivo e *Ripristina*; avvisi di leggibilità; testi, screenshot e guide | ✅ PR #103 | 1 |
 | F2.12b2 | **Forme, testo, file**: token di forma e di testo (con la reimpaginazione di ADR-0044 TX9), importazione ed esportazione di un tema | ✅ (F2.12b2a–b) | 1–1,5 |
 | F2.12b2a | **Testo, forme, densità** nell'editor: dimensione del testo in percentuale (85–150%), famiglie di interfaccia, numeri e codice, sei forme con limiti sicuri, densità; uguali nelle due metà; testi, screenshot e guide | ✅ PR #104 | 0,5–1 |
 | F2.12b2b | **File dei temi**: ADR nuovo (`.orchestra-theme`, JSON con versione, un tema), *Importa…* ed *Esporta…*, nome reso unico, voci sconosciute riportate, file golden | ✅ PR #105 | 0,5 |
-| F2.12b3 | **Selettore visivo dei colori**: scegliere un colore senza scriverne il codice (area colore e tonalità, trascinamento, tastiera, accessibilità), accanto al campo `#rrggbb` | 🔄 (F2.12b3a–b) | 1–1,5 |
+| F2.12b3 | **Selettore visivo dei colori**: scegliere un colore senza scriverne il codice (area colore e tonalità, trascinamento, tastiera, accessibilità), accanto al campo `#rrggbb` | ✅ (F2.12b3a–b) | 1–1,5 |
 | F2.12b3a | **Il widget** `ColorPicker` in `orchestra-ui`: quadrato chiarezza/intensità, striscia della tinta, trasparenza solo se serve, campioni prima/adesso, disegnati come immagini; trascinamento, tastiera con regolazione fine, accessibilità; test e misure | ✅ PR #106 | 0,5–1 |
-| F2.12b3b | **Nell'editor dei temi**: il campione apre il selettore dentro l'elenco sotto la riga (variante B), anteprima dal vivo, *Esc* annulla, *Invio* o un nuovo clic sul campione confermano; testi, screenshot, guide | 🔄 | 0,5 |
+| F2.12b3b | **Nell'editor dei temi**: il campione apre il selettore dentro l'elenco sotto la riga (variante B), anteprima dal vivo, *Esc* annulla, *Invio* o un nuovo clic sul campione confermano; testi, screenshot, guide | ✅ PR #107 | 0,5 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
@@ -1571,3 +1571,4 @@ raccomandato.
 | 2026-11-26 | 1.02 | F2.12b3 diviso in F2.12b3a (il widget) e F2.12b3b (nell'editor dei temi); scelte 1–7 approvate dal proprietario | proprietario |
 | 2026-11-26 | 1.03 | F2.12b3a fatto (PR #106: il widget `ColorPicker` e le immagini dei widget, precisioni di ADR-0039 D4 e ADR-0045 approvate dal proprietario; non ancora visibile all'utente); prossimo passo F2.12b3b | proprietario |
 | 2026-11-26 | 1.04 | F2.12b3b avviato: il selettore si apre dentro l'elenco sotto la riga del colore (variante B, scelta del proprietario) invece che in un livello sopra l'interfaccia; punti 1–7 approvati | proprietario |
+| 2026-11-26 | 1.05 | F2.12b3b fatto (PR #107: il selettore dei colori nell'editor dei temi, sotto la riga; profilo di sviluppo che ottimizza le dipendenze e i crate di disegno, precisione di ADR-0035; selettore fermo durante il trascinamento; provato a mano dal proprietario), quindi F2.12b3, F2.12b e F2.12 fatti; prossimo passo F2.13 | proprietario |
