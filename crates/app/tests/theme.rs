@@ -439,7 +439,11 @@ fn the_texts_exist_in_the_six_languages() {
             texts.color_names.iter().all(|name| !name.is_empty()),
             "{locale:?}"
         );
-        for template in texts.templates() {
+        for template in texts
+            .templates()
+            .into_iter()
+            .chain(texts.shared_templates())
+        {
             assert_eq!(template.slots(0), 1, "{locale:?}: {template:?}");
             assert_eq!(template.slots(1), 0, "{locale:?}: {template:?}");
         }
@@ -568,4 +572,176 @@ fn focus_rings_are_not_cut_by_the_scroll_areas() {
         "{rect:?}"
     );
     assert!(rect.y0 - REACH >= viewport.y0, "{rect:?} in {viewport:?}");
+}
+
+/// The theme the last theme request sends to the window, in `half`; the requests are drained.
+fn sent_theme(demo: &mut Demo, half: Appearance) -> Option<orchestra_ui::Theme> {
+    let mut theme = None;
+    while let Some(request) = demo.take_window_request() {
+        if let WindowRequest::SetTheme { pair, .. } = request {
+            theme = Some(*pair.instance(half));
+        }
+    }
+    theme
+}
+
+/// The shared overrides (not colours) of the chosen custom theme's `half`, as saved.
+fn shared_saved(demo: &Demo, half: Appearance) -> Vec<ThemeOverride> {
+    let theme = &demo.settings().settings().theme;
+    let ThemeChoice::Custom(name) = &theme.choice else {
+        return Vec::new();
+    };
+    let custom = theme.custom.iter().find(|c| &c.name == name).unwrap();
+    let list = match half {
+        Appearance::Light => &custom.light,
+        Appearance::Dark => &custom.dark,
+    };
+    list.iter()
+        .filter(|item| !matches!(item, ThemeOverride::Color { .. }))
+        .cloned()
+        .collect()
+}
+
+/// Presses `key` with no modifier.
+fn press_key(demo: &mut Demo, list: &mut DisplayList, named: NamedKey) {
+    key(demo, list, &Key::Named(named), Modifiers::default());
+}
+
+/// A built-in pair has no text, lines or density rows; a custom theme has them, above the
+/// colours (owner's choice: reached without scrolling past the 24 colours).
+#[test]
+fn the_text_lines_and_density_rows_come_before_the_colours() {
+    let (mut demo, mut list) = appearance_section();
+    assert!(demo.theme_editor().unwrap().shared_rows().is_none());
+    duplicate(&mut demo, &mut list);
+    let editor = demo.theme_editor().unwrap();
+    let rows = editor.shared_rows().unwrap();
+    let y = |id: WidgetId| demo.ui().rect(id).unwrap().y0;
+    let first_colour = y(editor.field(0).unwrap());
+    assert!(y(rows.text_scale.slider) < y(rows.shapes[0].slider));
+    assert!(y(rows.shapes[5].slider) < y(rows.density.control));
+    assert!(y(rows.density.control) < first_colour);
+    assert_eq!(label(&demo, rows.text_scale.value), "100%");
+    assert_eq!(label(&demo, rows.shapes[2].value), "2\u{a0}px");
+    for id in [
+        rows.text_scale.restore,
+        rows.shapes[0].restore,
+        rows.density.restore,
+    ] {
+        assert!(!enabled(&demo, id), "the base's values");
+    }
+}
+
+/// The text size: a step up is saved in both halves, sent to the window (body text 13 → 14 px)
+/// and written beside the slider; *Restore* brings everything back, the slider included.
+#[test]
+fn the_text_size_scales_every_size_in_both_halves() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let _ = sent_theme(&mut demo, Appearance::Light);
+    let rows = *demo.theme_editor().unwrap().shared_rows().unwrap();
+    demo.ui_mut()
+        .set_focus(Some(rows.text_scale.slider), &mut list)
+        .unwrap();
+    press_key(&mut demo, &mut list, NamedKey::ArrowRight);
+    assert_eq!(label(&demo, rows.text_scale.value), "105%");
+    let light = shared_saved(&demo, Appearance::Light);
+    assert_ne!(light, [], "the six sizes are overridden");
+    assert_eq!(light, shared_saved(&demo, Appearance::Dark), "both halves");
+    for half in [Appearance::Light, Appearance::Dark] {
+        let size = sent_theme(&mut demo, half)
+            .unwrap()
+            .typography()
+            .size(orchestra_ui::SizeToken::Body);
+        assert_eq!(size, 14, "13 × 1.05 rounded");
+        press_key(&mut demo, &mut list, NamedKey::ArrowRight);
+        press_key(&mut demo, &mut list, NamedKey::ArrowLeft);
+    }
+    assert!(enabled(&demo, rows.text_scale.restore));
+    press(&mut demo, &mut list, rows.text_scale.restore);
+    assert_eq!(label(&demo, rows.text_scale.value), "100%");
+    assert_eq!(shared_saved(&demo, Appearance::Light), []);
+    let slider = demo
+        .ui()
+        .widget::<orchestra_ui::Slider<DemoMessage>>(rows.text_scale.slider)
+        .unwrap();
+    assert!(
+        (slider.value() - 100.0).abs() < f64::EPSILON,
+        "the slider moved back"
+    );
+}
+
+/// A shape stops at its limits (Home and End), is the same in both halves and reaches the
+/// window; the density and a family are saved and sent too, and restored.
+#[test]
+fn shapes_families_and_density_are_saved_and_sent() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let rows = *demo.theme_editor().unwrap().shared_rows().unwrap();
+    // The focus decoration: 2 to 6 px, never below WCAG's 2.
+    demo.ui_mut()
+        .set_focus(Some(rows.shapes[2].slider), &mut list)
+        .unwrap();
+    press_key(&mut demo, &mut list, NamedKey::End);
+    assert_eq!(label(&demo, rows.shapes[2].value), "6\u{a0}px");
+    let sent = sent_theme(&mut demo, Appearance::Dark).unwrap();
+    assert_eq!(sent.shape().get(orchestra_ui::ShapeToken::FocusWidth), 6);
+    press_key(&mut demo, &mut list, NamedKey::Home);
+    assert_eq!(label(&demo, rows.shapes[2].value), "2\u{a0}px");
+    // Corners: 0 to 16 px.
+    demo.ui_mut()
+        .set_focus(Some(rows.shapes[0].slider), &mut list)
+        .unwrap();
+    press_key(&mut demo, &mut list, NamedKey::End);
+    assert_eq!(label(&demo, rows.shapes[0].value), "16\u{a0}px");
+    assert_eq!(
+        shared_saved(&demo, Appearance::Light),
+        shared_saved(&demo, Appearance::Dark)
+    );
+    // The density: Compact, the group's second choice.
+    demo.ui_mut()
+        .set_focus(Some(rows.density.control), &mut list)
+        .unwrap();
+    press_key(&mut demo, &mut list, NamedKey::End);
+    let sent = sent_theme(&mut demo, Appearance::Light).unwrap();
+    assert_eq!(sent.density(), orchestra_ui::Density::Compact);
+    assert!(enabled(&demo, rows.density.restore));
+    // The interface font: JetBrains Mono, the drop-down's last choice (Space opens it).
+    demo.ui_mut()
+        .set_focus(Some(rows.families[0].control), &mut list)
+        .unwrap();
+    press_key(&mut demo, &mut list, NamedKey::Space);
+    press_key(&mut demo, &mut list, NamedKey::End);
+    press_key(&mut demo, &mut list, NamedKey::Enter);
+    let sent = sent_theme(&mut demo, Appearance::Light).unwrap();
+    assert_eq!(
+        sent.typography().family(orchestra_ui::FamilyToken::Ui),
+        orchestra_ui::Family::JetBrainsMono
+    );
+    // Everything restored, each control checked right after its own *Restore* (a later one
+    // must not be what moves it back): no override left.
+    press(&mut demo, &mut list, rows.density.restore);
+    let group = demo
+        .ui()
+        .widget::<orchestra_ui::RadioGroup<DemoMessage>>(rows.density.control)
+        .unwrap();
+    assert_eq!(group.selected(), 0, "back to Comfortable");
+    press(&mut demo, &mut list, rows.families[0].restore);
+    let drop = demo
+        .ui()
+        .widget::<orchestra_ui::DropDown<DemoMessage>>(rows.families[0].control)
+        .unwrap();
+    assert_eq!(drop.selected(), 0, "back to Inter");
+    press(&mut demo, &mut list, rows.shapes[0].restore);
+    assert_eq!(shared_saved(&demo, Appearance::Light), []);
+    assert_eq!(shared_saved(&demo, Appearance::Dark), []);
+    let corners = BuiltInTheme::default()
+        .pair()
+        .instance(Appearance::Light)
+        .shape()
+        .get(orchestra_ui::ShapeToken::CornerRadius);
+    assert_eq!(
+        label(&demo, rows.shapes[0].value),
+        format!("{corners}\u{a0}px")
+    );
 }

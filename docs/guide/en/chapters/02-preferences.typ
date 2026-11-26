@@ -43,6 +43,19 @@ starting from any of them.
   another theme of yours already has that name, Orchestra adds a number to it.
 - *Delete* removes the theme after asking you, and goes back to the built-in theme it came from.
 
+Under *Text* you choose how large all the interface's text is, from 85% to 150%, and the font
+of the interface, of numbers and of file paths. Under *Lines, corners and shadows* you choose how
+rounded the corners are, how thick the lines, the focus decoration and the dialogs' frame are, and
+how soft and how far the shadows fall. *Density* can be *Comfortable*, with room around the
+controls, or *Compact*, with the controls closer together. Each value has its *Restore*, and the window changes as
+you move the control. These choices are the same in the light and in the dark half; each slider
+stops where the interface would become hard to use.
+
+#screenshot-placeholder(
+  [Screenshot: the text, lines and density of a theme of your own (theme-text-lines.png)],
+  [Text at 110% and rounder corners: the whole window already uses them.],
+)
+
 Under *Colors* each colour of the interface has a row: its name, a sample of the colour, its value
 and *Restore*. Write the value as on the web, `#` followed by six hexadecimal digits (`#5b9bf0`),
 or eight digits to add transparency (`#00000080` is black at half strength). As soon as the value

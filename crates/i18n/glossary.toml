@@ -66,6 +66,9 @@ musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/l
 musescore-preferences = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: MuseScore Studio's Preferences ('Language', 'Keyboard', 'Shortcuts', 'Restart required')"
 gtk-file-chooser = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the file chooser's question about an existing file ('A file named “%s” already exists.  Do you want to replace it?', '_Replace', '_Cancel', '_Save')"
 kde-colors = "https://websvn.kde.org/trunk/l10n-kf6/ — <lang>/messages/plasma-workspace/kcm_colors.po: KDE Plasma's colour scheme roles (View/Window/Button/Selection/Tooltip Background, Normal/Inactive/Negative/Neutral/Positive Text, Focus and Hover Decoration, Accent color) in it, fr, de, es, en_GB"
+gmail-density = "https://gmail.googleblog.com/2011/11/changing-information-density-in-gmails.html — Gmail's display density (Comfortable, Compact); German guide https://geekflare.com/de/gmail-settings-for-better-experience/ ('Komfortabel', 'Kompakt')"
+libreoffice-shadow = "https://help.libreoffice.org/latest/en-US/text/shared/01/05210600.html — LibreOffice's Shadow page: 'Distance' (the shadow's offset) and 'Blur', in each locale's help"
+typography-guru = "https://typography.guru/term/tabular-figures-r87 — tabular figures: fr 'chiffres tabulaires', de 'Tabellensatz-Ziffern' (MyFonts: 'Tabellenziffern'); no settled it/es term found"
 w3c-contrast = "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html — Understanding SC 1.4.3 Contrast (Minimum): why text needs enough contrast to be readable"
 web-dev-es = "https://web.dev/learn/accessibility/color-contrast/?hl=es — 'Color y contraste' (Spanish): 'legibilidad' of text and colour contrast"
 intopia-de = "https://intopia.digital/wp-content/uploads/2024/05/German-WCAG-2.2-Map-by-Intopia.pdf — German WCAG 2.2 map: '1.4.3 Kontrast (Minimum)'"
@@ -1044,6 +1047,71 @@ es = "color"
 sources = ["musescore-ui"]
 note = "A colour of the interface (F2.12b1: the theme editor's 'Colors' and 'Its colors will be lost'). MuseScore Studio's 'Color' / 'Colour' (en_GB). Research 2026-11-25."
 review = false
+
+[[term]]
+id = "density"
+category = "general"
+en-US = "density: comfortable / compact"
+en-GB = "density: comfortable / compact"
+it = "densità: comoda / compatta"
+fr = "densité : confortable / compacte"
+de = "Dichte: komfortabel / kompakt"
+es = "densidad: cómoda / compacta"
+sources = ["gmail-density"]
+note = "How close together the controls are (prefs-theme-density, F2.12b2a; the theme's density, F2.09a). Gmail's display density is the best-known setting of the kind: Comfortable / Compact; its German interface writes 'Komfortabel' / 'Kompakt'. The adjectives agree with the noun in each language (it 'densità comoda', fr 'densité compacte', es 'densidad cómoda'). Research 2026-11-26."
+review = true
+
+[[term]]
+id = "text_size"
+category = "general"
+en-US = "text size"
+en-GB = "text size"
+it = "dimensione del testo"
+fr = "taille du texte"
+de = "Textgröße"
+es = "tamaño del texto"
+sources = ["firefox-appearance"]
+note = "One percentage that scales all the interface's text sizes together (prefs-theme-text-size, F2.12b2a, owner's choice of 2026-11-26: one slider, not six). The common words of browsers' and systems' accessibility settings ('Text size', 'Dimensione del testo', 'Taille du texte', 'Textgröße', 'Tamaño del texto'). Research 2026-11-26."
+review = true
+
+[[term]]
+id = "font_roles"
+category = "general"
+en-US = "interface font / font for numbers / font for file paths and details"
+en-GB = "interface font / font for numbers / font for file paths and details"
+it = "carattere dell'interfaccia / carattere dei numeri / carattere dei percorsi e dei dettagli"
+fr = "police de l'interface / police des nombres / police des chemins et des détails"
+de = "Schrift der Oberfläche / Schrift für Zahlen / Schrift für Pfade und Details"
+es = "fuente de la interfaz / fuente de los números / fuente de las rutas y los detalles"
+sources = ["gtk-about"]
+note = "The three family tokens the theme editor offers (F2.12b2a): interface text, numbers that change in place, and code-like text (file paths, error details). 'Font' as in bundled_fonts: it 'carattere' (GTK's 'Tipo di carattere'), fr 'police', de 'Schrift', es 'fuente'. Named by use, not by the tokens' technical names. Research 2026-11-26."
+review = true
+
+[[term]]
+id = "equal_width_digits"
+category = "general"
+en-US = "equal-width digits"
+en-GB = "equal-width digits"
+it = "cifre della stessa larghezza"
+fr = "chiffres de même largeur"
+de = "gleich breite Ziffern"
+es = "cifras de igual anchura"
+sources = ["typography-guru"]
+note = "Inter's tabular figures, offered as a family (prefs-theme-family-inter-tabular, F2.12b2a). Typographers say 'tabular figures' (fr 'chiffres tabulaires', de 'Tabellenziffern'), but no settled Italian or Spanish term was found and the owner asked for words anyone understands: the description says what they are, digits all as wide, so numbers that change do not shift. Research 2026-11-26."
+review = true
+
+[[term]]
+id = "theme_lines"
+category = "general"
+en-US = "lines, corners and shadows: rounded corners, line thickness, focus decoration thickness, shadow blur, shadow distance, dialog frame thickness"
+en-GB = "lines, corners and shadows: rounded corners, line thickness, focus decoration thickness, shadow blur, shadow distance, dialogue frame thickness"
+it = "linee, angoli e ombre: angoli arrotondati, spessore delle linee, spessore della decorazione del focus, sfocatura dell'ombra, distanza dell'ombra, spessore della cornice dei dialoghi"
+fr = "lignes, coins et ombres : coins arrondis, épaisseur des lignes, épaisseur de la décoration du focus, flou de l'ombre, distance de l'ombre, épaisseur du cadre des dialogues"
+de = "Linien, Ecken und Schatten: abgerundete Ecken, Linienstärke, Stärke der Fokus-Dekoration, Unschärfe des Schattens, Abstand des Schattens, Stärke des Dialograhmens"
+es = "líneas, esquinas y sombras: esquinas redondeadas, grosor de las líneas, grosor de la decoración del foco, desenfoque de la sombra, distancia de la sombra, grosor del marco de los diálogos"
+sources = ["libreoffice-shadow", "kde-colors"]
+note = "The six shape tokens in the theme editor (F2.12b2a), named for what the user sees rather than with designers' terms ('rounded corners', not 'corner radius'). The shadow's two values follow LibreOffice's Shadow page ('Distance', 'Blur') in each language; 'focus decoration' and 'dialog' reuse the colour names already in the catalogues (theme_color_names, KDE's 'Focus Decoration'). Research 2026-11-26."
+review = true
 
 [[term]]
 id = "readability"

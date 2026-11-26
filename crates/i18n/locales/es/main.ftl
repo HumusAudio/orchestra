@@ -388,6 +388,34 @@ prefs-theme-readability-advice =
                *[darker] Oscurezca el color «{ $culprit }».
             }
     }
+## The text, lines and density rows (F2.12b2a; glossary: text_size, font_roles, equal_width_digits,
+## theme_lines, density). Plain words, not designers' terms: "Rounded corners" rather than
+## "corner radius". prefs-theme-pixels writes a value in pixels and prefs-theme-percent a
+## percentage, $value a whole number; follow the language's habit for the space before "%" (a
+## no-break space where there is one). The family names other than Inter and JetBrains Mono (the
+## fonts' own names, never translated) describe Inter with digits of the same width, for numbers
+## that change in place.
+
+prefs-theme-text = Texto
+prefs-theme-text-size = Tamaño del texto
+prefs-theme-family-ui = Fuente de la interfaz
+prefs-theme-family-numeric = Fuente de los números
+prefs-theme-family-code = Fuente de las rutas y los detalles
+prefs-theme-family-inter = Inter
+prefs-theme-family-inter-tabular = Inter, cifras de igual anchura
+prefs-theme-family-mono = JetBrains Mono
+prefs-theme-lines = Líneas, esquinas y sombras
+prefs-theme-shape-corners = Esquinas redondeadas
+prefs-theme-shape-lines = Grosor de las líneas
+prefs-theme-shape-focus = Grosor de la decoración del foco
+prefs-theme-shape-shadow-blur = Desenfoque de la sombra
+prefs-theme-shape-shadow-distance = Distancia de la sombra
+prefs-theme-shape-dialog-frame = Grosor del marco de los diálogos
+prefs-theme-density = Densidad
+prefs-theme-density-comfortable = Cómoda
+prefs-theme-density-compact = Compacta
+prefs-theme-pixels = { $value } px
+prefs-theme-percent = { $value } %
 prefs-theme-delete-title = ¿Eliminar el tema «{ $name }»?
 prefs-theme-delete-message = Se perderán sus colores.
 dialog-delete = Eliminar

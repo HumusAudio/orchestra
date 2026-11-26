@@ -237,6 +237,12 @@ pub const SCENES: &[Scene] = &[
         record: Record::Themed(record_theme_editor),
     },
     Scene {
+        name: "theme-text-lines",
+        width: 960.0,
+        height: 600.0,
+        record: Record::Themed(record_theme_text_lines),
+    },
+    Scene {
         name: "theme-contrast",
         width: 960.0,
         height: 600.0,
@@ -390,6 +396,33 @@ fn theme_editor_with(
     token: orchestra_ui::ColorToken,
     value: &str,
 ) -> Option<(Demo, Theme)> {
+    custom_theme_scene(bounds, list, context, |demo, list| {
+        // The token's field, in `ColorToken::ALL`'s order like the rows.
+        let index = orchestra_ui::ColorToken::ALL
+            .iter()
+            .position(|known| *known == token)?;
+        let field = demo.theme_editor()?.field(index)?;
+        demo.ui_mut().set_focus(Some(field), list).ok()?;
+        let primary = Modifiers {
+            primary: true,
+            ..Modifiers::default()
+        };
+        press_key(demo, list, &Key::Character("a".into()), primary);
+        demo.input(&InputEvent::Text(value.to_owned()), list);
+        Some(())
+    })
+}
+
+/// The Preferences on Appearance with Studio duplicated into "Studio (copy)", the dark half told
+/// (see [`theme_editor_with`]), then `edit` run on the demonstration. Answers it with the theme
+/// the window would now draw with (the dark half of the last pair sent to it); `None` if a widget
+/// is missing (never expected).
+fn custom_theme_scene(
+    bounds: Rect,
+    list: &mut DisplayList,
+    context: &SceneContext,
+    edit: impl FnOnce(&mut Demo, &mut DisplayList) -> Option<()>,
+) -> Option<(Demo, Theme)> {
     let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
     demo.layout(bounds, list);
     demo.input(&InputEvent::Appearance(Appearance::Dark), list);
@@ -404,18 +437,7 @@ fn theme_editor_with(
         &Key::Named(NamedKey::Space),
         Modifiers::default(),
     );
-    // The token's field, in `ColorToken::ALL`'s order like the rows.
-    let index = orchestra_ui::ColorToken::ALL
-        .iter()
-        .position(|known| *known == token)?;
-    let field = demo.theme_editor()?.field(index)?;
-    demo.ui_mut().set_focus(Some(field), list).ok()?;
-    let primary = Modifiers {
-        primary: true,
-        ..Modifiers::default()
-    };
-    press_key(&mut demo, list, &Key::Character("a".into()), primary);
-    demo.input(&InputEvent::Text(value.to_owned()), list);
+    edit(&mut demo, list)?;
     // The last theme sent to the window: the one it would draw with now.
     let mut drawn_with = theme();
     while let Some(request) = demo.take_window_request() {
@@ -450,6 +472,37 @@ fn scroll_section(demo: &mut Demo, list: &mut DisplayList, pixels: f32) {
         },
         list,
     );
+}
+
+/// The theme editor's text, lines and density (F2.12b2a): a custom theme from Studio with its
+/// text at 110% and its corners rounder (12 px), set with the keyboard as a user would; the whole
+/// window already draws with them, *Restore* is enabled on those two rows; the rows from the
+/// readability line to the density are in view.
+fn record_theme_text_lines(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme {
+    custom_theme_scene(bounds, list, context, |demo, list| {
+        let rows = *demo.theme_editor()?.shared_rows()?;
+        let none = Modifiers::default();
+        demo.ui_mut()
+            .set_focus(Some(rows.text_scale.slider), list)
+            .ok()?;
+        for _ in 0..2 {
+            press_key(demo, list, &Key::Named(NamedKey::ArrowRight), none);
+        }
+        demo.ui_mut()
+            .set_focus(Some(rows.shapes[0].slider), list)
+            .ok()?;
+        // Home to 0 px, then twelve steps of one pixel (the slider's step): 12 px.
+        press_key(demo, list, &Key::Named(NamedKey::Home), none);
+        for _ in 0..12 {
+            press_key(demo, list, &Key::Named(NamedKey::ArrowRight), none);
+        }
+        // The density group last: its focus brings the end of the rows into view.
+        demo.ui_mut()
+            .set_focus(Some(rows.density.control), list)
+            .ok()?;
+        Some(())
+    })
+    .map_or_else(theme, |(_, drawn_with)| drawn_with)
 }
 
 /// The theme editor (F2.12b1, ADR-0037 T7): a custom theme duplicated from Studio, with the

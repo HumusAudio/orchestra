@@ -57,7 +57,10 @@ pub use keyboard::{
 };
 use orchestra_playback::{Tuning, TuningValue};
 pub use playback::PlaybackTexts;
-pub use theme::{ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts, theme_values};
+pub use theme::{
+    ChoiceRow, SharedRows, SliderRow, ThemeEditor, ThemeMessage, ThemeOutcome, ThemeTexts,
+    theme_values,
+};
 
 /// The modes of the group, in its order (ADR-0014 §1).
 pub const MODES: [ThemeMode; 3] = [ThemeMode::System, ThemeMode::Light, ThemeMode::Dark];
