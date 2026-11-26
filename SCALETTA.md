@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v1.03, approvata dal proprietario il 2026-11-26.**
+> **Stato di questo documento: v1.04, approvata dal proprietario il 2026-11-26.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -748,7 +748,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12b2b | **File dei temi**: ADR nuovo (`.orchestra-theme`, JSON con versione, un tema), *Importa…* ed *Esporta…*, nome reso unico, voci sconosciute riportate, file golden | ✅ PR #105 | 0,5 |
 | F2.12b3 | **Selettore visivo dei colori**: scegliere un colore senza scriverne il codice (area colore e tonalità, trascinamento, tastiera, accessibilità), accanto al campo `#rrggbb` | 🔄 (F2.12b3a–b) | 1–1,5 |
 | F2.12b3a | **Il widget** `ColorPicker` in `orchestra-ui`: quadrato chiarezza/intensità, striscia della tinta, trasparenza solo se serve, campioni prima/adesso, disegnati come immagini; trascinamento, tastiera con regolazione fine, accessibilità; test e misure | ✅ PR #106 | 0,5–1 |
-| F2.12b3b | **Nell'editor dei temi**: il campione apre il selettore in un riquadro sotto la riga, anteprima dal vivo, *Esc* annulla, *Invio* o clic fuori confermano; testi, screenshot, guide | ⬜ | 0,5 |
+| F2.12b3b | **Nell'editor dei temi**: il campione apre il selettore dentro l'elenco sotto la riga (variante B), anteprima dal vivo, *Esc* annulla, *Invio* o un nuovo clic sul campione confermano; testi, screenshot, guide | 🔄 | 0,5 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
@@ -1570,3 +1570,4 @@ raccomandato.
 | 2026-11-26 | 1.01 | F2.12b2b fatto (PR #105, ADR-0052: file dei temi `.orchestra-theme`, *Importa…* ed *Esporta…*; provato a mano dal proprietario), quindi F2.12b2 fatto; prossimo passo F2.12b3 | proprietario |
 | 2026-11-26 | 1.02 | F2.12b3 diviso in F2.12b3a (il widget) e F2.12b3b (nell'editor dei temi); scelte 1–7 approvate dal proprietario | proprietario |
 | 2026-11-26 | 1.03 | F2.12b3a fatto (PR #106: il widget `ColorPicker` e le immagini dei widget, precisioni di ADR-0039 D4 e ADR-0045 approvate dal proprietario; non ancora visibile all'utente); prossimo passo F2.12b3b | proprietario |
+| 2026-11-26 | 1.04 | F2.12b3b avviato: il selettore si apre dentro l'elenco sotto la riga del colore (variante B, scelta del proprietario) invece che in un livello sopra l'interfaccia; punti 1–7 approvati | proprietario |

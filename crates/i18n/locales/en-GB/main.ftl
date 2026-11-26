@@ -434,6 +434,15 @@ prefs-theme-import-error-not-theme = The file isn't an { app-name } theme file.
 prefs-theme-import-error-newer = The file was saved with a newer version of { app-name }. Install the latest version to import it.
 prefs-theme-import-error-damaged = The file is damaged: it can't be read as an { app-name } theme.
 prefs-theme-export-error-title = “{ $file }” can't be exported
+## The colour picker in the theme editor (F2.12b3b; glossary: color_picker_parts). prefs-theme-choose
+## names the swatch button that opens the picker, $color the colour's name (a row of the editor).
+## The three parts are named for screen readers, in plain words: the square (intensity, i.e.
+## saturation, and brightness), the strip of hues, the strip of transparency.
+
+prefs-theme-choose = Choose the colour “{ $color }”
+prefs-theme-picker-square = Intensity and brightness
+prefs-theme-picker-hue = Hue
+prefs-theme-picker-alpha = Transparency
 prefs-theme-delete-title = Delete the theme “{ $name }”?
 prefs-theme-delete-message = Its colours will be lost.
 dialog-delete = Delete

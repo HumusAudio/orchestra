@@ -243,6 +243,12 @@ pub const SCENES: &[Scene] = &[
         record: Record::Themed(record_theme_text_lines),
     },
     Scene {
+        name: "theme-picker",
+        width: 960.0,
+        height: 600.0,
+        record: Record::Themed(record_theme_picker),
+    },
+    Scene {
         name: "theme-contrast",
         width: 960.0,
         height: 600.0,
@@ -472,6 +478,28 @@ fn scroll_section(demo: &mut Demo, list: &mut DisplayList, pixels: f32) {
         },
         list,
     );
+}
+
+/// The colour picker open under the accent's row (F2.12b3b): opened from its swatch, the hue
+/// moved towards blue from the keyboard, so the swatch "now" differs from "before" and the whole
+/// window already draws with the new accent.
+fn record_theme_picker(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme {
+    custom_theme_scene(bounds, list, context, |demo, list| {
+        let index = orchestra_ui::ColorToken::ALL
+            .iter()
+            .position(|token| *token == orchestra_ui::ColorToken::Accent)?;
+        let swatch = demo.theme_editor()?.swatch(index)?;
+        let none = Modifiers::default();
+        demo.ui_mut().set_focus(Some(swatch), list).ok()?;
+        press_key(demo, list, &Key::Named(NamedKey::Space), none);
+        // To the hue strip, then 30 steps of 6°: from Studio's orange to a blue.
+        press_key(demo, list, &Key::Named(NamedKey::Tab), none);
+        for _ in 0..30 {
+            press_key(demo, list, &Key::Named(NamedKey::ArrowRight), none);
+        }
+        Some(())
+    })
+    .map_or_else(theme, |(_, drawn_with)| drawn_with)
 }
 
 /// The theme editor's text, lines and density (F2.12b2a): a custom theme from Studio with its

@@ -69,6 +69,7 @@ kde-colors = "https://websvn.kde.org/trunk/l10n-kf6/ — <lang>/messages/plasma-
 gmail-density = "https://gmail.googleblog.com/2011/11/changing-information-density-in-gmails.html — Gmail's display density (Comfortable, Compact); German guide https://geekflare.com/de/gmail-settings-for-better-experience/ ('Komfortabel', 'Kompakt')"
 libreoffice-shadow = "https://help.libreoffice.org/latest/en-US/text/shared/01/05210600.html — LibreOffice's Shadow page: 'Distance' (the shadow's offset) and 'Blur', in each locale's help"
 typography-guru = "https://typography.guru/term/tabular-figures-r87 — tabular figures: fr 'chiffres tabulaires', de 'Tabellensatz-Ziffern' (MyFonts: 'Tabellenziffern'); no settled it/es term found"
+libreoffice-pick-color = "https://help.libreoffice.org/latest/en-GB/text/shared/optionen/01010501.html — LibreOffice's 'Pick a Colour' dialog: the HSB model (Hue, Saturation, Brightness), in each locale's help"
 w3c-contrast = "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html — Understanding SC 1.4.3 Contrast (Minimum): why text needs enough contrast to be readable"
 web-dev-es = "https://web.dev/learn/accessibility/color-contrast/?hl=es — 'Color y contraste' (Spanish): 'legibilidad' of text and colour contrast"
 intopia-de = "https://intopia.digital/wp-content/uploads/2024/05/German-WCAG-2.2-Map-by-Intopia.pdf — German WCAG 2.2 map: '1.4.3 Kontrast (Minimum)'"
@@ -1111,6 +1112,19 @@ de = "Linien, Ecken und Schatten: abgerundete Ecken, Linienstärke, Stärke der 
 es = "líneas, esquinas y sombras: esquinas redondeadas, grosor de las líneas, grosor de la decoración del foco, desenfoque de la sombra, distancia de la sombra, grosor del marco de los diálogos"
 sources = ["libreoffice-shadow", "kde-colors"]
 note = "The six shape tokens in the theme editor (F2.12b2a), named for what the user sees rather than with designers' terms ('rounded corners', not 'corner radius'). The shadow's two values follow LibreOffice's Shadow page ('Distance', 'Blur') in each language; 'focus decoration' and 'dialog' reuse the colour names already in the catalogues (theme_color_names, KDE's 'Focus Decoration'). Research 2026-11-26."
+review = true
+
+[[term]]
+id = "color_picker_parts"
+category = "general"
+en-US = "intensity and brightness / hue / transparency"
+en-GB = "intensity and brightness / hue / transparency"
+it = "intensità e luminosità / tinta / trasparenza"
+fr = "intensité et luminosité / teinte / transparence"
+de = "Intensität und Helligkeit / Farbton / Transparenz"
+es = "intensidad y brillo / tono / transparencia"
+sources = ["libreoffice-pick-color"]
+note = "The three parts of the colour picker (F2.12b3b), named for screen readers. The model is HSB/HSV (LibreOffice's 'Pick a Colour': Hue, Saturation, Brightness); 'saturation' is a designer's word, so the square is named by what it changes, 'intensity and brightness', in plain words as the owner asks. Hue: it 'tinta', fr 'teinte', de 'Farbton', es 'tono', the ordinary words of painting and of colour dialogs. Research 2026-11-26."
 review = true
 
 [[term]]

@@ -6271,6 +6271,29 @@ proposito sono stati presi, uno solo dopo che il test ha controllato ogni contro
 suo *Ripristina* (un *Ripristina* successivo, che riporta indietro tutti i controlli, lo
 nascondeva).
 
+**Il selettore dei colori nell'editor** (SCALETTA F2.12b3b, scelte 1–7 e variante B del proprietario
+del 2026-11-26). Il campione di ogni colore è adesso un `SwatchButton` (`orchestra-ui`: disegnato
+come un campione, si comporta come un pulsante, chiamato "Scegli il colore «Colore d'accento»" per i
+lettori di schermo). Un clic apre un `ColorPicker` **dentro l'elenco, sotto la sua riga** (variante B:
+nessun livello sopra la finestra): la riga di ogni colore sta adesso in un blocco suo, e il selettore
+si aggiunge a quel blocco, così le righe sotto scendono. Le righe restano allineate senza una
+griglia: ognuna ha le stesse parti con le stesse larghezze (il segno di avviso 18 px fissi, il nome e
+il campo che si dividono il resto). Il selettore viene impaginato prima di prendere il focus, così il
+focus lo porta in vista per intero (una prima versione gli dava il focus prima dell'impaginazione e
+restava sotto la parte visibile, come ha mostrato lo screenshot). Ogni movimento del selettore
+(`ThemeMessage::Picked`) imposta subito il colore (tutta la finestra è l'anteprima), scrive il suo
+codice nel campo e aggiorna la leggibilità; un codice scritto nel campo, o *Ripristina*, muove il
+selettore aperto (`follow_in_picker`). *Invio* (il nuovo `on_done` del selettore) o un nuovo clic sul
+campione tengono il colore e chiudono; *Esc* ridà il colore con cui si era aperto e chiude, senza
+chiudere le Preferenze (il selettore riceve il tasto per primo); aprire il selettore di un'altra riga
+chiude il primo, tenendone il colore; la striscia della trasparenza compare solo per un colore
+trasparente nella base del tema (l'ombra). Un passo del selettore, con la finestra ridisegnata intera
+a 1920 × 1200, richiede circa 7,4 ms in nativo sulla macchina di sviluppo (16 ms al massimo). Test
+(3 in più in `crates/app/tests/theme.rs`): il selettore si apre sotto la sua riga, in vista e con il
+focus, le frecce impostano il colore, Invio lo tiene; Esc annulla e lascia aperte le Preferenze, il
+campo muove il selettore, un'altra riga chiude il primo; trasparenza solo per l'ombra. Cinque bug
+inseriti di proposito sono stati presi.
+
 **Gli anelli del fuoco nelle aree che scorrono.** `ScrollArea` taglia tutto al suo riquadro
 visibile, e l'anello del fuoco si disegna 3 px fuori dal suo controllo (1 px + `focus-width`): la
 sua documentazione chiede al contenuto di lasciare un margine. Le colonne delle sezioni Aspetto e

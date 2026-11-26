@@ -257,3 +257,11 @@ explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark
   may still hold other values, brought within the model's range when read.
 - **Order in the editor**: name, readability, text, lines, density, then the colours.
 
+## Precisions of the implementation (F2.12b3, approved by the owner on 2026-11-26)
+
+- **A colour can be chosen by sight**: each colour's swatch opens a colour picker (HSV: a square
+  of intensity and brightness, a hue strip, a transparency strip only for colours transparent in
+  the base) **inside the list, under its row**; its changes apply at once, *Enter* or a new click
+  on the swatch keep the colour, *Escape* gives back the colour it opened with. The code field
+  stays, and the two follow each other.
+

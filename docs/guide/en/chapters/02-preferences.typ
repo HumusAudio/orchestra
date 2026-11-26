@@ -69,6 +69,19 @@ or eight digits to add transparency (`#00000080` is black at half strength). As 
 is a colour, the whole window takes it: the Preferences themselves show you the result. *Restore*
 gives the colour back the value of the theme it came from.
 
+You do not need to know colour codes: click a colour's sample and a colour picker opens under its
+row. In the large square, move right for a more intense colour and up for a brighter one; the strip
+under it chooses the hue, from red through green and blue back to red; for a transparent colour, such
+as the shadow, a third strip sets the transparency. The two samples at the bottom show the colour
+before and now. The window changes as you move. Press Enter, or click the sample again, to keep the
+colour; Escape gives back the colour you started from. The code in the box follows the picker, and
+the picker follows a code you type.
+
+#screenshot-placeholder(
+  [Screenshot: the colour picker open under the accent colour (theme-picker.png)],
+  [The colour picker: the square, the hue strip, and the colour before and now.],
+)
+
 #screenshot-placeholder(
   [Screenshot: a theme of your own with the accent colour changed (theme-editor.png)],
   [A copy of Studio with a blue accent: the whole window already uses it.],

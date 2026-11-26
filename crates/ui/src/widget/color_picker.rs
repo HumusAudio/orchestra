@@ -48,7 +48,8 @@
 //!
 //! # Messages
 //! Each change emits the application's message built from the new colour (`fn(Color) -> M`),
-//! alpha included.
+//! alpha included. With [`ColorPicker::on_done`] (F2.12b3b) *Enter* and *Escape* emit the
+//! application's "keep" and "cancel".
 
 use crate::draw::geometry::{Point, Rect, RoundedRect};
 use crate::draw::image::Image;
@@ -237,6 +238,10 @@ pub struct ColorPicker<M> {
     show_alpha: bool,
     /// The message built from the new colour at each change.
     message: fn(Color) -> M,
+    /// The message of *Enter* (`true`: keep) and *Escape* (`false`: cancel), when the application
+    /// gives one ([`ColorPicker::on_done`], F2.12b3b); without it the picker leaves both keys to
+    /// its parents.
+    done: Option<fn(bool) -> M>,
     /// The part the keyboard acts on.
     part: PickerPart,
     /// The drag in progress, if any.
@@ -264,6 +269,7 @@ impl<M> ColorPicker<M> {
             original: color,
             show_alpha: false,
             message,
+            done: None,
             part: PickerPart::Square,
             drag: None,
             square: None,
@@ -278,6 +284,15 @@ impl<M> ColorPicker<M> {
     #[must_use]
     pub const fn with_alpha(mut self, show: bool) -> Self {
         self.show_alpha = show;
+        self
+    }
+
+    /// The same picker, sending `done(true)` on *Enter* and `done(false)` on *Escape* (the theme
+    /// editor keeps or cancels the colour and closes the picker, F2.12b3b). Handled by the picker,
+    /// so an Escape there does not also close the dialog around it.
+    #[must_use]
+    pub const fn on_done(mut self, done: fn(bool) -> M) -> Self {
+        self.done = Some(done);
         self
     }
 
@@ -494,6 +509,10 @@ impl<M> ColorPicker<M> {
     /// A key on the part with the focus (see the module documentation); `Handled::No` for keys it
     /// does not use, and for Tab past the last part (the focus leaves the widget).
     fn key(&mut self, cx: &mut EventCx<'_, M>, key: NamedKey) -> Handled {
+        if let (Some(done), NamedKey::Enter | NamedKey::Escape) = (self.done, key) {
+            cx.emit(done(key == NamedKey::Enter));
+            return Handled::Yes;
+        }
         let step = if cx.fine() { FINE } else { COARSE };
         let shift = cx.modifiers().shift;
         let (hsv, alpha) = (self.hsv, self.alpha);

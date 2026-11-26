@@ -5883,6 +5883,27 @@ section's columns share the width instead of taking their content's); five injec
 control right after its own *Restore* (a later *Restore*, which moves every control back, had been
 hiding it).
 
+**The colour picker in the editor** (SCALETTA F2.12b3b, owner's choices 1–7 and variant B of
+2026-11-26). Each colour's swatch is now a `SwatchButton` (`orchestra-ui`: drawn as a swatch, acts as
+a button, named "Choose the color “Accent color”" for screen readers). A click opens a
+`ColorPicker` **inside the list, under its row** (variant B: no layer above the window): every
+colour's row now sits in a block of its own, and the picker is added to that block, so the rows
+below move down. The rows still line up without a grid: each has the same parts with the same widths
+(the warning mark a fixed 18 px, the name and the field sharing the rest). The picker is laid out
+before it takes the focus, so the focus brings it into view whole (a first version focused it
+before its layout and it stayed below the visible part, as the screenshot showed). Each move of the
+picker (`ThemeMessage::Picked`) sets the colour at once (the whole window is the preview), writes
+its code in the field and updates the readability; a code typed in the field, or *Restore*, moves the
+open picker (`follow_in_picker`). *Enter* (the picker's new `on_done`) or a new click on the swatch
+keeps the colour and closes; *Escape* gives back the colour it opened with and closes, without
+closing the Preferences (the picker handles the key first); opening another row's picker closes the
+first, its colour kept; the transparency strip shows only for a colour transparent in the theme's
+base (the shadow). One step of the picker, with the window redrawn whole at 1920 × 1200, takes about
+7.4 ms natively on the development machine (16 ms at worst). Tests (3 more in
+`crates/app/tests/theme.rs`): the picker opens under its row, in view and focused, the arrows set the
+colour, Enter keeps it; Escape cancels and leaves the Preferences open, the field moves the picker,
+another row closes the first; transparency only for the shadow. Five injected bugs were caught.
+
 **Focus rings in the scroll areas.** `ScrollArea` clips everything to its viewport, and a focus
 ring is drawn 3 px outside its control (1 px + `focus-width`): its documentation asks the content
 to leave a padding. The Appearance and Playback sections' columns had none, and the Keyboard
