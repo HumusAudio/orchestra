@@ -6294,6 +6294,18 @@ focus, le frecce impostano il colore, Invio lo tiene; Esc annulla e lascia apert
 campo muove il selettore, un'altra riga chiude il primo; trasparenza solo per l'ombra. Cinque bug
 inseriti di proposito sono stati presi.
 
+**Il trascinamento del selettore, veloce e fermo** (segnalazioni del proprietario del 2026-11-26).
+Trascinare era molto lento provando il programma con `cargo run`: misurato, la versione di sviluppo
+spendeva circa 18 ms di lavoro e 282 ms per ridisegnare tutta la finestra a ogni passo (la versione
+di rilascio: 1 ms e 11 ms). Il profilo di sviluppo adesso ottimizza le dipendenze e i nostri due
+crate di disegno (`Cargo.toml`, una precisione di ADR-0035): 2,8 ms e 15,6 ms. E trascinando su e
+giù nel quadrato sembrava che la sezione scorresse: gli avvisi di leggibilità sopra il selettore
+compaiono e scompaiono mentre il colore cambia, spostando di una riga tutto ciò che sta sotto mentre
+lo scorrimento restava fermo. `ThemeEditor::keep_picker_still` adesso sposta lo scorrimento della
+stessa quantità dopo ogni aggiornamento (come l'ancoraggio dello scorrimento dei browser), così il
+selettore resta sotto il puntatore; l'editor conosce la sua area che scorre dalla sezione Aspetto
+(`set_scroll_area`). Un test controlla che il selettore non si sposti mentre sopra compaiono avvisi.
+
 **Gli anelli del fuoco nelle aree che scorrono.** `ScrollArea` taglia tutto al suo riquadro
 visibile, e l'anello del fuoco si disegna 3 px fuori dal suo controllo (1 px + `focus-width`): la
 sua documentazione chiede al contenuto di lasciare un margine. Le colonne delle sezioni Aspetto e

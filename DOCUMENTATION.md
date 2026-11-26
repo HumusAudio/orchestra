@@ -5904,6 +5904,17 @@ base (the shadow). One step of the picker, with the window redrawn whole at 1920
 colour, Enter keeps it; Escape cancels and leaves the Preferences open, the field moves the picker,
 another row closes the first; transparency only for the shadow. Five injected bugs were caught.
 
+**The picker's drag, fast and still** (owner's reports of 2026-11-26). Dragging felt very slow when
+the program was tried with `cargo run`: measured, the development build spent about 18 ms of work
+and 282 ms redrawing the whole window at each step (the release build: 1 ms and 11 ms). The
+development profile now optimises the dependencies and our two drawing crates (`Cargo.toml`, a
+precision of ADR-0035): 2.8 ms and 15.6 ms. And dragging up and down in the square seemed to scroll
+the section: the readability warnings above the picker come and go as the colour changes, moving
+everything below by a line while the scroll offset stayed. `ThemeEditor::keep_picker_still` now
+moves the offset by the same amount after every refresh (as browsers' scroll anchoring), so the
+picker stays under the pointer; the editor knows its scroll area from the Appearance section
+(`set_scroll_area`). A test checks the picker does not move while warnings appear above it.
+
 **Focus rings in the scroll areas.** `ScrollArea` clips everything to its viewport, and a focus
 ring is drawn 3 px outside its control (1 px + `focus-width`): its documentation asks the content
 to leave a padding. The Appearance and Playback sections' columns had none, and the Keyboard

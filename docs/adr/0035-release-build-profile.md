@@ -138,3 +138,15 @@ CARGO_PROFILE_RELEASE_CODEGEN_UNITS=<n> CARGO_PROFILE_BENCH_CODEGEN_UNITS=<n> \
 CARGO_PROFILE_RELEASE_LTO=<false|thin|fat> CARGO_PROFILE_BENCH_LTO=<false|thin|fat> \
   cargo bench --workspace --locked --bench '*'
 ```
+
+## Precision (F2.12b3b, approved by the owner on 2026-11-26): the development profile
+
+The `dev` profile (`cargo run`, `cargo test`) optimises the **dependencies** (`opt-level = 3`) and
+our two drawing crates, `orchestra-ui` and `orchestra-text` (`opt-level = 2`); every other crate of
+the workspace stays unoptimised, as debuggable as before. Measured on the theme editor's colour
+picker (one step with the whole window redrawn at 1920 × 1200): unoptimised 18 ms of work and
+282 ms of drawing, so a drag was unusable when the program was tried with `cargo run`; with the
+dependencies alone 4 ms and 71 ms; with the two drawing crates too 2.8 ms and 15.6 ms (the release
+build: 1 ms and 11 ms). The first build of the dependencies in this profile is longer, once; CI
+keeps it in its cache. The release profile (this ADR) is unchanged.
+

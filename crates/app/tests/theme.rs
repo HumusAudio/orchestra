@@ -1092,3 +1092,35 @@ fn transparency_only_for_transparent_colours() {
     assert!(has_alpha(&mut demo, &mut list, ColorToken::Shadow));
     assert!(!has_alpha(&mut demo, &mut list, ColorToken::Accent));
 }
+
+/// While the picker is used, the readability warnings at the top come and go (a darker accent
+/// makes the text on it hard to read): the picker stays where it is in the window, so the colour
+/// under the pointer does not run away (owner's report of 2026-11-26: the section seemed to scroll
+/// while dragging up and down in the square).
+#[test]
+fn the_picker_stays_still_while_warnings_come_and_go() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let swatch = demo
+        .theme_editor()
+        .unwrap()
+        .swatch(row(ColorToken::Accent))
+        .unwrap();
+    press(&mut demo, &mut list, swatch);
+    let picker = demo.theme_editor().unwrap().open_picker().unwrap();
+    let readability = demo.theme_editor().unwrap().readability_column().unwrap();
+    let lines = |demo: &Demo| labels_under(demo, readability).len();
+    let before = lines(&demo);
+    let y = demo.ui().rect(picker).unwrap().y0;
+    // Brighter and brighter: sooner or later text on the accent is hard to read.
+    for _ in 0..25 {
+        press_key(&mut demo, &mut list, NamedKey::ArrowUp);
+        press_key(&mut demo, &mut list, NamedKey::ArrowLeft);
+    }
+    assert_ne!(lines(&demo), before, "warnings appeared above the picker");
+    let after = demo.ui().rect(picker).unwrap().y0;
+    assert!(
+        (after - y).abs() < 0.5,
+        "the picker moved from {y} to {after}"
+    );
+}

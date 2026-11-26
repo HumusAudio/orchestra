@@ -292,3 +292,18 @@ mem_forget = "warn"
 # untouched.
 [profile.release]
 codegen-units = 1
+
+# The development build (`cargo run`, the tests) optimises the dependencies and our two drawing
+# crates, the rest of the workspace staying as debuggable as before (F2.12b3b, a precision of
+# ADR-0035 approved by the owner on 2026-11-26). Unoptimised, `tiny-skia` and our renderer redrew
+# the whole window in about 280 ms, which made a colour picker's drag unusable when the program was
+# tried with `cargo run`; with these settings it takes about 16 ms (11 ms in a release build). The
+# cost: the dependencies' first build in this profile is longer, once (CI keeps it in its cache).
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev.package.orchestra-ui]
+opt-level = 2
+
+[profile.dev.package.orchestra-text]
+opt-level = 2

@@ -631,6 +631,9 @@ pub struct ThemeEditor {
     shared: Option<SharedRows>,
     /// The colour picker open under a row, if any (F2.12b3b).
     picker: Option<OpenPicker>,
+    /// The scroll area the editor is in, if any: the open picker is kept still in it while the
+    /// content above it changes height ([`ThemeEditor::keep_picker_still`]).
+    scroll: Option<WidgetId>,
     /// The colour the user changed last since this theme and half were shown: the readability
     /// warnings name it as the colour to fix (`readability`'s "culprit"). Forgotten when another
     /// theme or half is shown, and when the colour is restored.
@@ -710,6 +713,7 @@ impl ThemeEditor {
             readability: None,
             shared: None,
             picker: None,
+            scroll: None,
             half,
             last_edited: None,
         };
@@ -1053,6 +1057,46 @@ impl ThemeEditor {
         {
             picker.set_color(color);
             ui.request_record(open.widget);
+        }
+    }
+
+    /// The scroll area the editor is in (the Appearance section's), so the open colour picker can
+    /// be kept still while the readability warnings above it come and go (F2.12b3b).
+    pub const fn set_scroll_area(&mut self, scroll: Option<WidgetId>) {
+        self.scroll = scroll;
+    }
+
+    /// Keeps the open picker where it was in the window, `before` being its top edge before a
+    /// change was laid out (F2.12b3b, the owner's report of 2026-11-26).
+    ///
+    /// # Why
+    /// The readability warnings sit at the top of the section, above the picker. A colour that
+    /// makes a pair hard to read adds a sentence, one that fixes it removes one: everything below
+    /// moves by a line while the scroll offset stays, so the picker, and the colour under the
+    /// pointer, ran away during a drag. As browsers' scroll anchoring does, the offset moves by
+    /// the same amount, so the picker stays put. Clamped by the area at its next layout, so it
+    /// never scrolls past the content.
+    fn keep_picker_still(
+        &self,
+        ui: &mut Ui<DemoMessage>,
+        before: Option<f32>,
+        list: &mut DisplayList,
+    ) {
+        let (Some(before), Some(open), Some(scroll)) = (before, self.picker, self.scroll) else {
+            return;
+        };
+        let Some(after) = ui.rect(open.widget).map(|rect| rect.y0) else {
+            return;
+        };
+        let moved = after - before;
+        if moved.abs() < 0.01 {
+            return;
+        }
+        if let Some(area) = ui.widget_mut::<orchestra_ui::ScrollArea>(scroll) {
+            let offset = area.offset();
+            area.set_offset(orchestra_ui::Point::new(offset.x, offset.y + moved));
+            ui.request_layout(scroll);
+            ui.frame(list);
         }
     }
 
@@ -1486,6 +1530,11 @@ impl ThemeEditor {
         settings: &Settings,
         list: &mut DisplayList,
     ) {
+        // Where the open picker is now, to keep it there however the sentences above change.
+        let picker_top = self
+            .picker
+            .and_then(|open| ui.rect(open.widget))
+            .map(|rect| rect.y0);
         let Some(custom) =
             chosen_custom(settings).and_then(|index| settings.theme.custom.get(index))
         else {
@@ -1554,6 +1603,7 @@ impl ThemeEditor {
             }
         }
         ui.frame(list);
+        self.keep_picker_still(ui, picker_top, list);
     }
 }
 
