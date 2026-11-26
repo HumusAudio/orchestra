@@ -18,8 +18,8 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use super::{
-    CUSTOM_PREFIX, FORMAT_VERSION, FineModifier, Language, Mode, SaveError, Settings, ThemeChoice,
-    ThemeOverride,
+    CUSTOM_PREFIX, CustomTheme, FORMAT_VERSION, FineModifier, Language, Mode, SaveError, Settings,
+    ThemeChoice, ThemeOverride,
 };
 
 /// The whole file, in its written order.
@@ -53,9 +53,9 @@ struct Theme<'a> {
     custom: Vec<Custom<'a>>,
 }
 
-/// One custom theme.
+/// One custom theme, as the settings file and the theme file (ADR-0052 TF1) write it.
 #[derive(Serialize)]
-struct Custom<'a> {
+pub(crate) struct Custom<'a> {
     /// Its name.
     name: &'a str,
     /// Its base pair.
@@ -133,16 +133,7 @@ pub(crate) fn to_bytes(settings: &Settings) -> Result<Vec<u8>, SaveError> {
                 Mode::Light => "light",
                 Mode::Dark => "dark",
             },
-            custom: theme
-                .custom
-                .iter()
-                .map(|custom| Custom {
-                    name: &custom.name,
-                    base: &custom.base,
-                    light: custom.light.iter().map(to_override).collect(),
-                    dark: custom.dark.iter().map(to_override).collect(),
-                })
-                .collect(),
+            custom: theme.custom.iter().map(custom_theme).collect(),
         },
         language: match &settings.language {
             Language::System => "system",
@@ -168,6 +159,17 @@ pub(crate) fn to_bytes(settings: &Settings) -> Result<Vec<u8>, SaveError> {
         serde_json::to_vec_pretty(&file).map_err(|e| SaveError::Encode(e.to_string()))?;
     bytes.push(b'\n');
     Ok(bytes)
+}
+
+/// The written form of `custom`: its name, base and the overrides of each half, in their order.
+/// Shared by the settings file and the theme file (ADR-0052 TF1). O(its overrides).
+pub(crate) fn custom_theme(custom: &CustomTheme) -> Custom<'_> {
+    Custom {
+        name: &custom.name,
+        base: &custom.base,
+        light: custom.light.iter().map(to_override).collect(),
+        dark: custom.dark.iter().map(to_override).collect(),
+    }
 }
 
 /// The written form of one override.

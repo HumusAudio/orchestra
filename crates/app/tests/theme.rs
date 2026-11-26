@@ -830,3 +830,142 @@ fn all_controls(demo: &Demo, id: WidgetId, out: &mut Vec<Rect>) {
         all_controls(demo, child, out);
     }
 }
+
+/// A fresh folder for the test `name`, in the system's temporary directory.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("orchestra-themes-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Presses *Import…* and answers the chooser with `path`.
+fn import_file(demo: &mut Demo, list: &mut DisplayList, path: std::path::PathBuf) {
+    let import = demo.theme_editor().unwrap().import_button();
+    press(demo, list, import);
+    let request = demo.take_file_request().unwrap();
+    assert_eq!(request.kind, orchestra_ui::FileRequestKind::Open);
+    assert_eq!(request.extensions, ["orchestra-theme"]);
+    demo.file_chosen(orchestra_ui::FileChoice::Chosen(path), list);
+}
+
+/// *Export…* is disabled for a built-in pair (nothing of the user's in it, ADR-0052 TF2); for a
+/// custom theme it proposes the theme's name, adds the extension to a typed name and writes the
+/// theme as the settings hold it; a file the chooser did not confirm is asked about first.
+#[test]
+fn export_writes_the_chosen_theme() {
+    let dir = scratch("export");
+    let (mut demo, mut list) = appearance_section();
+    let export = demo.theme_editor().unwrap().export_button();
+    assert!(!enabled(&demo, export), "a built-in pair");
+    duplicate(&mut demo, &mut list);
+    assert!(enabled(&demo, export));
+    let field = demo
+        .theme_editor()
+        .unwrap()
+        .field(row(ColorToken::Accent))
+        .unwrap();
+    type_into(&mut demo, &mut list, field, "#123456");
+    press(&mut demo, &mut list, export);
+    let request = demo.take_file_request().unwrap();
+    assert_eq!(request.kind, orchestra_ui::FileRequestKind::Save);
+    assert_eq!(request.title, "Export the theme");
+    assert_eq!(request.filter_name, "Orchestra themes");
+    assert_eq!(
+        request.file_name.as_deref(),
+        Some("Studio (copy).orchestra-theme")
+    );
+    demo.file_chosen(
+        orchestra_ui::FileChoice::Chosen(dir.join("Mine")),
+        &mut list,
+    );
+    let written = orchestra_io::theme_file::load(&dir.join("Mine.orchestra-theme")).unwrap();
+    assert_eq!(written.theme, demo.settings().settings().theme.custom[0]);
+    assert_eq!(written.dropped, 0);
+    // Again with the name typed without its extension: the file exists, so the question comes;
+    // Escape keeps the file as it was.
+    std::fs::write(dir.join("Mine.orchestra-theme"), b"keep me").unwrap();
+    press(&mut demo, &mut list, export);
+    let _ = demo.take_file_request();
+    demo.file_chosen(
+        orchestra_ui::FileChoice::Chosen(dir.join("Mine")),
+        &mut list,
+    );
+    assert_eq!(demo.ui().dialogs().count(), 2, "the question");
+    press_key(&mut demo, &mut list, NamedKey::Escape);
+    assert_eq!(
+        std::fs::read(dir.join("Mine.orchestra-theme")).unwrap(),
+        b"keep me"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// *Import…* adds the file's theme, chooses it and shows it, never replacing one: a second import
+/// of the same file gets a numbered name. Nothing to report when every entry is used.
+#[test]
+fn import_adds_a_theme_and_chooses_it() {
+    let dir = scratch("import");
+    let path = dir.join("Night.orchestra-theme");
+    let night = orchestra_io::settings::CustomTheme {
+        name: "Night".to_owned(),
+        base: "slate".to_owned(),
+        light: vec![ThemeOverride::Color {
+            token: "accent".to_owned(),
+            rgba: 0x1234_56ff,
+        }],
+        dark: Vec::new(),
+    };
+    orchestra_io::theme_file::save(&night, &path).unwrap();
+    let (mut demo, mut list) = appearance_section();
+    import_file(&mut demo, &mut list, path.clone());
+    assert_eq!(demo.ui().dialogs().count(), 1, "no report");
+    assert_eq!(
+        demo.settings().settings().theme.choice,
+        ThemeChoice::Custom("Night".to_owned())
+    );
+    let name = demo.theme_editor().unwrap().name_field().unwrap();
+    assert_eq!(field_text(&demo, name), "Night");
+    assert_eq!(
+        sent_color(&mut demo, Appearance::Light, ColorToken::Accent),
+        Some(Color::rgba(0x1234_56ff))
+    );
+    import_file(&mut demo, &mut list, path);
+    assert_eq!(
+        demo.settings().settings().theme.choice,
+        ThemeChoice::Custom("Night (2)".to_owned())
+    );
+    assert_eq!(demo.settings().settings().theme.custom.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A theme with entries this Orchestra cannot use is imported with a report naming the file and
+/// their count; a file that is not a theme is an error that names it, and changes nothing.
+#[test]
+fn imports_report_what_was_not_used_and_refuse_other_files() {
+    let dir = scratch("report");
+    let odd = dir.join("Odd.orchestra-theme");
+    std::fs::write(
+        &odd,
+        br##"{ "orchestra_theme": 1, "theme": { "base": "from-the-future",
+            "light": [ { "color": "accent", "value": "#123456ff" }, "junk" ] } }"##,
+    )
+    .unwrap();
+    let (mut demo, mut list) = appearance_section();
+    import_file(&mut demo, &mut list, odd);
+    assert_eq!(demo.ui().dialogs().count(), 2, "the report");
+    assert_eq!(
+        demo.settings().settings().theme.choice,
+        ThemeChoice::Custom("Odd".to_owned()),
+        "named after the file"
+    );
+    press_key(&mut demo, &mut list, NamedKey::Enter);
+    assert_eq!(demo.ui().dialogs().count(), 1);
+    let notes = dir.join("Notes.orchestra-theme");
+    std::fs::write(&notes, b"just some text").unwrap();
+    import_file(&mut demo, &mut list, notes);
+    assert_eq!(demo.ui().dialogs().count(), 2, "the error");
+    assert_eq!(demo.settings().settings().theme.custom.len(), 1);
+    press_key(&mut demo, &mut list, NamedKey::Enter);
+    assert_eq!(demo.ui().dialogs().count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -511,6 +511,27 @@ pub(crate) fn read_shortcut_entries(
     read::read_shortcuts(list, path, warnings)
 }
 
+/// One custom theme's fields from its JSON object (the theme file's `theme`, ADR-0052 TF1), read
+/// as the settings file reads its own: the name, the base, the overrides of each half. Each
+/// problem adds one warning. O(size of the object).
+pub(crate) fn read_custom_theme(
+    map: &serde_json::Map<String, serde_json::Value>,
+    path: &str,
+    warnings: &mut Vec<Warning>,
+) -> (
+    Option<String>,
+    Option<String>,
+    Vec<ThemeOverride>,
+    Vec<ThemeOverride>,
+) {
+    read::read_custom_theme(map, path, warnings)
+}
+
+/// `custom` as the settings file writes it, for the theme file (ADR-0052 TF1).
+pub(crate) fn written_custom_theme(custom: &CustomTheme) -> impl serde::Serialize + '_ {
+    write::custom_theme(custom)
+}
+
 /// Reads the settings file at `path` for the session (see the module documentation). Never fails:
 /// a missing file gives the defaults, a broken one is renamed to [`BROKEN_FILE_NAME`] beside it,
 /// and every problem becomes a [`Warning`].

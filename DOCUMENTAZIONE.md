@@ -6251,6 +6251,63 @@ inserita era equivalente. Gli screenshot
 `theme-editor` e `theme-contrast` mostrano un tema con l'accento cambiato e un avviso di
 leggibilità; `preferences-dialog` adesso mostra *Duplica* ed *Elimina*.
 
+#### I file dei temi
+
+**Che cosa vede l'utente** (ADR-0052, SCALETTA F2.12b2b). *Importa…* ed *Esporta…* accanto a
+*Duplica* ed *Elimina*. *Esporta…* (disattivato per una coppia integrata: dentro non c'è niente
+dell'utente) apre la finestra di scelta del sistema con il filtro *Temi di Orchestra*, proponendo il
+nome del tema (`Night.orchestra-theme`), e scrive il tema personalizzato scelto. *Importa…* legge un
+file e **aggiunge** il suo tema a quelli personalizzati, senza mai sostituirne uno: un nome già usato
+riceve un numero ("Night (2)"), e il tema importato viene scelto subito. Quando alcune voci non si
+possono usare un breve resoconto dice quante; un file che non è un file di tema, è danneggiato,
+troppo grande o più recente dà un errore tradotto che lo nomina, e non cambia nulla.
+
+**Il file** (`crates/io/src/theme_file.rs`, `orchestra_io::theme_file`). JSON con la versione per
+prima e un tema personalizzato, esattamente come lo tiene il file delle impostazioni:
+
+```json
+{
+  "orchestra_theme": 1,
+  "theme": {
+    "name": "Night",
+    "base": "studio",
+    "light": [{ "color": "accent", "value": "#3366ccff" }],
+    "dark": [{ "color": "accent", "value": "#5b9bf0ff" }]
+  }
+}
+```
+
+Il lettore e lo scrittore di un tema personalizzato del file delle impostazioni sono condivisi
+(`read_custom_theme`, `written_custom_theme`), così un tema vuol dire la stessa cosa nei due file.
+`from_bytes` e `load` lo leggono in modo tollerante una sostituzione alla volta e contano ciò che
+scartano o ignorano (`ThemeFile::dropped`); il file intero fallisce con un `ThemeFileError` quando è
+illeggibile, più grande di 1 MiB, non è JSON, non ha `orchestra_theme` o un oggetto `theme`, o è più
+recente della versione 1. `to_bytes` e `save` scrivono in modo sicuro. La catena delle migrazioni è
+vuota e usa il motore condiviso; il file golden `tests/golden/theme-v1/Night.orchestra-theme` (colori
+nelle due metà, uno trasparente, testo, linee e densità, un token del futuro) si legge e si riscrive
+identico byte per byte.
+
+**L'importazione** (`crates/app/src/preferences/theme/files.rs`, `import`). Il nome è quello del
+file, o il nome del file senza estensione, reso unico; una base che questo Orchestra non conosce
+diventa Studio; testo, linee e densità si rendono uguali nelle due metà, vince la metà chiara; le
+sostituzioni di token sconosciuti si conservano (un Orchestra più recente le ritrova). Il conteggio
+del resoconto somma le voci scartate dal lettore, una base sostituita, testo, linee e densità propri
+della metà scura, e ciò che la conversione della finestra (`custom_theme_from_settings`) non sa
+usare. **L'esportazione** aggiunge l'estensione a un nome scritto senza e chiede prima di sostituire
+un file che la finestra di scelta non ha confermato, come *Salva con nome*. La finestra di scelta
+della demo ha adesso tre possibili richiedenti (`ChooserOwner`: il progetto, l'editor delle
+scorciatoie, l'editor dei temi), e `ThemeOutcome` guadagna `Choose(request)` e
+`ThemeAndReport(dialog)` (il tema applicato, poi il resoconto).
+
+**Testi.** 12 messaggi nuovi nei sei cataloghi (i motivi del sistema riusano i testi di errore del
+progetto, come per i file delle scorciatoie). **Test.** `crates/io/tests/theme_file_cases.rs` (4): il
+file golden, la tolleranza, i file rifiutati, il salvataggio e la rilettura con il percorso che
+fallisce. In `files.rs` (2): un'importazione aggiunta, scelta, chiamata come il file e resa unica; le
+voci sconosciute e discordanti contate. `crates/app/tests/theme.rs` (3 in più): l'esportazione
+disattivata per una coppia integrata, la sua richiesta e il tema scritto, la domanda di
+sostituzione; l'importazione scelta e mostrata, una seconda numerata; il resoconto, e un file che non
+è un tema rifiutato. Quattro bug inseriti di proposito sono stati presi.
+
 #### Le finestre di scelta dei file
 
 **Che cosa vede l'utente** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Apri…* (Ctrl+O, ⌘O) e *File

@@ -5864,6 +5864,60 @@ Keyboard inside their scroll area. Eight injected bugs were caught (five in the 
 removed); one injected change was equivalent. The screenshots `theme-editor` and `theme-contrast` show a theme with its accent
 changed and a readability warning; `preferences-dialog` now shows *Duplicate* and *Delete*.
 
+#### The theme files
+
+**What the user sees** (ADR-0052, SCALETTA F2.12b2b). *Import…* and *Export…* beside *Duplicate*
+and *Delete*. *Export…* (disabled for a built-in pair: there is nothing of the user's in it) opens
+the system's chooser with the filter *Orchestra themes*, proposing the theme's own name
+(`Night.orchestra-theme`), and writes the chosen custom theme. *Import…* reads a file and **adds**
+its theme to the custom ones, never replacing one: a taken name gets a number ("Night (2)"), and
+the imported theme is chosen at once. When some entries could not be used a short report says how
+many; a file that is not a theme file, is damaged, too large or newer is a translated error
+naming it, and nothing changes.
+
+**The file** (`crates/io/src/theme_file.rs`, `orchestra_io::theme_file`). JSON with the version
+first and one custom theme, exactly as the settings file holds it:
+
+```json
+{
+  "orchestra_theme": 1,
+  "theme": {
+    "name": "Night",
+    "base": "studio",
+    "light": [{ "color": "accent", "value": "#3366ccff" }],
+    "dark": [{ "color": "accent", "value": "#5b9bf0ff" }]
+  }
+}
+```
+
+The settings file's own reader and writer of a custom theme are shared (`read_custom_theme`,
+`written_custom_theme`), so a theme means the same in both files. `from_bytes` and `load` read it
+leniently override by override and count what they drop or ignore (`ThemeFile::dropped`); the
+whole file fails with a `ThemeFileError` when it is unreadable, larger than 1 MiB, not JSON,
+without `orchestra_theme` or without a `theme` object, or newer than version 1. `to_bytes` and
+`save` write safely. The migration chain is empty and uses the shared engine; the golden file
+`tests/golden/theme-v1/Night.orchestra-theme` (colours in both halves, one translucent, text,
+lines and density, a token from the future) is read and written back byte for byte.
+
+**Importing** (`crates/app/src/preferences/theme/files.rs`, `import`). The name is the file's own,
+or the file's name without the extension, made unique; a base this Orchestra does not know becomes
+Studio; text, lines and density are made the same in both halves, the light half's winning; the
+overrides of unknown tokens are kept (a newer Orchestra finds them again). The report's count adds
+the entries the reader dropped, a base replaced, the dark half's own text, lines and density, and
+what the window's conversion (`custom_theme_from_settings`) cannot use. **Exporting** adds the
+extension to a typed name that lacks it and asks before replacing a file the chooser did not
+confirm, as *Save as*. The demonstration's chooser now has three possible askers (`ChooserOwner`:
+the project, the shortcut editor, the theme editor), and `ThemeOutcome` gains `Choose(request)`
+and `ThemeAndReport(dialog)` (the theme applied, then the report).
+
+**Texts.** 12 new messages in the six catalogues (the system's reasons reuse the project's error
+texts, as for the shortcut files). **Tests.** `crates/io/tests/theme_file_cases.rs` (4): the golden
+file, leniency, refused files, saving and loading back with the failing path. In `files.rs` (2): an
+import added, chosen, named after the file and made unique; unknown and mismatched entries counted.
+`crates/app/tests/theme.rs` (3 more): the export disabled for a built-in pair, its request and the
+theme written, the replacement question; the import chosen and shown, a second one numbered; the
+report, and a file that is not a theme refused. Four injected bugs were caught.
+
 #### The file choosers
 
 **What the user sees** (ADR-0050 DG4, SCALETTA F2.12a5a). *File → Open…* (Ctrl+O, ⌘O) and *File →

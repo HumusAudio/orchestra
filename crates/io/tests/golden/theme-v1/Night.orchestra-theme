@@ -1,0 +1,53 @@
+{
+  "orchestra_theme": 1,
+  "theme": {
+    "name": "Night",
+    "base": "studio",
+    "light": [
+      {
+        "color": "accent",
+        "value": "#3366ccff"
+      },
+      {
+        "size": "size-body",
+        "value": 14
+      },
+      {
+        "shape": "corner-radius",
+        "value": 12
+      },
+      {
+        "family": "family-ui",
+        "value": "jetbrains-mono"
+      },
+      {
+        "density": "compact"
+      }
+    ],
+    "dark": [
+      {
+        "color": "accent",
+        "value": "#5b9bf0ff"
+      },
+      {
+        "color": "future-token",
+        "value": "#00000080"
+      },
+      {
+        "size": "size-body",
+        "value": 14
+      },
+      {
+        "shape": "corner-radius",
+        "value": 12
+      },
+      {
+        "family": "family-ui",
+        "value": "jetbrains-mono"
+      },
+      {
+        "density": "compact"
+      }
+    ]
+  }
+}
