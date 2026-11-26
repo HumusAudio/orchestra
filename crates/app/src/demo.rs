@@ -590,6 +590,14 @@ impl Demo {
         self.shortcut_editor.as_ref()
     }
 
+    /// The theme editor, while the Preferences show their Appearance section (F2.12b1): the
+    /// integration tests reach its fields and buttons through it, as they reach the shortcut
+    /// editor's through [`Demo::shortcut_editor`].
+    #[must_use]
+    pub const fn theme_editor(&self) -> Option<&ThemeEditor> {
+        self.theme_editor.as_ref()
+    }
+
     /// The open Preferences' panel, while they are open.
     #[must_use]
     pub fn preferences(&self) -> Option<WidgetId> {

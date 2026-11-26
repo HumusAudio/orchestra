@@ -362,53 +362,7 @@ pub fn show_section(
     let control = |row: u16| LayoutProps::default().cell(row, 1);
     match section {
         Section::Appearance => {
-            let (values, selected) = theme_values(&texts.pairs, settings);
-            ui.add(grid, Label::new(texts.theme.clone()), label(0))?;
-            let themes = ui.add(
-                grid,
-                DropDown::new(values, selected, |index| {
-                    DemoMessage::Preferences(PreferencesMessage::Theme(index))
-                })
-                .label(texts.theme.clone()),
-                control(0),
-            )?;
-            let mode = match settings.theme.mode {
-                orchestra_io::settings::Mode::System => 0,
-                orchestra_io::settings::Mode::Light => 1,
-                orchestra_io::settings::Mode::Dark => 2,
-            };
-            ui.add(grid, Label::new(texts.mode.clone()), label(1))?;
-            ui.add(
-                grid,
-                RadioGroup::new(texts.modes.to_vec(), mode, |index| {
-                    DemoMessage::Preferences(PreferencesMessage::Mode(index))
-                })
-                .label(texts.mode.clone()),
-                control(1),
-            )?;
-            ui.add(
-                grid,
-                Toggle::checkbox(texts.caret_blink.clone(), settings.caret_blink, |on| {
-                    DemoMessage::Preferences(PreferencesMessage::CaretBlink(on))
-                }),
-                control(2),
-            )?;
-            // The theme editor under the grid (F2.12b1).
-            let editor = ThemeEditor::build(
-                ui,
-                parent,
-                themes,
-                &texts.theme_editor,
-                settings,
-                appearance,
-                list,
-            )?;
-            ui.frame(list);
-            return Ok(SectionWidgets {
-                playback_labels: Vec::new(),
-                keyboard: None,
-                theme: Some(editor),
-            });
+            return appearance_section(ui, parent, grid, texts, settings, appearance, list);
         }
         Section::Language => {
             ui.add(grid, Label::new(texts.language.clone()), label(0))?;
@@ -437,6 +391,83 @@ pub fn show_section(
     }
     ui.frame(list);
     Ok(SectionWidgets::default())
+}
+
+/// The Appearance section's controls (theme, mode, blinking cursor, then the theme editor of
+/// F2.12b1) in `grid`, whose three lines it fills, and in `parent`, the scrolling column that holds
+/// the grid and receives the editor underneath it.
+///
+/// # Why a function of its own?
+/// The section grew with the theme editor past the length the project's lints allow for one
+/// function (`too_many_lines`); the Keyboard section was already split out the same way
+/// ([`keyboard_section`]). The behaviour is unchanged: `show_section` only dispatches.
+///
+/// # Errors
+/// The interface's, if its own tree is inconsistent (never expected).
+fn appearance_section(
+    ui: &mut Ui<DemoMessage>,
+    parent: WidgetId,
+    grid: WidgetId,
+    texts: &PreferencesTexts,
+    settings: &Settings,
+    appearance: Appearance,
+    list: &mut DisplayList,
+) -> Result<SectionWidgets, UiError> {
+    // The label of line `row` (first column) and the control of line `row` (second column), as
+    // in `show_section`.
+    let label = |row: u16| {
+        LayoutProps::default()
+            .cell(row, 0)
+            .align(orchestra_ui::Align::Start, orchestra_ui::Align::Center)
+    };
+    let control = |row: u16| LayoutProps::default().cell(row, 1);
+    let (values, selected) = theme_values(&texts.pairs, settings);
+    ui.add(grid, Label::new(texts.theme.clone()), label(0))?;
+    let themes = ui.add(
+        grid,
+        DropDown::new(values, selected, |index| {
+            DemoMessage::Preferences(PreferencesMessage::Theme(index))
+        })
+        .label(texts.theme.clone()),
+        control(0),
+    )?;
+    let mode = match settings.theme.mode {
+        orchestra_io::settings::Mode::System => 0,
+        orchestra_io::settings::Mode::Light => 1,
+        orchestra_io::settings::Mode::Dark => 2,
+    };
+    ui.add(grid, Label::new(texts.mode.clone()), label(1))?;
+    ui.add(
+        grid,
+        RadioGroup::new(texts.modes.to_vec(), mode, |index| {
+            DemoMessage::Preferences(PreferencesMessage::Mode(index))
+        })
+        .label(texts.mode.clone()),
+        control(1),
+    )?;
+    ui.add(
+        grid,
+        Toggle::checkbox(texts.caret_blink.clone(), settings.caret_blink, |on| {
+            DemoMessage::Preferences(PreferencesMessage::CaretBlink(on))
+        }),
+        control(2),
+    )?;
+    // The theme editor under the grid (F2.12b1).
+    let editor = ThemeEditor::build(
+        ui,
+        parent,
+        themes,
+        &texts.theme_editor,
+        settings,
+        appearance,
+        list,
+    )?;
+    ui.frame(list);
+    Ok(SectionWidgets {
+        playback_labels: Vec::new(),
+        keyboard: None,
+        theme: Some(editor),
+    })
 }
 
 /// The Keyboard section's controls in `grid` and under it (F2.12a4b1, F2.12c1): the modifier of
@@ -589,6 +620,7 @@ fn theme_effect(settings: &Settings) -> Effect {
 mod tests {
     //! The changes written into the settings, and the drop-downs' values.
     use super::*;
+    use orchestra_io::settings::ThemeChoice;
 
     /// Texts with recognisable names (the catalogues are tested elsewhere), on Linux.
     fn texts() -> PreferencesTexts {
@@ -700,9 +732,10 @@ mod tests {
         );
     }
 
-    /// The ten pairs by name, Studio chosen by default; a custom theme in use is added at the
-    /// end and chosen. The languages: the system's first, then six names; the modifiers as Linux
-    /// writes them.
+    /// The ten pairs by name, Studio chosen by default; every custom theme follows them, in the
+    /// settings' order, and the one in use is chosen (F2.12b1); a custom choice whose theme is
+    /// missing shows Studio, as the window draws it. The languages: the system's first, then six
+    /// names; the modifiers as Linux writes them.
     #[test]
     fn the_drop_downs_list_their_values() {
         let texts = texts();
@@ -712,7 +745,22 @@ mod tests {
         let mut settings = Settings::default();
         settings.theme.choice = ThemeChoice::Custom("Mine".to_owned());
         let (values, selected) = theme_values(&texts.pairs, &settings);
-        assert_eq!(values.len(), 11);
+        assert_eq!(values.len(), 10, "no theme called Mine exists");
+        assert_eq!(values[selected], "Studio");
+        for name in ["Other", "Mine"] {
+            settings
+                .theme
+                .custom
+                .push(orchestra_io::settings::CustomTheme {
+                    name: name.to_owned(),
+                    base: "studio".to_owned(),
+                    light: Vec::new(),
+                    dark: Vec::new(),
+                });
+        }
+        let (values, selected) = theme_values(&texts.pairs, &settings);
+        assert_eq!(values.len(), 12);
+        assert_eq!(&values[10..], ["Other", "Mine"]);
         assert_eq!(values[selected], "Mine");
         assert_eq!(texts.languages.len(), 7);
         assert_eq!(texts.languages[3], "Italiano");

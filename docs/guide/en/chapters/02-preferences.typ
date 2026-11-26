@@ -32,6 +32,47 @@ the sections with the mouse or with the up and down arrow keys; Tab goes to the 
   with it, *Light* and *Dark* fix it.
 - *Blinking cursor* turns off the blinking of the cursor in text boxes: the cursor stays still.
 
+=== Your own themes
+
+The ten built-in themes cannot be changed, but you can make as many themes of your own as you like,
+starting from any of them.
+
+- *Duplicate* makes a copy of the theme you are using, called for example "Studio (copy)", and
+  chooses it at once. Your themes appear in the *Theme* list after the built-in ones.
+- *Name* renames the theme: type the new name and press Enter, or move to another control. If
+  another theme of yours already has that name, Orchestra adds a number to it.
+- *Delete* removes the theme after asking you, and goes back to the built-in theme it came from.
+
+Under *Colors* each colour of the interface has a row: its name, a sample of the colour, its value
+and *Restore*. Write the value as on the web, `#` followed by six hexadecimal digits (`#5b9bf0`),
+or eight digits to add transparency (`#00000080` is black at half strength). As soon as the value
+is a colour, the whole window takes it: the Preferences themselves show you the result. *Restore*
+gives the colour back the value of the theme it came from.
+
+#screenshot-placeholder(
+  [Screenshot: a theme of your own with the accent colour changed (theme-editor.png)],
+  [A copy of Studio with a blue accent: the whole window already uses it.],
+)
+
+#note("Note")[
+  Every theme has a light half and a dark half. The rows show the colours of the half the window is
+  using, as the line above them says: to change the other half, choose it in *Mode*, and the rows
+  follow.
+]
+
+Under *Contrast* Orchestra checks that every text and control can still be read: if a colour is too
+close to the one behind it, the pair is listed with the contrast it reaches and the one it should
+have, and the colour's row is marked with a dot. It is only advice: the colour stays yours.
+
+#screenshot-placeholder(
+  [Screenshot: the contrast warnings at the end of the section (theme-contrast.png)],
+  [Secondary text made too dark: four pairs below the contrast they need.],
+)
+
+#tip("Tip")[
+  Your themes are kept with your preferences, so they are there the next time you open Orchestra.
+]
+
 == Language
 
 Choose the language of the interface: American or British English, Italian, French, German or

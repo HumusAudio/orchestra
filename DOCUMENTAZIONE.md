@@ -6061,13 +6061,89 @@ scritta, la domanda di sostituzione, l'importazione con il resoconto e le differ
 domanda prima di sostituire le scorciatoie proprie, un file che non si può importare. Lo
 screenshot `preferences-keyboard` mostra i due pulsanti.
 
-#### L'editor dei temi (lavoro in corso, F2.12b1)
+#### L'editor dei temi
 
-In scrittura su `feature/f2-12b1-theme-editor`: `crates/app/src/preferences/theme.rs` (temi
-personalizzati duplicati, rinominati, eliminati; ogni colore modificato come `#rrggbb` con
-l'anteprima dal vivo della metà mostrata; avvisi di contrasto con il separatore decimale della
-lingua, `number-decimal-separator`), `Swatch`, `DropDown::set_values`, `InputEvent::Appearance` e
-`Ui::appearance`. Da finire: test, screenshot, guide e il testo completo di questa sezione.
+**Che cosa vede l'utente** (ADR-0037 T7–T8, SCALETTA F2.12b1, scelte 1–8 del proprietario del
+2026-11-25). Sotto *Tema*, *Modalità* e *Cursore lampeggiante*, la sezione Aspetto (che adesso
+scorre) mostra *Duplica* ed *Elimina*. Con una coppia integrata scelta, una riga attenuata dice che
+non si può cambiare ed *Elimina* è disattivato. *Duplica* fa un tema personalizzato da quello
+scelto, chiamato "Studio (copia)" (con un numero aggiunto quando il nome è già preso), e lo sceglie;
+il menu a tendina del tema elenca le dieci coppie, poi ogni tema personalizzato. Un tema
+personalizzato mostra il suo **Nome** (un campo, confermato con Invio o quando lo si lascia), il
+titolo **Colori** con una riga che dice quale metà è mostrata, una riga per ogni token di colore
+(un pallino di avviso, il nome, un campione, il valore, *Ripristina*), poi il titolo **Contrasto**
+con le coppie sotto la loro soglia, oppure una riga che dice che non ce n'è nessuna. *Elimina*
+chiede *Eliminare il tema «Nome»?* e torna alla base del tema.
+
+**I valori** (`crates/app/src/preferences/theme.rs`). Un valore è letto da `parse_color`:
+`#rrggbb` o `#rrggbbaa`, il `#` facoltativo, maiuscole o minuscole, spazi ignorati; qualunque altra
+cosa è `None` e non cambia nulla (il testo resta nel campo). `color_text` lo riscrive (`#rrggbb`
+quando è opaco). `format_ratio` scrive un rapporto con un decimale e il separatore della lingua,
+`number-decimal-separator` dei cataloghi (correzione del proprietario alla scelta 6: Fluent non
+localizza i decimali):
+
+```rust
+let tenths = (value * 10.0).round() as i64;
+format!("{}{separator}{}", tenths / 10, (tenths % 10).abs())
+```
+
+**Le impostazioni sono il tema.** Ogni azione è una funzione su `Settings`: `duplicate`,
+`rename_chosen` (spazi tolti, reso unico da `unique_name`, vuoto o invariato non fa nulla),
+`delete_chosen` (torna alla base), `choose` (l'indice del menu a tendina), `set_color(settings,
+half, token, color)`. `set_color` tiene solo le differenze (T7): le sostituzioni precedenti del
+token in quella metà se ne vanno, e un valore uguale a quello della base non ne aggiunge nessuna,
+quindi *Ripristina* è semplicemente `set_color(…, None)`:
+
+```rust
+overrides.retain(
+    |item| !matches!(item, ThemeOverride::Color { token: name, .. } if name == token.name()),
+);
+if let Some(color) = color.filter(|color| *color != base) {
+    overrides.push(ThemeOverride::Color { token: token.name().to_owned(), rgba: /* … */ });
+}
+```
+
+Il tema della finestra si ricava poi di nuovo dalle impostazioni (`theme_from_settings`), così la
+fonte di verità è una sola: ciò che è salvato è ciò che si disegna. `theme_values` elenca i valori
+del menu a tendina; una scelta personalizzata il cui tema manca mostra Studio, come lo disegna la
+finestra.
+
+**La metà modificata** (scelta 2). L'editor mostra e modifica la metà che la finestra disegna. La
+finestra la comunica all'interfaccia con il nuovo `InputEvent::Appearance(half)`, mandato appena la
+finestra esiste e ogni volta che la metà cambia (il sistema è passato all'altra, o l'utente ha
+scelto una modalità); `Ui::appearance()` la ricorda. La finestra di prova la passa a
+`ThemeEditor::show_half`, che riscrive i campi, la nota, i segni e le righe di contrasto senza
+ricostruire nulla (il focus resta dov'è).
+
+**I widget.** `ThemeEditor` tiene gli ID del menu a tendina, di *Duplica*, di *Elimina*, dell'area
+ricostruita quando si sceglie un altro tema, del campo del nome, della nota, delle righe e della
+colonna del contrasto. `handle(message)` cambia le impostazioni e i widget e risponde un
+`ThemeOutcome`: nulla, `Theme` (la finestra di prova applica il tema delle impostazioni alla
+finestra e all'interfaccia: tutta la finestra è l'anteprima) oppure `Ask(dialog)`. Ogni campo di
+colore manda il suo messaggio con una funzione semplice, una per token (`color_message::<I>`,
+ADR-0045 WA7), a ogni modifica, così un valore si applica appena è un colore. Aiutano due widget
+nuovi: `Swatch` (`crates/ui/src/widget/swatch.rs`) disegna un quadratino pieno di un token di
+colore, quindi segue da solo ogni cambiamento, e `DropDown::set_values` sostituisce i valori e la
+scelta di un menu a tendina (i temi personalizzati vanno e vengono).
+
+**Il contrasto** (scelta 5, T8). `contrast_lines` trasforma `Theme::contrast_failures` in una riga
+per ogni coppia sotto la sua soglia, "Testo normale su Sfondo delle finestre: 1,0:1, almeno 4,5:1";
+i token di quelle coppie ricevono un "●" nel colore degli avvisi. Mai un blocco: il colore è del
+tema lo stesso.
+
+**Testi.** I 24 nomi dei colori (`theme-color-*`), i 15 testi dell'editor e
+`number-decimal-separator`, nei sei cataloghi; il glossario si arricchisce dei nomi dei colori e
+delle parole dell'editor (cataloghi degli schemi di colore di KDE, quelli di MuseScore Studio).
+
+**Test.** In `theme.rs` (6): colori letti e scritti, rapporti, nomi unici, duplica, scelta,
+rinomina ed elimina, solo le differenze conservate, le righe di contrasto con l'uno e l'altro
+separatore. `crates/app/tests/theme.rs` (7), attraverso la finestra di prova e la tastiera (la
+sezione scorre, quindi un clic potrebbe mancare il bersaglio): una coppia duplicata, un colore
+scritto e ripristinato, un valore che non è un colore, i campi che seguono la metà, una coppia sotto
+la soglia segnata ed elencata, il nome confermato e reso unico, *Elimina* chiesto e risposto, i testi
+nelle sei lingue. Quattro bug inseriti di proposito sono stati presi. Gli screenshot `theme-editor` e
+`theme-contrast` mostrano un tema con l'accento cambiato e gli avvisi di contrasto;
+`preferences-dialog` adesso mostra *Duplica* ed *Elimina*.
 
 #### Le finestre di scelta dei file
 
@@ -6402,7 +6478,7 @@ pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
     height: 370.0,
-    record: record_demo_window,
+    record: Record::Plain(record_demo_window),
 }];
 
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
@@ -6411,6 +6487,8 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneConte
     demo.input(&InputEvent::Key { key: Key::Named(NamedKey::Tab), /* … */ }, list);
 }
 ```
+
+Da F2.12b1 `record` è un `Record`: le scene `Plain` (tutte tranne due) si disegnano con `theme()`; le scene `Themed` rispondono il tema con cui disegnarle. Servono alle scene dell'editor dei temi: i loro colori cambiano il tema stesso, che una finestra vera riceve come richiesta (`WindowRequest::SetTheme`) e che una scena senza finestra deve passare a `render`. Prima dicono anche alla finestra di prova che la metà mostrata è quella scura (`InputEvent::Appearance`), come fa una finestra quando si apre.
 
 `render` disegna una scena con `CpuRenderer::render_to_image` a **scala 2** (una scena larga 640
 pixel diventa di 1280, circa 200 dpi sulla larghezza del testo di una pagina A4) nella **metà scura

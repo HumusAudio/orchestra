@@ -33,6 +33,49 @@ sezioni con il mouse oppure con le frecce in su e in giù; Tab passa alle impost
 - *Cursore lampeggiante* spegne il lampeggio del cursore nelle caselle di testo: il cursore resta
   fisso.
 
+=== I tuoi temi
+
+I dieci temi integrati non si possono cambiare, ma puoi fare tutti i temi tuoi che vuoi, partendo da
+uno qualunque di loro.
+
+- *Duplica* fa una copia del tema che stai usando, che si chiama per esempio "Studio (copia)", e la
+  sceglie subito. I tuoi temi compaiono nell'elenco *Tema* dopo quelli integrati.
+- *Nome* rinomina il tema: scrivi il nuovo nome e premi Invio, oppure passa a un altro controllo. Se
+  un altro tuo tema ha già quel nome, Orchestra ci aggiunge un numero.
+- *Elimina* toglie il tema dopo avertelo chiesto, e torna al tema integrato da cui era nato.
+
+Sotto *Colori* ogni colore dell'interfaccia ha una riga: il suo nome, un campione del colore, il suo
+valore e *Ripristina*. Scrivi il valore come sul web, `#` seguito da sei cifre esadecimali
+(`#5b9bf0`), oppure otto cifre per aggiungere la trasparenza (`#00000080` è nero a metà intensità).
+Appena il valore è un colore, tutta la finestra lo prende: le Preferenze stesse ti mostrano il
+risultato. *Ripristina* ridà al colore il valore del tema da cui era nato.
+
+#screenshot-placeholder(
+  [Screenshot: un tema tuo con il colore d'accento cambiato (theme-editor.png)],
+  [Una copia di Studio con l'accento blu: tutta la finestra lo usa già.],
+)
+
+#note("Nota")[
+  Ogni tema ha una metà chiara e una scura. Le righe mostrano i colori della metà che la finestra sta
+  usando, come dice la riga sopra di loro: per cambiare l'altra metà, sceglila in *Modalità*, e le
+  righe la seguono.
+]
+
+Sotto *Contrasto* Orchestra controlla che ogni testo e ogni controllo si legga ancora: se un colore è
+troppo vicino a quello che ha dietro, la coppia compare nell'elenco con il contrasto che raggiunge e
+quello che dovrebbe avere, e la riga del colore è segnata con un pallino. È solo un consiglio: il
+colore resta il tuo.
+
+#screenshot-placeholder(
+  [Screenshot: gli avvisi di contrasto in fondo alla sezione (theme-contrast.png)],
+  [Il testo secondario reso troppo scuro: quattro coppie sotto il contrasto che serve.],
+)
+
+#tip("Suggerimento")[
+  I tuoi temi sono conservati con le tue preferenze, così li ritrovi alla prossima apertura di
+  Orchestra.
+]
+
 == Lingua
 
 Scegli la lingua dell'interfaccia: inglese americano o britannico, italiano, francese, tedesco o

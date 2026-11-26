@@ -58,8 +58,25 @@ pub struct Scene {
     /// Height in logical pixels.
     pub height: f32,
     /// Records the scene into an empty list for `bounds` (origin at the top left, the scene's
-    /// size), with the fonts and texts of `context`.
-    pub record: fn(bounds: Rect, list: &mut DisplayList, context: &SceneContext),
+    /// size), with the fonts and texts of `context`; see [`Record`].
+    pub record: Record,
+}
+
+/// How a scene is recorded, and with which theme it is then drawn.
+///
+/// # Why two kinds?
+/// Almost every scene is drawn with [`theme`] (Studio's dark half), whatever happens in it. The
+/// theme editor's scenes (F2.12b1) change the theme itself: the whole window is the preview of
+/// the colours typed, which a real window shows because the demonstration sends it the new theme
+/// ([`orchestra_ui::WindowRequest::SetTheme`]). Headless there is no window to receive it, so
+/// such a scene answers the theme the window would draw with, and [`render`] uses that. An enum
+/// rather than one signature returning an `Option` keeps the many plain scenes as they were.
+#[derive(Debug, Clone, Copy)]
+pub enum Record {
+    /// Recorded, then drawn with [`theme`].
+    Plain(fn(bounds: Rect, list: &mut DisplayList, context: &SceneContext)),
+    /// Recorded, then drawn with the theme the function answers.
+    Themed(fn(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme),
 }
 
 /// What every scene may need besides its size, prepared once by [`render`]: the bundled faces
@@ -145,73 +162,85 @@ pub const SCENES: &[Scene] = &[
         name: "demo-window",
         width: 640.0,
         height: 370.0,
-        record: record_demo_window,
+        record: Record::Plain(record_demo_window),
     },
     Scene {
         name: "demo-tooltip",
         width: TOOLTIP_SCENE_WIDTH,
         height: 370.0,
-        record: record_demo_tooltip,
+        record: Record::Plain(record_demo_tooltip),
     },
     Scene {
         name: "demo-context-menu",
         width: 640.0,
         height: 370.0,
-        record: record_demo_context_menu,
+        record: Record::Plain(record_demo_context_menu),
     },
     Scene {
         name: "demo-menu-bar",
         width: 640.0,
         height: 370.0,
-        record: record_demo_menu_bar,
+        record: Record::Plain(record_demo_menu_bar),
     },
     Scene {
         name: "title-bar",
         width: 640.0,
         height: TITLE_BAR_HEIGHT,
-        record: record_title_bar,
+        record: Record::Plain(record_title_bar),
     },
     Scene {
         name: "about-dialog",
         width: 640.0,
         height: ABOUT_SCENE_HEIGHT,
-        record: record_about_dialog,
+        record: Record::Plain(record_about_dialog),
     },
     Scene {
         name: "save-changes-dialog",
         width: 640.0,
         height: ABOUT_SCENE_HEIGHT,
-        record: record_save_changes_dialog,
+        record: Record::Plain(record_save_changes_dialog),
     },
     Scene {
         name: "preferences-dialog",
         width: 960.0,
         height: 600.0,
-        record: record_preferences_dialog,
+        record: Record::Plain(record_preferences_dialog),
     },
     Scene {
         name: "preferences-language",
         width: 960.0,
         height: 600.0,
-        record: record_preferences_language,
+        record: Record::Plain(record_preferences_language),
     },
     Scene {
         name: "preferences-playback",
         width: 960.0,
         height: 600.0,
-        record: record_preferences_playback,
+        record: Record::Plain(record_preferences_playback),
     },
     Scene {
         name: "preferences-keyboard",
         width: 960.0,
         height: 600.0,
-        record: record_preferences_keyboard,
+        record: Record::Plain(record_preferences_keyboard),
     },
     Scene {
         name: "shortcut-conflict",
         width: 960.0,
         height: 600.0,
-        record: record_shortcut_conflict,
+        record: Record::Plain(record_shortcut_conflict),
+    },
+    Scene {
+        name: "theme-editor",
+        width: 960.0,
+        height: 600.0,
+        record: Record::Themed(record_theme_editor),
+    },
+    Scene {
+        name: "theme-contrast",
+        width: 960.0,
+        height: 600.0,
+        record: Record::Themed(record_theme_contrast),
     },
 ];
 
@@ -323,6 +352,141 @@ fn record_shortcut_conflict(bounds: Rect, list: &mut DisplayList, context: &Scen
         ..Modifiers::default()
     };
     press(&mut demo, list, Key::Character("n".into()), primary);
+}
+
+/// Presses and releases `key` with `modifiers` in `demo` (the theme editor's scenes).
+fn press_key(demo: &mut Demo, list: &mut DisplayList, key: &Key, modifiers: Modifiers) {
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        demo.input(
+            &InputEvent::Key {
+                key: key.clone(),
+                physical: orchestra_ui::PhysicalKey::Other,
+                state,
+                repeat: false,
+                modifiers,
+            },
+            list,
+        );
+    }
+}
+
+/// The Preferences on Appearance with Studio duplicated into "Studio (copy)" (F2.12b1) and the
+/// colour token `token` given the value `value`, typed into its field as a user would (the focus
+/// on it, *Primary*+A, the text). Answers the demonstration, for the scene to continue, and the
+/// theme the window would now draw with (the dark half of the pair the demonstration last sent
+/// it); `None` if the editor is not there (never expected: the scene is then drawn as far as it
+/// got, with the catalogue's theme).
+///
+/// # The half
+/// The scenes are drawn with a dark half ([`theme`]). A real window tells the interface which half
+/// it draws as soon as it exists ([`InputEvent::Appearance`]); headless nobody does, and the
+/// interface would believe it is the light one (its default): the editor would then show and
+/// change the light half's values beside swatches drawn in the dark one. So the scene tells it
+/// first, as the window does.
+fn theme_editor_with(
+    bounds: Rect,
+    list: &mut DisplayList,
+    context: &SceneContext,
+    token: orchestra_ui::ColorToken,
+    value: &str,
+) -> Option<(Demo, Theme)> {
+    let mut demo = Demo::new(&context.faces, &theme(), &context.app_name, &context.demo);
+    demo.layout(bounds, list);
+    demo.input(&InputEvent::Appearance(Appearance::Dark), list);
+    let ids = demo.actions()?;
+    demo.run_action(ids.preferences, list);
+    // *Duplicate* from the keyboard: the focus on it, then Space.
+    let duplicate = demo.theme_editor()?.duplicate_button();
+    demo.ui_mut().set_focus(Some(duplicate), list).ok()?;
+    press_key(
+        &mut demo,
+        list,
+        &Key::Named(NamedKey::Space),
+        Modifiers::default(),
+    );
+    // The token's field, in `ColorToken::ALL`'s order like the rows.
+    let index = orchestra_ui::ColorToken::ALL
+        .iter()
+        .position(|known| *known == token)?;
+    let field = demo.theme_editor()?.field(index)?;
+    demo.ui_mut().set_focus(Some(field), list).ok()?;
+    let primary = Modifiers {
+        primary: true,
+        ..Modifiers::default()
+    };
+    press_key(&mut demo, list, &Key::Character("a".into()), primary);
+    demo.input(&InputEvent::Text(value.to_owned()), list);
+    // The last theme sent to the window: the one it would draw with now.
+    let mut drawn_with = theme();
+    while let Some(request) = demo.take_window_request() {
+        if let orchestra_ui::WindowRequest::SetTheme { pair, .. } = request {
+            drawn_with = *pair.instance(Appearance::Dark);
+        }
+    }
+    Some((demo, drawn_with))
+}
+
+/// Scrolls the Appearance section by `pixels` (positive: towards the top), as a wheel turned over
+/// it: the pointer first moves to the centre of the Preferences' panel, which lies in the
+/// section's scroll area (the list of sections takes only the panel's left quarter), then the
+/// turn. A turn far larger than the section stops at its end. Nothing if the Preferences are
+/// closed.
+fn scroll_section(demo: &mut Demo, list: &mut DisplayList, pixels: f32) {
+    let Some(rect) = demo.preferences().and_then(|panel| demo.ui().rect(panel)) else {
+        return;
+    };
+    demo.input(
+        &InputEvent::PointerMoved {
+            position: orchestra_ui::Point::new(
+                f32::midpoint(rect.x0, rect.x1),
+                f32::midpoint(rect.y0, rect.y1),
+            ),
+        },
+        list,
+    );
+    demo.input(
+        &InputEvent::Wheel {
+            delta: orchestra_ui::WheelDelta::Pixels { x: 0.0, y: pixels },
+        },
+        list,
+    );
+}
+
+/// The theme editor (F2.12b1, ADR-0037 T7): a custom theme duplicated from Studio, with the
+/// accent of its dark half changed to a light blue. The whole window already draws with it (the
+/// selected section, the dialog's frame, the check box behind, the swatch), *Restore* is enabled
+/// on that row only; the note about the half and the first ten colours are in view.
+fn record_theme_editor(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme {
+    // The value is a picture's choice, not a colour of a theme: a blue far from Studio's orange,
+    // light enough to keep the contrast of the dark text written on the accent.
+    // The section stays where typing left it: the accent's row in view, at the bottom (the top,
+    // with the theme and the editor's buttons, is in `preferences-dialog`).
+    theme_editor_with(
+        bounds,
+        list,
+        context,
+        orchestra_ui::ColorToken::Accent,
+        "#5b9bf0",
+    )
+    .map_or_else(theme, |(_, drawn_with)| drawn_with)
+}
+
+/// The end of the theme editor (F2.12b1, ADR-0037 T8): secondary text made too light, so its row
+/// carries the warning mark and the *Contrast* heading lists the pairs below their threshold, with
+/// the ratio reached and the one needed. The section is scrolled to its end with the wheel over it.
+fn record_theme_contrast(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme {
+    // A grey close to the dark surfaces: below 4.5:1 on all four.
+    let Some((mut demo, drawn_with)) = theme_editor_with(
+        bounds,
+        list,
+        context,
+        orchestra_ui::ColorToken::TextMuted,
+        "#4a4a48",
+    ) else {
+        return theme();
+    };
+    scroll_section(&mut demo, list, -10_000.0);
+    drawn_with
 }
 
 /// The demonstration window with the Preferences open (F2.12a4a, ADR-0050 DG8–DG9), as their menu
@@ -554,13 +718,17 @@ pub fn render(scene: &Scene, renderer: &mut CpuRenderer) -> Result<Image, Screen
     let (width, height) = scene.device_size()?;
     let context = SceneContext::new()?;
     let mut list = DisplayList::new();
-    (scene.record)(
-        Rect::from_origin_size(0.0, 0.0, scene.width, scene.height),
-        &mut list,
-        &context,
-    );
+    let bounds = Rect::from_origin_size(0.0, 0.0, scene.width, scene.height);
+    // The theme to draw with: the catalogue's, or the one a themed scene answers (see `Record`).
+    let drawn_with = match scene.record {
+        Record::Plain(record) => {
+            record(bounds, &mut list, &context);
+            theme()
+        }
+        Record::Themed(record) => record(bounds, &mut list, &context),
+    };
     renderer
-        .render_to_image(&list, &theme(), width, height, SCALE)
+        .render_to_image(&list, &drawn_with, width, height, SCALE)
         .map_err(|error| ScreenshotError::Draw {
             scene: scene.name,
             error,

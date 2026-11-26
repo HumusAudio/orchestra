@@ -5689,13 +5689,83 @@ request and the whole keyboard written, the replacement question, the import wit
 the saved differences, the question before replacing one's own shortcuts, a file that cannot be
 imported. The screenshot `preferences-keyboard` shows the two buttons.
 
-#### The theme editor (work in progress, F2.12b1)
+#### The theme editor
 
-Being written on `feature/f2-12b1-theme-editor`: `crates/app/src/preferences/theme.rs` (custom
-themes duplicated, renamed, deleted; each colour edited as `#rrggbb` with a live preview of the
-half on screen; contrast warnings with the language's decimal separator,
-`number-decimal-separator`), `Swatch`, `DropDown::set_values`, `InputEvent::Appearance` and
-`Ui::appearance`. Not finished: tests, screenshots, guides and this section's full text.
+**What the user sees** (ADR-0037 T7–T8, SCALETTA F2.12b1, owner's choices 1–8 of 2026-11-25).
+Under *Theme*, *Mode* and *Blinking cursor*, the Appearance section (which now scrolls) shows
+*Duplicate* and *Delete*. With a built-in pair chosen, a muted line says it cannot be changed and
+*Delete* is disabled. *Duplicate* makes a custom theme from the chosen one, named "Studio (copy)"
+(a number is added when the name is taken), and chooses it; the theme drop-down lists the ten
+pairs, then every custom theme. A custom theme shows its **Name** (a field, committed with Enter
+or when left), the heading **Colors** with a line saying which half is shown, one row per colour
+token (a warning dot, its name, a swatch, its value, *Restore*), then the heading **Contrast** with
+the pairs below their threshold, or a line saying none is. *Delete* asks *Delete the theme
+"Name"?* and goes back to the theme's base.
+
+**Values** (`crates/app/src/preferences/theme.rs`). A value is read by `parse_color`: `#rrggbb` or
+`#rrggbbaa`, the `#` optional, any case, spaces ignored; anything else is `None` and changes
+nothing (the text stays in the field). `color_text` writes it back (`#rrggbb` when opaque).
+`format_ratio` writes a ratio with one decimal and the language's separator, the catalogues'
+`number-decimal-separator` (owner's correction of choice 6: Fluent does not localise decimals):
+
+```rust
+let tenths = (value * 10.0).round() as i64;
+format!("{}{separator}{}", tenths / 10, (tenths % 10).abs())
+```
+
+**The settings are the theme.** Every action is a function on `Settings`: `duplicate`,
+`rename_chosen` (trimmed, made unique by `unique_name`, empty or unchanged does nothing),
+`delete_chosen` (back to the base), `choose` (the drop-down's index), `set_color(settings, half,
+token, color)`. `set_color` keeps only the differences (T7): the token's earlier overrides of that
+half go, and a value equal to the base's adds none, so *Restore* is just `set_color(…, None)`:
+
+```rust
+overrides.retain(
+    |item| !matches!(item, ThemeOverride::Color { token: name, .. } if name == token.name()),
+);
+if let Some(color) = color.filter(|color| *color != base) {
+    overrides.push(ThemeOverride::Color { token: token.name().to_owned(), rgba: /* … */ });
+}
+```
+
+The window's theme is then derived from the settings again (`theme_from_settings`), so there is
+one source of truth: what is saved is what is drawn. `theme_values` lists the drop-down's values;
+a custom choice whose theme is missing shows Studio, as the window draws it.
+
+**The half edited** (choice 2). The editor shows and edits the half the window draws. The window
+tells the interface which one with the new `InputEvent::Appearance(half)`, sent as soon as the
+window exists and whenever the half changes (the system switched, or the user chose a mode);
+`Ui::appearance()` remembers it. The demonstration passes it to `ThemeEditor::show_half`, which
+rewrites the fields, the note, the marks and the contrast lines without rebuilding anything (the
+focus stays where it is).
+
+**The widgets.** `ThemeEditor` keeps the IDs of the drop-down, *Duplicate*, *Delete*, the area
+rebuilt when another theme is chosen, the name field, the note, the rows and the contrast column.
+`handle(message)` changes the settings and the widgets and answers a `ThemeOutcome`: nothing,
+`Theme` (the demonstration applies the settings' theme to the window and to the interface: the
+whole window is the preview) or `Ask(dialog)`. Each colour field sends its message through a plain
+function, one per token (`color_message::<I>`, ADR-0045 WA7), on every change, so a value is
+applied as soon as it is a colour. Two new widgets help: `Swatch` (`crates/ui/src/widget/swatch.rs`)
+draws a small square filled with a colour token, so it follows every change by itself, and
+`DropDown::set_values` replaces a drop-down's values and choice (the custom themes come and go).
+
+**Contrast** (choice 5, T8). `contrast_lines` turns `Theme::contrast_failures` into one line per
+pair below its threshold, "Normal text on Window background: 1.0:1, at least 4.5:1"; the tokens of
+those pairs get a "●" in the warning colour. Never a block: the colour is the theme's all the
+same.
+
+**Texts.** The 24 colour names (`theme-color-*`), the editor's 15 texts and
+`number-decimal-separator`, in the six catalogues; the glossary gains the colour names and the
+editor's words (KDE's colour scheme catalogues, MuseScore Studio's).
+
+**Tests.** In `theme.rs` (6): colours read and written, ratios, unique names, duplicate, choose,
+rename and delete, only the differences kept, the contrast lines with either separator.
+`crates/app/tests/theme.rs` (7), through the demonstration and the keyboard (the section scrolls,
+so a click could miss): a pair duplicated, a colour typed and restored, a value that is not a
+colour, the fields following the half, a pair below its threshold marked and listed, the name
+committed and made unique, *Delete* asked and answered, the texts in six languages. Four injected
+bugs were caught. The screenshots `theme-editor` and `theme-contrast` show a theme with its accent
+changed and the contrast warnings; `preferences-dialog` now shows *Duplicate* and *Delete*.
 
 #### The file choosers
 
@@ -6008,7 +6078,7 @@ pub const SCENES: &[Scene] = &[Scene {
     name: "demo-window",
     width: 640.0,
     height: 370.0,
-    record: record_demo_window,
+    record: Record::Plain(record_demo_window),
 }];
 
 fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
@@ -6017,6 +6087,8 @@ fn record_demo_window(bounds: Rect, list: &mut DisplayList, context: &SceneConte
     demo.input(&InputEvent::Key { key: Key::Named(NamedKey::Tab), /* … */ }, list);
 }
 ```
+
+Since F2.12b1 `record` is a `Record`: `Plain` scenes (all but two) are drawn with `theme()`; `Themed` scenes answer the theme to draw with. The theme editor's scenes need it: their colours change the theme itself, which a real window receives as a request (`WindowRequest::SetTheme`) and a headless scene must hand to `render`. They also tell the demonstration first that the half on screen is the dark one (`InputEvent::Appearance`), as a window does when it opens.
 
 `render` draws a scene with `CpuRenderer::render_to_image` at **scale 2** (a 640-pixel-wide scene
 becomes 1280 pixels, about 200 dpi across the text width of an A4 page) in **Studio's dark half**,

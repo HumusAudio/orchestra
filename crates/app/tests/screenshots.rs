@@ -119,7 +119,7 @@ fn bad_sizes_are_rejected() {
             name: "bad",
             width,
             height,
-            record: nothing,
+            record: orchestra_app::Record::Plain(nothing),
         };
         let error = render(
             &scene,
