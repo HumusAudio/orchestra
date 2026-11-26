@@ -314,16 +314,22 @@ prefs-shortcuts-import-error-damaged = Il file è danneggiato: non si può legge
 prefs-shortcuts-export-error-title = Impossibile esportare «{ $file }»
 
 ## The theme editor in the Preferences' Appearance section (F2.12b1, ADR-0037 T7–T8; glossary:
-## theme_color_names, accent_color, duplicate, delete, color, decimal_separator). The colour names
+## theme_color_names, accent_color, duplicate, delete, color, readability). The colour names
 ## are those of the theme's tokens, as the editor lists them; the user picks a value for each.
-## number-decimal-separator is the character written between the whole part and the decimals of a
-## number in this language ("3.2" or "3,2"): the program writes the contrast ratios with it,
-## because Fluent does not localise decimals. $name is a theme's name; $color, $foreground and
-## $background are colour names (theme-color-*); $ratio and $minimum are ratios already written
-## with one decimal ("3,2"). The editing notes name the Mode control and its values
-## (prefs-mode, prefs-mode-light, prefs-mode-dark): keep them identical.
+## $name is a theme's name; $color and $background are colour names (theme-color-*). The editing
+## notes name the Mode control and its values (prefs-mode, prefs-mode-light, prefs-mode-dark):
+## keep them identical.
+## prefs-theme-readability-issue tells, in plain words and without numbers, that a colour is hard
+## to read on a colour behind it, and what to do. $color is the colour that is hard to see,
+## $background the colour behind it where it is worst (both names of rows of the editor, so the
+## user finds them), $count how many OTHER colours behind it are a problem too (0 or more).
+## $kind is "text" (letters) or "graphic" (a line or a shape: borders, the focus ring, a switch
+## that is on). $severity is "invisible" (almost invisible), "hard" (hard to read or to make out)
+## or "weak" (readable, but not well enough for people who do not see well; text only).
+## $direction is "lighter" when $color is the lighter of the two (so the advice is to make it
+## lighter still, or the colours behind it darker) and "darker" otherwise. Address the user as
+## the rest of the catalogue does.
 
-number-decimal-separator = ,
 prefs-theme-duplicate = Duplica
 prefs-theme-delete = Elimina
 prefs-theme-name = Nome
@@ -334,9 +340,37 @@ prefs-theme-editing-light = Questi sono i colori della metà chiara. Per cambiar
 prefs-theme-editing-dark = Questi sono i colori della metà scura. Per cambiare la metà chiara, scegli Chiaro in Modalità.
 prefs-theme-restore = Ripristina
 prefs-theme-value-name = Valore di «{ $color }»
-prefs-theme-contrast = Contrasto
-prefs-theme-contrast-ok = Tutti i testi e i controlli hanno abbastanza contrasto.
-prefs-theme-contrast-low = { $foreground } su { $background }: { $ratio }:1, almeno { $minimum }:1
+prefs-theme-readability = Leggibilità
+prefs-theme-readability-ok = Tutti i testi e i controlli si leggono bene.
+prefs-theme-readability-issue =
+    { $kind ->
+        [graphic]
+            { $severity ->
+                [invisible] Il colore «{ $color }» è quasi invisibile su «{ $background }»
+               *[hard] Il colore «{ $color }» si distingue a fatica su «{ $background }»
+            }
+       *[text]
+            { $severity ->
+                [invisible] Il colore «{ $color }» è quasi invisibile su «{ $background }»
+                [hard] Il colore «{ $color }» si legge a fatica su «{ $background }»
+               *[weak] Il colore «{ $color }» si legge su «{ $background }», ma non abbastanza bene per chi vede poco
+            }
+    }{ $count ->
+        [0] .
+        [one] {" "}e su un altro colore.
+       *[other] {" "}e su altri { $count } colori.
+    } { $direction ->
+        [lighter]
+            { $count ->
+                [0] Rendilo più chiaro, oppure rendi più scuro «{ $background }».
+               *[other] Rendilo più chiaro, oppure rendi più scuri i colori che ha dietro.
+            }
+       *[darker]
+            { $count ->
+                [0] Rendilo più scuro, oppure rendi più chiaro «{ $background }».
+               *[other] Rendilo più scuro, oppure rendi più chiari i colori che ha dietro.
+            }
+    }
 prefs-theme-delete-title = Eliminare il tema «{ $name }»?
 prefs-theme-delete-message = I suoi colori andranno persi.
 dialog-delete = Elimina

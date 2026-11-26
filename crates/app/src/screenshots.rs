@@ -471,9 +471,11 @@ fn record_theme_editor(bounds: Rect, list: &mut DisplayList, context: &SceneCont
     .map_or_else(theme, |(_, drawn_with)| drawn_with)
 }
 
-/// The end of the theme editor (F2.12b1, ADR-0037 T8): secondary text made too light, so its row
-/// carries the warning mark and the *Contrast* heading lists the pairs below their threshold, with
-/// the ratio reached and the one needed. The section is scrolled to its end with the wheel over it.
+/// The theme editor's readability warning (F2.12b1, ADR-0037 T8, owner's requests of
+/// 2026-11-26): secondary text made too dark on the dark half, so the box at the top says in plain
+/// words that it is almost invisible on the menus' background and on three other colours, and to
+/// make it lighter; its row and its backgrounds' rows carry the warning dot. The section is
+/// scrolled back to its top with the wheel over it (typing had scrolled to the field).
 fn record_theme_contrast(bounds: Rect, list: &mut DisplayList, context: &SceneContext) -> Theme {
     // A grey close to the dark surfaces: below 4.5:1 on all four.
     let Some((mut demo, drawn_with)) = theme_editor_with(
@@ -485,7 +487,7 @@ fn record_theme_contrast(bounds: Rect, list: &mut DisplayList, context: &SceneCo
     ) else {
         return theme();
     };
-    scroll_section(&mut demo, list, -10_000.0);
+    scroll_section(&mut demo, list, 10_000.0);
     drawn_with
 }
 

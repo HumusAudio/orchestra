@@ -310,35 +310,52 @@ fn the_fields_follow_the_half_on_screen() {
 }
 
 #[test]
-fn a_pair_below_its_threshold_is_marked_and_listed() {
+fn a_colour_hard_to_read_is_explained_at_the_top() {
     let (mut demo, mut list) = appearance_section();
     duplicate(&mut demo, &mut list);
     let editor = demo.theme_editor().unwrap();
-    let contrast = editor.contrast_column().unwrap();
+    let column = editor.readability_column().unwrap();
     let (text_row, surface_row) = (row(ColorToken::Text), row(ColorToken::Surface));
     let surface = field_text(&demo, editor.field(surface_row).unwrap());
     let text_field = editor.field(text_row).unwrap();
+    // At the top: above the first colour's row, so it is seen without scrolling.
+    let top = demo.ui().rect(column).unwrap().y0;
+    assert!(top < demo.ui().rect(editor.field(0).unwrap()).unwrap().y0);
     assert_eq!(
-        labels_under(&demo, contrast),
-        ["Every text and control keeps enough contrast."]
+        labels_under(&demo, column),
+        ["Every text and control is easy to read."]
     );
     assert_eq!(label(&demo, editor.mark(text_row).unwrap()), "");
-    // Normal text the colour of the window's background: both marked, the pair listed.
+    // Normal text the colour of the window's background: both marked, one plain sentence that
+    // names the two colours as the rows do, says how bad it is and what to do; no numbers.
     type_into(&mut demo, &mut list, text_field, &surface);
     let editor = demo.theme_editor().unwrap();
     assert_eq!(label(&demo, editor.mark(text_row).unwrap()), "\u{25cf}");
     assert_eq!(label(&demo, editor.mark(surface_row).unwrap()), "\u{25cf}");
-    let lines = labels_under(&demo, contrast);
+    let lines = labels_under(&demo, column);
+    assert_eq!(lines.len(), 2, "the dot and one sentence: {lines:?}");
+    assert_eq!(lines[0], "\u{25cf}");
+    let sentence = &lines[1];
     assert!(
-        lines.contains(&"Normal text on Window background: 1.0:1, at least 4.5:1".to_owned()),
-        "{lines:?}"
+        sentence.starts_with(
+            "The color “Normal text” is almost invisible on “Window background” and on "
+        ),
+        "{sentence}"
     );
+    assert!(
+        sentence.ends_with("other colors. Make it lighter, or make the colors behind it darker."),
+        "{sentence}"
+    );
+    assert!(!sentence.contains(':'), "no ratio: {sentence}");
     // Never a block: the colour is the theme's all the same.
     assert!(saved(&demo, Appearance::Light, ColorToken::Text).is_some());
-    // Restored: no line, no mark.
+    // Restored: the reassuring line again, no mark.
     let restore = editor.restore_button(text_row).unwrap();
     press(&mut demo, &mut list, restore);
-    assert_eq!(labels_under(&demo, contrast).len(), 1);
+    assert_eq!(
+        labels_under(&demo, column),
+        ["Every text and control is easy to read."]
+    );
     let editor = demo.theme_editor().unwrap();
     assert_eq!(label(&demo, editor.mark(text_row).unwrap()), "");
 }
@@ -426,12 +443,20 @@ fn the_texts_exist_in_the_six_languages() {
             texts.color_names.iter().all(|name| !name.is_empty()),
             "{locale:?}"
         );
-        assert!(!texts.decimal.is_empty(), "{locale:?}");
-        for (template, variables) in texts.templates() {
-            for index in 0..variables {
-                assert_eq!(template.slots(index), 1, "{locale:?}: {template:?}");
-            }
-            assert_eq!(template.slots(variables), 0, "{locale:?}: {template:?}");
+        for template in texts.templates() {
+            assert_eq!(template.slots(0), 1, "{locale:?}: {template:?}");
+            assert_eq!(template.slots(1), 0, "{locale:?}: {template:?}");
+        }
+        // The readability sentences: the colour named once, the colour behind at least once (a
+        // form may name it again in its advice), nothing else left to fill, no number but the
+        // count of other colours.
+        assert_eq!(texts.issues.len(), 70, "{locale:?}");
+        for template in &texts.issues {
+            assert_eq!(template.slots(0), 1, "{locale:?}: {template:?}");
+            assert!(template.slots(1) >= 1, "{locale:?}: {template:?}");
+            assert_eq!(template.slots(2), 0, "{locale:?}: {template:?}");
+            let text = template.fill(&["A", "B"]);
+            assert!(!text.contains(['{', '}', ':']), "{locale:?}: {text}");
         }
     }
 }

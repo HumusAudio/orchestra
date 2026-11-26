@@ -66,6 +66,9 @@ musescore-appearance = "https://github.com/musescore/MuseScore/tree/main/share/l
 musescore-preferences = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: MuseScore Studio's Preferences ('Language', 'Keyboard', 'Shortcuts', 'Restart required')"
 gtk-file-chooser = "https://gitlab.gnome.org/GNOME/gtk/-/tree/main/po — GTK 4 catalogues (it, fr, de, es, en_GB): the file chooser's question about an existing file ('A file named “%s” already exists.  Do you want to replace it?', '_Replace', '_Cancel', '_Save')"
 kde-colors = "https://websvn.kde.org/trunk/l10n-kf6/ — <lang>/messages/plasma-workspace/kcm_colors.po: KDE Plasma's colour scheme roles (View/Window/Button/Selection/Tooltip Background, Normal/Inactive/Negative/Neutral/Positive Text, Focus and Hover Decoration, Accent color) in it, fr, de, es, en_GB"
+w3c-contrast = "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html — Understanding SC 1.4.3 Contrast (Minimum): why text needs enough contrast to be readable"
+web-dev-es = "https://web.dev/learn/accessibility/color-contrast/?hl=es — 'Color y contraste' (Spanish): 'legibilidad' of text and colour contrast"
+intopia-de = "https://intopia.digital/wp-content/uploads/2024/05/German-WCAG-2.2-Map-by-Intopia.pdf — German WCAG 2.2 map: '1.4.3 Kontrast (Minimum)'"
 musescore-articulations = "https://github.com/musescore/MuseScore/tree/main/share/locale — musescore_<lang>.ts: the articulation symbols' names ('Accent above', 'Soft accent above', 'Stress above', 'Unstress above', 'Marcato above'), 'Articulations', 'Dynamics'"
 
 # ================================================================================================
@@ -1043,16 +1046,16 @@ note = "A colour of the interface (F2.12b1: the theme editor's 'Colors' and 'Its
 review = false
 
 [[term]]
-id = "decimal_separator"
+id = "readability"
 category = "general"
-en-US = "."
-en-GB = "."
-it = ","
-fr = ","
-de = ","
-es = ","
-sources = ["wikipedia"]
-note = "The character between a number's whole part and its decimals (number-decimal-separator, F2.12b1): Fluent does not localise decimals, so the program writes them with this catalogue's character. English uses the point; Italian, French, German and Spanish the comma (Wikipedia, 'Decimal separator', and each language's article). Spanish in Mexico and parts of Latin America uses the point; our 'es' is Spain's Spanish. Research 2026-11-25."
+en-US = "readability"
+en-GB = "readability"
+it = "leggibilità"
+fr = "lisibilité"
+de = "Lesbarkeit"
+es = "legibilidad"
+sources = ["w3c-contrast", "web-dev-es", "intopia-de"]
+note = "The theme editor's heading over its contrast warnings (prefs-theme-readability, F2.12b1, owner's request of 2026-11-26: plain words, no ratios). WCAG's own word for the measure is 'contrast' (de 'Kontrast', es/fr 'contraste'), but its Understanding page explains it in terms of text being readable; the owner asked for a word anyone understands, so the heading names the effect, not the measure. 'Leggibilità', 'lisibilité', 'Lesbarkeit' and 'legibilidad' are the common words for how easily text can be read (es: web.dev's Spanish pages on colour contrast; de: the German WCAG 2.2 map). The warnings themselves say 'almost invisible', 'hard to read', 'hard to make out', 'not well enough for people who don't see well' in each language's ordinary words. Research 2026-11-26."
 review = false
 
 [[term]]

@@ -6069,23 +6069,15 @@ scorre) mostra *Duplica* ed *Elimina*. Con una coppia integrata scelta, una riga
 non si può cambiare ed *Elimina* è disattivato. *Duplica* fa un tema personalizzato da quello
 scelto, chiamato "Studio (copia)" (con un numero aggiunto quando il nome è già preso), e lo sceglie;
 il menu a tendina del tema elenca le dieci coppie, poi ogni tema personalizzato. Un tema
-personalizzato mostra il suo **Nome** (un campo, confermato con Invio o quando lo si lascia), il
-titolo **Colori** con una riga che dice quale metà è mostrata, una riga per ogni token di colore
-(un pallino di avviso, il nome, un campione, il valore, *Ripristina*), poi il titolo **Contrasto**
-con le coppie sotto la loro soglia, oppure una riga che dice che non ce n'è nessuna. *Elimina*
-chiede *Eliminare il tema «Nome»?* e torna alla base del tema.
+personalizzato mostra il suo **Nome** (un campo, confermato con Invio o quando lo si lascia), poi
+**Leggibilità** (sotto), poi il titolo **Colori** con una riga che dice quale metà è mostrata, e una
+riga per ogni token di colore (un pallino di avviso, il nome, un campione, il valore,
+*Ripristina*). *Elimina* chiede *Eliminare il tema «Nome»?* e torna alla base del tema.
 
 **I valori** (`crates/app/src/preferences/theme.rs`). Un valore è letto da `parse_color`:
 `#rrggbb` o `#rrggbbaa`, il `#` facoltativo, maiuscole o minuscole, spazi ignorati; qualunque altra
 cosa è `None` e non cambia nulla (il testo resta nel campo). `color_text` lo riscrive (`#rrggbb`
-quando è opaco). `format_ratio` scrive un rapporto con un decimale e il separatore della lingua,
-`number-decimal-separator` dei cataloghi (correzione del proprietario alla scelta 6: Fluent non
-localizza i decimali):
-
-```rust
-let tenths = (value * 10.0).round() as i64;
-format!("{}{separator}{}", tenths / 10, (tenths % 10).abs())
-```
+quando è opaco).
 
 **Le impostazioni sono il tema.** Ogni azione è una funzione su `Settings`: `duplicate`,
 `rename_chosen` (spazi tolti, reso unico da `unique_name`, vuoto o invariato non fa nulla),
@@ -6126,24 +6118,54 @@ nuovi: `Swatch` (`crates/ui/src/widget/swatch.rs`) disegna un quadratino pieno d
 colore, quindi segue da solo ogni cambiamento, e `DropDown::set_values` sostituisce i valori e la
 scelta di un menu a tendina (i temi personalizzati vanno e vengono).
 
-**Il contrasto** (scelta 5, T8). `contrast_lines` trasforma `Theme::contrast_failures` in una riga
-per ogni coppia sotto la sua soglia, "Testo normale su Sfondo delle finestre: 1,0:1, almeno 4,5:1";
-i token di quelle coppie ricevono un "●" nel colore degli avvisi. Mai un blocco: il colore è del
-tema lo stesso.
+**La leggibilità** (scelta 5, T8, richieste del proprietario del 2026-11-26). In cima a un tema
+personalizzato, così si vede senza scorrere, e **con parole semplici, senza numeri**: il
+proprietario ha trovato i rapporti ("1,9:1, almeno 4,5:1") incomprensibili per la maggior parte
+delle persone. `readability_issues(theme)` raggruppa le coppie che non passano di
+`Theme::contrast_failures` per il colore che si vede male (il testo secondario troppo scuro dà una
+frase, non quattro) e tiene, per ciascuno, il colore dietro su cui va peggio, quanti altri non
+passano, e due cose ricavate dal rapporto peggiore e dai colori:
 
-**Testi.** I 24 nomi dei colori (`theme-color-*`), i 15 testi dell'editor e
-`number-decimal-separator`, nei sei cataloghi; il glossario si arricchisce dei nomi dei colori e
-delle parole dell'editor (cataloghi degli schemi di colore di KDE, quelli di MuseScore Studio).
+```rust
+fn of(ratio: f64) -> Self {
+    if ratio < 2.0 { Self::Invisible } else if ratio < 3.0 { Self::Hard } else { Self::Weak }
+}
+// …
+issue.direction = if relative_luminance(seen) >= relative_luminance(behind) {
+    Direction::Lighter
+} else {
+    Direction::Darker
+};
+```
 
-**Test.** In `theme.rs` (6): colori letti e scritti, rapporti, nomi unici, duplica, scelta,
-rinomina ed elimina, solo le differenze conservate, le righe di contrasto con l'uno e l'altro
-separatore. `crates/app/tests/theme.rs` (7), attraverso la finestra di prova e la tastiera (la
+Le soglie sono del proprietario: sotto 2:1 *quasi invisibile*, sotto 3:1 *si legge a fatica* (o *si
+distingue a fatica* per la grafica, la cui soglia è 3:1), poi fino a 4,5:1 *si legge, ma non
+abbastanza bene per chi vede poco*. La direzione dice da che parte spostare il colore: lontano da
+quello che ha dietro. I problemi più gravi vengono prima. La frase è un solo messaggio Fluent,
+`prefs-theme-readability-issue`, che **sceglie** in base a quattro valori (tipo, gravità, direzione,
+e il numero degli altri colori, un plurale) e nomina due colori. Siccome un messaggio che sceglie
+non può ricevere segnaposto per quei valori, `Template::with_values` lo formatta una volta per ogni
+combinazione possibile (5 tipi e gravità × 2 direzioni × 0–6 altri = 70 formattazioni brevi quando
+si sceglie la lingua) lasciando come segnaposto solo i nomi dei due colori; `issue_line` sceglie
+quella giusta e li riempie. Ogni problema ha lo stesso pallino di avviso delle righe; se non ce n'è
+nessuno, una riga attenuata dice che tutti i testi e i controlli si leggono bene. Mai un blocco.
+
+**Testi.** I 24 nomi dei colori (`theme-color-*`) e i testi dell'editor nei sei cataloghi;
+`number-decimal-separator` se n'è andato insieme ai numeri. Il glossario si arricchisce dei nomi
+dei colori, delle parole dell'editor e di *leggibilità* (en *readability*, fr *lisibilité*, de
+*Lesbarkeit*, es *legibilidad*; cataloghi degli schemi di colore di KDE, quelli di MuseScore
+Studio, la pagina Understanding delle WCAG, web.dev in spagnolo, una mappa tedesca delle WCAG 2.2).
+
+**Test.** In `theme.rs` (8): colori letti e scritti, nomi unici, duplica, scelta, rinomina ed
+elimina, solo le differenze conservate, le soglie di gravità, i problemi raggruppati per colore con
+la loro direzione, il testo debole e la grafica con il peggiore per primo, ogni combinazione con la
+sua frase. `crates/app/tests/theme.rs` (7), attraverso la finestra di prova e la tastiera (la
 sezione scorre, quindi un clic potrebbe mancare il bersaglio): una coppia duplicata, un colore
-scritto e ripristinato, un valore che non è un colore, i campi che seguono la metà, una coppia sotto
-la soglia segnata ed elencata, il nome confermato e reso unico, *Elimina* chiesto e risposto, i testi
-nelle sei lingue. Quattro bug inseriti di proposito sono stati presi. Gli screenshot `theme-editor` e
-`theme-contrast` mostrano un tema con l'accento cambiato e gli avvisi di contrasto;
-`preferences-dialog` adesso mostra *Duplica* ed *Elimina*.
+scritto e ripristinato, un valore che non è un colore, i campi che seguono la metà, un colore che si
+legge male spiegato in cima con una frase senza numeri, il nome confermato e reso unico, *Elimina*
+chiesto e risposto, i testi nelle sei lingue (le 70 frasi comprese). Sette bug inseriti di proposito
+sono stati presi. Gli screenshot `theme-editor` e `theme-contrast` mostrano un tema con l'accento
+cambiato e un avviso di leggibilità; `preferences-dialog` adesso mostra *Duplica* ed *Elimina*.
 
 #### Le finestre di scelta dei file
 

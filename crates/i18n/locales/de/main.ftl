@@ -314,16 +314,22 @@ prefs-shortcuts-import-error-damaged = Die Datei ist beschädigt: Sie kann nicht
 prefs-shortcuts-export-error-title = „{ $file }“ kann nicht exportiert werden
 
 ## The theme editor in the Preferences' Appearance section (F2.12b1, ADR-0037 T7–T8; glossary:
-## theme_color_names, accent_color, duplicate, delete, color, decimal_separator). The colour names
+## theme_color_names, accent_color, duplicate, delete, color, readability). The colour names
 ## are those of the theme's tokens, as the editor lists them; the user picks a value for each.
-## number-decimal-separator is the character written between the whole part and the decimals of a
-## number in this language ("3.2" or "3,2"): the program writes the contrast ratios with it,
-## because Fluent does not localise decimals. $name is a theme's name; $color, $foreground and
-## $background are colour names (theme-color-*); $ratio and $minimum are ratios already written
-## with one decimal ("3,2"). The editing notes name the Mode control and its values
-## (prefs-mode, prefs-mode-light, prefs-mode-dark): keep them identical.
+## $name is a theme's name; $color and $background are colour names (theme-color-*). The editing
+## notes name the Mode control and its values (prefs-mode, prefs-mode-light, prefs-mode-dark):
+## keep them identical.
+## prefs-theme-readability-issue tells, in plain words and without numbers, that a colour is hard
+## to read on a colour behind it, and what to do. $color is the colour that is hard to see,
+## $background the colour behind it where it is worst (both names of rows of the editor, so the
+## user finds them), $count how many OTHER colours behind it are a problem too (0 or more).
+## $kind is "text" (letters) or "graphic" (a line or a shape: borders, the focus ring, a switch
+## that is on). $severity is "invisible" (almost invisible), "hard" (hard to read or to make out)
+## or "weak" (readable, but not well enough for people who do not see well; text only).
+## $direction is "lighter" when $color is the lighter of the two (so the advice is to make it
+## lighter still, or the colours behind it darker) and "darker" otherwise. Address the user as
+## the rest of the catalogue does.
 
-number-decimal-separator = ,
 prefs-theme-duplicate = Duplizieren
 prefs-theme-delete = Löschen
 prefs-theme-name = Name
@@ -334,9 +340,37 @@ prefs-theme-editing-light = Dies sind die Farben der hellen Hälfte. Um die dunk
 prefs-theme-editing-dark = Dies sind die Farben der dunklen Hälfte. Um die helle Hälfte zu ändern, wählen Sie Hell unter Modus.
 prefs-theme-restore = Wiederherstellen
 prefs-theme-value-name = Wert von „{ $color }“
-prefs-theme-contrast = Kontrast
-prefs-theme-contrast-ok = Alle Texte und Bedienelemente haben genug Kontrast.
-prefs-theme-contrast-low = { $foreground } auf { $background }: { $ratio }:1, mindestens { $minimum }:1
+prefs-theme-readability = Lesbarkeit
+prefs-theme-readability-ok = Alle Texte und Bedienelemente sind gut lesbar.
+prefs-theme-readability-issue =
+    { $kind ->
+        [graphic]
+            { $severity ->
+                [invisible] Die Farbe „{ $color }“ ist auf „{ $background }“ fast unsichtbar
+               *[hard] Die Farbe „{ $color }“ ist auf „{ $background }“ schwer zu erkennen
+            }
+       *[text]
+            { $severity ->
+                [invisible] Die Farbe „{ $color }“ ist auf „{ $background }“ fast unsichtbar
+                [hard] Die Farbe „{ $color }“ ist auf „{ $background }“ schwer zu lesen
+               *[weak] Die Farbe „{ $color }“ ist auf „{ $background }“ lesbar, aber nicht gut genug für Menschen, die schlecht sehen
+            }
+    }{ $count ->
+        [0] .
+        [one] {" "}– und auf einer weiteren Farbe ebenso.
+       *[other] {" "}– und auf { $count } weiteren Farben ebenso.
+    } { $direction ->
+        [lighter]
+            { $count ->
+                [0] Machen Sie sie heller oder „{ $background }“ dunkler.
+               *[other] Machen Sie sie heller oder die Farben dahinter dunkler.
+            }
+       *[darker]
+            { $count ->
+                [0] Machen Sie sie dunkler oder „{ $background }“ heller.
+               *[other] Machen Sie sie dunkler oder die Farben dahinter heller.
+            }
+    }
 prefs-theme-delete-title = Die Darstellung „{ $name }“ löschen?
 prefs-theme-delete-message = Ihre Farben gehen verloren.
 dialog-delete = Löschen

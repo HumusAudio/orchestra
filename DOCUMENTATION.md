@@ -5697,21 +5697,13 @@ Under *Theme*, *Mode* and *Blinking cursor*, the Appearance section (which now s
 *Delete* is disabled. *Duplicate* makes a custom theme from the chosen one, named "Studio (copy)"
 (a number is added when the name is taken), and chooses it; the theme drop-down lists the ten
 pairs, then every custom theme. A custom theme shows its **Name** (a field, committed with Enter
-or when left), the heading **Colors** with a line saying which half is shown, one row per colour
-token (a warning dot, its name, a swatch, its value, *Restore*), then the heading **Contrast** with
-the pairs below their threshold, or a line saying none is. *Delete* asks *Delete the theme
-"Name"?* and goes back to the theme's base.
+or when left), then **Readability** (below), then the heading **Colors** with a line saying which
+half is shown, and one row per colour token (a warning dot, its name, a swatch, its value,
+*Restore*). *Delete* asks *Delete the theme "Name"?* and goes back to the theme's base.
 
 **Values** (`crates/app/src/preferences/theme.rs`). A value is read by `parse_color`: `#rrggbb` or
 `#rrggbbaa`, the `#` optional, any case, spaces ignored; anything else is `None` and changes
 nothing (the text stays in the field). `color_text` writes it back (`#rrggbb` when opaque).
-`format_ratio` writes a ratio with one decimal and the language's separator, the catalogues'
-`number-decimal-separator` (owner's correction of choice 6: Fluent does not localise decimals):
-
-```rust
-let tenths = (value * 10.0).round() as i64;
-format!("{}{separator}{}", tenths / 10, (tenths % 10).abs())
-```
 
 **The settings are the theme.** Every action is a function on `Settings`: `duplicate`,
 `rename_chosen` (trimmed, made unique by `unique_name`, empty or unchanged does nothing),
@@ -5749,23 +5741,53 @@ applied as soon as it is a colour. Two new widgets help: `Swatch` (`crates/ui/sr
 draws a small square filled with a colour token, so it follows every change by itself, and
 `DropDown::set_values` replaces a drop-down's values and choice (the custom themes come and go).
 
-**Contrast** (choice 5, T8). `contrast_lines` turns `Theme::contrast_failures` into one line per
-pair below its threshold, "Normal text on Window background: 1.0:1, at least 4.5:1"; the tokens of
-those pairs get a "●" in the warning colour. Never a block: the colour is the theme's all the
-same.
+**Readability** (choice 5, T8, owner's requests of 2026-11-26). At the top of a custom theme, so it
+is seen without scrolling, and **in plain words, without numbers**: the owner found the ratios
+("1.9:1, at least 4.5:1") meaningless to most people. `readability_issues(theme)` groups the
+failing pairs of `Theme::contrast_failures` by the colour that is hard to see (secondary text too
+dark gives one sentence, not four) and keeps, for each, the colour behind it where it is worst,
+how many others fail too, and two things worked out from the worst ratio and the colours:
 
-**Texts.** The 24 colour names (`theme-color-*`), the editor's 15 texts and
-`number-decimal-separator`, in the six catalogues; the glossary gains the colour names and the
-editor's words (KDE's colour scheme catalogues, MuseScore Studio's).
+```rust
+fn of(ratio: f64) -> Self {
+    if ratio < 2.0 { Self::Invisible } else if ratio < 3.0 { Self::Hard } else { Self::Weak }
+}
+// …
+issue.direction = if relative_luminance(seen) >= relative_luminance(behind) {
+    Direction::Lighter
+} else {
+    Direction::Darker
+};
+```
 
-**Tests.** In `theme.rs` (6): colours read and written, ratios, unique names, duplicate, choose,
-rename and delete, only the differences kept, the contrast lines with either separator.
-`crates/app/tests/theme.rs` (7), through the demonstration and the keyboard (the section scrolls,
-so a click could miss): a pair duplicated, a colour typed and restored, a value that is not a
-colour, the fields following the half, a pair below its threshold marked and listed, the name
-committed and made unique, *Delete* asked and answered, the texts in six languages. Four injected
-bugs were caught. The screenshots `theme-editor` and `theme-contrast` show a theme with its accent
-changed and the contrast warnings; `preferences-dialog` now shows *Duplicate* and *Delete*.
+The thresholds are the owner's: below 2:1 *almost invisible*, below 3:1 *hard to read* (or *hard
+to make out* for graphics, whose threshold is 3:1), then up to 4.5:1 *readable, but not well enough
+for people who don't see well*. The direction says which way to move the colour: away from the
+one behind it. The worst problems come first. The sentence is one Fluent message,
+`prefs-theme-readability-issue`, which **selects** on four values (kind, severity, direction, and
+the count of other colours, a plural) and names two colours. Since a message that selects cannot
+take placeholders for those values, `Template::with_values` formats it once per possible
+combination (5 kinds and severities × 2 directions × 0–6 others = 70 short formats when the
+language is chosen) with only the two colour names left as placeholders; `issue_line` picks the
+right one and fills them. Each problem is shown with the same warning dot as the rows; with none,
+a muted line says every text and control is easy to read. Never a block.
+
+**Texts.** The 24 colour names (`theme-color-*`) and the editor's texts in the six catalogues;
+`number-decimal-separator` is gone with the numbers. The glossary gains the colour names, the
+editor's words and *readability* (it *leggibilità*, fr *lisibilité*, de *Lesbarkeit*, es
+*legibilidad*; KDE's colour scheme catalogues, MuseScore Studio's, WCAG's Understanding page,
+web.dev in Spanish, a German WCAG 2.2 map).
+
+**Tests.** In `theme.rs` (8): colours read and written, unique names, duplicate, choose, rename
+and delete, only the differences kept, the severity thresholds, problems grouped by colour with
+their direction, weak text and graphics with the worst first, every combination with its own
+sentence. `crates/app/tests/theme.rs` (7), through the demonstration and the keyboard (the section
+scrolls, so a click could miss): a pair duplicated, a colour typed and restored, a value that is
+not a colour, the fields following the half, a colour hard to read explained at the top in one
+sentence without numbers, the name committed and made unique, *Delete* asked and answered, the
+texts in six languages (the 70 sentences included). Seven injected bugs were caught. The
+screenshots `theme-editor` and `theme-contrast` show a theme with its accent changed and a
+readability warning; `preferences-dialog` now shows *Duplicate* and *Delete*.
 
 #### The file choosers
 

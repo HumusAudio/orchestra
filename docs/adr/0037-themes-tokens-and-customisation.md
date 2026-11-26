@@ -218,9 +218,15 @@ explicitly rather than through the system. *(Since ADR-0041 S3 they use the dark
   `#` optional, any case). A value that is not a colour stays in the field and changes nothing.
 - **Only the differences are stored** (T7): a value equal to the base's removes the token's
   override instead of adding one, and *Restore* removes it.
-- **Contrast** (T8): every pair of `CONTRAST_PAIRS` below its threshold is shown, and the rows of
-  its two tokens carry a warning mark; never a block. How the warnings are worded and where they
-  stand is settled with the owner within F2.12b1 (see below, if amended).
+- **Contrast** (T8; owner's choices of 2026-11-26): the warnings stand **at the top** of a custom
+  theme, under its name, under the heading *Readability*, and are written **in plain words,
+  without numbers**. The failing pairs are grouped by the colour that is hard to see: one
+  sentence each, naming the colour behind it where it is worst and how many others fail too,
+  saying how bad it is (below 2:1 "almost invisible"; below 3:1 "hard to read", or "hard to make
+  out" for graphics; up to the threshold "readable, but not well enough for people who don't see
+  well") and what to do (make it lighter or darker, away from the colour behind it), the worst
+  first. The rows of the tokens involved carry a warning dot. With no problem, one line says
+  every text and control is easy to read. Never a block.
 - **Custom themes.** *Duplicate* copies the chosen theme (a built-in pair: its base, no
   overrides; a custom theme: its base and every override) under the name "Name (copy)"; a name
   already taken gets " (2)", " (3)"…, as does a rename. *Delete* asks first, then chooses the

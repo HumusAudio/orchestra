@@ -60,13 +60,16 @@ gives the colour back the value of the theme it came from.
   follow.
 ]
 
-Under *Contrast* Orchestra checks that every text and control can still be read: if a colour is too
-close to the one behind it, the pair is listed with the contrast it reaches and the one it should
-have, and the colour's row is marked with a dot. It is only advice: the colour stays yours.
+Under the name, *Readability* tells you whether everything can still be read. If a colour is too
+close to the one behind it, a sentence says so in plain words: how hard it is to see ("almost
+invisible", "hard to read", or readable "but not well enough for people who don't see well"), on
+which colour, and what to do, for example "Make it lighter, or make the colors behind it darker".
+The rows of the colours involved are marked with a dot, so you find them at once. It is only
+advice: the colour stays yours. When everything is fine, a short line says so.
 
 #screenshot-placeholder(
-  [Screenshot: the contrast warnings at the end of the section (theme-contrast.png)],
-  [Secondary text made too dark: four pairs below the contrast they need.],
+  [Screenshot: a readability warning at the top of the section (theme-contrast.png)],
+  [Secondary text made too dark: almost invisible on four backgrounds, with what to do.],
 )
 
 #tip("Tip")[

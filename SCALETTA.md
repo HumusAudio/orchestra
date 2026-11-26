@@ -741,9 +741,10 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12c | **Editor delle scorciatoie** (nelle Preferenze): ricerca dei comandi, nuova assegnazione, avviso dei conflitti, ripristino delle predefinite, importazione ed esportazione | ✅ (F2.12c1–c2) | 1–2 |
 | F2.12c1 | **L'editor** (sezione Tastiera): elenco dei comandi con le scorciatoie, ricerca, cattura della scorciatoia, tasti fissi rifiutati, conflitti con *Riassegna*, rimozione, ripristino di uno o di tutti, salvataggio immediato; testi, screenshot e guide | ✅ PR #101 | 1–1,5 |
 | F2.12c2 | **Importazione ed esportazione** di un file di scorciatoie: formato da decidere, finestre di scelta dei file, conflitti e azioni sconosciute all'importazione; testi e guide | ✅ PR #102 | 0,5 |
-| F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | 🔄 (F2.12b1–b2) | 2 |
+| F2.12b | **Editor dei temi** (ADR-0037 T7–T8): ogni token di colore e di forma, anteprima dal vivo, avvisi di contrasto (mai blocchi), ripristino del valore del tema di partenza, importazione ed esportazione di un tema | 🔄 (F2.12b1–b3) | 3 |
 | F2.12b1 | **Temi personalizzati e colori**: duplica, rinomina, elimina; ogni token di colore della metà mostrata con anteprima dal vivo e *Ripristina*; avvisi di contrasto; testi, screenshot e guide | 🔄 | 1 |
 | F2.12b2 | **Forme, testo, file**: token di forma e di testo (con la reimpaginazione di ADR-0044 TX9), importazione ed esportazione di un tema | ⬜ | 1 |
+| F2.12b3 | **Selettore visivo dei colori**: scegliere un colore senza scriverne il codice (area colore e tonalità, trascinamento, tastiera, accessibilità), accanto al campo `#rrggbb` | ⬜ | 1 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
@@ -1209,8 +1210,8 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.12c2** (nota originale, da F2.12c1): decidere il formato del file di scorciatoie (probabilmente le stesse voci del file delle impostazioni, con versione), e che cosa fare all'importazione con conflitti e azioni sconosciute (AM7: vince l'ultima voce, le sconosciute si conservano).
 - **F2.12c** L'editor delle scorciatoie usa il registro di F2.11; approvato dal proprietario il
   2026-11-12.
-- **F2.12b1** Scelte 1–8 approvate dal proprietario il 2026-11-25 (scelta 6 corretta: il separatore decimale nei cataloghi); precisioni di ADR-0037, ADR-0040, ADR-0050 e ADR-0041 approvate il 2026-11-26; provato a mano dal proprietario il 2026-11-26. Il proprietario chiede avvisi di contrasto più visibili (in cima) e scritti in modo colloquiale, comprensibile anche a chi non sa nulla di grafica.
-- **Compito futuro** (proprietario, 2026-11-26): scegliere un colore anche **visivamente** (un selettore di colore), non solo con il codice `#rrggbb`, che la maggior parte delle persone non sa interpretare. Passo da collocare.
+- **F2.12b1** Scelte 1–8 approvate dal proprietario il 2026-11-25 (scelta 6 corretta: il separatore decimale nei cataloghi); precisioni di ADR-0037, ADR-0040, ADR-0050 e ADR-0041 approvate il 2026-11-26; provato a mano dal proprietario il 2026-11-26. Il proprietario chiede avvisi di contrasto più visibili (in cima) e scritti in modo colloquiale, comprensibile anche a chi non sa nulla di grafica: fatto il 2026-11-26 ("Leggibilità" sotto il nome, una frase per colore senza numeri, soglie 2:1 e 3:1 approvate).
+- **F2.12b3** (proprietario, 2026-11-26): scegliere un colore anche **visivamente** (un selettore di colore), non solo con il codice `#rrggbb`, che la maggior parte delle persone non sa interpretare.
 - **F2.12b** Da F2.07c (2026-11-12): cambiare un token del testo (famiglia o dimensione) vuol dire
   impaginare di nuovo i testi e registrare di nuovo i loro segmenti, non solo ridisegnare
   (ADR-0044 TX9): l'editor dei temi deve farlo.
@@ -1556,4 +1557,4 @@ raccomandato.
 | 2026-11-25 | 0.94 | F2.12a5b fatto, quindi F2.12a5 fatto (PR #100: il progetto aperto, Nuovo con una battuta, il bug delle battute in un documento vuoto corretto in `core-model`; provato a mano dal proprietario); limiti annotati per F2.14 e F2.22; prossimo passo F2.12c | proprietario |
 | 2026-11-25 | 0.95 | F2.12c diviso in F2.12c1 (l'editor) e F2.12c2 (importazione ed esportazione); F2.12c1 fatto (PR #101; provato a mano dal proprietario); limite dei contesti annotato; prossimo passo F2.12c2 | proprietario |
 | 2026-11-25 | 0.96 | F2.12c2 fatto (PR #102, ADR-0051: file di scorciatoie; provato a mano dal proprietario), quindi F2.12c fatto; prossimo passo F2.12b | proprietario |
-| 2026-11-26 | 0.97 | F2.12b diviso in F2.12b1 (temi personalizzati e colori, in corso) e F2.12b2 (forme, testo, importazione ed esportazione); note in F2.12b1 (avvisi di contrasto più chiari) e compito futuro del selettore visivo dei colori | proprietario |
+| 2026-11-26 | 0.97 | F2.12b diviso in F2.12b1 (temi personalizzati e colori, in corso) e F2.12b2 (forme, testo, importazione ed esportazione); F2.12b3 (selettore visivo dei colori, chiesto dal proprietario); nota in F2.12b1: avvisi di leggibilità in cima, a parole e senza numeri | proprietario |
