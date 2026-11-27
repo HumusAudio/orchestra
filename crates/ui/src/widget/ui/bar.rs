@@ -127,6 +127,67 @@ impl<M: 'static> Ui<M> {
     ) -> Result<WidgetId, UiError> {
         let bar = self.add(parent, MenuBar { compact }, props)?;
         let root = self.tree.slot_of(bar).ok_or(UiError::UnknownWidget(bar))?;
+        let (titles, menus) = self.insert_bar_titles(root, model);
+        self.bar = Some(BarState {
+            root,
+            titles,
+            menus,
+            active: None,
+            open: None,
+            keyboard: false,
+        });
+        Ok(bar)
+    }
+
+    /// Gives the menu bar a new `model` (ADR-0053 LR1, F2.13): the same bar with other titles and
+    /// menus, typically the same menus in another language. The bar keeps its place, its slot and
+    /// its ID; the old titles go and the new ones are added in their place, so a model with more or
+    /// fewer submenus is fine too. The bar is left first (an open menu closes, the keyboard leaves
+    /// the titles), because its menu and its active title would otherwise point at titles that
+    /// no longer exist. Nothing happens without a bar (macOS, whose system bar is rebuilt by the
+    /// window instead, [`WindowRequest::RebuildSystemMenu`](crate::WindowRequest)).
+    ///
+    /// # Why not remove the bar and add another
+    /// Inside our title bar (F2.11b2) the bar is one child among the window's buttons, and the
+    /// title bar owns a second root, the window's frame: removing and adding again would have to
+    /// rebuild both and keep their order. Renaming in place keeps all of that untouched.
+    ///
+    /// # Cost
+    /// O(titles + menu items): the titles' widgets are made again (a handful) and the menus'
+    /// models cloned, as [`Ui::add_menu_bar`] does. It runs once per change of language.
+    pub fn set_menu_bar_model(&mut self, model: &MenuModel, list: &mut DisplayList) {
+        let Some(bar) = self.bar.as_ref() else {
+            return;
+        };
+        let root = bar.root;
+        let old = bar.titles.clone();
+        self.leave_bar(list);
+        for slot in old {
+            // `remove_slot` keeps the bar driven: only removing its root forgets it.
+            self.remove_slot(slot, list);
+        }
+        let (titles, menus) = self.insert_bar_titles(root, model);
+        if let Some(bar) = self.bar.as_mut() {
+            bar.titles = titles;
+            bar.menus = menus;
+        }
+        // The bar's children changed: it is laid out and recorded again, and its accessible node
+        // lists its new children.
+        self.tree.invalidate_layout(root);
+        if let Some(entry) = self.tree.slot_mut(root) {
+            entry.needs_record = true;
+            entry.needs_access = true;
+        }
+    }
+
+    /// Adds one [`BarTitle`] under the bar `root` for each submenu of `model`, in order, and
+    /// answers their slots with each title's menu (other items of `model` are ignored, as
+    /// [`Ui::add_menu_bar`] says).
+    fn insert_bar_titles(
+        &mut self,
+        root: usize,
+        model: &MenuModel,
+    ) -> (Vec<usize>, Vec<MenuModel>) {
         let mut titles = Vec::new();
         let mut menus = Vec::new();
         for item in &model.items {
@@ -145,15 +206,7 @@ impl<M: 'static> Ui<M> {
                 menus.push(items.clone());
             }
         }
-        self.bar = Some(BarState {
-            root,
-            titles,
-            menus,
-            active: None,
-            open: None,
-            keyboard: false,
-        });
-        Ok(bar)
+        (titles, menus)
     }
 
     /// The titles of the menu bar, in order (tests, screenshots); nothing without a bar.

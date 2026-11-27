@@ -36,18 +36,18 @@
 use std::collections::VecDeque;
 use std::time::Instant;
 
-use orchestra_i18n::{I18nError, Localizer};
+use orchestra_i18n::{I18nError, Locale, Localizer};
 use orchestra_text::{FaceId, Faces, GlyphBox, GlyphId, TextLayout};
 use orchestra_ui::{
     AccessAction, AccessUpdate, Align, Axis, Button, ButtonKind, ClipboardSource, ColorToken,
-    Constraints, DisplayList, FamilyToken, Flex, InputEvent, Label, LayoutCx, LayoutProps, Length,
-    Point, PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size, SizeToken, Slider, Space,
-    Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui, Weight, Widget, WidgetId,
-    WindowApp, WindowRequest,
+    Constraints, DisplayList, DropDown, FamilyToken, Flex, InputEvent, Label, LayoutCx,
+    LayoutProps, Length, Point, PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size,
+    SizeToken, Slider, Space, Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui,
+    Weight, Widget, WidgetId, WindowApp, WindowRequest,
 };
 use orchestra_ui::{
-    ActionId, ActionState, Decorations, FileChoice, FileRequest, MenuModel, Platform, SystemMenu,
-    SystemTexts, TitleBarSpec, WindowButtonNames,
+    ActionId, ActionState, Decorations, FileChoice, FileRequest, FixedLanguages, LanguageSource,
+    MenuModel, Platform, SystemMenu, SystemTexts, TitleBarSpec, WindowButtonNames,
 };
 
 use crate::about::{AboutTexts, about_dialog};
@@ -58,7 +58,7 @@ use crate::files::{
 };
 use crate::preferences::{
     self, Effect, KeyboardMessage, KeyboardOutcome, PreferencesMessage, PreferencesTexts,
-    PreferencesView, ShortcutEditor, ThemeEditor, ThemeMessage, ThemeOutcome,
+    PreferencesView, Section, ShortcutEditor, ThemeEditor, ThemeMessage, ThemeOutcome,
 };
 use crate::project::{OpenProject, ProjectEffect, ProjectFlow, SaveAnswer};
 use crate::settings::SettingsStore;
@@ -106,6 +106,11 @@ pub enum DemoMessage {
 /// The texts of the demonstration, from the catalogues (CLAUDE.md §7).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DemoTexts {
+    /// The language these texts are in (F2.13): the demonstration compares it with a newly
+    /// chosen one, so choosing the language already shown rebuilds nothing.
+    pub locale: Locale,
+    /// `app-name`: the program's name, the system menu's application menu title (macOS).
+    pub app_name: String,
     /// `playback-title`.
     pub title: String,
     /// `playback-metronome`.
@@ -148,6 +153,8 @@ impl DemoTexts {
         // The actions' texts first: the Preferences write the modifiers' names with their keys.
         let actions = actions::action_texts(localizer)?;
         Ok(Self {
+            locale: localizer.locale(),
+            app_name: localizer.format("app-name", None)?,
             title: localizer.format("playback-title", None)?,
             metronome: localizer.format("playback-metronome", None)?,
             count_in: localizer.format("playback-count-in", None)?,
@@ -212,20 +219,23 @@ const DEFAULT_VOLUME: f64 = 80.0;
 pub struct Demo {
     /// The widgets.
     ui: Ui<DemoMessage>,
-    /// The title label.
-    title: WidgetId,
-    /// The metronome check box.
-    metronome: WidgetId,
-    /// The count-in switch.
-    count_in: WidgetId,
-    /// The volume slider.
-    volume: WidgetId,
-    /// The track name's field.
-    track_name: WidgetId,
-    /// The staff, which shows the committed name.
-    staff: WidgetId,
-    /// The *Restore defaults* button (its tooltip is the screenshots' example, F2.11c).
-    restore_defaults: WidgetId,
+    /// The bundled faces, kept to build the content again in another language (F2.13: the
+    /// staff finds its notehead in them). A clone is a handful of reference counts.
+    faces: Faces,
+    /// The padded column under the menu bar that holds the content: removed and built again
+    /// when the language changes (ADR-0053 LR1).
+    content_root: WidgetId,
+    /// The content's widgets that the demonstration changes or the tests reach.
+    content: Content,
+    /// The language the interface is shown in now (F2.13).
+    locale: Locale,
+    /// Where the user's languages come from (ADR-0053 LR2): the system's in the program
+    /// ([`Demo::set_language_source`]), none in the tests and the screenshots (then en-US).
+    languages: Box<dyn LanguageSource>,
+    /// The interface language that *System language* means now: [`Demo::languages`] brought
+    /// down to ours, read at start-up and again whenever *System language* is chosen
+    /// (ADR-0053 LR4).
+    system_locale: Locale,
     /// The menu bar (F2.11d2b), on Linux and Windows.
     menu_bar: Option<WidgetId>,
     /// What the system's bar needs (macOS only, F2.11e1), handed to the window when it asks.
@@ -249,6 +259,9 @@ pub struct Demo {
     chooser: Option<ChooserOwner>,
     /// The theme editor while the Appearance section is shown (F2.12b1).
     theme_editor: Option<ThemeEditor>,
+    /// The language's drop-down while the Language section is shown (F2.13): its first value
+    /// follows the system's language when that is read again.
+    language_choice: Option<WidgetId>,
     /// The settings of the session (ADR-0050 DG6): the program hands its store in with
     /// [`Demo::attach_settings`]; until then (tests, screenshots) defaults that are never written.
     settings: SettingsStore,
@@ -293,78 +306,24 @@ impl Demo {
         // The menu bar (F2.11d2b), or our title bar holding it (F2.11b2), above the content.
         let mut ui = Ui::new(Flex::column(Space::None, Space::None), theme, faces.clone());
         ui.set_title(window_title);
-        let content = LayoutProps::default();
         let frame = Frame::new(texts, window_title, decorations, button_layout);
-        let (actions, menu_bar, root) = frame_window(&mut ui, &frame);
-        // `add` fails only for an unknown parent; every parent here was just created, so a
-        // failure would leave the demonstration incomplete, never crash it.
-        let title = ui
-            .add(
-                root,
-                Label::new(texts.title.clone()).styled(
-                    FamilyToken::Ui,
-                    SizeToken::Heading,
-                    Weight::Bold,
-                ),
-                content,
-            )
-            .unwrap_or_else(|_| ui.root());
-        let (options, staff_area) = panes(&mut ui, root);
-        let metronome = ui
-            .add(
-                options,
-                Toggle::checkbox(
-                    texts.metronome.clone(),
-                    DEFAULT_METRONOME,
-                    DemoMessage::Metronome,
-                ),
-                content,
-            )
-            .unwrap_or_else(|_| ui.root());
-        let count_in = ui
-            .add(
-                options,
-                Toggle::switch(
-                    texts.count_in.clone(),
-                    DEFAULT_COUNT_IN,
-                    DemoMessage::CountIn,
-                ),
-                content,
-            )
-            .unwrap_or_else(|_| ui.root());
-        let volume_row = ui
-            .add(
-                options,
-                Flex::row(Space::M, Space::None),
-                content.width(Length::Fill(1.0)),
-            )
-            .unwrap_or_else(|_| ui.root());
-        let _ = ui.add(
-            volume_row,
-            Label::new(texts.volume.clone()),
-            content.align(Align::Start, Align::Center),
+        let (actions, menu_bar, content_root) = frame_window(&mut ui, &frame);
+        let content = build_content(
+            &mut ui,
+            content_root,
+            faces,
+            texts,
+            actions.as_ref(),
+            &ContentState::default(),
         );
-        let volume = ui
-            .add(
-                volume_row,
-                Slider::new(0.0, 100.0, 1.0, DEFAULT_VOLUME, DemoMessage::Volume)
-                    .labelled(texts.volume.clone()),
-                content.width(Length::Fill(1.0)),
-            )
-            .unwrap_or_else(|_| ui.root());
-        let track_name = track_name_row(&mut ui, options, texts, actions.as_ref());
-        let restore_defaults = buttons_row(&mut ui, options, texts);
-        let staff = ui
-            .add(
-                staff_area,
-                StaffPreview::new(faces),
-                content
-                    .width(Length::Fixed(480.0))
-                    .height(Length::Fixed(110.0)),
-            )
-            .unwrap_or_else(|_| ui.root());
         let mut demo = Self {
             ui,
+            faces: faces.clone(),
+            content_root,
+            content,
+            locale: texts.locale,
+            languages: Box::new(FixedLanguages::default()),
+            system_locale: Locale::EnUs,
             actions,
             requests: VecDeque::new(),
             about: texts.about.clone(),
@@ -374,20 +333,17 @@ impl Demo {
             shortcut_editor: None,
             chooser: None,
             theme_editor: None,
+            language_choice: None,
             settings: SettingsStore::with(orchestra_io::settings::Settings::default(), None),
             files: texts.files.clone(),
             project_texts: texts.project.clone(),
             flow: OpenProject::new().ok().map(ProjectFlow::new),
-            title,
-            metronome,
-            count_in,
-            volume,
-            track_name,
-            staff,
-            restore_defaults,
             menu_bar,
             mac_menu: MacMenu::new(actions, texts, window_title),
         };
+        // *System language* names en-US until the program hands in the system's languages.
+        demo.preferences_texts
+            .set_system_language(demo.system_locale);
         // The window is named after the project from the start: "Untitled — Orchestra".
         demo.refresh_title();
         demo
@@ -414,19 +370,19 @@ impl Demo {
     /// The title label.
     #[must_use]
     pub const fn title(&self) -> WidgetId {
-        self.title
+        self.content.title
     }
 
     /// The track name's field.
     #[must_use]
     pub const fn track_name(&self) -> WidgetId {
-        self.track_name
+        self.content.track_name
     }
 
     /// The staff preview.
     #[must_use]
     pub const fn staff(&self) -> WidgetId {
-        self.staff
+        self.content.staff
     }
 
     /// The menu bar (F2.11d2b): `None` on macOS, where the system's bar comes with F2.11e.
@@ -438,7 +394,7 @@ impl Demo {
     /// The *Restore defaults* button.
     #[must_use]
     pub const fn restore_defaults(&self) -> WidgetId {
-        self.restore_defaults
+        self.content.restore_defaults
     }
 
     /// Hands the program's settings store in (ADR-0050 DG6, F2.12a4a): the Preferences change
@@ -462,6 +418,216 @@ impl Demo {
         }
         self.settings = store;
         problems
+    }
+
+    /// Hands in where the user's languages come from (ADR-0053 LR2): the program gives the
+    /// system's ([`orchestra_ui::SystemLanguages`]); until then (tests, screenshots) there are
+    /// none, and *System language* means en-US. They are read at once, so *System language*
+    /// names the language they give, and again whenever *System language* is chosen (LR4).
+    pub fn set_language_source(&mut self, languages: Box<dyn LanguageSource>) {
+        self.languages = languages;
+        self.system_locale = self.languages.locale();
+        self.preferences_texts
+            .set_system_language(self.system_locale);
+    }
+
+    /// The language the interface is shown in now (F2.13).
+    #[must_use]
+    pub const fn locale(&self) -> Locale {
+        self.locale
+    }
+
+    /// The language *System language* means now (ADR-0053 LR4).
+    #[must_use]
+    pub const fn system_locale(&self) -> Locale {
+        self.system_locale
+    }
+
+    /// A language was chosen in the Preferences (F2.13): `Some` for one of the six, `None` for
+    /// *System language*, whose languages are read again first (ADR-0053 LR4; the drop-down's
+    /// first value follows what they give now). The interface changes only when the language does.
+    fn language_chosen(&mut self, choice: Option<Locale>, list: &mut DisplayList) {
+        let locale = choice.unwrap_or_else(|| {
+            let system = self.languages.locale();
+            if system != self.system_locale {
+                self.system_locale = system;
+                self.preferences_texts.set_system_language(system);
+                // The drop-down is rebuilt below anyway when the language changes; when it does
+                // not, only its first value's text changes.
+                if let Some(choice) = self.language_choice
+                    && let Some(drop_down) = self.ui.widget_mut::<DropDown<DemoMessage>>(choice)
+                {
+                    let selected = drop_down.selected();
+                    drop_down.set_values(self.preferences_texts.languages.clone(), selected);
+                    self.ui.request_layout(choice);
+                    self.ui.frame(list);
+                }
+            }
+            system
+        });
+        // A catalogue fails to load only if the build is broken (the catalogues' tests prevent
+        // it): the interface then stays in the language it has.
+        let _ = self.set_language(locale, list);
+    }
+
+    /// Shows the whole interface in `locale` from now on (F2.13, ADR-0053 LR1), while the program
+    /// runs, and answers whether it did: `Ok(false)` when it is already in `locale`, or when a
+    /// dialog other than the Preferences or a file chooser is open (the language is chosen in
+    /// the Preferences, where neither can be open; a question waiting for its answer would be
+    /// lost if it were closed, so the change waits for the user instead).
+    ///
+    /// # What happens
+    /// 1. The texts are made in `locale` from its catalogue ([`DemoTexts::new`]).
+    /// 2. The Preferences, if open, close; the actions' registry gets its new names, mnemonics
+    ///    and key names in place ([`ActionTexts::apply`]): the user's shortcuts and the actions'
+    ///    states stay as they are, so the menus and the shortcut texts follow.
+    /// 3. The menu bar is renamed in place ([`Ui::set_menu_bar_model`]), and our title bar's
+    ///    buttons ([`Ui::set_window_button_names`]); on macOS the window builds the system's bar
+    ///    again ([`WindowRequest::RebuildSystemMenu`]).
+    /// 4. The content under the bar is removed and built again with the new texts and what the
+    ///    user had changed in it ([`ContentState`]); the window title follows the open project
+    ///    in the new language.
+    /// 5. The Preferences open again on the section they showed, the focus on the language's
+    ///    drop-down when they showed Language.
+    ///
+    /// The open project, its undo history, the settings, the theme and the registry are never
+    /// touched: they are the model and the settings, which the interface only shows.
+    ///
+    /// # Errors
+    /// The localizer's, if `locale`'s catalogue cannot be loaded or a message is missing (the
+    /// catalogues' parity tests prevent both); the interface is then left as it was.
+    ///
+    /// # Cost
+    /// One catalogue parsed (two with en-US's fallback), every text formatted once, and the
+    /// interface's widgets made again and laid out: measured by the benchmark `language` of this
+    /// crate against the 50 ms budget from input to frame (CLAUDE.md §5).
+    pub fn set_language(
+        &mut self,
+        locale: Locale,
+        list: &mut DisplayList,
+    ) -> Result<bool, I18nError> {
+        if locale == self.locale {
+            return Ok(false);
+        }
+        let preferences = self.preferences.map(|view| view.panel);
+        let other_dialog = self.ui.dialogs().any(|dialog| Some(dialog) != preferences);
+        if other_dialog || self.chooser.is_some() {
+            return Ok(false);
+        }
+        let localizer = Localizer::new(locale)?;
+        let texts = DemoTexts::new(&localizer)?;
+        self.retranslate(&texts, list);
+        self.locale = locale;
+        Ok(true)
+    }
+
+    /// Steps 2–5 of [`Demo::set_language`] with `texts`.
+    fn retranslate(&mut self, texts: &DemoTexts, list: &mut DisplayList) {
+        // The Preferences go first, so their widgets never point at texts of the old language;
+        // the section is remembered to open them again on it.
+        let reopen = self.preferences.map(|view| view.section);
+        if let Some(view) = self.preferences {
+            // Fails only for a dialog that is not open: it is, `preferences` says so.
+            let _ = self.ui.close_dialog(view.panel, list);
+        }
+        self.forget_preferences();
+        // The registry renamed in place: names, mnemonics, the keys' names in shortcuts.
+        if let Some(registry) = self.ui.actions_mut() {
+            texts.actions.apply(registry);
+        }
+        if let Some(ids) = self.actions {
+            self.ui
+                .set_menu_bar_model(&actions::menu_bar(&ids, &texts.actions), list);
+        }
+        self.ui.set_window_button_names(&texts.window_buttons);
+        // The content, built again with what the user had changed in it.
+        let state = self.content_state();
+        // Fails only for an unknown widget: the column exists (it is replaced only here).
+        let _ = self.ui.remove(self.content_root, list);
+        self.content_root = content_column(&mut self.ui);
+        self.content = build_content(
+            &mut self.ui,
+            self.content_root,
+            &self.faces,
+            texts,
+            self.actions.as_ref(),
+            &state,
+        );
+        // The texts the demonstration keeps for later (dialogs, choosers, the window title).
+        self.about = texts.about.clone();
+        self.preferences_texts = texts.preferences.clone();
+        self.preferences_texts
+            .set_system_language(self.system_locale);
+        self.files = texts.files.clone();
+        self.project_texts = texts.project.clone();
+        self.refresh_title();
+        // macOS: the system's bar is built again from the new model (the window asks
+        // `system_menu`, which reads `mac_menu`).
+        self.mac_menu = MacMenu::new(self.actions, texts, &texts.app_name);
+        if self.mac_menu.is_some() {
+            self.requests.push_back(WindowRequest::RebuildSystemMenu);
+        }
+        if let Some(section) = reopen {
+            self.open_preferences(section, list);
+        }
+        self.ui.frame(list);
+    }
+
+    /// Opens the Preferences on `section` and keeps what they show (F2.12a4a; on a section other
+    /// than the first after a change of language, F2.13). Fails only if the interface's own tree
+    /// is inconsistent: the Preferences then stay closed, and the user opens them again.
+    fn open_preferences(&mut self, section: Section, list: &mut DisplayList) {
+        let closed_by = self.actions.map(|ids| ids.preferences);
+        let appearance = self.ui.appearance();
+        if let Ok((view, widgets)) = preferences::open_preferences(
+            &mut self.ui,
+            &self.preferences_texts,
+            self.settings.settings(),
+            (section, closed_by),
+            appearance,
+            list,
+        ) {
+            self.preferences = Some(view);
+            self.playback_labels = widgets.playback_labels;
+            self.shortcut_editor = widgets.keyboard;
+            self.theme_editor = widgets.theme;
+            self.language_choice = widgets.language;
+        }
+    }
+
+    /// What the user changed in the content, read from its widgets before they go
+    /// ([`ContentState`]); a widget that cannot be read keeps its starting value.
+    fn content_state(&self) -> ContentState {
+        let mut state = ContentState::default();
+        let ui = &self.ui;
+        if let Some(check) = ui.widget::<Toggle<DemoMessage>>(self.content.metronome) {
+            state.metronome = check.is_on();
+        }
+        if let Some(switch) = ui.widget::<Toggle<DemoMessage>>(self.content.count_in) {
+            state.count_in = switch.is_on();
+        }
+        if let Some(slider) = ui.widget::<Slider<DemoMessage>>(self.content.volume) {
+            state.volume = slider.value();
+        }
+        if let Some(field) = ui.widget::<TextField<DemoMessage>>(self.content.track_name) {
+            field.text().clone_into(&mut state.track_name);
+        }
+        if let Some(staff) = ui.widget::<StaffPreview>(self.content.staff) {
+            staff.name().clone_into(&mut state.staff_name);
+        }
+        if let Some(splitter) = ui.widget::<Splitter<DemoMessage>>(self.content.splitter) {
+            state.split = splitter.fraction();
+        }
+        state
+    }
+
+    /// Forgets the Preferences' widgets: they closed, or are about to be built again.
+    fn forget_preferences(&mut self) {
+        self.preferences = None;
+        self.playback_labels.clear();
+        self.shortcut_editor = None;
+        self.theme_editor = None;
+        self.language_choice = None;
     }
 
     /// Takes the settings store back (at exit, to close it: `SettingsStore::close`), leaving
@@ -598,6 +764,13 @@ impl Demo {
         self.theme_editor.as_ref()
     }
 
+    /// The language's drop-down, while the Preferences show their Language section (F2.13): the
+    /// integration tests choose a language through it, as the user does.
+    #[must_use]
+    pub const fn language_choice(&self) -> Option<WidgetId> {
+        self.language_choice
+    }
+
     /// The open Preferences' panel, while they are open.
     #[must_use]
     pub fn preferences(&self) -> Option<WidgetId> {
@@ -609,10 +782,7 @@ impl Demo {
     /// interface (density, text and shape tokens), the cursor's blink to the interface.
     fn preference_changed(&mut self, message: PreferencesMessage, list: &mut DisplayList) {
         if message == PreferencesMessage::Closed {
-            self.preferences = None;
-            self.playback_labels.clear();
-            self.shortcut_editor = None;
-            self.theme_editor = None;
+            self.forget_preferences();
             return;
         }
         let chose_theme = matches!(message, PreferencesMessage::Theme(_));
@@ -638,7 +808,11 @@ impl Demo {
             }
             Effect::CaretBlink(on) => self.ui.set_caret_blink(on),
             Effect::FineModifier(fine) => self.ui.set_fine_modifier(fine),
+            Effect::Language(choice) => self.language_chosen(choice, list),
             Effect::Section(section) => {
+                if let Some(view) = self.preferences.as_mut() {
+                    view.section = section;
+                }
                 if let Some(view) = self.preferences {
                     // Fails only if the interface's own tree is inconsistent: the pane then keeps
                     // what it showed.
@@ -656,6 +830,7 @@ impl Demo {
                     self.playback_labels = widgets.playback_labels;
                     self.shortcut_editor = widgets.keyboard;
                     self.theme_editor = widgets.theme;
+                    self.language_choice = widgets.language;
                 }
             }
             Effect::PlaybackValue(index, n) => {
@@ -869,19 +1044,7 @@ impl Demo {
         // The Preferences (F2.12a4a): open once at a time; their own shortcut closes them while
         // they are open (the interface turns it into their Escape), so it never comes here then.
         if open_preferences && self.preferences.is_none() {
-            let closed_by = self.actions.map(|ids| ids.preferences);
-            let appearance = self.ui.appearance();
-            if let Ok((view, widgets)) = preferences::open_preferences(
-                &mut self.ui,
-                &self.preferences_texts,
-                self.settings.settings(),
-                closed_by,
-                appearance,
-                list,
-            ) {
-                self.preferences = Some(view);
-                self.theme_editor = widgets.theme;
-            }
+            self.open_preferences(Section::Appearance, list);
         }
         // The flow ignores a command while a question or a chooser is open (and the interface's
         // modal layers keep it from coming), so a batch with two shortcuts runs only the first.
@@ -889,23 +1052,36 @@ impl Demo {
             self.project_step(|flow| input.run(flow), list);
         }
         if let Some(name) = name {
-            if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.staff) {
+            if let Some(staff) = self.ui.widget_mut::<StaffPreview>(self.content.staff) {
                 staff.set_name(&name);
             }
-            self.ui.request_layout(self.staff);
+            self.ui.request_layout(self.content.staff);
             self.ui.frame(list);
         }
         if restore {
-            if let Some(check) = self.ui.widget_mut::<Toggle<DemoMessage>>(self.metronome) {
+            if let Some(check) = self
+                .ui
+                .widget_mut::<Toggle<DemoMessage>>(self.content.metronome)
+            {
                 check.set_on(DEFAULT_METRONOME);
             }
-            if let Some(switch) = self.ui.widget_mut::<Toggle<DemoMessage>>(self.count_in) {
+            if let Some(switch) = self
+                .ui
+                .widget_mut::<Toggle<DemoMessage>>(self.content.count_in)
+            {
                 switch.set_on(DEFAULT_COUNT_IN);
             }
-            if let Some(slider) = self.ui.widget_mut::<Slider<DemoMessage>>(self.volume) {
+            if let Some(slider) = self
+                .ui
+                .widget_mut::<Slider<DemoMessage>>(self.content.volume)
+            {
                 slider.set_value(DEFAULT_VOLUME);
             }
-            for id in [self.metronome, self.count_in, self.volume] {
+            for id in [
+                self.content.metronome,
+                self.content.count_in,
+                self.content.volume,
+            ] {
                 self.ui.request_record(id);
             }
             self.ui.frame(list);
@@ -958,6 +1134,161 @@ impl ProjectInput {
     }
 }
 
+/// The content's widgets that the demonstration changes or the tests reach: the IDs of one
+/// build of the content ([`build_content`]), replaced when the language changes (F2.13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Content {
+    /// The title label.
+    title: WidgetId,
+    /// The metronome check box.
+    metronome: WidgetId,
+    /// The count-in switch.
+    count_in: WidgetId,
+    /// The volume slider.
+    volume: WidgetId,
+    /// The track name's field.
+    track_name: WidgetId,
+    /// The staff, which shows the committed name.
+    staff: WidgetId,
+    /// The *Restore defaults* button (its tooltip is the screenshots' example, F2.11c).
+    restore_defaults: WidgetId,
+    /// The splitter between the options and the staff.
+    splitter: WidgetId,
+}
+
+/// What the user changed in the content and must survive a change of language (ADR-0053 LR1):
+/// the values of the controls, the field's text, the name above the staff, where the divider is.
+///
+/// # Why the content is read back from its widgets
+/// In the real views every value lives in the model or the settings and the views are only
+/// projections of them (CLAUDE.md §1), so a view is rebuilt from there. The demonstration's
+/// options belong to no model yet (playback arrives in F3): their widgets are the only place they
+/// live, so they are read before the content goes and handed to the new one. The values never
+/// exist twice: the old widgets are removed right after.
+#[derive(Debug, Clone, PartialEq)]
+struct ContentState {
+    /// The metronome check box is on.
+    metronome: bool,
+    /// The count-in switch is on.
+    count_in: bool,
+    /// The volume, 0–100.
+    volume: f64,
+    /// The text in the *Track name* field.
+    track_name: String,
+    /// The name written above the staff (what the field last committed).
+    staff_name: String,
+    /// The splitter's fraction (ADR-0045, the options' share of the width).
+    split: f64,
+}
+
+impl Default for ContentState {
+    /// The values the demonstration starts from.
+    fn default() -> Self {
+        Self {
+            metronome: DEFAULT_METRONOME,
+            count_in: DEFAULT_COUNT_IN,
+            volume: DEFAULT_VOLUME,
+            track_name: String::new(),
+            staff_name: String::new(),
+            split: DEFAULT_SPLIT,
+        }
+    }
+}
+
+/// Where the splitter starts: the options' pane a little less than half the width (WF8).
+const DEFAULT_SPLIT: f64 = 0.45;
+
+/// Builds the demonstration's content in `root` (the padded column under the menu bar) with
+/// `texts` and the values of `state`: the title, the splitter with the options on the left and
+/// the staff on the right (see the module documentation). Called once when the demonstration is
+/// made, and again after a change of language (F2.13), with what the user had changed.
+///
+/// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
+/// created: a failure would leave the demonstration incomplete, never crash it.
+fn build_content(
+    ui: &mut Ui<DemoMessage>,
+    root: WidgetId,
+    faces: &Faces,
+    texts: &DemoTexts,
+    actions: Option<&ActionIds>,
+    state: &ContentState,
+) -> Content {
+    let content = LayoutProps::default();
+    let title = ui
+        .add(
+            root,
+            Label::new(texts.title.clone()).styled(
+                FamilyToken::Ui,
+                SizeToken::Heading,
+                Weight::Bold,
+            ),
+            content,
+        )
+        .unwrap_or_else(|_| ui.root());
+    let (splitter, options, staff_area) = panes(ui, root, state.split);
+    let metronome = ui
+        .add(
+            options,
+            Toggle::checkbox(
+                texts.metronome.clone(),
+                state.metronome,
+                DemoMessage::Metronome,
+            ),
+            content,
+        )
+        .unwrap_or_else(|_| ui.root());
+    let count_in = ui
+        .add(
+            options,
+            Toggle::switch(texts.count_in.clone(), state.count_in, DemoMessage::CountIn),
+            content,
+        )
+        .unwrap_or_else(|_| ui.root());
+    let volume_row = ui
+        .add(
+            options,
+            Flex::row(Space::M, Space::None),
+            content.width(Length::Fill(1.0)),
+        )
+        .unwrap_or_else(|_| ui.root());
+    let _ = ui.add(
+        volume_row,
+        Label::new(texts.volume.clone()),
+        content.align(Align::Start, Align::Center),
+    );
+    let volume = ui
+        .add(
+            volume_row,
+            Slider::new(0.0, 100.0, 1.0, state.volume, DemoMessage::Volume)
+                .labelled(texts.volume.clone()),
+            content.width(Length::Fill(1.0)),
+        )
+        .unwrap_or_else(|_| ui.root());
+    let track_name = track_name_row(ui, options, texts, actions, &state.track_name);
+    let restore_defaults = buttons_row(ui, options, texts);
+    let mut preview = StaffPreview::new(faces);
+    preview.set_name(&state.staff_name);
+    let staff = ui
+        .add(
+            staff_area,
+            preview,
+            content
+                .width(Length::Fixed(480.0))
+                .height(Length::Fixed(110.0)),
+        )
+        .unwrap_or_else(|_| ui.root());
+    Content {
+        title,
+        metronome,
+        count_in,
+        volume,
+        track_name,
+        staff,
+        restore_defaults,
+        splitter,
+    }
+}
+
 /// The row of the options' buttons, *Restore defaults* and *OK*, at the end of `options`; returns
 /// *Restore defaults* (its tooltip is a screenshot's example, F2.11c). As in [`Demo::new`], `add`
 /// fails only for an unknown parent: a failure would leave the row incomplete, never crash.
@@ -992,15 +1323,20 @@ fn frame_window(
     let texts = &frame.texts.actions;
     let actions = attach_actions(ui, texts);
     let menu_bar = add_menu_bar(ui, actions.as_ref(), frame);
+    (actions, menu_bar, content_column(ui))
+}
+
+/// Adds the padded column the demonstration's content goes in as the last child of the window's
+/// root, under the menu bar or our title bar, and answers it: once with the frame, and again when
+/// the language changes (the old one was removed, so the new one takes its place below the bar).
+fn content_column(ui: &mut Ui<DemoMessage>) -> WidgetId {
     let fill = LayoutProps::default()
         .width(Length::Fill(1.0))
         .height(Length::Fill(1.0));
     let window_root = ui.root();
     // `add` fails only for an unknown parent: the root always exists.
-    let root = ui
-        .add(window_root, Flex::column(Space::M, Space::L), fill)
-        .unwrap_or(window_root);
-    (actions, menu_bar, root)
+    ui.add(window_root, Flex::column(Space::M, Space::L), fill)
+        .unwrap_or(window_root)
 }
 
 /// What frames the demonstration's window: its texts, its title, who draws its frame.
@@ -1075,9 +1411,9 @@ fn attach_actions(ui: &mut Ui<DemoMessage>, texts: &ActionTexts) -> Option<Actio
     Some(ids)
 }
 
-/// The *Track name* row of the options (F2.10b2): a label and a text field filling the rest of
-/// the row, with its placeholder, its name for assistive technologies and, when the actions
-/// exist, the standard editing context menu (F2.11d2a). Returns the field.
+/// The *Track name* row of the options (F2.10b2): a label and a text field holding `text` and
+/// filling the rest of the row, with its placeholder, its name for assistive technologies and,
+/// when the actions exist, the standard editing context menu (F2.11d2a). Returns the field.
 ///
 /// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
 /// created: a failure would leave the demonstration incomplete, never crash it.
@@ -1086,6 +1422,7 @@ fn track_name_row(
     options: WidgetId,
     texts: &DemoTexts,
     actions: Option<&ActionIds>,
+    text: &str,
 ) -> WidgetId {
     let content = LayoutProps::default();
     let name_row = ui
@@ -1100,7 +1437,7 @@ fn track_name_row(
         Label::new(texts.track_name.clone()),
         content.align(Align::Start, Align::Center),
     );
-    let mut field = TextField::new("", |text| DemoMessage::TrackName(text.to_owned()))
+    let mut field = TextField::new(text, |text| DemoMessage::TrackName(text.to_owned()))
         .placeholder(texts.track_name_placeholder.clone())
         .labelled(texts.track_name.clone());
     if let Some(ids) = actions {
@@ -1120,13 +1457,14 @@ fn track_name_row(
 /// enough of each label readable.
 const OPTIONS_MIN_WIDTH: f32 = 160.0;
 
-/// The splitter under the title, filling the rest of the window (F2.09d, WF8): a vertical scroll
-/// area on the left (a little less than half) holding the options' column, and a scroll area in
-/// both directions on the right for the staff. Returns (the options' column, the staff's area).
+/// The splitter under the title, filling the rest of the window (F2.09d, WF8), its divider at
+/// `split` ([`DEFAULT_SPLIT`] at first): a vertical scroll area on the left holding the options'
+/// column, and a scroll area in both directions on the right for the staff. Returns (the
+/// splitter, the options' column, the staff's area).
 ///
 /// As in [`Demo::new`], `add` fails only for an unknown parent, and every parent here was just
 /// created: a failure would leave the demonstration incomplete, never crash it.
-fn panes(ui: &mut Ui<DemoMessage>, root: WidgetId) -> (WidgetId, WidgetId) {
+fn panes(ui: &mut Ui<DemoMessage>, root: WidgetId, split: f64) -> (WidgetId, WidgetId, WidgetId) {
     let fill = LayoutProps::default()
         .width(Length::Fill(1.0))
         .height(Length::Fill(1.0));
@@ -1137,7 +1475,7 @@ fn panes(ui: &mut Ui<DemoMessage>, root: WidgetId) -> (WidgetId, WidgetId) {
     let splitter = ui
         .add(
             root,
-            Splitter::new(Axis::Horizontal, 0.45).minimum_sizes(OPTIONS_MIN_WIDTH, 48.0),
+            Splitter::new(Axis::Horizontal, split).minimum_sizes(OPTIONS_MIN_WIDTH, 48.0),
             fill,
         )
         .unwrap_or_else(|_| ui.root());
@@ -1157,7 +1495,7 @@ fn panes(ui: &mut Ui<DemoMessage>, root: WidgetId) -> (WidgetId, WidgetId) {
             LayoutProps::default().width(Length::Fill(1.0)),
         )
         .unwrap_or_else(|_| ui.root());
-    (options, staff_area)
+    (splitter, options, staff_area)
 }
 
 impl WindowApp for Demo {

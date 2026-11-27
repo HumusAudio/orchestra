@@ -28,6 +28,8 @@ accesskit_winit.workspace = true
 arboard.workspace = true
 # The system's file choosers, behind `platform::file_chooser` (ADR-0050 DG4, F2.12a5a).
 rfd.workspace = true
+# The user's languages from the system, behind `platform::language` (ADR-0053 LR2, F2.13).
+sys-locale.workspace = true
 # The CPU backend of the drawing abstraction (ADR-0039 D9), on every platform.
 tiny-skia.workspace = true
 # The window, the event loop, input, and presenting pixels (ADR-0040), on every platform.

@@ -29,8 +29,8 @@
 use std::process::ExitCode;
 
 use orchestra_app::{Demo, DemoTexts, SettingsStore, language_from_settings, theme_from_settings};
-use orchestra_i18n::{Locale, Localizer};
-use orchestra_ui::WindowOptions;
+use orchestra_i18n::Localizer;
+use orchestra_ui::{LanguageSource, SystemLanguages, WindowOptions};
 
 /// Program entry point: opens the demonstration window of ADR-0040 W8 until the real interface
 /// exists.
@@ -49,10 +49,12 @@ fn main() -> ExitCode {
     }
     let mut problems = Vec::new();
     let (pair, mode) = theme_from_settings(&store.settings().theme, &mut problems);
-    // The language of the settings (F2.12a4b1), applied from the start; the system's language is
-    // en-US until F2.13 detects it.
+    // The language of the settings (F2.12a4b1), applied from the start; *System language* (the
+    // default) is the first of the system's languages that one of ours serves, en-US when none
+    // does (ADR-0053 LR2–LR4, F2.13).
+    let system = SystemLanguages.locale();
     let locale =
-        language_from_settings(&store.settings().language, &mut problems).unwrap_or(Locale::EnUs);
+        language_from_settings(&store.settings().language, &mut problems).unwrap_or(system);
     for problem in &problems {
         eprintln!("orchestra: settings: {problem}");
     }
@@ -113,6 +115,8 @@ fn main() -> ExitCode {
         .set_button_order(orchestra_ui::system_button_order());
     // The settings go into the demonstration: the Preferences change them and the window wakes to
     // write them (F2.12a4a); they come back at exit to be closed.
+    // The system's languages, read again whenever *System language* is chosen (ADR-0053 LR4).
+    demo.set_language_source(Box::new(SystemLanguages));
     for problem in demo.attach_settings(store) {
         eprintln!("orchestra: settings: {problem}");
     }

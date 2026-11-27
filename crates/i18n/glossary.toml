@@ -2083,7 +2083,7 @@ fr = "langue du système"
 de = "Systemsprache"
 es = "idioma del sistema"
 sources = ["gnome-settings"]
-note = """The first value of the language's drop-down: follow the system's language (F2.13 detects it; until then en-US). Research 2026-11-24."""
+note = """The first value of the language's drop-down: follow the system's language. Since F2.13 (ADR-0053) the language it gives is named in brackets after it, in that language's own name: 'System language (Deutsch)', 'Lingua del sistema (English (UK))'. The brackets are the owner's choice 6 of F2.13 (2026-11-27); round brackets work the same way in the six languages (fr: no space before '(' in French typography, unlike before ':' or '?'). Research 2026-11-24, updated 2026-11-27."""
 review = false
 
 [[term]]

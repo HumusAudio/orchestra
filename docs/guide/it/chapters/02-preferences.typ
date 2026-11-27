@@ -118,17 +118,26 @@ resta il tuo. Quando va tutto bene, una riga breve lo dice.
 
 Scegli la lingua dell'interfaccia: inglese americano o britannico, italiano, francese, tedesco o
 spagnolo. Ogni lingua è scritta nella lingua stessa, così la ritrovi anche se l'interfaccia è in una
-lingua che non conosci. *Lingua del sistema* usa quella del tuo sistema.
+lingua che non conosci. La nuova lingua vale *subito*: menu, finestra e Preferenze cambiano sotto i
+tuoi occhi, e il lavoro aperto resta com'era, con tutto quello che puoi annullare.
 
-#note("Nota")[
-  Per ora la nuova lingua vale dal prossimo avvio di Orchestra, come dice la nota sotto la scelta.
-  In una versione futura cambierà subito, e *Lingua del sistema* riconoscerà la lingua del tuo
-  sistema (oggi usa l'inglese americano).
+*Lingua del sistema* usa la lingua del tuo sistema e tra parentesi ti dice quale: per esempio
+*Lingua del sistema (Italiano)*. Se nel sistema hai scelto più lingue in ordine di preferenza,
+Orchestra prende la prima che conosce. Una variante regionale va bene: lo svizzero tedesco dà il
+tedesco, il messicano dà lo spagnolo. Per l'inglese conta il paese, perché le parole musicali
+cambiano: con l'inglese di Gran Bretagna, Australia, Nuova Zelanda, Irlanda, Sudafrica e India
+ottieni l'inglese britannico (_crotchet_, _bar_), con tutti gli altri l'americano (_quarter note_,
+_measure_). Se il sistema non usa nessuna delle sei lingue, Orchestra parla inglese americano.
+
+#tip("Suggerimento")[
+  Su Windows e macOS, se hai cambiato la lingua del sistema mentre Orchestra era aperto, scegli di
+  nuovo *Lingua del sistema*: Orchestra la rilegge in quel momento. Su Linux la nuova lingua del
+  sistema arriva ai programmi solo quando rientri nella sessione.
 ]
 
 #screenshot-placeholder(
   [Screenshot: la sezione Lingua (preferences-language.png)],
-  [La sezione Lingua, con la nota sul riavvio.],
+  [La sezione Lingua, con la lingua del sistema indicata tra parentesi.],
 )
 
 == Riproduzione

@@ -15,6 +15,7 @@
 //!   (ADR-0050 DG2, F2.12a3a).
 //! - `file_chooser`: the system's file choosers through `rfd`, with the portal's probe on Linux
 //!   (ADR-0050 DG4, F2.12a5a).
+//! - `language`: the user's languages, through `sys-locale` (ADR-0053 LR2, F2.13).
 //! - `menu`: the system's menu bar, `muda` on macOS (ADR-0036 B5, ADR-0048 AM9, F2.11e1).
 //!
 //! Like every module of the library crates, it is private (ADR-0034 D1): what callers need is
@@ -25,4 +26,5 @@ pub(crate) mod clipboard;
 pub(crate) mod decorations;
 pub(crate) mod dialog;
 pub(crate) mod file_chooser;
+pub(crate) mod language;
 pub(crate) mod menu;

@@ -39,6 +39,8 @@
 //! - Menus (ADR-0048 AM9–AM12, F2.11d2a): one menu model, drawn menus with their keyboard,
 //!   pointer and submenus, context menus, the shortcuts written in each platform's style.
 //! - Every visible string comes from `orchestra-i18n`; none is written in the code.
+//! - The user's languages from the system (ADR-0053 LR2, F2.13), in the private module `platform`
+//!   behind the trait `LanguageSource`, through `sys-locale`: what *System language* means.
 //!
 //! ## What this crate must NOT do
 //! - Keep its own copy of musical data: view state (zoom, scroll, selection) only.
@@ -94,6 +96,8 @@ pub use platform::file_chooser::{FileChoice, FileRequest, FileRequestKind};
 pub use platform::menu::build_system_menu;
 pub use platform::menu::{SystemCommand, SystemItem, SystemMenu, SystemTexts};
 
+// The user's languages from the system (ADR-0053 LR2, F2.13).
+pub use platform::language::{FixedLanguages, LanguageSource, SystemLanguages};
 // The clipboard (ADR-0047 TF12).
 pub use platform::clipboard::{ClipboardError, ClipboardSource, MemoryClipboard};
 
