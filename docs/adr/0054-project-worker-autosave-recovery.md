@@ -2,7 +2,8 @@
 
 - **Status:** Accepted (owner, 2026-11-27; recommendations 1–8 of F2.14 presented in the
   briefing, the owner approved every one; then this text, with the details added while writing
-  it, approved as it stands).
+  it, approved as it stands). Precisions AP1–AP7 of F2.14a approved by the owner on
+  2026-11-27.
 - **Date:** 2026-11-27
 - **Implements:** SCALETTA F2.14 and decision D13 (automatic saving already in Phase 2A, closed
   2026-11-08); ADR-0050 DG5 (opening and saving "move to a worker thread in that step"; choice 5
