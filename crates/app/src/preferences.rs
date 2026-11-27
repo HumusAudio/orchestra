@@ -11,9 +11,10 @@
 //!   T1, by their names in the catalogues, plus the custom theme in use, if the settings chose
 //!   one, choice 4 of F2.12a4a), the **Mode** (*System / Light / Dark*, a group of options) and
 //!   **Blinking cursor** (a check box, ADR-0047 TF8);
-//! - **Language** (F2.12a4b1): *System language* or one of the six languages, each named in its
-//!   own language (choice 1), with the note that the choice applies at the next start (until
-//!   F2.13 changes the language without a restart);
+//! - **Language** (F2.12a4b1, F2.13): *System language (Italiano)*, naming the language the
+//!   system's languages give (ADR-0053 LR5), or one of the six languages, each named in its own
+//!   language (choice 1 of F2.12a4b1). The choice applies at once: the whole interface is shown
+//!   in the new language, the Preferences open again on this section (ADR-0053 LR1);
 //! - **Keyboard** (F2.12a4b1): the modifier of **fine adjustment** (ADR-0046 V3), a group of
 //!   three options named as the platform writes the keys (Ctrl, Shift, Alt; ⌘, ⇧, ⌥ on macOS),
 //!   then the **shortcut editor** (F2.12c1, `keyboard`): the commands with their shortcuts,
@@ -24,7 +25,8 @@
 //! (DG6), and to the interface at once ([`Effect`]): a new pair or mode is a
 //! [`WindowRequest::SetTheme`](orchestra_ui::WindowRequest) for the window's colours plus
 //! `Ui::set_theme` for the pair's tokens; the blink is `Ui::set_caret_blink`; the fine modifier is
-//! `Ui::set_fine_modifier`. The language alone waits for the next start. There is no OK, Cancel or
+//! `Ui::set_fine_modifier`; a language is [`Effect::Language`], which the demonstration carries out
+//! by showing its whole interface again in that language (F2.13). There is no OK, Cancel or
 //! Apply.
 //!
 //! # Why the message type is the demonstration's
@@ -35,9 +37,9 @@
 use orchestra_i18n::{I18nError, Locale, Localizer};
 use orchestra_io::settings::Settings;
 use orchestra_ui::{
-    ActionId, Appearance, BuiltInTheme, ColorToken, DisplayList, DropDown, FineModifier, Flex,
-    Grid, KeyNames, Label, LargeDialog, LayoutProps, Length, ListBox, Platform, RadioGroup, Space,
-    ThemeMode, ThemePair, Toggle, Track, Ui, UiError, WidgetId, modifier_label,
+    ActionId, Appearance, BuiltInTheme, DisplayList, DropDown, FineModifier, Flex, Grid, KeyNames,
+    Label, LargeDialog, LayoutProps, Length, ListBox, Platform, RadioGroup, Space, ThemeMode,
+    ThemePair, Toggle, Track, Ui, UiError, WidgetId, modifier_label,
 };
 
 use crate::demo::DemoMessage;
@@ -141,11 +143,14 @@ pub struct PreferencesTexts {
     pub pairs: Vec<String>,
     /// `prefs-language`.
     pub language: String,
-    /// The language drop-down's values: `prefs-language-system`, then the six languages' own
-    /// names (`language-en-us`…) in [`Locale::ALL`]'s order.
+    /// The language drop-down's values: *System language (…)* for the system's language now
+    /// ([`PreferencesTexts::set_system_language`]), then the six languages' own names
+    /// (`language-en-us`…) in [`Locale::ALL`]'s order.
     pub languages: Vec<String>,
-    /// `prefs-language-restart`, without Fluent's isolation marks around the program's name.
-    pub language_restart: String,
+    /// `prefs-language-system` for each of the six languages the system's could give, in
+    /// [`Locale::ALL`]'s order: *System language (English (US))*, *System language (Italiano)*…
+    /// Made once with the texts, so naming another system language needs no localizer.
+    pub system_languages: Vec<String>,
     /// `prefs-fine-modifier`.
     pub fine_modifier: String,
     /// The modifiers' names in the platform's style, in [`FINE_MODIFIERS`]' order.
@@ -174,13 +179,32 @@ impl PreferencesTexts {
         for pair in BuiltInTheme::ALL {
             pairs.push(text(&format!("theme-{}", pair.id()))?);
         }
-        let mut languages = vec![text("prefs-language-system")?];
+        // The six languages' own names, then *System language (name)* for each of them: the
+        // name goes into the sentence as an argument (no concatenation, CLAUDE.md §7), and the
+        // isolation marks Fluent puts around it are dropped, as for the program's name below
+        // (every name is written left to right; the marks would only reach assistive
+        // technologies).
+        let mut names = Vec::with_capacity(Locale::ALL.len());
         for locale in Locale::ALL {
-            languages.push(text(&format!(
+            names.push(text(&format!(
                 "language-{}",
                 locale.tag().to_ascii_lowercase()
             ))?);
         }
+        let mut system_languages = Vec::with_capacity(names.len());
+        for name in &names {
+            let mut args = orchestra_i18n::FluentArgs::new();
+            args.set("language", name.as_str());
+            system_languages.push(
+                localizer
+                    .format("prefs-language-system", Some(&args))?
+                    .replace(['\u{2068}', '\u{2069}'], ""),
+            );
+        }
+        // *System language* names en-US until the demonstration is told the system's.
+        let mut languages = Vec::with_capacity(names.len() + 1);
+        languages.push(system_languages.first().cloned().unwrap_or_default());
+        languages.extend(names);
         Ok(Self {
             title: text("prefs-title")?,
             close: text("dialog-close")?,
@@ -202,9 +226,7 @@ impl PreferencesTexts {
             pairs,
             language: text("prefs-language")?,
             languages,
-            // The program's name is ours and left to right: the marks would only reach the
-            // accessibility tree (as for the actions' names).
-            language_restart: text("prefs-language-restart")?.replace(['\u{2068}', '\u{2069}'], ""),
+            system_languages,
             fine_modifier: text("prefs-fine-modifier")?,
             fine_modifiers: FINE_MODIFIERS
                 .iter()
@@ -214,6 +236,23 @@ impl PreferencesTexts {
             keyboard: KeyboardTexts::new(localizer)?,
             theme_editor: ThemeTexts::new(localizer)?,
         })
+    }
+}
+
+impl PreferencesTexts {
+    /// Makes the language drop-down's first value name `system`, the language the system's
+    /// languages give now (ADR-0053 LR5): *System language (Deutsch)*. The demonstration calls it
+    /// whenever it reads the system's languages (start-up, *System language* chosen again).
+    pub fn set_system_language(&mut self, system: Locale) {
+        let index = Locale::ALL
+            .iter()
+            .position(|locale| *locale == system)
+            .unwrap_or(0);
+        if let (Some(first), Some(text)) =
+            (self.languages.first_mut(), self.system_languages.get(index))
+        {
+            text.clone_into(first);
+        }
     }
 }
 
@@ -234,10 +273,15 @@ pub struct PreferencesView {
     pub panel: WidgetId,
     /// The pane of the chosen section.
     pub pane: WidgetId,
+    /// The section shown (F2.13: the Preferences open again on it after a change of language).
+    pub section: Section,
 }
 
-/// Opens the Preferences on `settings` in `ui`, on the first section, with the focus on the list
-/// of sections; `closed_by` is the action that opened them (its shortcut closes them, DG8).
+/// Opens the Preferences on `settings` in `ui`, on `section` (the first one when the user opens
+/// them; the Language section again after a change of language, ADR-0053 LR1), with the focus on
+/// the list of sections, or on the language's drop-down when `section` is Language (the user was
+/// choosing there: the focus comes back where it was); `closed_by` is the action that opened them
+/// (its shortcut closes them, DG8).
 ///
 /// # Errors
 /// The interface's, if its own tree is inconsistent (never expected).
@@ -245,7 +289,7 @@ pub fn open_preferences(
     ui: &mut Ui<DemoMessage>,
     texts: &PreferencesTexts,
     settings: &Settings,
-    closed_by: Option<ActionId>,
+    (section, closed_by): (Section, Option<ActionId>),
     appearance: Appearance,
     list: &mut DisplayList,
 ) -> Result<(PreferencesView, SectionWidgets), UiError> {
@@ -263,26 +307,29 @@ pub fn open_preferences(
         .height(Length::Fill(1.0));
     // The sections on the left, the chosen section on the right.
     let row = ui.add(content, Flex::row(Space::L, Space::None), fill)?;
+    let index = SECTIONS
+        .iter()
+        .position(|known| *known == section)
+        .unwrap_or(0);
     ui.add(
         row,
-        ListBox::new(texts.section_names.clone(), 0, |index| {
+        ListBox::new(texts.section_names.clone(), index, |index| {
             DemoMessage::Preferences(PreferencesMessage::Section(index))
         })
         .label(texts.sections.clone()),
         LayoutProps::default(),
     )?;
     let pane = ui.add(row, Flex::column(Space::M, Space::None), fill)?;
-    let view = PreferencesView { panel, pane };
-    let widgets = show_section(
-        ui,
-        view,
-        Section::Appearance,
-        texts,
-        settings,
-        appearance,
-        list,
-    )?;
-    ui.focus_first(list);
+    let view = PreferencesView {
+        panel,
+        pane,
+        section,
+    };
+    let widgets = show_section(ui, view, section, texts, settings, appearance, list)?;
+    match widgets.language {
+        Some(language) => ui.set_focus(Some(language), list)?,
+        None => ui.focus_first(list),
+    }
     Ok((view, widgets))
 }
 
@@ -297,6 +344,9 @@ pub struct SectionWidgets {
     pub keyboard: Option<ShortcutEditor>,
     /// The theme editor (Appearance, F2.12b1).
     pub theme: Option<ThemeEditor>,
+    /// The language's drop-down (Language, F2.13): the focus goes back to it when the
+    /// Preferences open again after a change of language.
+    pub language: Option<WidgetId>,
 }
 
 /// Replaces the controls in the Preferences' pane with those of `section`, showing `settings`'
@@ -321,16 +371,14 @@ pub fn show_section(
         let tuning = tuning_from_settings(&settings.playback, &mut Vec::new());
         return Ok(SectionWidgets {
             playback_labels: playback::build(ui, view.pane, &texts.playback, &tuning, list)?,
-            keyboard: None,
-            theme: None,
+            ..SectionWidgets::default()
         });
     }
     // A label and its control on each line, the labels in one column; as many lines as the
     // section has (an empty line would still take the grid's spacing).
     let lines = match section {
         Section::Appearance => 3,
-        Section::Language => 2,
-        Section::Playback | Section::Keyboard => 1,
+        Section::Language | Section::Playback | Section::Keyboard => 1,
     };
     // Appearance scrolls (F2.12b1: the theme editor's 24 colours do not fit a small window); the
     // others are short.
@@ -385,7 +433,7 @@ pub fn show_section(
         }
         Section::Language => {
             ui.add(grid, Label::new(texts.language.clone()), label(0))?;
-            ui.add(
+            let language = ui.add(
                 grid,
                 DropDown::new(texts.languages.clone(), language_index(settings), |index| {
                     DemoMessage::Preferences(PreferencesMessage::Language(index))
@@ -393,14 +441,13 @@ pub fn show_section(
                 .label(texts.language.clone()),
                 control(0),
             )?;
-            // Until F2.13 the language changes at the next start: said beside the choice (DG8).
-            ui.add(
-                grid,
-                Label::new(texts.language_restart.clone())
-                    .color(ColorToken::TextMuted)
-                    .wrapping(),
-                control(1).width(Length::Fill(1.0)),
-            )?;
+            // The note "applies at the next start" of F2.12a4b1 is gone: the language changes
+            // at once (F2.13, ADR-0053 LR1).
+            ui.frame(list);
+            return Ok(SectionWidgets {
+                language: Some(language),
+                ..SectionWidgets::default()
+            });
         }
         // Built above, in its own scroll area.
         Section::Playback => {}
@@ -484,9 +531,8 @@ fn appearance_section(
     editor.set_scroll_area(scroll);
     ui.frame(list);
     Ok(SectionWidgets {
-        playback_labels: Vec::new(),
-        keyboard: None,
         theme: Some(editor),
+        ..SectionWidgets::default()
     })
 }
 
@@ -525,9 +571,8 @@ fn keyboard_section(
     let editor = ShortcutEditor::build(ui, view.pane, &texts.keyboard, list)?;
     ui.frame(list);
     Ok(SectionWidgets {
-        playback_labels: Vec::new(),
         keyboard: Some(editor),
-        theme: None,
+        ..SectionWidgets::default()
     })
 }
 
@@ -550,7 +595,7 @@ pub fn playback_value_text(texts: &PreferencesTexts, index: usize, n: i64) -> St
               of a pair costs nothing there, and boxing it would only add an allocation"
 )]
 pub enum Effect {
-    /// Nothing more now (the dialog closed, a value chosen again, the language: next start).
+    /// Nothing more now (the dialog closed, a value outside its list).
     None,
     /// Show this section's controls.
     Section(Section),
@@ -563,6 +608,9 @@ pub enum Effect {
     /// The playback value number `.0` of [`TuningValue::ALL`] is now `.1` (its label follows; the
     /// performance, when there is one, takes the new tuning).
     PlaybackValue(usize, i64),
+    /// Show the interface in this language from now on (F2.13, ADR-0053 LR1): `Some` for one of
+    /// the six, `None` for the system's, which the demonstration reads again (LR4).
+    Language(Option<Locale>),
 }
 
 /// Writes `message` into `settings` and answers what the interface must do now (DG8). A theme's
@@ -601,7 +649,7 @@ pub fn apply(settings: &mut Settings, message: PreferencesMessage) -> Effect {
                 },
             };
             settings.language = language_to_settings(locale);
-            Effect::None
+            Effect::Language(locale)
         }
         PreferencesMessage::FineModifier(index) => {
             let Some(fine) = FINE_MODIFIERS.get(index) else {
@@ -681,7 +729,7 @@ mod tests {
         );
     }
 
-    /// A language is written as its tag (0: the system's) and waits for the next start; a fine
+    /// A language is written as its tag (0: the system's) and applies at once (F2.13); a fine
     /// modifier applies at once; a section is shown.
     #[test]
     fn language_and_fine_modifier_are_written() {
@@ -689,7 +737,7 @@ mod tests {
         // Italian: `Locale::ALL[2]`, the drop-down's index 3.
         assert_eq!(
             apply(&mut settings, PreferencesMessage::Language(3)),
-            Effect::None
+            Effect::Language(Some(Locale::It))
         );
         assert_eq!(
             settings.language,
@@ -698,7 +746,7 @@ mod tests {
         assert_eq!(language_index(&settings), 3);
         assert_eq!(
             apply(&mut settings, PreferencesMessage::Language(0)),
-            Effect::None
+            Effect::Language(None)
         );
         assert_eq!(settings.language, orchestra_io::settings::Language::System);
         assert_eq!(
@@ -785,6 +833,17 @@ mod tests {
         assert_eq!(texts.languages.len(), 7);
         assert_eq!(texts.languages[3], "Italiano");
         assert_eq!(texts.fine_modifiers, vec!["Ctrl", "Shift", "Alt"]);
-        assert!(!texts.language_restart.contains('\u{2068}'));
+        // *System language* names en-US until told the system's, then follows it (F2.13), without
+        // Fluent's isolation marks.
+        assert_eq!(texts.languages[0], "System language (English (US))"); // i18n-ignore: test data
+        let mut texts = texts;
+        texts.set_system_language(Locale::De);
+        assert_eq!(texts.languages[0], "System language (Deutsch)"); // i18n-ignore: test data
+        assert!(
+            texts
+                .system_languages
+                .iter()
+                .all(|text| !text.contains(['\u{2068}', '\u{2069}']))
+        );
     }
 }

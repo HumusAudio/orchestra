@@ -18,7 +18,7 @@ use crate::draw::geometry::{Point, Rect};
 use crate::widget::layout::{LayoutProps, Length};
 use crate::widget::menu::MenuModel;
 use crate::widget::titlebar::{
-    BAND, TitleBar, TitleBarSpec, WindowButtonWidget, WindowFrame, band_edge,
+    BAND, TitleBar, TitleBarSpec, WindowButtonNames, WindowButtonWidget, WindowFrame, band_edge,
 };
 use crate::widget::tree::WidgetId;
 use crate::window::input::WindowState;
@@ -117,6 +117,37 @@ impl<M: 'static> Ui<M> {
             .iter()
             .flat_map(|state| state.buttons.iter())
             .filter_map(|&slot| self.id_of(slot))
+    }
+
+    /// Gives the window buttons of our title bar the names `names` (ADR-0053 LR1, F2.13: the
+    /// language changed while the program runs). Their accessible nodes are rebuilt; nothing
+    /// happens without our title bar. The bar's title follows [`Ui::set_title`] already.
+    ///
+    /// # Cost
+    /// O(buttons) (three at most), one clone of `names` per button.
+    pub fn set_window_button_names(&mut self, names: &WindowButtonNames) {
+        let count = self
+            .title_bar
+            .as_ref()
+            .map_or(0, |state| state.buttons.len());
+        for place in 0..count {
+            let Some(slot) = self
+                .title_bar
+                .as_ref()
+                .and_then(|state| state.buttons.get(place).copied())
+            else {
+                continue;
+            };
+            let renamed = self
+                .tree
+                .slot_mut(slot)
+                .and_then(|slot| slot.widget.as_deref_mut())
+                .and_then(|widget| widget.as_any_mut().downcast_mut::<WindowButtonWidget>())
+                .map(|button| button.set_names(names.clone()));
+            if renamed.is_some() {
+                self.mark(slot, false, false, true);
+            }
+        }
     }
 
     /// The next thing a widget asked of the window (F2.11b2, ADR-0049 TB6), oldest first, or

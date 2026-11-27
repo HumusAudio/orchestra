@@ -161,6 +161,13 @@ accesskit_consumer = "=0.39.2"
 # Pure Rust on Linux, system APIs on Windows and macOS: no native library to install. Only
 # `orchestra-ui`'s `platform/clipboard` uses it, behind the `ClipboardSource` trait.
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
+# sys-locale: the user's languages from the system (ADR-0053 LR2, SCALETTA F2.13). MIT OR
+# Apache-2.0, by 1Password; 0.3.2 of 2024-11-01, checked on crates.io on 2026-11-27 (the latest,
+# 47 million downloads; slow releases for a small, finished crate). No dependency on Linux,
+# Windows or macOS (`libc` on Android only, `js-sys` on the web only): the environment on Unix,
+# its own declarations of `GetUserPreferredUILanguages` and `CFLocaleCopyPreferredLanguages`
+# elsewhere. Only `orchestra-ui`'s `platform::language` uses it, behind `LanguageSource`.
+sys-locale = "0.3.2"
 # rfd: the system's file choosers (ADR-0036 B4, ADR-0050 DG4, SCALETTA F2.12a5a). MIT; 0.18.0 of
 # 2026-11-07, checked on crates.io on 2026-11-24 (MSRV 1.92). Without default features, then:
 # `xdg-portal` (Linux: the XDG desktop portal's FileChooser, reached through libdbus-1 loaded with

@@ -5536,9 +5536,10 @@ Both once per user action, within the frame's budget of 33 M.
 three: choosing one replaces the pane on the right (`preferences::show_section`, which removes the
 pane's widgets and builds the section's grid; the list keeps the focus).
 - **Language**: a drop-down of *System language* and the six languages, each written in its own
-  language and identical in every catalogue ("English (US)", "Italiano"…), with the muted note
-  "Applies the next time Orchestra starts.": `main.rs` now creates the `Localizer` in the
-  settings' language (*System language* is en-US until F2.13 detects the system's).
+  language and identical in every catalogue ("English (US)", "Italiano"…): `main.rs` creates the
+  `Localizer` in the settings' language. Since F2.13 the muted note "Applies the next time
+  Orchestra starts." is gone, the language changes at once and *System language* names the
+  system's (see *Changing the language while the program runs* below).
 - **Keyboard**: the modifier of **fine adjustment** (ADR-0046 V3), a group of three options named
   as the platform writes the keys (`modifier_label`: "Ctrl", "Shift", "Alt" in the catalogue's
   words, ⌘ ⇧ ⌥ on macOS). The interface has a new `FineModifier` (`Ui::set_fine_modifier`,
@@ -5999,6 +6000,63 @@ import added, chosen, named after the file and made unique; unknown and mismatch
 `crates/app/tests/theme.rs` (3 more): the export disabled for a built-in pair, its request and the
 theme written, the replacement question; the import chosen and shown, a second one numbered; the
 report, and a file that is not a theme refused. Four injected bugs were caught.
+
+#### Changing the language while the program runs
+
+**What the user sees** (SCALETTA F2.13, ADR-0053). In *Preferences → Language* the first value
+now names the language the system gives, *System language (Deutsch)*, and the note "applies the
+next time Orchestra starts" is gone: choosing a language shows the **whole window in it at once**
+(menus, title bar, content, the Preferences themselves, which open again on Language with the
+focus on the drop-down). Choosing *System language* reads the system's languages again first.
+
+**Where the system's languages come from** (`crates/ui/src/platform/language.rs`). A small
+trait, as for the clipboard:
+
+```rust
+pub trait LanguageSource: fmt::Debug {
+    fn preferred_languages(&self) -> Vec<String>;
+    fn locale(&self) -> Locale {
+        let languages = self.preferred_languages();
+        Locale::negotiate(languages.iter().map(String::as_str)).unwrap_or(Locale::EnUs)
+    }
+}
+```
+
+`SystemLanguages` asks `sys-locale` (on Linux the environment, `LANGUAGE` then `LC_ALL`,
+`LC_MESSAGES`, `LANG`; on Windows and macOS the system's ordered list), `FixedLanguages` answers a
+list given in advance: the demonstration holds an empty one until `main.rs` hands it the system's
+with `Demo::set_language_source`, so tests and screenshots never depend on the machine. At
+start-up `main.rs` uses `SystemLanguages.locale()` when the settings say *System language*.
+
+**How the window is shown again** (`Demo::set_language`). The approach is to **build the views
+again from the model and the settings**, not to teach every widget its message key:
+
+1. `Localizer::new(locale)` and `DemoTexts::new` make every text in the new language;
+2. the Preferences, if open, close (their section is remembered);
+3. what is not a view is renamed in place: the registry (`ActionTexts::apply`: names, mnemonics,
+   key names; the user's shortcuts and the actions' states stay), the drawn menu bar
+   (`Ui::set_menu_bar_model`, which replaces the bar's titles but keeps the bar widget, important
+   inside our title bar, which also owns the window's frame), our title bar's buttons
+   (`Ui::set_window_button_names`); on macOS `WindowRequest::RebuildSystemMenu` makes the window
+   build `muda`'s bar again;
+4. the content column under the bar is removed and built again by `build_content`, the same
+   function that built it the first time, with a `ContentState` read from the old widgets (the
+   metronome, the count-in, the volume, the field's text, the name above the staff, the divider):
+   those options belong to no model yet, so their widgets are the only place they live;
+5. the Preferences open again on their section (`open_preferences` now takes the section).
+
+The open project and its undo history, the settings and the theme are never touched. The change
+is refused (`Ok(false)`) when the language is already shown, or when another dialog or a file
+chooser is open, so a question waiting for its answer is never lost.
+
+**Tests and cost.** `crates/app/tests/language.rs` checks, for every language and with both kinds
+of frame, that after the change the accessibility tree and the registry's texts are **exactly**
+those of a window built from the start in that language (no text left behind), that what the user
+changed survives, that the Preferences come back on Language with the focus, that *System
+language* reads the system again, and that a dialog keeps the change waiting; five bugs injected
+on purpose were all caught. `crates/app/benches/language.rs` measures the whole change with the
+frame drawn: 17.2 M instructions, about 10 ms on the reference laptop (budget: 50 ms from input
+to frame).
 
 #### The file choosers
 
@@ -6658,6 +6716,32 @@ correctly.
 Since F2.11d2b `format_attribute(id, attribute, args)` reads a message's attribute (the menus'
 `.mnemonic`), from the catalogue that defines the message: a translation never mixes its own name
 with another language's letter. A missing attribute is `I18nError::MissingAttribute`.
+
+#### The system's language brought down to ours
+
+Since F2.13 (ADR-0053 LR3) the crate also knows how to bring a language tag *as a system writes
+it* down to one of our six. It does not read the system (that is `orchestra-ui`'s
+`platform::language`): it only answers the question "which of our languages serves someone who
+asked for `de-CH`?", so it stays deterministic and is tested without a machine.
+
+```rust
+use orchestra_i18n::Locale;
+
+assert_eq!(Locale::matching("de_DE.UTF-8@euro"), Some(Locale::De));
+assert_eq!(Locale::matching("en-AU"), Some(Locale::EnGb));
+assert_eq!(Locale::matching("en-CA"), Some(Locale::EnUs));
+assert_eq!(Locale::negotiate(["pt-BR", "it-CH", "en-US"]), Some(Locale::It));
+```
+
+`matching` cuts what a POSIX name adds after the language (`.UTF-8`, `@euro`), accepts `_` as well
+as `-`, ignores case, and looks at the **language** first: `it`, `fr`, `de`, `es` win whatever the
+country. Only English needs the **region**, because the two English catalogues differ in their
+musical words: Great Britain, Australia, New Zealand, Ireland, South Africa and India get en-GB
+(*crotchet*, *bar*), everyone else en-US, Canada included. A script before the region
+(`en-Latn-GB`) is skipped, a variant (`en-oxendict`) is not a region. `negotiate` walks the user's
+list in their order and takes the first one that is ours; `None` means "none of these", and the
+caller falls back to en-US. Neither allocates: the subtags are slices of the tag, checked by
+`tests/matching_no_alloc.rs` with the counting allocator.
 
 #### The tests
 

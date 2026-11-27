@@ -116,17 +116,27 @@ colour stays yours. When everything is fine, a short line says so.
 
 Choose the language of the interface: American or British English, Italian, French, German or
 Spanish. Each language is written in that language, so you find yours even if the interface is in
-a language you do not know. *System language* uses your system's.
+a language you do not know. The new language applies *at once*: the menus, the window and the
+Preferences change before your eyes, and your open work stays as it was, with everything you can
+undo.
 
-#note("Note")[
-  For now a new language applies the next time Orchestra starts, as the note under the choice says.
-  In a future version it will change at once, and *System language* will recognise your system's
-  language (today it uses American English).
+*System language* uses your system's language and tells you which in brackets: for example
+*System language (English (UK))*. If your system lists several languages in order of preference,
+Orchestra takes the first one it knows. A regional variant is fine: Swiss German gives German,
+Mexican Spanish gives Spanish. For English the country matters, because the musical words differ:
+English from Great Britain, Australia, New Zealand, Ireland, South Africa and India gives British
+English (_crotchet_, _bar_), every other one American English (_quarter note_, _measure_). If your
+system uses none of the six languages, Orchestra speaks American English.
+
+#tip("Tip")[
+  On Windows and macOS, if you changed your system's language while Orchestra was open, choose
+  *System language* again: Orchestra reads it again at that moment. On Linux a new system language
+  reaches programs only when you log in again.
 ]
 
 #screenshot-placeholder(
   [Screenshot: the Language section (preferences-language.png)],
-  [The Language section, with the note about restarting.],
+  [The Language section, with the system's language named in brackets.],
 )
 
 == Playback

@@ -23,7 +23,10 @@
 //! ## What this crate must NOT do
 //! - Depend on any other workspace crate: everything else depends on it, not vice versa.
 //! - Decide *which* language to use from the operating system: that is the UI's job (it passes
-//!   a [`Locale`] in), so this crate stays deterministic and testable.
+//!   a [`Locale`] in), so this crate stays deterministic and testable. What it does offer is the
+//!   pure rule that brings the tags a system reports (`de-CH`, `en_AU.UTF-8`) down to one of
+//!   ours ([`Locale::matching`], [`Locale::negotiate`], ADR-0053 LR3): reading those tags from
+//!   the system is `orchestra-ui`'s `platform` module's job.
 //!
 //! ## Allowed dependencies
 //! None inside the workspace; `fluent-bundle` and `unic-langid` (ADR-0008).
@@ -106,12 +109,75 @@ impl Locale {
 
     /// Parses a BCP 47 tag produced by [`Locale::tag`] (exact, case-sensitive match).
     ///
-    /// Returns `None` for any other tag. Negotiating an arbitrary system locale such as `it-CH`
-    /// or `en_AU.UTF-8` down to one of ours is a UI concern and will be implemented there.
+    /// Returns `None` for any other tag: this is how the settings file's language is read back,
+    /// and a file must name exactly one of ours. Bringing an arbitrary system locale such as
+    /// `it-CH` or `en_AU.UTF-8` down to one of ours is [`Locale::matching`]'s job.
     #[must_use]
     pub fn from_tag(tag: &str) -> Option<Self> {
         // Linear search over six entries: simpler and faster than any map for this size.
         Self::ALL.into_iter().find(|locale| locale.tag() == tag)
+    }
+
+    /// The interface language that serves a speaker of `tag`, a language tag as an operating
+    /// system writes it, or `None` when none of ours does (ADR-0053 LR3).
+    ///
+    /// # Which forms are read
+    /// Both BCP 47 (`de-CH`, `en-Latn-GB`, what Windows and macOS give) and POSIX locale names
+    /// (`it_IT.UTF-8`, `de_DE@euro`, what Linux's environment variables hold): the codeset after
+    /// `.` and the modifier after `@` are ignored, `_` counts as `-`, and letters are compared
+    /// without regard to case (BCP 47 tags are case-insensitive, RFC 5646 §2.1.1).
+    ///
+    /// # The rule
+    /// - The **language** subtag decides: `it`, `fr`, `de`, `es` give that language whatever the
+    ///   region (`it-CH`, `de-AT`, `fr-CA`, `es-419`): the catalogues are written for every
+    ///   speaker of the language, not for one country.
+    /// - `en` alone needs its **region**, because en-US and en-GB differ in their musical words
+    ///   (*quarter note* / *crotchet*, *measure* / *bar*): Britain, Australia, New Zealand,
+    ///   Ireland, South Africa and India use the British words and get en-GB; every other region,
+    ///   Canada included (*quarter note* and *measure* there), and `en` without a region get
+    ///   en-US, the source language. A script subtag (`Latn`) before the region is skipped.
+    /// - Anything else (`pt-BR`, `zh-Hant-TW`, the POSIX `C` and `POSIX` locales, an empty
+    ///   string) is not ours: `None`, so [`Locale::negotiate`] tries the user's next language.
+    ///
+    /// # Complexity
+    /// O(length of `tag`); no allocation (the subtags are slices of `tag`).
+    #[must_use]
+    pub fn matching(tag: &str) -> Option<Self> {
+        // The POSIX codeset (`.UTF-8`) and modifier (`@euro`) say nothing about the language: cut
+        // the tag at the first of them. BCP 47 tags contain neither character.
+        let end = tag.find(['.', '@']).unwrap_or(tag.len());
+        let tag = tag.get(..end).unwrap_or(tag).trim();
+        // Subtags are separated by `-` in BCP 47 and by `_` in POSIX names.
+        let mut subtags = tag.split(['-', '_']);
+        let language = subtags.next()?;
+        let is = |code: &str| language.eq_ignore_ascii_case(code);
+        if is("it") {
+            Some(Self::It)
+        } else if is("fr") {
+            Some(Self::Fr)
+        } else if is("de") {
+            Some(Self::De)
+        } else if is("es") {
+            Some(Self::Es)
+        } else if is("en") {
+            Some(english_for_region(region_of(subtags)))
+        } else {
+            None
+        }
+    }
+
+    /// The first interface language that serves one of `preferred`, the user's languages in the
+    /// system's order of preference (most preferred first), or `None` when none does
+    /// (ADR-0053 LR3). Each tag is read with [`Locale::matching`]; the caller falls back to
+    /// [`Locale::EnUs`], the source language, on `None`.
+    ///
+    /// Why the first match and not the best one: the user ordered the list, and a system that
+    /// says "Swiss German, then English" wants German even though English is also ours.
+    ///
+    /// # Complexity
+    /// O(total length of the tags); no allocation.
+    pub fn negotiate<'a>(preferred: impl IntoIterator<Item = &'a str>) -> Option<Self> {
+        preferred.into_iter().find_map(Self::matching)
     }
 
     /// The next locale to try when a message is missing, or `None` for the source language.
@@ -147,6 +213,37 @@ impl fmt::Display for Locale {
     /// Displays the BCP 47 tag (used in error messages and logs, never shown as UI text).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.tag())
+    }
+}
+
+/// The region subtag among `subtags`, the ones after the language subtag, or `None` without one.
+///
+/// BCP 47 orders them language, optional script (four letters, `Latn`), optional region (two
+/// letters, `GB`, or three digits, `419`), then variants and extensions. So: skip one script,
+/// take the next subtag if it has a region's shape, and stop otherwise (a variant is never a
+/// region).
+fn region_of<'a>(mut subtags: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    let mut next = subtags.next()?;
+    if next.len() == 4 && next.bytes().all(|byte| byte.is_ascii_alphabetic()) {
+        next = subtags.next()?;
+    }
+    let letters = next.len() == 2 && next.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let digits = next.len() == 3 && next.bytes().all(|byte| byte.is_ascii_digit());
+    (letters || digits).then_some(next)
+}
+
+/// The English catalogue for a speaker from `region` (see [`Locale::matching`]): en-GB for the
+/// regions that use the British musical words, en-US for every other one and for none.
+fn english_for_region(region: Option<&str>) -> Locale {
+    // Great Britain, Australia, New Zealand, Ireland, South Africa, India (ADR-0053 LR3, approved
+    // by the owner on 2026-11-27). Canada stays with en-US on purpose: *quarter note* and
+    // *measure* are the usual words there.
+    const BRITISH: [&str; 6] = ["GB", "AU", "NZ", "IE", "ZA", "IN"];
+    match region {
+        Some(region) if BRITISH.iter().any(|code| region.eq_ignore_ascii_case(code)) => {
+            Locale::EnGb
+        }
+        _ => Locale::EnUs,
     }
 }
 
@@ -527,5 +624,66 @@ mod tests {
     fn unknown_tags_are_rejected() {
         assert_eq!(Locale::from_tag("pt-BR"), None);
         assert_eq!(Locale::from_tag("en-us"), None);
+    }
+
+    /// The system's tags are brought down to ours by language, and by region for English
+    /// (ADR-0053 LR3), in both BCP 47 and POSIX forms.
+    #[test]
+    fn system_tags_match_by_language_and_english_region() {
+        let cases = [
+            // Our own tags, and their POSIX spellings with codeset and modifier.
+            ("en-US", Some(Locale::EnUs)),
+            ("en-GB", Some(Locale::EnGb)),
+            ("it", Some(Locale::It)),
+            ("it_IT.UTF-8", Some(Locale::It)),
+            ("de_DE.UTF-8@euro", Some(Locale::De)),
+            ("fr_FR@dict", Some(Locale::Fr)),
+            // Other regions of our languages.
+            ("it-CH", Some(Locale::It)),
+            ("de-AT", Some(Locale::De)),
+            ("de-CH", Some(Locale::De)),
+            ("fr-CA", Some(Locale::Fr)),
+            ("es-MX", Some(Locale::Es)),
+            ("es-419", Some(Locale::Es)),
+            // English: the British words for these regions, the American ones otherwise.
+            ("en-AU", Some(Locale::EnGb)),
+            ("en_NZ.UTF-8", Some(Locale::EnGb)),
+            ("en-IE", Some(Locale::EnGb)),
+            ("en-ZA", Some(Locale::EnGb)),
+            ("en-IN", Some(Locale::EnGb)),
+            ("en-CA", Some(Locale::EnUs)),
+            ("en", Some(Locale::EnUs)),
+            ("en-001", Some(Locale::EnUs)),
+            ("en-Latn-GB", Some(Locale::EnGb)),
+            // Case does not matter in a language tag.
+            ("EN-gb", Some(Locale::EnGb)),
+            ("IT", Some(Locale::It)),
+            // A variant is not a region.
+            ("en-oxendict", Some(Locale::EnUs)),
+            // Not ours.
+            ("pt-BR", None),
+            ("zh-Hant-TW", None),
+            ("C", None),
+            ("C.UTF-8", None),
+            ("POSIX", None),
+            ("", None),
+            ("ita", None),
+        ];
+        for (tag, expected) in cases {
+            assert_eq!(Locale::matching(tag), expected, "{tag:?}");
+        }
+    }
+
+    /// The first of the user's languages that is ours wins, in the user's order.
+    #[test]
+    fn negotiation_takes_the_first_language_that_is_ours() {
+        assert_eq!(
+            Locale::negotiate(["pt-BR", "de-CH", "en-US"]),
+            Some(Locale::De)
+        );
+        assert_eq!(Locale::negotiate(["en-AU", "it-IT"]), Some(Locale::EnGb));
+        assert_eq!(Locale::negotiate(["C", "es_ES.UTF-8"]), Some(Locale::Es));
+        assert_eq!(Locale::negotiate(["ja-JP", "ko-KR"]), None);
+        assert_eq!(Locale::negotiate([]), None);
     }
 }

@@ -492,6 +492,16 @@ impl<A: WindowApp> Shell<A> {
                     }
                 }
                 WindowRequest::SetTheme { pair, mode } => self.set_theme(pair, mode),
+                // Only where one is installed (macOS): dropping the old host after the new one is
+                // in place keeps the bar from being empty in between (`init_for_nsapp` replaces
+                // the application's main menu; the old `Menu` then has nothing to show).
+                WindowRequest::RebuildSystemMenu => {
+                    if self.system_menu.is_some() {
+                        let old = self.system_menu.take();
+                        self.install_system_menu();
+                        drop(old);
+                    }
+                }
                 WindowRequest::ShowWindowMenu { at } => {
                     if let Some(open) = self.open.as_ref() {
                         open.window.show_window_menu(LogicalPosition::new(
@@ -584,6 +594,24 @@ impl<A: WindowApp> Shell<A> {
         for &(action, state) in &self.menu_updates {
             host.update(action, state);
         }
+    }
+
+    /// Asks the app for its system menu and installs it (macOS, F2.11e1): at start-up, and again
+    /// when the app asks for it to be rebuilt ([`WindowRequest::RebuildSystemMenu`], ADR-0053
+    /// LR1). Nothing when the app has none; elsewhere `install` answers `None`.
+    fn install_system_menu(&mut self) {
+        let Some(menu) = self.app.system_menu() else {
+            return;
+        };
+        // `muda` calls back on the main thread, but asks for a `Send + Sync` handler: the proxy
+        // goes in behind a mutex, locked once per choice.
+        let proxy = std::sync::Mutex::new(self.proxy.clone());
+        self.system_menu = install_system_menu(&menu, move |action| {
+            if let Ok(proxy) = proxy.lock() {
+                // A closed loop has nobody to run the action for: nothing to do.
+                let _closed = proxy.send_event(ShellEvent::MenuAction(action));
+            }
+        });
     }
 
     /// Starts the file chooser the app asks for, if any (ADR-0050 DG4, F2.12a5a): with our window
@@ -721,18 +749,8 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
         }
         // The system's menu bar, once (macOS, F2.11e1): the event loop runs, so the system's
         // application object exists. Elsewhere `install` answers `None`.
-        if self.system_menu.is_none()
-            && let Some(menu) = self.app.system_menu()
-        {
-            // `muda` calls back on the main thread, but asks for a `Send + Sync` handler: the proxy
-            // goes in behind a mutex, locked once per choice.
-            let proxy = std::sync::Mutex::new(self.proxy.clone());
-            self.system_menu = install_system_menu(&menu, move |action| {
-                if let Ok(proxy) = proxy.lock() {
-                    // A closed loop has nobody to run the action for: nothing to do.
-                    let _closed = proxy.send_event(ShellEvent::MenuAction(action));
-                }
-            });
+        if self.system_menu.is_none() {
+            self.install_system_menu();
         }
     }
 

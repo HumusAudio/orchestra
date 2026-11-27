@@ -21,6 +21,9 @@ unic-langid.workspace = true
 # The Fluent parser, used only by the parity tests to list message ids and variables. It is
 # already a transitive dependency of `fluent-bundle`, so it costs nothing extra.
 fluent-syntax.workspace = true
+# The counting allocator for the "matching a system's tag never allocates" test (ADR-0016),
+# test-only.
+orchestra-test-support.workspace = true
 
 [lints]
 workspace = true

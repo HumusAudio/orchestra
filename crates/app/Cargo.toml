@@ -31,6 +31,9 @@ orchestra-video.workspace = true
 [dev-dependencies]
 # The demonstration's tests read the roles and names of its accessibility tree (F2.09c).
 accesskit.workspace = true
+# Instruction-count benchmark of changing the language while the program runs (ADR-0016,
+# SCALETTA F2.13).
+gungraun.workspace = true
 
 [lints]
 workspace = true
@@ -52,3 +55,9 @@ path = "src/main.rs"
 [[bin]]
 name = "orchestra-screenshots"
 path = "src/bin/orchestra-screenshots.rs"
+
+# Instruction-count benchmark of changing the interface's language while the program runs
+# (ADR-0053 LR1, SCALETTA F2.13).
+[[bench]]
+name = "language"
+harness = false

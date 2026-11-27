@@ -1821,6 +1821,7 @@ name = "orchestra-app"
 version = "0.0.0"
 dependencies = [
  "accesskit",
+ "gungraun",
  "orchestra-audio-engine",
  "orchestra-core-model",
  "orchestra-core-time",
@@ -1869,6 +1870,7 @@ version = "0.0.0"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
+ "orchestra-test-support",
  "unic-langid",
 ]
 
@@ -1966,6 +1968,7 @@ dependencies = [
  "proptest",
  "rfd",
  "softbuffer",
+ "sys-locale",
  "tiny-skia",
  "wayland-client",
  "wayland-protocols",
@@ -2706,6 +2709,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "sys-locale"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

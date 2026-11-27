@@ -490,3 +490,57 @@ fn the_bar_describes_itself_to_assistive_technologies() {
     assert_eq!(edit.is_expanded(), Some(true));
     let _ = bench.ids.new;
 }
+
+/// A new model renames the bar in place (ADR-0053 LR1, the language changed): the same bar
+/// widget, its titles and mnemonics now the new model's, an open menu closed first, and the new
+/// titles open the new menus (here one title fewer, which is fine too).
+#[test]
+fn a_new_model_renames_the_bar_in_place() {
+    let mut bench = Bench::new();
+    // A menu of the bar is open when the model changes: it closes.
+    bench.click(bench.title(0));
+    assert_eq!(bench.menus().len(), 1);
+    let ids = bench.ids;
+    let model = MenuModel::new()
+        .submenu(
+            "Archivio",
+            Some('a'),
+            MenuModel::new().action(ids.new).action(ids.save),
+        )
+        .submenu(
+            "Modifica",
+            Some('m'),
+            MenuModel::new().action(ids.undo).action(ids.copy),
+        );
+    bench.ui.set_menu_bar_model(&model, &mut bench.list);
+    assert!(bench.menus().is_empty(), "the open menu closed");
+    assert_eq!(bench.ui.menu_bar_active(), None);
+    bench
+        .ui
+        .layout(Rect::new(0.0, 0.0, 800.0, 600.0), &mut bench.list);
+    // The same bar, with two titles named as the new model says.
+    let update = bench.ui.take_access_update();
+    let tree = update.tree_update();
+    let names: Vec<String> = bench
+        .ui
+        .menu_bar_titles()
+        .map(|title| {
+            tree.nodes
+                .iter()
+                .find(|(id, _)| *id == NodeId(title.get()))
+                .and_then(|(_, node)| node.label().map(str::to_owned))
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(names, ["Archivio", "Modifica"]);
+    assert!(
+        tree.nodes
+            .iter()
+            .any(|(id, node)| *id == NodeId(bench.bar.get()) && node.role() == Role::MenuBar),
+        "the bar keeps its widget"
+    );
+    // Alt+M opens the new second title's menu: the mnemonics are the new ones.
+    bench.press(Key::Character("m".into()), ALT);
+    assert_eq!(bench.menus().len(), 1);
+    assert_eq!(bench.ui.menu_bar_open(), Some(1));
+}

@@ -408,6 +408,12 @@ impl WindowButtonWidget {
         (record, layout, access)
     }
 
+    /// Gives it the names `names` (another language, ADR-0053 LR1): its accessible node and its
+    /// tooltip say the new name from now on; its look does not change (it draws a symbol).
+    pub(crate) fn set_names(&mut self, names: WindowButtonNames) {
+        self.names = names;
+    }
+
     /// Its name now.
     fn name(&self) -> &str {
         match self.kind {

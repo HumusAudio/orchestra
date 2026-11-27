@@ -575,3 +575,12 @@ works.
   order; a custom choice whose theme is missing shows Studio, as the window draws it.
 - **Every change of the editor is applied and saved at once** (DG8): the whole window is the
   preview; deleting a theme asks first.
+
+## The language at once (F2.13, ADR-0053, approved by the owner on 2026-11-27)
+
+The exception of DG8 and DG9 for the language ("applies at the next start", the muted note beside
+the choice) ends with F2.13: a language chosen in the Preferences applies **at once**, as every
+other preference, and the note is gone. How the interface is shown again in the new language, and
+what *System language* means (the system's languages read at start-up and when it is chosen,
+named in brackets after it), is decided in **ADR-0053**; the settings file's `language` field
+(`"system"` or one of the six tags) is unchanged, so no migration is needed.

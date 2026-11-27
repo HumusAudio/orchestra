@@ -332,6 +332,12 @@ pub enum WindowRequest {
         /// The mode (ADR-0014 §1).
         mode: ThemeMode,
     },
+    /// Build the system's menu bar again from [`WindowApp::system_menu`] and install it in place
+    /// of the one shown (macOS, ADR-0053 LR1, F2.13): the menus' names changed with the language.
+    /// The states come with the new description, so nothing else is needed. Nothing happens where
+    /// no system menu is installed (Linux, Windows: the app renames its drawn bar itself,
+    /// [`Ui::set_menu_bar_model`](crate::Ui::set_menu_bar_model)).
+    RebuildSystemMenu,
 }
 
 /// An edge or a corner of the window, to resize it from ([`WindowRequest::Resize`]).

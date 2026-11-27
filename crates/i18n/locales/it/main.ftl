@@ -168,14 +168,14 @@ theme-snow = Neve
 
 ## The Preferences' Language and Keyboard sections (F2.12a4b1; glossary: language, keyboard,
 ## system_language, fine_adjustment, language_names). The languages' names are each written in
-## its own language, the same in every catalogue (owner's choice 1 of F2.12a4b1). Until F2.13 a
-## new language applies at the next start, which the note beside the choice says.
+## its own language, the same in every catalogue (owner's choice 1 of F2.12a4b1). A new language
+## applies at once (F2.13, ADR-0053); *System language* names, in brackets, the language the
+## system's languages give ($language: one of the six names below, as written there).
 
 prefs-section-language = Lingua
 prefs-section-keyboard = Tastiera
 prefs-language = Lingua
-prefs-language-system = Lingua del sistema
-prefs-language-restart = Vale dal prossimo avvio di { app-name }.
+prefs-language-system = Lingua del sistema ({ $language })
 prefs-fine-modifier = Regolazione fine
 language-en-us = English (US)
 language-en-gb = English (UK)

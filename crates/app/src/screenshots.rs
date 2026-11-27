@@ -285,8 +285,9 @@ fn record_preferences_section(
     }
 }
 
-/// The Preferences' Language section (F2.12a4b1): the drop-down on *System language* and the
-/// note that a new language applies at the next start.
+/// The Preferences' Language section (F2.12a4b1, F2.13): the drop-down on *System language*,
+/// which names the language the system's give (en-US in the screenshots: they never depend on
+/// the machine, ADR-0009 §6).
 fn record_preferences_language(bounds: Rect, list: &mut DisplayList, context: &SceneContext) {
     record_preferences_section(bounds, list, context, 1);
 }
