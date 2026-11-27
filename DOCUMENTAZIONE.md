@@ -6781,7 +6781,9 @@ un'apertura (che chiude, chiede, o cade dopo un fallimento), una risposta che no
 finestra di un lavoro interrotto, l'ordine e il risvegliatore del thread, la strada senza thread,
 il thread di lavoro lasciato cadere che finisce i suoi lavori, e la dimostrazione occupata mentre
 un progetto si apre con la chiusura che aspetta. `project.rs` e `files.rs` eseguono i lavori che
-causano (`settle`, `wait_for_project`).
+causano (`settle`, `wait_for_project`). Tre bug inseriti apposta sono stati presi: la revisione
+attuale registrata al posto di quella della fotografia, la chiusura in attesa dimenticata, e una
+risposta di lavoro interrotto del tipo sbagliato accettata.
 
 **Misurato** (`crates/core-model/benches/parts.rs`, `snapshot`): una copia costa circa **0,51 M istruzioni** per la partitura normale e **2,24 M** per quella
 pesante, molto meno di un fotogramma. Costa così poco perché il contenuto delle voci sta in blocchi

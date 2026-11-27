@@ -6355,7 +6355,9 @@ a close waiting for a save and for an opening (closing, asking, or dropped after
 answer that is not the job's, a stopped job's dialog, the worker's order and waker, the path
 without a thread, dropping the worker finishing its jobs, and the demonstration busy while a
 project opens with its close waiting. `project.rs` and `files.rs` run the jobs they cause
-(`settle`, `wait_for_project`).
+(`settle`, `wait_for_project`). Three bugs injected on purpose were caught: the current revision
+recorded instead of the snapshot's, the waiting close forgotten, and a stopped answer of the wrong
+kind accepted.
 
 **Measured** (`crates/core-model/benches/parts.rs`, `snapshot`): a copy costs about **0.51 M instructions** for the normal score and **2.24 M** for the
 heavy one, far below one frame. It is so cheap because the voices' content lives in shared,
