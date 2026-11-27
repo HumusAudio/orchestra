@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v1.06, approvata dal proprietario il 2026-11-27.**
+> **Stato di questo documento: v1.07, approvata dal proprietario il 2026-11-27.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -750,7 +750,9 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12b3a | **Il widget** `ColorPicker` in `orchestra-ui`: quadrato chiarezza/intensità, striscia della tinta, trasparenza solo se serve, campioni prima/adesso, disegnati come immagini; trascinamento, tastiera con regolazione fine, accessibilità; test e misure | ✅ PR #106 | 0,5–1 |
 | F2.12b3b | **Nell'editor dei temi**: il campione apre il selettore dentro l'elenco sotto la riga (variante B), anteprima dal vivo, *Esc* annulla, *Invio* o un nuovo clic sul campione confermano; testi, screenshot, guide | ✅ PR #107 | 0,5 |
 | F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ✅ ADR-0053, PR #108 | 1 |
-| F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | ⬜ | 1–2 |
+| F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | 🔄 ADR-0054 (F2.14a–b) | 1–2 |
+| F2.14a | **Thread di lavoro dei progetti** (ADR-0054 AR1): apertura e salvataggio manuale fuori dal thread dell'interfaccia, fotografia del documento con la sua revisione, strato di blocco e puntatore *attesa*, chiusura che aspetta la scrittura; benchmark della fotografia | ⬜ | 0,5–1 |
+| F2.14b | **Salvataggio automatico e recupero** (ADR-0054 AR2–AR7): cartella di recupero, sessione con lucchetto, formato della descrizione con file golden, timer (2 minuti, 1–60, nelle Preferenze), domanda all'avvio *Recupera / Scarta / Più tardi*, avviso del primo fallimento; test con un processo ucciso davvero; testi, guide | ⬜ | 1 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
 
 - **F2.01** **Fatto il 2026-11-09 (ADR-0036 Accepted):** prima di partire il proprietario ha
@@ -1235,6 +1237,9 @@ controllo completo. Va fatta bene una volta sola.
   17,2 M istruzioni. Provato a mano dal proprietario: funziona.
 - **F2.14** Proposta di Claude, **confermata dal proprietario il 2026-11-08** (D13 chiusa):
   anticiparlo qui perché un musicista che perde lavoro smette di usare il programma.
+  **ADR-0054 Accepted il 2026-11-27** (raccomandazioni 1–8 approvate, poi il testo così com'è):
+  diviso in F2.14a (il thread di lavoro) e F2.14b (salvataggio automatico e recupero). Il
+  registro tecnico degli errori (S4 di F2.12a2) resta fuori (AR8): passo da collocare.
 
 **Tappa M2A.**
 
@@ -1582,3 +1587,4 @@ raccomandato.
 | 2026-11-26 | 1.04 | F2.12b3b avviato: il selettore si apre dentro l'elenco sotto la riga del colore (variante B, scelta del proprietario) invece che in un livello sopra l'interfaccia; punti 1–7 approvati | proprietario |
 | 2026-11-26 | 1.05 | F2.12b3b fatto (PR #107: il selettore dei colori nell'editor dei temi, sotto la riga; profilo di sviluppo che ottimizza le dipendenze e i crate di disegno, precisione di ADR-0035; selettore fermo durante il trascinamento; provato a mano dal proprietario), quindi F2.12b3, F2.12b e F2.12 fatti; prossimo passo F2.13 | proprietario |
 | 2026-11-27 | 1.06 | F2.13 fatto (PR #108, ADR-0053: la lingua cambia subito ricostruendo le viste dal modello e dalle impostazioni; *Lingua del sistema* letta con `sys-locale` e nominata tra parentesi; regola di ripiego per lingua e, per l'inglese, per regione; provato a mano dal proprietario); prossimo passo F2.14 | proprietario |
+| 2026-11-27 | 1.07 | F2.14 avviato: ADR-0054 Accepted (thread di lavoro dei progetti, salvataggio automatico ogni 2 minuti in una copia di recupero, crash riconosciuto da un lucchetto del sistema, domanda all'avvio); F2.14 diviso in F2.14a e F2.14b | proprietario |

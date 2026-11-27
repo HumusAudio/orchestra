@@ -61,3 +61,4 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0051](0051-shortcut-files.md) | Shortcut files: the whole keyboard in a versioned file of its own | Accepted |
 | [0052](0052-theme-files.md) | Theme files: one custom theme in a versioned file of its own | Accepted |
 | [0053](0053-runtime-language.md) | The interface's language while the program runs: views rebuilt from the model, the system's languages read | Accepted |
+| [0054](0054-project-worker-autosave-recovery.md) | Projects read and written on a worker thread, automatic saving, recovery after a crash | Accepted |
