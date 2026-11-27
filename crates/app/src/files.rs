@@ -327,6 +327,27 @@ pub fn project_error_dialog<M>(texts: &ProjectTexts, error: &ProjectError, ok: M
         )
         .detail(path.display().to_string())
         .detail(texts.save_kept.clone()),
+        // A job stopped by a mistake of the program (ADR-0054 AR1): the operation's own title,
+        // and the message that already says "a mistake in Orchestra, please report it" (*New*'s).
+        ProjectError::Stopped {
+            path,
+            writing: true,
+        } => DialogSpec::new(
+            DialogKind::Error,
+            texts.save_error_title.fill(&[&file_name(path)]),
+            texts.new_error_message.clone(),
+        )
+        .detail(path.display().to_string())
+        .detail(texts.save_kept.clone()),
+        ProjectError::Stopped {
+            path,
+            writing: false,
+        } => DialogSpec::new(
+            DialogKind::Error,
+            texts.open_error_title.fill(&[&file_name(path)]),
+            texts.new_error_message.clone(),
+        )
+        .detail(path.display().to_string()),
     };
     spec.button(texts.ok.clone(), ButtonRole::Affirmative, ok)
 }

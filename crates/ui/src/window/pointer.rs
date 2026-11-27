@@ -12,7 +12,8 @@
 //! Only the shapes a widget uses today are here (SCALETTA §1, rule 6: no work "for later"): the
 //! ordinary arrow, the two resize shapes of the splitter's divider and the text field's text beam
 //! (F2.10b2). The shapes of the window's edges and corners come with our own title bar
-//! (F2.11b). Buttons keep the arrow, as on Windows, macOS, GNOME and KDE: the pointing hand is
+//! (F2.11b); the busy shape comes with opening and saving projects on a worker thread (F2.14a,
+//! ADR-0054 AR1). Buttons keep the arrow, as on Windows, macOS, GNOME and KDE: the pointing hand is
 //! the convention of links, and none exist yet (owner's choice, 2026-11-13).
 
 use winit::window::CursorIcon;
@@ -40,6 +41,10 @@ pub enum PointerShape {
     ResizeNorthWestSouthEast,
     /// Resizing the window from its top-right or bottom-left corner.
     ResizeNorthEastSouthWest,
+    /// The program is busy and takes no input for a moment: a project is being opened or saved
+    /// on the worker thread, behind the interface's busy layer (ADR-0054 AR1, F2.14a). Over the
+    /// whole window, whatever is under the pointer.
+    Wait,
 }
 
 /// `winit`'s cursor for `shape`.
@@ -66,6 +71,13 @@ pub(crate) const fn to_winit(shape: PointerShape) -> CursorIcon {
         PointerShape::ResizeVertical => CursorIcon::NsResize,
         PointerShape::ResizeNorthWestSouthEast => CursorIcon::NwseResize,
         PointerShape::ResizeNorthEastSouthWest => CursorIcon::NeswResize,
+        // `Wait`, not `Progress`: CSS's `progress` means "busy, but you can still interact",
+        // which is the automatic save's case (it shows nothing at all, AR4), not this one, where
+        // the interface is blocked. Native everywhere: `IDC_WAIT` on Windows, the cursor theme's
+        // `wait` (aliased `watch`) on X11 and Wayland; macOS has no public "wait" cursor, and
+        // `winit` 0.30.13 gives AppKit's private `busyButClickableCursor` there (read in its
+        // `platform_impl/macos/cursor.rs`), the closest the system has.
+        PointerShape::Wait => CursorIcon::Wait,
     }
 }
 
@@ -93,6 +105,7 @@ mod tests {
             to_winit(PointerShape::ResizeNorthEastSouthWest),
             CursorIcon::NeswResize
         );
+        assert_eq!(to_winit(PointerShape::Wait), CursorIcon::Wait);
         assert_eq!(PointerShape::default(), PointerShape::Default);
     }
 }

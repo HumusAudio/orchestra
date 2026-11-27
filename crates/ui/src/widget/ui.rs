@@ -135,6 +135,7 @@ use super::layout::{Constraints, LayoutProps, Size};
 use super::popup::{self, Popup, PopupSide};
 
 mod bar;
+mod busy;
 mod dialogs;
 mod files;
 mod menus;
@@ -252,6 +253,11 @@ pub struct Ui<M> {
     /// [`Ui::choose_file`] to [`Ui::file_chosen`]; one of the [`Ui::dialogs`]' layers, without a
     /// panel to show.
     file_layer: Option<usize>,
+    /// The root slot of the layer that blocks the interface while the application works (a
+    /// project opened or saved on its worker thread, ADR-0054 AR1), from [`Ui::begin_busy`] to
+    /// [`Ui::end_busy`]; one of the [`Ui::dialogs`]' layers, without a panel to show (the module
+    /// `busy`).
+    busy_layer: Option<usize>,
     /// Lists of values the widgets asked to open or close during this input, carried out at the
     /// next frame (`EventCx::open_choices`, F2.12a4a), with the asking widget's slot. Reused.
     choices_requested: Vec<(usize, ChoicesRequest)>,
@@ -401,6 +407,7 @@ impl<M: 'static> Ui<M> {
             dialogs_to_close: Vec::new(),
             file_request: None,
             file_layer: None,
+            busy_layer: None,
             choices_requested: Vec::new(),
             caret_blink: true,
             fine_modifier: crate::FineModifier::Primary,
@@ -532,6 +539,8 @@ impl<M: 'static> Ui<M> {
         // The file chooser's blocking layer too, if it went with a dialog below it: the chooser's
         // answer will then find no layer to remove (`Ui::file_chosen`).
         self.file_layer = alive(self.file_layer, tree);
+        // The busy layer as well (`Ui::end_busy` then finds nothing to remove).
+        self.busy_layer = alive(self.busy_layer, tree);
         if self.menus.is_empty() {
             self.next_layer = self.layer_floor();
         }
@@ -664,6 +673,10 @@ impl<M: 'static> Ui<M> {
     /// pointer only when the answer changes.
     #[must_use]
     pub fn pointer_shape(&self) -> PointerShape {
+        // Busy (ADR-0054 AR1): the wait shape over the whole window, whatever is under it.
+        if self.busy_layer.is_some() {
+            return PointerShape::Wait;
+        }
         // Asks the widget in `index` alone.
         let ask = |index: usize| {
             self.tree
@@ -2237,16 +2250,18 @@ impl<M: 'static> Ui<M> {
         if full || self.access_window {
             // The open dialogs (their roots) and then the open menus, in their layers' order.
             // The file chooser's blocking layer is no dialog for them: the system's chooser is.
+            // Nor is the busy layer (nothing in it to read): the window says it is busy instead.
             let dialogs = self
                 .dialogs
                 .iter()
                 .map(|dialog| dialog.root)
-                .filter(|&root| Some(root) != self.file_layer);
+                .filter(|&root| Some(root) != self.file_layer && Some(root) != self.busy_layer);
             let menus = self.menus.iter().map(|menu| menu.root);
             let layers = dialogs.chain(menus).filter_map(|slot| self.id_of(slot));
-            update
-                .nodes
-                .push((WINDOW_NODE, window_node(&self.title, self.root(), layers)));
+            update.nodes.push((
+                WINDOW_NODE,
+                window_node(&self.title, self.root(), layers, self.busy_layer.is_some()),
+            ));
         }
         for index in 0..self.tree.slots.len() {
             let Some(slot) = self.tree.slot(index) else {

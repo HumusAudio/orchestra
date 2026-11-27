@@ -220,6 +220,11 @@ Saving never damages the file you had: Orchestra writes the new version next to 
 place only when it is complete, so if anything goes wrong (a full disk, a removed USB stick) the
 old file is still there as it was.
 
+Opening and saving happen in the background, so the window keeps answering even with a very large
+project. While a project is being opened or saved, the pointer shows that Orchestra is busy and the
+window takes no clicks or keys for that moment; it is usually too short to notice. If you close the
+window while a project is being saved, Orchestra finishes the save first and then closes.
+
 Before New, before Open and before closing the window, Orchestra checks for unsaved changes. If
 there are any, it asks whether to save them first:
 

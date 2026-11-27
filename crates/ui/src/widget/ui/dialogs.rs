@@ -258,12 +258,14 @@ impl<M: 'static> Ui<M> {
         Ok(())
     }
 
-    /// The open dialogs' panel IDs, lowest first. The layer that blocks the interface while a
-    /// file chooser is open ([`Ui::choose_file`]) is not one of them: it has no panel to show.
+    /// The open dialogs' panel IDs, lowest first. The layers that block the interface while a
+    /// file chooser is open ([`Ui::choose_file`]) or while the application is busy
+    /// ([`Ui::begin_busy`]) are not among them: they have no panel to show.
     pub fn dialogs(&self) -> impl Iterator<Item = WidgetId> + '_ {
         self.dialogs
             .iter()
             .filter(|dialog| Some(dialog.root) != self.file_layer)
+            .filter(|dialog| Some(dialog.root) != self.busy_layer)
             .filter_map(|dialog| self.id_of(dialog.panel))
     }
 

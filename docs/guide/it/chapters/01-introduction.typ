@@ -232,6 +232,12 @@ Salvare non rovina mai il file che avevi: Orchestra scrive la nuova versione acc
 suo posto solo quando è completa, così se qualcosa va storto (il disco pieno, una chiavetta USB
 tolta) il vecchio file è ancora lì com'era.
 
+Aprire e salvare avvengono in sottofondo, così la finestra continua a rispondere anche con un
+progetto molto grande. Mentre un progetto viene aperto o salvato, il puntatore mostra che Orchestra
+è occupato e per quell'istante la finestra non accetta clic né tasti; di solito è troppo breve per
+accorgersene. Se chiudi la finestra mentre un progetto viene salvato, Orchestra finisce prima il
+salvataggio e poi si chiude.
+
 Prima di Nuovo, prima di Apri e prima di chiudere la finestra, Orchestra controlla se ci sono
 modifiche non salvate. Se ci sono, chiede se salvarle prima:
 

@@ -150,7 +150,9 @@ pub use window::input::{
     PointerButton, WheelDelta, WindowState,
 };
 pub use window::pointer::PointerShape;
-pub use window::{ResizeEdge, WindowApp, WindowError, WindowOptions, WindowRequest, run};
+pub use window::{
+    ResizeEdge, WindowApp, WindowError, WindowOptions, WindowRequest, WindowWaker, run,
+};
 
 // The system's light/dark preference (ADR-0014 §5, ADR-0038), re-exported like the theme system.
 pub use platform::appearance::{

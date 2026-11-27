@@ -96,6 +96,8 @@ fn a_cancelled_or_failed_open_keeps_the_project() {
     assert!(demo.take_file_request().is_some(), "free again");
     let path = PathBuf::from("no such folder").join("first.orchestra");
     demo.file_chosen(FileChoice::Chosen(path), &mut list);
+    // The reading is the worker's (ADR-0054 AR1): its answer brings the error.
+    assert!(demo.wait_for_project(&mut list));
     assert_eq!(demo.ui().dialogs().count(), 1, "the error");
     assert_eq!(demo.project().unwrap().project().path(), None::<&Path>);
 }

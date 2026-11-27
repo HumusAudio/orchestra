@@ -47,6 +47,9 @@ pub(crate) enum ShellEvent {
     MenuAction(crate::ActionId),
     /// The open file chooser answered (ADR-0050 DG4, F2.12a5a), from its worker thread.
     FileChosen(crate::FileChoice),
+    /// A thread of the app finished something ([`WindowWaker`](crate::WindowWaker), ADR-0054
+    /// AR1): the batch it starts lets the app look at it.
+    Wake,
 }
 
 /// AccessKit's adapter sends its requests through our proxy (`with_event_loop_proxy` requires

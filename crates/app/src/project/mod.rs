@@ -6,10 +6,12 @@
 //!
 //! # What lives here, and what does not
 //! This module knows nothing of widgets or windows: it is plain logic, so the tests drive every
-//! path of it without an interface. It answers each step with an [`ProjectEffect`], what the interface
-//! has to show or ask next (a question, a file chooser, an error, closing the window); the
-//! demonstration ([`crate::Demo`]) turns effects into dialogs and window requests, and hands the
-//! answers back. The files are read and written here, with `orchestra-io` (ADR-0029).
+//! path of it without an interface. It answers each step with a [`ProjectEffect`], what the
+//! interface has to show or ask next (a question, a file chooser, an error, a file to read or
+//! write, closing the window); the demonstration ([`crate::Demo`]) turns effects into dialogs,
+//! jobs for the worker thread and window requests, and hands the answers back. The files are read
+//! and written by a [`Job`], with `orchestra-io` (ADR-0029), on the worker thread of the module
+//! `worker` (ADR-0054 AR1).
 //!
 //! # The open document (DG5)
 //! [`OpenProject`] holds the [`Editor`] (ADR-0026: one history for every view) and the path of
@@ -30,18 +32,25 @@
 //! same step.
 //!
 //! # The flow, step by step
-//! [`ProjectFlow`] is in one of five steps ([`Step`]):
+//! [`ProjectFlow`] is in one of seven steps ([`Step`]):
 //! - **idle**: nothing open; every command may start;
 //! - **asking**: the question "Save the changes to «Name»?" is open, with what waits for the
 //!   answer (*New*, *Open* or closing: a [`Then`]);
 //! - **saving**: the *Save as* chooser is open, maybe with something waiting after the save;
 //! - **replacing**: the question "«Name.orchestra» already exists. Replace it?" is open (the
 //!   extension was added to the chosen name, so the chooser never confirmed that file);
-//! - **opening**: the *Open* chooser is open.
+//! - **opening**: the *Open* chooser is open;
+//! - **writing**: a [`Job::Write`] is out, maybe with something waiting after the save;
+//! - **reading**: a [`Job::Read`] is out.
 //!
 //! While a step other than idle is open, a new command is ignored (the interface's modal layers
-//! keep it from coming anyway), and a request to close the window is refused without a second
-//! question.
+//! keep it from coming anyway). A request to close the window is refused without a second
+//! question while a question or a chooser is open; while a file is being **written or read** it is
+//! **kept** instead, and runs when the job's answer has come (ADR-0054 AR1): the user who presses
+//! the close button during a long save sees the window close once the save is done (or the
+//! question, if the project is still modified), never a refusal they could not understand. It is
+//! dropped if the job failed (the error is shown, and the user decides again) or if the flow is
+//! not idle afterwards (*Open* waiting on the save opened its chooser).
 //!
 //! What waits for the answer runs only if the project was really put away: *Don't save*, or a
 //! save that succeeded. Cancelling the question, the chooser or the replacement, or a save that
@@ -53,13 +62,26 @@
 //! case: `Song.ORCHESTRA` is kept). If the name so made is an existing file other than the one
 //! chosen, we ask before replacing it.
 //!
-//! # Reading and writing on the interface's thread (choice 5 of F2.12a5b)
-//! Opening and saving run synchronously here. `orchestra-io`'s benchmarks (`benches/project.rs`)
-//! measured natively about 5.5 ms to save and 11 ms to load the normal reference score (a 0.84 MB
-//! file), within one frame or two; the heavy score (25.4 MB) takes 168 ms and 396 ms, a visible
-//! pause that only a very large project would show. The writes are already safe (a temporary
-//! file renamed over the target, ADR-0029 S13). A worker thread comes with the automatic save
-//! (F2.14), which needs one anyway; then the interface stays live for large projects too.
+//! # Reading and writing on a worker thread (ADR-0054 AR1, F2.14a)
+//! Until F2.12a5b opening and saving ran here, on the interface's thread: `orchestra-io`'s
+//! benchmarks measured natively about 5.5 ms to save and 11 ms to load the normal reference score
+//! (a 0.84 MB file), but 168 ms and 396 ms for the heavy one (25.4 MB), a pause in which the window
+//! neither redraws nor answers the compositor. Now the flow only **describes** the work as a
+//! [`Job`] in a [`ProjectEffect::Run`], and the interface hands it to the worker thread (the module
+//! `worker`), whose answer comes back with [`ProjectFlow::finished`].
+//!
+//! - **Saving** starts from a **snapshot**: a copy of the document (`Document::clone`, cheap
+//!   because the voices' content is shared copy-on-write, ADR-0022 §7; measured in
+//!   `orchestra-core-model`'s `benches/parts.rs`) taken with its **revision**. The worker
+//!   encodes and writes the copy; the document itself stays on the interface's thread, never
+//!   shared, so no edit ever waits for a lock (CLAUDE.md §5). When the answer comes, the project
+//!   is "saved at that revision": anything changed meanwhile still counts as modified (DG5).
+//! - **Opening** is entirely the worker's: reading, parsing and the full validation (ADR-0029 S8)
+//!   build the document there, and the flow only swaps it in.
+//! - [`Job::run`] is an ordinary function, so the tests run a job where they are, and the worker
+//!   falls back on running it on the interface's thread if the system refuses a thread.
+//!
+//! The writes are safe as before (a temporary file renamed over the target, ADR-0029 S13).
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -72,6 +94,10 @@ use orchestra_core_time::{
     Tempo, TempoError,
 };
 use orchestra_io::{LoadError, PROJECT_EXTENSION, SaveError};
+
+mod worker;
+
+pub use worker::ProjectWorker;
 
 /// The beats per minute of a new document (choice 1 of F2.12a5b): the usual default of notation
 /// programs and DAWs alike, in quarter notes.
@@ -255,25 +281,112 @@ impl OpenProject {
         self.editor.document().revision() != self.saved
     }
 
-    /// Saves the document to `path` (ADR-0029 S13: a failure leaves the file there as it was);
-    /// on success the project belongs to `path` from now on and is no longer modified. On a
-    /// failure nothing changes: the project keeps its old path and its mark.
-    ///
-    /// # Errors
-    /// [`ProjectError::Save`] with the path and `orchestra-io`'s error.
+    /// A job that saves a snapshot of the document to `path` (see the module documentation):
+    /// the copy and its revision. Nothing changes here until the answer comes
+    /// ([`OpenProject::saved_at`]).
     ///
     /// # Complexity
-    /// O(size of the document) to encode, plus the write.
-    pub fn save_to(&mut self, path: PathBuf) -> Result<(), ProjectError> {
-        match orchestra_io::save(self.editor.document(), &path) {
-            Ok(()) => {
-                self.saved = self.editor.document().revision();
-                self.path = Some(path);
-                Ok(())
-            }
-            Err(error) => Err(ProjectError::Save { path, error }),
+    /// A copy that **shares** the voices' content (copy-on-write chunks, ADR-0022 §7) and
+    /// duplicates the rest: measured about 0.51 M instructions for the normal reference score and
+    /// 2.24 M for the heavy one (`orchestra-core-model`'s `benches/parts.rs`, `snapshot`), well
+    /// within a frame. An edit made while the job is out copies only the chunk it touches. The
+    /// encoding and the write are the worker's.
+    #[must_use]
+    pub fn save_job(&self, path: PathBuf) -> Job {
+        let document = self.editor.document();
+        Job::Write {
+            path,
+            revision: document.revision(),
+            document: Box::new(document.clone()),
         }
     }
+
+    /// A save of the snapshot taken at `revision` succeeded: the project belongs to `path` from
+    /// now on, and is no longer modified unless it changed since that snapshot. O(1).
+    pub fn saved_at(&mut self, path: PathBuf, revision: u64) {
+        self.saved = revision;
+        self.path = Some(path);
+    }
+}
+
+/// Work on a project file that the interface hands to the worker thread (see the module
+/// documentation), from a [`ProjectEffect::Run`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Job {
+    /// Write `document` to `path` (ADR-0029 S13: a failure leaves the file there as it was).
+    Write {
+        /// The file.
+        path: PathBuf,
+        /// The document's revision when the snapshot was taken.
+        revision: u64,
+        /// The snapshot. Boxed: the jobs travel through a channel, and the other variant is a
+        /// path.
+        document: Box<Document>,
+    },
+    /// Read the project at `path`, with the full validation of ADR-0029 S8.
+    Read {
+        /// The file.
+        path: PathBuf,
+    },
+}
+
+impl Job {
+    /// Does the work, on the calling thread: the worker's, or the interface's in the tests and
+    /// when no thread could be started.
+    ///
+    /// # Complexity
+    /// O(size of the document) to encode, or to parse and validate, plus the file's reading or
+    /// writing: for the heavy reference score natively about 168 ms to save and 396 ms to open.
+    #[must_use]
+    pub fn run(self) -> JobAnswer {
+        match self {
+            Self::Write {
+                path,
+                revision,
+                document,
+            } => {
+                let result = orchestra_io::save(&document, &path);
+                JobAnswer::Written {
+                    path,
+                    revision,
+                    result,
+                }
+            }
+            Self::Read { path } => {
+                let result = orchestra_io::load(&path).map(Box::new);
+                JobAnswer::Read { path, result }
+            }
+        }
+    }
+}
+
+/// What a [`Job`] answered, for [`ProjectFlow::finished`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum JobAnswer {
+    /// The answer of a [`Job::Write`].
+    Written {
+        /// The file.
+        path: PathBuf,
+        /// The revision of the snapshot written.
+        revision: u64,
+        /// Whether it was written.
+        result: Result<(), SaveError>,
+    },
+    /// The answer of a [`Job::Read`].
+    Read {
+        /// The file.
+        path: PathBuf,
+        /// The document read (boxed as in [`Job::Write`]), or why it could not be.
+        result: Result<Box<Document>, LoadError>,
+    },
+    /// The job stopped in the middle, by a mistake of the program (a panic the worker caught,
+    /// module `worker`): nothing is known of its result.
+    Stopped {
+        /// The job's file.
+        path: PathBuf,
+        /// `true` for a [`Job::Write`], `false` for a [`Job::Read`].
+        writing: bool,
+    },
 }
 
 /// Why a step of the flow failed, for the interface to say in the user's language.
@@ -294,6 +407,15 @@ pub enum ProjectError {
         path: PathBuf,
         /// Why.
         error: SaveError,
+    },
+    /// Opening or saving `path` stopped in the middle by a mistake of the program
+    /// ([`JobAnswer::Stopped`]). A save leaves the file there, if any, as it was (ADR-0029 S13:
+    /// the new file only replaces it by a rename, at the very end).
+    Stopped {
+        /// The file.
+        path: PathBuf,
+        /// Whether it was a save (`false`: an opening).
+        writing: bool,
     },
 }
 
@@ -337,6 +459,10 @@ pub enum Step {
     },
     /// The *Open* chooser is open.
     Opening,
+    /// A [`Job::Write`] is out; after an answer that says it succeeded, the [`Then`] if any.
+    Writing(Option<Then>),
+    /// A [`Job::Read`] is out.
+    Reading,
 }
 
 /// What the interface has to do next (see the module documentation).
@@ -362,6 +488,9 @@ pub enum ProjectEffect {
         /// The file that would be replaced.
         path: PathBuf,
     },
+    /// Hand this job to the worker thread, block the interface while it runs (ADR-0054 AR1), and
+    /// answer with [`ProjectFlow::finished`].
+    Run(Job),
     /// Say that something failed.
     Failed(ProjectError),
     /// Close the window: the project was put away.
@@ -375,6 +504,9 @@ pub struct ProjectFlow {
     project: OpenProject,
     /// The step.
     step: Step,
+    /// A request to close the window that came while a job was out (see the module
+    /// documentation): it runs after the answer.
+    close_waiting: bool,
 }
 
 impl ProjectFlow {
@@ -384,6 +516,7 @@ impl ProjectFlow {
         Self {
             project,
             step: Step::Idle,
+            close_waiting: false,
         }
     }
 
@@ -417,10 +550,80 @@ impl ProjectFlow {
     }
 
     /// Closing the window (Quit, the system's close button): asks about the changes first, if
-    /// any; otherwise [`ProjectEffect::Close`]. Ignored unless idle: a question or a chooser is open,
-    /// and the window stays.
+    /// any; otherwise [`ProjectEffect::Close`]. Ignored while a question or a chooser is open (the
+    /// window stays); **kept** while a job is out, and run after its answer (see the module
+    /// documentation).
     pub fn close(&mut self) -> Option<ProjectEffect> {
+        if self.is_busy() {
+            self.close_waiting = true;
+            return None;
+        }
         self.start(Then::Close)
+    }
+
+    /// Whether a job is out (writing or reading): the interface is blocked until its answer.
+    #[must_use]
+    pub const fn is_busy(&self) -> bool {
+        matches!(self.step, Step::Writing(_) | Step::Reading)
+    }
+
+    /// Whether a request to close the window is waiting for the job's answer.
+    #[must_use]
+    pub const fn close_waiting(&self) -> bool {
+        self.close_waiting
+    }
+
+    /// The answer of the job of the last [`ProjectEffect::Run`]: a save that succeeded makes the
+    /// project saved at its snapshot's revision and goes on with what waited; a document read
+    /// replaces the project; a failure is said, and what waited is dropped. Then a close that
+    /// waited runs, if the flow is idle and nothing failed. Ignored unless that job is out (an
+    /// answer that does not match the step changes nothing).
+    pub fn finished(&mut self, answer: JobAnswer) -> Option<ProjectEffect> {
+        let effect = match (std::mem::replace(&mut self.step, Step::Idle), answer) {
+            (
+                Step::Writing(then),
+                JobAnswer::Written {
+                    path,
+                    revision,
+                    result,
+                },
+            ) => match result {
+                Ok(()) => {
+                    self.project.saved_at(path, revision);
+                    then.and_then(|then| self.proceed(then))
+                }
+                Err(error) => Some(ProjectEffect::Failed(ProjectError::Save { path, error })),
+            },
+            // A mistake of the program stopped the job that is out: said like any failure, and
+            // nothing changed (what waited on a save is dropped, as after a failed save).
+            (step @ (Step::Writing(_) | Step::Reading), JobAnswer::Stopped { path, writing })
+                if writing == matches!(step, Step::Writing(_)) =>
+            {
+                Some(ProjectEffect::Failed(ProjectError::Stopped {
+                    path,
+                    writing,
+                }))
+            }
+            (Step::Reading, JobAnswer::Read { path, result }) => match result {
+                Ok(document) => {
+                    self.project = OpenProject::with_document(*document, Some(path));
+                    None
+                }
+                Err(error) => Some(ProjectEffect::Failed(ProjectError::Open { path, error })),
+            },
+            // Not the job that is out: the step is put back as it was.
+            (other, _) => {
+                self.step = other;
+                return None;
+            }
+        };
+        let close = std::mem::take(&mut self.close_waiting);
+        match effect {
+            // Nothing else to show and nothing open: the close that waited goes on now.
+            None if close && self.step == Step::Idle => self.close(),
+            // A failure, a chooser, the window closing anyway: the waiting close is dropped.
+            effect => effect,
+        }
     }
 
     /// *Save*: writes over the project's file, or asks for one like *Save as* when it was never
@@ -429,7 +632,7 @@ impl ProjectFlow {
         if self.step != Step::Idle {
             return None;
         }
-        self.save_then(None)
+        Some(self.save_then(None))
     }
 
     /// *Save as*: asks for a file, proposing the project's name. Ignored unless idle.
@@ -450,7 +653,7 @@ impl ProjectFlow {
         };
         self.step = Step::Idle;
         match answer {
-            SaveAnswer::Save => self.save_then(Some(then)),
+            SaveAnswer::Save => Some(self.save_then(Some(then))),
             SaveAnswer::Discard => self.proceed(then),
             SaveAnswer::Cancel => None,
         }
@@ -460,7 +663,7 @@ impl ProjectFlow {
     /// (the interface has already said why). Ignored unless a chooser was open.
     pub fn chosen(&mut self, path: Option<PathBuf>) -> Option<ProjectEffect> {
         match std::mem::replace(&mut self.step, Step::Idle) {
-            Step::Opening => path.and_then(|path| self.open_from(path)),
+            Step::Opening => path.map(|path| self.open_from(path)),
             Step::Saving(then) => {
                 let path = path?;
                 let with_extension = with_project_extension(path.clone());
@@ -476,7 +679,7 @@ impl ProjectFlow {
                         path: with_extension,
                     });
                 }
-                self.write(with_extension, then)
+                Some(self.write(with_extension, then))
             }
             // Not waiting for a chooser: the step is put back as it was.
             other => {
@@ -492,7 +695,7 @@ impl ProjectFlow {
         match std::mem::replace(&mut self.step, Step::Idle) {
             Step::Replacing { path, then } => {
                 if replace {
-                    self.write(path, then)
+                    Some(self.write(path, then))
                 } else {
                     None
                 }
@@ -519,22 +722,20 @@ impl ProjectFlow {
     }
 
     /// Saves to the project's own file (then goes on), or asks for one when it has none.
-    fn save_then(&mut self, then: Option<Then>) -> Option<ProjectEffect> {
+    fn save_then(&mut self, then: Option<Then>) -> ProjectEffect {
         if let Some(path) = self.project.path().map(Path::to_path_buf) {
             self.write(path, then)
         } else {
             self.step = Step::Saving(then);
-            Some(ProjectEffect::ChooseSave { name: None })
+            ProjectEffect::ChooseSave { name: None }
         }
     }
 
-    /// Writes the project to `path`; on success goes on with `then`, on failure says why and
-    /// drops it. Leaves the flow idle unless `then` asks for a chooser.
-    fn write(&mut self, path: PathBuf, then: Option<Then>) -> Option<ProjectEffect> {
-        match self.project.save_to(path) {
-            Ok(()) => then.and_then(|then| self.proceed(then)),
-            Err(error) => Some(ProjectEffect::Failed(error)),
-        }
+    /// Sends the job that writes the project to `path`; `then` waits for its answer
+    /// ([`ProjectFlow::finished`]).
+    fn write(&mut self, path: PathBuf, then: Option<Then>) -> ProjectEffect {
+        self.step = Step::Writing(then);
+        ProjectEffect::Run(self.project.save_job(path))
     }
 
     /// Does what waited, the project now being put away.
@@ -555,15 +756,10 @@ impl ProjectFlow {
         }
     }
 
-    /// Opens the file at `path`, which replaces the project on success; on failure the project
-    /// stays and the error is said.
-    fn open_from(&mut self, path: PathBuf) -> Option<ProjectEffect> {
-        match orchestra_io::load(&path) {
-            Ok(document) => {
-                self.project = OpenProject::with_document(document, Some(path));
-                None
-            }
-            Err(error) => Some(ProjectEffect::Failed(ProjectError::Open { path, error })),
-        }
+    /// Sends the job that reads the file at `path`; its answer replaces the project, or says why
+    /// it could not ([`ProjectFlow::finished`]): until then the project stays.
+    fn open_from(&mut self, path: PathBuf) -> ProjectEffect {
+        self.step = Step::Reading;
+        ProjectEffect::Run(Job::Read { path })
     }
 }

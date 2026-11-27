@@ -43,7 +43,7 @@ use orchestra_ui::{
     Constraints, DisplayList, DropDown, FamilyToken, Flex, InputEvent, Label, LayoutCx,
     LayoutProps, Length, Point, PointerShape, RecordCx, Recorder, Rect, ScrollArea, Size,
     SizeToken, Slider, Space, Splitter, StrokeStyle, TextField, TextInput, Theme, Toggle, Ui,
-    Weight, Widget, WidgetId, WindowApp, WindowRequest,
+    Weight, Widget, WidgetId, WindowApp, WindowRequest, WindowWaker,
 };
 use orchestra_ui::{
     ActionId, ActionState, Decorations, FileChoice, FileRequest, FixedLanguages, LanguageSource,
@@ -60,7 +60,9 @@ use crate::preferences::{
     self, Effect, KeyboardMessage, KeyboardOutcome, PreferencesMessage, PreferencesTexts,
     PreferencesView, Section, ShortcutEditor, ThemeEditor, ThemeMessage, ThemeOutcome,
 };
-use crate::project::{OpenProject, ProjectEffect, ProjectFlow, SaveAnswer};
+use crate::project::{
+    JobAnswer, OpenProject, ProjectEffect, ProjectFlow, ProjectWorker, SaveAnswer,
+};
 use crate::settings::SettingsStore;
 use crate::settings::convert::{
     SettingsProblem, apply_settings_shortcuts, fine_modifier_from_settings,
@@ -273,6 +275,9 @@ pub struct Demo {
     /// could not be made, which its constant values never cause (the tests check it); the file
     /// actions then do nothing, as the actions do without their tables.
     flow: Option<ProjectFlow>,
+    /// The worker thread that reads and writes the project's files (ADR-0054 AR1, F2.14a): the
+    /// flow's jobs go there, and their answers come back in [`WindowApp::advance`].
+    worker: ProjectWorker,
 }
 
 impl Demo {
@@ -338,6 +343,7 @@ impl Demo {
             files: texts.files.clone(),
             project_texts: texts.project.clone(),
             flow: OpenProject::new().ok().map(ProjectFlow::new),
+            worker: ProjectWorker::new(),
             menu_bar,
             mac_menu: MacMenu::new(actions, texts, window_title),
         };
@@ -747,7 +753,55 @@ impl Demo {
             }
             // The project was put away: the window closes (Quit, or the answer to the question).
             ProjectEffect::Close => self.requests.push_back(WindowRequest::Close),
+            // A file to read or write (ADR-0054 AR1): the interface is blocked, with the wait
+            // pointer, until the worker answers. A job the worker ran here at once (no thread)
+            // answers at once too.
+            ProjectEffect::Run(job) => {
+                let _ = self.ui.begin_busy(list);
+                self.worker.submit(job);
+                self.take_project_answers(list);
+            }
         }
+    }
+
+    /// Hands every answer the worker has ready to the flow (ADR-0054 AR1): the busy layer goes
+    /// first, so a question or an error the answer brings opens over the interface, not under the
+    /// layer. Called in every [`WindowApp::advance`] (the worker wakes the window when it
+    /// answers) and right after a job is sent. O(answers ready); nothing when none is.
+    fn take_project_answers(&mut self, list: &mut DisplayList) {
+        while let Some(answer) = self.worker.try_take() {
+            self.project_answered(answer, list);
+        }
+    }
+
+    /// One answer of the worker, given to the flow.
+    fn project_answered(&mut self, answer: JobAnswer, list: &mut DisplayList) {
+        self.ui.end_busy(list);
+        self.project_step(|flow| flow.finished(answer), list);
+    }
+
+    /// Waits for the answer of the job that is out, if any, and hands it to the flow: `false`
+    /// when no job was out. For the tests and the screenshots, which have no event loop to wake;
+    /// the window never calls it (its loop would stop).
+    pub fn wait_for_project(&mut self, list: &mut DisplayList) -> bool {
+        match self.worker.wait() {
+            Some(answer) => {
+                self.project_answered(answer, list);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Replaces the worker (the tests: [`ProjectWorker::on_this_thread`] checks the path taken
+    /// when the system refuses a thread). Only while no job is out; `false`, changing nothing,
+    /// otherwise.
+    pub fn set_project_worker(&mut self, worker: ProjectWorker) -> bool {
+        if self.worker.pending() > 0 {
+            return false;
+        }
+        self.worker = worker;
+        true
     }
 
     /// The shortcut editor, while the Preferences show their Keyboard section (F2.12c1).
@@ -1551,6 +1605,14 @@ impl WindowApp for Demo {
         // written when their delay is over (ADR-0050 DG6, F2.12a4a).
         self.ui.advance(now, list);
         self.settings.advance(now);
+        // The worker woke the window because a job answered (ADR-0054 AR1); a batch started for
+        // any other reason finds nothing and costs one empty channel check.
+        self.take_project_answers(list);
+    }
+
+    fn attach_waker(&mut self, waker: WindowWaker) {
+        // The project worker wakes the window after every answer (ADR-0054 AR1).
+        self.worker.set_waker(move || waker.wake());
     }
 
     fn next_wakeup(&self) -> Option<Instant> {

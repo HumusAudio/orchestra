@@ -240,6 +240,10 @@ impl<A: WindowApp> Shell<A> {
         if let Ok(clipboard) = crate::platform::clipboard::system::SystemClipboard::new() {
             self.app.attach_clipboard(Box::new(clipboard));
         }
+        // The app's threads wake the loop through this (ADR-0054 AR1), before anything they
+        // could be asked to do: the first layout comes after.
+        self.app
+            .attach_waker(super::WindowWaker::new(self.proxy.clone()));
         let scale = window.scale_factor();
         let size = window.inner_size();
         self.open = Some(Open {
@@ -882,6 +886,9 @@ impl<A: WindowApp> ApplicationHandler<ShellEvent> for Shell<A> {
                 self.app.run_action(action, &mut self.list);
                 self.after_app_event(event_loop);
             }
+            // The app found what its thread finished in the `advance` that began this batch
+            // (`new_events`); what that changed is taken here, as after any event of the app.
+            ShellEvent::Wake => self.after_app_event(event_loop),
             ShellEvent::FileChosen(choice) => {
                 self.choosing = false;
                 self.app.file_chosen(choice, &mut self.list);

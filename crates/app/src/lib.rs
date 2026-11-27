@@ -67,8 +67,9 @@ pub use preferences::{
     shortcut_matches, shortcuts_text, shown_commands,
 };
 pub use project::{
-    NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow, SaveAnswer, Step,
-    Then, file_name, new_document, project_name, with_extension_added, with_project_extension,
+    Job, JobAnswer, NewDocumentError, OpenProject, ProjectEffect, ProjectError, ProjectFlow,
+    ProjectWorker, SaveAnswer, Step, Then, file_name, new_document, project_name,
+    with_extension_added, with_project_extension,
 };
 pub use screenshots::{
     Record, SCALE, SCENES, Scene, SceneContext, ScreenshotError, TOOLTIP_SCENE_WIDTH, render, theme,
