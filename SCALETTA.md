@@ -1,6 +1,6 @@
 # Scaletta di lavoro — Orchestra
 
-> **Stato di questo documento: v1.05, approvata dal proprietario il 2026-11-26.**
+> **Stato di questo documento: v1.06, approvata dal proprietario il 2026-11-27.**
 > L'impianto è approvato; le voci marcate **❓ Decisione** restano domande aperte che Claude non
 > risolve da solo, e ogni passo si avvia solo con il protocollo di §0.2.
 
@@ -749,7 +749,7 @@ controllo completo. Va fatta bene una volta sola.
 | F2.12b3 | **Selettore visivo dei colori**: scegliere un colore senza scriverne il codice (area colore e tonalità, trascinamento, tastiera, accessibilità), accanto al campo `#rrggbb` | ✅ (F2.12b3a–b) | 1–1,5 |
 | F2.12b3a | **Il widget** `ColorPicker` in `orchestra-ui`: quadrato chiarezza/intensità, striscia della tinta, trasparenza solo se serve, campioni prima/adesso, disegnati come immagini; trascinamento, tastiera con regolazione fine, accessibilità; test e misure | ✅ PR #106 | 0,5–1 |
 | F2.12b3b | **Nell'editor dei temi**: il campione apre il selettore dentro l'elenco sotto la riga (variante B), anteprima dal vivo, *Esc* annulla, *Invio* o un nuovo clic sul campione confermano; testi, screenshot, guide | ✅ PR #107 | 0,5 |
-| F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ⬜ | 1 |
+| F2.13 | **i18n a runtime**: cambio lingua senza riavvio, rilevamento della lingua di sistema | ✅ ADR-0053, PR #108 | 1 |
 | F2.14 | **Salvataggio automatico e recupero dopo un crash** (collegato al file di progetto; da F2.12a5b: lettura e scrittura del progetto su un thread di lavoro) | ⬜ | 1–2 |
 | F2.15 | **Chiusura fase**: guide (primi capitoli con screenshot), documentazione, PR | ⬜ | 1–2 |
 
@@ -1224,6 +1224,15 @@ controllo completo. Va fatta bene una volta sola.
 - **F2.15** Da ADR-0041: i primi screenshot veri nelle guide, una voce nuova in `SCENES` per ogni
   vista mostrata; con le viste vere si riconsiderano i confronti con immagini di riferimento
   (ADR-0041 S5).
+- **F2.13** **Fatto il 2026-11-27 (ADR-0053 Accepted, PR #108):** raccomandazioni 1–8 approvate dal
+  proprietario. La lingua scelta vale subito: le viste si ricostruiscono dal modello e dalle
+  impostazioni (registro, barra dei menu e pulsanti della barra del titolo rinominati sul posto,
+  contenuto ricostruito con quello che l'utente aveva cambiato, Preferenze riaperte su Lingua);
+  regola per le viste future: ricostruibili dal modello, dalle impostazioni e da un piccolo stato
+  di vista. Lingue del sistema con `sys-locale` dietro `LanguageSource`, lette all'avvio e quando
+  si sceglie *Lingua del sistema*, che nomina la lingua ricavata tra parentesi (le parentesi
+  doppie di *System language (English (US))* confermate dal proprietario). Benchmark `language`:
+  17,2 M istruzioni. Provato a mano dal proprietario: funziona.
 - **F2.14** Proposta di Claude, **confermata dal proprietario il 2026-11-08** (D13 chiusa):
   anticiparlo qui perché un musicista che perde lavoro smette di usare il programma.
 
@@ -1572,3 +1581,4 @@ raccomandato.
 | 2026-11-26 | 1.03 | F2.12b3a fatto (PR #106: il widget `ColorPicker` e le immagini dei widget, precisioni di ADR-0039 D4 e ADR-0045 approvate dal proprietario; non ancora visibile all'utente); prossimo passo F2.12b3b | proprietario |
 | 2026-11-26 | 1.04 | F2.12b3b avviato: il selettore si apre dentro l'elenco sotto la riga del colore (variante B, scelta del proprietario) invece che in un livello sopra l'interfaccia; punti 1–7 approvati | proprietario |
 | 2026-11-26 | 1.05 | F2.12b3b fatto (PR #107: il selettore dei colori nell'editor dei temi, sotto la riga; profilo di sviluppo che ottimizza le dipendenze e i crate di disegno, precisione di ADR-0035; selettore fermo durante il trascinamento; provato a mano dal proprietario), quindi F2.12b3, F2.12b e F2.12 fatti; prossimo passo F2.13 | proprietario |
+| 2026-11-27 | 1.06 | F2.13 fatto (PR #108, ADR-0053: la lingua cambia subito ricostruendo le viste dal modello e dalle impostazioni; *Lingua del sistema* letta con `sys-locale` e nominata tra parentesi; regola di ripiego per lingua e, per l'inglese, per regione; provato a mano dal proprietario); prossimo passo F2.14 | proprietario |
