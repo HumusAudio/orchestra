@@ -4,7 +4,11 @@
 //! modification mark, *New*, *Open*, *Save*, *Save as* with the extension added and the question
 //! about replacing, the question about unsaved changes before *New*, *Open* and closing, the
 //! errors and their texts in the six languages, and the demonstration wiring it to its dialogs,
-//! its file choosers, its window title and its window's close.
+//! its file choosers, its window title and its window's close. Since F2.14a (ADR-0054 AR1) the
+//! flow hands its reading and writing out as jobs: the flow's tests run each job where they are
+//! ([`settle`]), the demonstration's tests wait for its worker thread
+//! ([`Demo::wait_for_project`]), and the jobs' own rules (snapshots, a close waiting for the
+//! answer, a job stopped by a mistake) have tests of their own.
 //!
 //! The files are written in a folder of the system's temporary directory made for each test
 //! (named after the test and the process, so parallel tests never share one) and removed at the
@@ -76,6 +80,21 @@ fn flow() -> ProjectFlow {
     ProjectFlow::new(OpenProject::new().unwrap())
 }
 
+/// Runs one step of `flow`, then every job it hands out, here, giving each answer back
+/// (ADR-0054 AR1: what the worker thread does in the program): the effect left is what the
+/// interface would show after the job.
+fn settle(
+    flow: &mut ProjectFlow,
+    step: impl FnOnce(&mut ProjectFlow) -> Option<ProjectEffect>,
+) -> Option<ProjectEffect> {
+    let mut effect = step(flow);
+    while let Some(ProjectEffect::Run(job)) = effect {
+        assert!(flow.is_busy(), "a job is out");
+        effect = flow.finished(job.run());
+    }
+    effect
+}
+
 #[test]
 fn a_new_document_is_valid_and_saves_and_loads() {
     let scratch = Scratch::new("new");
@@ -133,7 +152,10 @@ fn save_of_an_untitled_project_asks_for_a_file_and_adds_the_extension() {
     assert_eq!(flow.step(), &Step::Saving(None));
     // A second command while the chooser is open is ignored.
     assert_eq!(flow.save(), None);
-    assert_eq!(flow.chosen(Some(scratch.join("Song"))), None);
+    assert_eq!(
+        settle(&mut flow, |f| f.chosen(Some(scratch.join("Song")))),
+        None
+    );
     let path = scratch.join("Song.orchestra");
     assert_eq!(flow.project().path(), Some(path.as_path()));
     assert_eq!(flow.project().name().as_deref(), Some("Song"));
@@ -145,7 +167,7 @@ fn save_of_an_untitled_project_asks_for_a_file_and_adds_the_extension() {
     );
     // Saved again, it writes over its own file without asking.
     modify(&mut flow);
-    assert_eq!(flow.save(), None);
+    assert_eq!(settle(&mut flow, ProjectFlow::save), None);
     assert!(!flow.project().is_modified());
     assert_eq!(orchestra_io::load(&path).unwrap().bars().len(), 5);
     // Save as proposes the project's name.
@@ -181,13 +203,16 @@ fn an_existing_file_reached_by_adding_the_extension_is_asked_about() {
     // Replace: written over.
     let _ = flow.save_as();
     let _ = flow.chosen(Some(scratch.join("Song")));
-    assert_eq!(flow.replace_answer(true), None);
+    assert_eq!(settle(&mut flow, |f| f.replace_answer(true)), None);
     assert!(orchestra_io::load(&existing).is_ok());
     assert!(!flow.project().is_modified());
     // The chooser confirmed this very name itself: no second question.
     modify(&mut flow);
     let _ = flow.save_as();
-    assert_eq!(flow.chosen(Some(existing.clone())), None);
+    assert_eq!(
+        settle(&mut flow, |f| f.chosen(Some(existing.clone()))),
+        None
+    );
     assert!(!flow.project().is_modified());
 }
 
@@ -217,7 +242,10 @@ fn unsaved_changes_are_asked_about_before_new() {
         Some(ProjectEffect::ChooseSave { name: None })
     );
     assert_eq!(flow.step(), &Step::Saving(Some(Then::New)));
-    assert_eq!(flow.chosen(Some(scratch.join("Kept"))), None);
+    assert_eq!(
+        settle(&mut flow, |f| f.chosen(Some(scratch.join("Kept")))),
+        None
+    );
     assert!(scratch.join("Kept.orchestra").exists());
     assert_eq!(flow.project().path(), None, "the new project");
     assert!(!flow.project().is_modified());
@@ -236,12 +264,12 @@ fn unsaved_changes_are_asked_about_before_open_and_the_file_replaces_the_project
     let mut saved = flow();
     modify(&mut saved);
     let _ = saved.save_as();
-    let _ = saved.chosen(Some(scratch.join("Other")));
+    let _ = settle(&mut saved, |f| f.chosen(Some(scratch.join("Other"))));
     let other = scratch.join("Other.orchestra");
     // A saved project with changes: the question names it, Save writes it, then Open asks.
     let mut flow = flow();
     let _ = flow.save_as();
-    let _ = flow.chosen(Some(scratch.join("Mine")));
+    let _ = settle(&mut flow, |f| f.chosen(Some(scratch.join("Mine"))));
     modify(&mut flow);
     assert_eq!(
         flow.open(),
@@ -250,7 +278,7 @@ fn unsaved_changes_are_asked_about_before_open_and_the_file_replaces_the_project
         })
     );
     assert_eq!(
-        flow.save_answer(SaveAnswer::Save),
+        settle(&mut flow, |f| f.save_answer(SaveAnswer::Save)),
         Some(ProjectEffect::ChooseOpen)
     );
     assert_eq!(
@@ -261,7 +289,7 @@ fn unsaved_changes_are_asked_about_before_open_and_the_file_replaces_the_project
         3
     );
     assert_eq!(flow.step(), &Step::Opening);
-    assert_eq!(flow.chosen(Some(other.clone())), None);
+    assert_eq!(settle(&mut flow, |f| f.chosen(Some(other.clone()))), None);
     assert_eq!(flow.project().path(), Some(other.as_path()));
     assert_eq!(flow.project().name().as_deref(), Some("Other"));
     assert!(!flow.project().is_modified());
@@ -285,7 +313,7 @@ fn closing_asks_about_unsaved_changes_and_a_failed_save_keeps_the_window() {
     let _ = flow.close();
     let _ = flow.save_answer(SaveAnswer::Save);
     let missing = scratch.join("no folder").join("Song");
-    match flow.chosen(Some(missing)) {
+    match settle(&mut flow, |f| f.chosen(Some(missing))) {
         Some(ProjectEffect::Failed(ProjectError::Save {
             path,
             error: SaveError::Io(_),
@@ -321,7 +349,9 @@ fn files_that_cannot_be_opened_are_reported_and_keep_the_project() {
     ] {
         let _ = flow.open();
         let _ = flow.save_answer(SaveAnswer::Discard);
-        let Some(ProjectEffect::Failed(error)) = flow.chosen(Some(path.clone())) else {
+        let Some(ProjectEffect::Failed(error)) =
+            settle(&mut flow, |f| f.chosen(Some(path.clone())))
+        else {
             panic!("{path:?} opened");
         };
         assert!(matches!(error, ProjectError::Open { .. }));
@@ -464,6 +494,15 @@ fn the_window_title_follows_the_project() {
     assert_eq!(request.kind, FileRequestKind::Save);
     assert_eq!(request.file_name.as_deref(), Some("Untitled.orchestra"));
     demo.file_chosen(FileChoice::Chosen(scratch.join("Song")), &mut list);
+    // The save is the worker's: the interface is busy until its answer is taken.
+    assert!(demo.ui().is_busy());
+    assert_eq!(
+        demo.window_title(),
+        "• Untitled — Orchestra",
+        "not saved yet"
+    );
+    assert!(demo.wait_for_project(&mut list));
+    assert!(!demo.ui().is_busy());
     assert_eq!(demo.window_title(), "Song — Orchestra");
     assert!(scratch.join("Song.orchestra").exists());
     // Ctrl+N with nothing to save: a new, untitled project.
@@ -511,6 +550,12 @@ fn closing_with_unsaved_changes_asks_and_saving_closes() {
     assert!(demo.take_file_request().is_some());
     assert_eq!(demo.take_window_request(), None, "not before the save");
     demo.file_chosen(FileChoice::Chosen(scratch.join("Closing")), &mut list);
+    assert_eq!(
+        demo.take_window_request(),
+        None,
+        "not before the save's answer"
+    );
+    assert!(demo.wait_for_project(&mut list));
     assert!(scratch.join("Closing.orchestra").exists());
     assert_eq!(demo.take_window_request(), Some(WindowRequest::Close));
 }

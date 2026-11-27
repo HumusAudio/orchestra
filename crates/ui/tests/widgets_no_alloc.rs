@@ -773,3 +773,61 @@ fn input_behind_a_file_chooser_never_allocates() {
     assert!(ui.choosing_file(), "the layer stayed the whole time");
     assert_eq!(ui.take_messages().count(), 0);
 }
+
+/// While the interface is busy (ADR-0054 AR1, F2.14a: a project opened or saved by the worker):
+/// keys, typed text, the pointer moving and a press over what the busy layer covers allocate
+/// nothing and change nothing, and asking for the pointer's shape (the window does after every
+/// batch) allocates nothing either. Opening and removing the layer allocate (two widgets), once
+/// per operation, and are not part of the round.
+#[test]
+fn input_while_busy_never_allocates() {
+    use orchestra_ui::{PhysicalKey, PointerShape};
+    let theme = *BuiltInTheme::Studio.pair().instance(Appearance::Light);
+    let mut ui: Ui<u8> = Ui::new(
+        Flex::column(Space::S, Space::M),
+        &theme,
+        orchestra_text::Faces::bundled().unwrap(),
+    );
+    let mut list = DisplayList::new();
+    ui.layout(Rect::from_origin_size(0.0, 0.0, 800.0, 600.0), &mut list);
+    assert!(ui.begin_busy(&mut list));
+    let keys: Vec<InputEvent> = [NamedKey::Tab, NamedKey::Enter, NamedKey::Escape]
+        .into_iter()
+        .flat_map(|key| {
+            [ButtonState::Pressed, ButtonState::Released].map(|state| InputEvent::Key {
+                key: Key::Named(key),
+                physical: PhysicalKey::Other,
+                state,
+                repeat: false,
+                modifiers: Modifiers::default(),
+            })
+        })
+        .collect();
+    let text = InputEvent::Text("x".into());
+    let points = [Point::new(10.0, 10.0), Point::new(400.0, 300.0)];
+    let round = |ui: &mut Ui<u8>, list: &mut DisplayList| {
+        for event in &keys {
+            ui.input(event, list);
+        }
+        ui.input(&text, list);
+        for &position in &points {
+            ui.input(&InputEvent::PointerMoved { position }, list);
+            assert_eq!(ui.pointer_shape(), PointerShape::Wait);
+            for state in [ButtonState::Pressed, ButtonState::Released] {
+                ui.input(
+                    &InputEvent::PointerButton {
+                        button: PointerButton::Left,
+                        state,
+                        position,
+                        clicks: 1,
+                    },
+                    list,
+                );
+            }
+        }
+    };
+    round(&mut ui, &mut list);
+    assert_no_allocations(|| round(&mut ui, &mut list));
+    assert!(ui.is_busy(), "the layer stayed the whole time");
+    assert_eq!(ui.take_messages().count(), 0);
+}

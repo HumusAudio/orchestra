@@ -8,6 +8,10 @@
 //! - `from_parts`: a document built back from its description: the replay through the builder
 //!   with the saved IDs, the full `validate`, and the comparison of the rebuilt description with
 //!   the given one (ADR-0029 S8). What an opening ends with, after the file has been parsed.
+//! - `snapshot`: a copy of the whole document (`Document::clone`), what the interface's thread
+//!   pays to hand a save to the worker thread (ADR-0054 AR1, F2.14a): the encoding and the write
+//!   are the worker's. Budget: the normal score's copy far below one frame (16 ms), since it runs
+//!   between two frames; the heavy score's is recorded.
 //!
 //! The budget of ADR-0007 is the opening of 100 bars in ≤ 1 s on the reference laptop, the file's
 //! parsing included (crate `io`, F1.15b part 2): the normal score must stay far below it. The heavy
@@ -69,6 +73,14 @@ fn from_parts(parts: DocumentParts) -> (DocumentParts, Document) {
     (parts, black_box(doc))
 }
 
-library_benchmark_group!(name = parts, benchmarks = [to_parts, from_parts]);
+#[library_benchmark]
+#[bench::normal(document(Size::Normal))]
+#[bench::heavy(document(Size::Heavy))]
+fn snapshot(doc: Document) -> (Document, Document) {
+    let copy = black_box(&doc).clone();
+    (doc, black_box(copy))
+}
+
+library_benchmark_group!(name = parts, benchmarks = [to_parts, from_parts, snapshot]);
 
 main!(library_benchmark_groups = parts);

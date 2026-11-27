@@ -2271,6 +2271,7 @@ operation                         normal score     heavy score
 to_parts (a copy of the document)    1 230 000      35 670 000 instructions
 from_parts (replay, validate,       29 320 000     882 330 000 instructions
             comparison)
+snapshot (Document::clone, F2.14a)     512 694       2 239 626 instructions
 ```
 
 The normal score (100 bars) is rebuilt in a few milliseconds, far below the 1 s of ADR-0007 for
@@ -4057,8 +4058,9 @@ the shapes in use exist: `Default` (the arrow), `ResizeColumn` and `ResizeRow`. 
 `winit` turns into the native shape everywhere (the west-east and north-south arrows on Windows,
 `resizeLeftRight` and `resizeUpDown` on macOS, the cursor theme's `col-resize` and `row-resize`
 on X11 and Wayland). The text beam will come with the text field (F2.10), the window's edges and
-corners with our own title bar (F2.11b). Buttons keep the arrow, as on every desktop: the pointing
-hand belongs to links (owner's choice).
+corners with our own title bar (F2.11b), the wait shape `Wait` with the project worker thread
+(F2.14a, see *The project worker thread*). Buttons keep the arrow, as on every desktop: the
+pointing hand belongs to links (owner's choice).
 
 **Who decides.** A new hook of the `Widget` trait, `pointer_shape(point)`, answers a shape or
 `None` ("my parent decides", the default). The answer depends on the point, because the divider
@@ -6177,7 +6179,7 @@ already exists. Do you want to replace it?* (the focus on *Cancel*, so Enter and
 the file). Every failure is a translated error that names the file, with its path under the
 message.
 
-**The logic** (`crates/app/src/project.rs`), without widgets, so the tests drive every path:
+**The logic** (`crates/app/src/project/mod.rs`), without widgets, so the tests drive every path:
 
 - `new_document()`: what *New* makes. The model has no defaults on purpose
   (`DocumentBuilder::new` takes them), so until the "new score" dialog exists they are constants
@@ -6186,13 +6188,15 @@ message.
 - `OpenProject`: the `Editor` (the one history, ADR-0026), the file's path (`None` for
   *Untitled*) and the document's revision when it was opened or last saved. `is_modified()`
   compares that with the revision now; since the revision grows with undo too, changing and undoing
-  still counts as modified (DG5 as written, a recorded limit). `save_to(path)` writes with
-  `orchestra_io::save` and, only on success, adopts the path and the revision.
+  still counts as modified (DG5 as written, a recorded limit). `save_job(path)` makes the job that
+  writes a snapshot of the document, and `saved_at(path, revision)` adopts the path and the
+  revision once that job succeeded (F2.14a, see *The project worker thread*).
 - `ProjectFlow`: the project and the `Step` it is in, `Idle`, `Asking(Then)`, `Saving(Option<Then>)`,
-  `Replacing { path, then }` or `Opening`, where `Then` is what waits for the project to be put
+  `Replacing { path, then }`, `Opening`, or (since F2.14a) `Writing(Option<Then>)` and `Reading`, where `Then` is what waits for the project to be put
   away (`New`, `Open`, `Close`). Every input (`new_project`, `open`, `save`, `save_as`, `close`,
-  `save_answer`, `chosen`, `replace_answer`) answers an optional `ProjectEffect`: ask to save,
-  open a chooser, confirm a replacement, report a failure, or close. A command while a step is open
+  `save_answer`, `chosen`, `replace_answer`, and `finished` for a job's answer) answers an optional
+  `ProjectEffect`: ask to save, open a chooser, confirm a replacement, hand a job to the worker,
+  report a failure, or close. A command while a step is open
   is ignored; what waits runs only if the project was really put away (*Don't save*, or a save that
   succeeded).
 - `with_project_extension(path)`: adds `.orchestra` unless the extension already is that (in any
@@ -6205,13 +6209,15 @@ let mut flow = ProjectFlow::new(OpenProject::new()?);
 // … the document changes through flow.project_mut().editor_mut() …
 assert_eq!(flow.close(), Some(ProjectEffect::AskToSave { name: None }));
 assert_eq!(flow.save_answer(SaveAnswer::Save), Some(ProjectEffect::ChooseSave { name: None }));
-// The chooser answers "…/Song": saved as "…/Song.orchestra", then the window may close.
-assert_eq!(flow.chosen(Some(folder.join("Song"))), Some(ProjectEffect::Close));
+// The chooser answers "…/Song": the flow hands out the job that writes "…/Song.orchestra".
+let Some(ProjectEffect::Run(job)) = flow.chosen(Some(folder.join("Song"))) else { return };
+// The worker thread runs it (F2.14a); its answer lets the window close.
+assert_eq!(flow.finished(job.run()), Some(ProjectEffect::Close));
 ```
 
-Reading and writing happen on the interface's thread: `orchestra-io`'s benchmarks give about
-5.5 ms to save and 11 ms to load the normal reference score; the heavy one (168 / 396 ms) would be
-a visible pause. The worker thread comes with the automatic save (F2.14).
+Until F2.14a reading and writing happened on the interface's thread: `orchestra-io`'s benchmarks
+give about 5.5 ms to save and 11 ms to load the normal reference score, and the heavy one (168 /
+396 ms) was a visible pause. They now happen on a worker thread: see *The project worker thread*.
 
 **The texts** (`crates/app/src/files.rs`). `ProjectTexts` holds 25 new catalogue messages: the two
 window titles, the two questions, the buttons *Save*, *Don't save*, *Replace*, and one title per
@@ -6255,6 +6261,108 @@ with changes (Escape, then Enter, the chooser, the save, the close), Enter and E
 replacing a file. `files.rs`, `demo.rs` and `actions.rs` follow the change (New and Save enabled,
 Close of our title bar asking, the window node named *Untitled — Orchestra*). The screenshot
 `save-changes-dialog` shows the question. A real window's close and title are checked by hand.
+
+#### The project worker thread
+
+**What the user sees** (ADR-0054 AR1, SCALETTA F2.14a). Opening and saving a project no longer
+freeze the window. While a project is read or written the window keeps redrawing and answering
+the system, the pointer becomes the system's **wait** shape, and nothing can be clicked or typed
+until the work is done: a short moment for an ordinary score (about 5 ms to save and 11 ms to
+open the normal reference score), longer for a very large one (168 ms and 396 ms for the heavy
+one), but never a window the system reports as not responding. Pressing the window's close button
+during a save is not refused: the window closes once the save has finished (or asks about the
+changes, if the project changed meanwhile).
+
+**The flow hands out jobs** (`crates/app/src/project/mod.rs`). The flow of *The open project* no
+longer reads or writes itself: where it used to call `orchestra_io`, it now answers
+`ProjectEffect::Run(Job)` and waits in one of two new steps, `Step::Writing(Option<Then>)` or
+`Step::Reading`, for `ProjectFlow::finished(JobAnswer)`.
+
+- `Job::Write { path, revision, document }` carries a **snapshot**: `OpenProject::save_job` copies
+  the document (`Document::clone`) with its revision. The copy is what the interface's thread
+  pays; the encoding and the write are the worker's. The document itself is never shared with
+  the worker, so no edit ever waits for a lock.
+- When the answer says the save succeeded, `OpenProject::saved_at(path, revision)` records the
+  **snapshot's** revision as the saved one: anything that changed while the job was out still
+  counts as modified.
+- `Job::Read { path }` is all the worker's: reading, parsing and the full validation of ADR-0029
+  build the document there; the flow only swaps it in.
+- `Job::run` is a plain function, so the tests run a job where they are, and the worker uses the
+  same function.
+- A close asked while a job is out (`ProjectFlow::close`) is **kept** (`close_waiting`) and runs
+  after the answer, if nothing failed and the flow is idle; after a failure the error is shown and
+  the close is dropped, so the user decides again.
+- An answer that is not the job's (another kind, or nothing out) changes nothing.
+
+```rust
+// Ctrl+S on a project with a file: the snapshot goes to the worker.
+let Some(ProjectEffect::Run(job)) = flow.save() else { return };
+assert_eq!(flow.step(), &Step::Writing(None));
+// … the user keeps editing; on the worker thread:
+let answer = job.run();
+// Back on the interface's thread: saved at the snapshot's revision, still modified.
+assert_eq!(flow.finished(answer), None);
+assert!(flow.project().is_modified());
+```
+
+**The worker** (`crates/app/src/project/worker.rs`). `ProjectWorker` owns one thread,
+`orchestra-projects`, started at the first job, with two standard channels: jobs go in and run
+**one at a time, in the order sent** (two saves of one file can never cross, a read after a save
+sees what the save wrote), answers come out in the same order. After each answer the thread calls
+the **waker** given with `set_waker`: in the program, the window's `WindowWaker`, so the event loop
+starts a batch and the app takes the answer in its `advance` (`try_take`, never blocking). If the
+system refuses a thread, the job runs on the calling thread at once, as before F2.14a
+(`ProjectWorker::on_this_thread` makes that path testable). If a job panics (a bug), the thread
+catches it and answers `JobAnswer::Stopped`, which the flow reports as `ProjectError::Stopped`:
+the operation's usual title (*“Song.orchestra” can't be saved*) and the message that already says
+"This is a mistake in Orchestra: please report it.", so no new text was needed, and the window is
+never left blocked. Dropping the worker joins the thread after the jobs already sent: a save in
+flight at exit is finished, never cut. `wait` blocks for the next answer and serves only the tests
+and the screenshots, which have no event loop.
+
+**In `orchestra-ui`** (precisions of ADR-0040 W3 and ADR-0045, F2.14a).
+
+- `WindowWaker` (`src/window/mod.rs`): a `Clone + Send` handle on the event loop's proxy, given to
+  the app once with the new `WindowApp::attach_waker`. `wake()` sends an empty event
+  (`ShellEvent::Wake`); the batch it starts calls `advance` first, then the window takes the app's
+  requests, pointer shape and damage, as after any event of the app. The answers stay the app's:
+  carrying them in the window's own event type would make `orchestra-ui` know the app's types.
+- The **busy layer** (`src/widget/ui/busy.rs`): `Ui::begin_busy` pushes the same empty modal layer
+  as the file chooser's (nothing drawn, the pointer and the keys reach nothing under it, the menu
+  bar and the shortcuts off), `Ui::end_busy` removes it and gives the focus back, `Ui::is_busy`
+  says whether it is up. While it is, `Ui::pointer_shape` answers the new `PointerShape::Wait` over
+  the whole window, and the window's accessibility node is marked **busy** (AccessKit's `busy`,
+  ARIA's `aria-busy`), so a screen reader can tell why nothing answers; the layer is not listed
+  as a dialog. `end_busy` also finds again what is under the pointer: without it the text field's
+  beam came back only when the pointer moved (found by the tests).
+- `PointerShape::Wait` (`src/window/pointer.rs`) becomes `winit`'s `CursorIcon::Wait`: `IDC_WAIT`
+  on Windows, the cursor theme's `wait` on X11 and Wayland, and on macOS, where no public wait
+  cursor exists, AppKit's "busy but clickable" cursor (read in `winit` 0.30.13's sources).
+
+**In the demonstration** (`crates/app/src/demo.rs`). `show_effect` turns `ProjectEffect::Run` into
+`Ui::begin_busy` and `ProjectWorker::submit`; `advance` takes the answers ready
+(`take_project_answers`), and each one first ends the busy layer, so a question or an error it
+brings opens over the interface. `attach_waker` hands the window's waker to the worker.
+`Demo::wait_for_project` (tests, screenshots) and `Demo::set_project_worker` (only while nothing is
+out) serve the tests.
+
+**Tests.** `crates/ui/tests/busy.rs` (6): one layer at a time, everything blocked (typing, Tab,
+clicks, the shortcut, F10), the wait pointer over the whole window and the text beam right after,
+the interface given back, busy above a dialog, the window busy for assistive technologies.
+`widgets_no_alloc.rs`: input while busy allocates nothing. `crates/app/tests/project_worker.rs`
+(12): the snapshot written and later changes still modified, commands ignored while a job is out,
+a close waiting for a save and for an opening (closing, asking, or dropped after a failure), an
+answer that is not the job's, a stopped job's dialog, the worker's order and waker, the path
+without a thread, dropping the worker finishing its jobs, and the demonstration busy while a
+project opens with its close waiting. `project.rs` and `files.rs` run the jobs they cause
+(`settle`, `wait_for_project`).
+
+**Measured** (`crates/core-model/benches/parts.rs`, `snapshot`): a copy costs about **0.51 M instructions** for the normal score and **2.24 M** for the
+heavy one, far below one frame. It is so cheap because the voices' content lives in shared,
+copy-on-write chunks (`Arc`, ADR-0022 §7, designed for snapshots like this one): the copy shares
+them and duplicates only the indices and the small structures, and an edit made afterwards copies
+only the chunk it touches. ADR-0054 had estimated it from `to_parts`, a full copy (36 M for the
+heavy score); its precision records the measure.
 
 #### The window and the event loop
 

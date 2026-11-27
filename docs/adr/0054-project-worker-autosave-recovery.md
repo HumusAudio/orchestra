@@ -269,3 +269,40 @@ a copy beside the project (AR2); a journal of commands, a description only (AR3)
   change and undo" (F2.22) stays.
 - Recorded limits: one recovery copy per process (one window, one project); the undo history does
   not survive a crash; locks on network file systems (AR5).
+
+## Precisions of the implementation (F2.14a, to be approved by the owner)
+
+- **AP1, the snapshot costs much less than estimated.** Measured (`orchestra-core-model`'s
+  `benches/parts.rs`, `snapshot`): `Document::clone` costs **0.51 M instructions** for the normal
+  score and **2.24 M** for the heavy one, not the 1.2 M and 36 M of `to_parts` assumed in the
+  Context. The voices' content lives in shared, copy-on-write chunks (ADR-0022 §7), so the copy
+  shares them and an edit afterwards copies only the chunk it touches. The budget of AR9 is met
+  with a wide margin, also for the heavy score.
+- **AP2, how the window is woken: `WindowWaker`** (a precision of ADR-0040 W3). A new public type
+  of `orchestra-ui`, `Clone + Send`, wrapping the event loop's proxy; the window hands it to the
+  app once with a new `WindowApp::attach_waker` (default: dropped), before the first layout.
+  `wake()` sends an empty event (`ShellEvent::Wake`): the batch it starts calls
+  `WindowApp::advance` first, where the app takes its worker's answers, and then the window takes
+  the app's requests, pointer and damage as after any event of the app. The answers stay in the
+  app's own channel: carrying them in the window's event type would make `orchestra-ui` know the
+  app's types.
+- **AP3, the busy layer** (a precision of ADR-0045, beside the file chooser's of ADR-0050 DG4).
+  `Ui::begin_busy`, `Ui::end_busy`, `Ui::is_busy`: the chooser's empty modal layer, plus the wait
+  pointer over the whole window and the window's accessibility node marked **busy** (AccessKit's
+  `busy`, ARIA's `aria-busy`); not listed among `Ui::dialogs` nor as a dialog for assistive
+  technologies. `end_busy` finds again what is under the pointer, so the shape is right at once.
+- **AP4, `PointerShape::Wait`** becomes `winit`'s `CursorIcon::Wait`; on macOS `winit` 0.30.13 gives
+  AppKit's "busy but clickable" cursor, the closest the system has.
+- **AP5, a job that panics** (a bug) is caught by the worker (`catch_unwind`; the workspace builds
+  with unwinding) and answered `JobAnswer::Stopped`, which the flow reports as
+  `ProjectError::Stopped`: the operation's title and the existing message "This is a mistake in
+  Orchestra: please report it.", so no new text; the interface is never left blocked, and the
+  window, whose close waits for the answer, can always close.
+- **AP6, what a waiting close does after the answer**: it runs only if the job succeeded and the
+  flow is idle (closing, or asking if the project changed meanwhile); after a failure the error is
+  shown and the close is dropped, and the user decides again.
+- **AP7, the module layout**: `crates/app/src/project.rs` became `project/mod.rs` with
+  `project/worker.rs` (`ProjectWorker`); the flow's new public items are `Job`, `JobAnswer`,
+  `Step::Writing`, `Step::Reading`, `ProjectEffect::Run`, `ProjectError::Stopped`,
+  `ProjectFlow::finished`, `is_busy`, `close_waiting`, `OpenProject::save_job` and `saved_at`
+  (`save_to` is gone).

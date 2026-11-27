@@ -2427,6 +2427,7 @@ operation                         normal score     heavy score
 to_parts (a copy of the document)    1 230 000      35 670 000 instructions
 from_parts (replay, validate,       29 320 000     882 330 000 instructions
             comparison)
+snapshot (Document::clone, F2.14a)     512 694       2 239 626 instructions
 ```
 
 La partitura normale (100 battute) si ricostruisce in pochi millisecondi, molto sotto il secondo
@@ -4337,8 +4338,9 @@ Diventano `ColResize` e `RowResize` di `winit`, i nomi CSS di un divisore fra co
 che `winit` trasforma ovunque nella forma nativa (le frecce ovest-est e nord-sud su Windows,
 `resizeLeftRight` e `resizeUpDown` su macOS, `col-resize` e `row-resize` del tema dei cursori su
 X11 e Wayland). La barra del testo arriverà con il campo di testo (F2.10), i bordi e gli angoli
-della finestra con la nostra barra del titolo (F2.11b). I pulsanti tengono la freccia, come su
-ogni desktop: la mano è dei link (scelta del proprietario).
+della finestra con la nostra barra del titolo (F2.11b), la forma di attesa `Wait` con il thread di
+lavoro dei progetti (F2.14a, vedi *Il thread di lavoro dei progetti*). I pulsanti tengono la
+freccia, come su ogni desktop: la mano è dei link (scelta del proprietario).
 
 **Chi decide.** Un nuovo aggancio del trait `Widget`, `pointer_shape(point)`, risponde una forma
 oppure `None` ("decide il genitore", il predefinito). La risposta dipende dal punto, perché il
@@ -6585,7 +6587,7 @@ senza `.orchestra` la riceve; se un file con il nome così ottenuto esiste già,
 Esc conservano entrambi il file). Ogni fallimento è un errore tradotto che nomina il file, con il
 percorso sotto il messaggio.
 
-**La logica** (`crates/app/src/project.rs`), senza widget, così i test percorrono ogni strada:
+**La logica** (`crates/app/src/project/mod.rs`), senza widget, così i test percorrono ogni strada:
 
 - `new_document()`: ciò che crea *Nuovo*. Il modello non ha valori predefiniti di proposito
   (`DocumentBuilder::new` li riceve), quindi finché non esiste la finestra "nuova partitura" sono
@@ -6595,14 +6597,17 @@ percorso sotto il messaggio.
   *Senza titolo*) e la revisione del documento quando è stato aperto o salvato l'ultima volta.
   `is_modified()` la confronta con la revisione attuale; poiché la revisione cresce anche con
   l'annulla, modificare e annullare conta ancora come modificato (DG5 com'è scritto, un limite
-  annotato). `save_to(path)` scrive con `orchestra_io::save` e, solo se riesce, adotta il percorso e
-  la revisione.
+  annotato). `save_job(path)` crea il lavoro che scrive una fotografia del documento, e
+  `saved_at(path, revision)` adotta il percorso e la revisione quando quel lavoro è riuscito
+  (F2.14a, vedi *Il thread di lavoro dei progetti*).
 - `ProjectFlow`: il progetto e il passo (`Step`) in cui si trova, `Idle`, `Asking(Then)`,
-  `Saving(Option<Then>)`, `Replacing { path, then }` o `Opening`, dove `Then` è ciò che aspetta
+  `Saving(Option<Then>)`, `Replacing { path, then }`, `Opening`, oppure (da F2.14a)
+  `Writing(Option<Then>)` e `Reading`, dove `Then` è ciò che aspetta
   che il progetto sia messo al sicuro (`New`, `Open`, `Close`). Ogni ingresso (`new_project`,
-  `open`, `save`, `save_as`, `close`, `save_answer`, `chosen`, `replace_answer`) risponde con un
-  `ProjectEffect` facoltativo: chiedere di salvare, aprire una finestra di scelta, confermare una
-  sostituzione, segnalare un fallimento, oppure chiudere. Un comando mentre un passo è aperto viene
+  `open`, `save`, `save_as`, `close`, `save_answer`, `chosen`, `replace_answer`, e `finished` per la
+  risposta di un lavoro) risponde con un `ProjectEffect` facoltativo: chiedere di salvare, aprire
+  una finestra di scelta, confermare una sostituzione, consegnare un lavoro al thread di lavoro,
+  segnalare un fallimento, oppure chiudere. Un comando mentre un passo è aperto viene
   ignorato; ciò che aspetta parte solo se il progetto è stato davvero messo al sicuro (*Non
   salvare*, o un salvataggio riuscito).
 - `with_project_extension(path)`: aggiunge `.orchestra` a meno che l'estensione non sia già quella
@@ -6615,14 +6620,16 @@ let mut flow = ProjectFlow::new(OpenProject::new()?);
 // … the document changes through flow.project_mut().editor_mut() …
 assert_eq!(flow.close(), Some(ProjectEffect::AskToSave { name: None }));
 assert_eq!(flow.save_answer(SaveAnswer::Save), Some(ProjectEffect::ChooseSave { name: None }));
-// The chooser answers "…/Song": saved as "…/Song.orchestra", then the window may close.
-assert_eq!(flow.chosen(Some(folder.join("Song"))), Some(ProjectEffect::Close));
+// The chooser answers "…/Song": the flow hands out the job that writes "…/Song.orchestra".
+let Some(ProjectEffect::Run(job)) = flow.chosen(Some(folder.join("Song"))) else { return };
+// The worker thread runs it (F2.14a); its answer lets the window close.
+assert_eq!(flow.finished(job.run()), Some(ProjectEffect::Close));
 ```
 
-Lettura e scrittura avvengono sul thread dell'interfaccia: i benchmark di `orchestra-io` danno
-circa 5,5 ms per salvare e 11 ms per caricare la partitura di riferimento normale; quella pesante
-(168 / 396 ms) sarebbe una pausa visibile. Il thread di lavoro arriva con il salvataggio automatico
-(F2.14).
+Fino a F2.14a lettura e scrittura avvenivano sul thread dell'interfaccia: i benchmark di
+`orchestra-io` danno circa 5,5 ms per salvare e 11 ms per caricare la partitura di riferimento
+normale, e quella pesante (168 / 396 ms) era una pausa visibile. Ora avvengono su un thread di
+lavoro: vedi *Il thread di lavoro dei progetti*.
 
 **I testi** (`crates/app/src/files.rs`). `ProjectTexts` contiene 25 messaggi nuovi dei cataloghi: i
 due titoli della finestra, le due domande, i pulsanti *Salva*, *Non salvare*, *Sostituisci*, e un
@@ -6672,6 +6679,116 @@ salvataggio, la chiusura), Invio ed Esc che non sostituiscono mai un file. `file
 `actions.rs` seguono il cambiamento (Nuovo e Salva attivi, il Chiudi della nostra barra che chiede,
 il nodo della finestra chiamato *Untitled — Orchestra*). Lo screenshot `save-changes-dialog` mostra
 la domanda. La chiusura e il titolo di una finestra vera si verificano a mano.
+
+#### Il thread di lavoro dei progetti
+
+**Che cosa vede l'utente** (ADR-0054 AR1, SCALETTA F2.14a). Aprire e salvare un progetto non
+bloccano più la finestra. Mentre un progetto viene letto o scritto la finestra continua a
+ridisegnarsi e a rispondere al sistema, il puntatore prende la forma di **attesa** del sistema, e
+non si può cliccare né scrivere finché il lavoro non è finito: un attimo per una partitura normale
+(circa 5 ms per salvare e 11 ms per aprire la partitura di riferimento normale), di più per una
+molto grande (168 ms e 396 ms per quella pesante), ma mai una finestra che il sistema segnala come
+"non risponde". Premere il pulsante di chiusura durante un salvataggio non viene rifiutato: la
+finestra si chiude appena il salvataggio è finito (o chiede delle modifiche, se nel frattempo il
+progetto è cambiato).
+
+**Il flusso consegna lavori** (`crates/app/src/project/mod.rs`). Il flusso del *Progetto aperto*
+non legge e non scrive più da sé: dove chiamava `orchestra_io`, ora risponde
+`ProjectEffect::Run(Job)` e aspetta in uno di due passi nuovi, `Step::Writing(Option<Then>)` o
+`Step::Reading`, la chiamata `ProjectFlow::finished(JobAnswer)`.
+
+- `Job::Write { path, revision, document }` porta una **fotografia**: `OpenProject::save_job` copia
+  il documento (`Document::clone`) con la sua revisione. La copia è ciò che paga il thread
+  dell'interfaccia; la codifica e la scrittura sono del thread di lavoro. Il documento vero non è
+  mai condiviso con il thread di lavoro, così nessuna modifica aspetta mai un lucchetto.
+- Quando la risposta dice che il salvataggio è riuscito, `OpenProject::saved_at(path, revision)`
+  registra come salvata la revisione **della fotografia**: ciò che è cambiato mentre il lavoro era
+  fuori conta ancora come modificato.
+- `Job::Read { path }` è tutto del thread di lavoro: lettura, analisi e validazione completa di
+  ADR-0029 costruiscono lì il documento; il flusso si limita a sostituirlo.
+- `Job::run` è una funzione qualunque, così i test eseguono un lavoro dove si trovano, e il thread
+  di lavoro usa la stessa funzione.
+- Una chiusura chiesta mentre un lavoro è fuori (`ProjectFlow::close`) viene **tenuta**
+  (`close_waiting`) e parte dopo la risposta, se niente è fallito e il flusso è inattivo; dopo un
+  fallimento si mostra l'errore e la chiusura viene lasciata cadere, così l'utente decide di nuovo.
+- Una risposta che non è quella del lavoro (di un altro tipo, o senza lavoro fuori) non cambia
+  nulla.
+
+```rust
+// Ctrl+S on a project with a file: the snapshot goes to the worker.
+let Some(ProjectEffect::Run(job)) = flow.save() else { return };
+assert_eq!(flow.step(), &Step::Writing(None));
+// … the user keeps editing; on the worker thread:
+let answer = job.run();
+// Back on the interface's thread: saved at the snapshot's revision, still modified.
+assert_eq!(flow.finished(answer), None);
+assert!(flow.project().is_modified());
+```
+
+**Il thread di lavoro** (`crates/app/src/project/worker.rs`). `ProjectWorker` possiede un thread,
+`orchestra-projects`, avviato al primo lavoro, con due canali standard: i lavori entrano e girano
+**uno alla volta, nell'ordine di invio** (due salvataggi dello stesso file non si incrociano mai,
+una lettura dopo un salvataggio vede ciò che il salvataggio ha scritto), le risposte escono nello
+stesso ordine. Dopo ogni risposta il thread chiama il **risvegliatore** dato con `set_waker`: nel
+programma, il `WindowWaker` della finestra, così il ciclo degli eventi inizia un gruppo e l'app
+prende la risposta nel suo `advance` (`try_take`, che non blocca mai). Se il sistema rifiuta un
+thread, il lavoro gira subito sul thread chiamante, come prima di F2.14a
+(`ProjectWorker::on_this_thread` rende verificabile quella strada). Se un lavoro va in panico (un
+bug), il thread lo intercetta e risponde `JobAnswer::Stopped`, che il flusso segnala come
+`ProjectError::Stopped`: il titolo solito dell'operazione (*Impossibile salvare «Brano.orchestra»*)
+e il messaggio che dice già "È un errore di Orchestra: segnalalo.", quindi non è servito nessun
+testo nuovo, e la finestra non resta mai bloccata. Lasciare cadere il thread di lavoro aspetta la
+fine dei lavori già inviati: un salvataggio in corso all'uscita viene finito, mai interrotto.
+`wait` blocca fino alla risposta successiva e serve solo ai test e agli screenshot, che non hanno
+un ciclo degli eventi.
+
+**In `orchestra-ui`** (precisioni di ADR-0040 W3 e di ADR-0045, F2.14a).
+
+- `WindowWaker` (`src/window/mod.rs`): un riferimento `Clone + Send` al proxy del ciclo degli
+  eventi, dato all'app una volta con il nuovo `WindowApp::attach_waker`. `wake()` manda un evento
+  vuoto (`ShellEvent::Wake`); il gruppo che avvia chiama prima `advance`, poi la finestra prende
+  le richieste dell'app, la forma del puntatore e i danni, come dopo ogni evento dell'app. Le
+  risposte restano dell'app: portarle nel tipo di evento della finestra farebbe conoscere a
+  `orchestra-ui` i tipi dell'app.
+- Lo **strato occupato** (`src/widget/ui/busy.rs`): `Ui::begin_busy` mette lo stesso strato modale
+  vuoto della finestra di scelta dei file (non disegna nulla, il puntatore e i tasti non arrivano a
+  niente sotto, barra dei menu e scorciatoie spente), `Ui::end_busy` lo toglie e restituisce il
+  focus, `Ui::is_busy` dice se c'è. Finché c'è, `Ui::pointer_shape` risponde il nuovo
+  `PointerShape::Wait` su tutta la finestra, e il nodo di accessibilità della finestra è segnato
+  **occupato** (`busy` di AccessKit, `aria-busy` di ARIA), così un lettore di schermo può dire
+  perché niente risponde; lo strato non compare come finestra di dialogo. `end_busy` ritrova anche
+  ciò che sta sotto il puntatore: senza, la barra del testo del campo tornava solo quando il
+  puntatore si muoveva (trovato dai test).
+- `PointerShape::Wait` (`src/window/pointer.rs`) diventa `CursorIcon::Wait` di `winit`: `IDC_WAIT`
+  su Windows, `wait` del tema dei cursori su X11 e Wayland, e su macOS, dove non esiste un cursore
+  di attesa pubblico, il cursore "occupato ma cliccabile" di AppKit (letto nei sorgenti di `winit`
+  0.30.13).
+
+**Nella dimostrazione** (`crates/app/src/demo.rs`). `show_effect` trasforma `ProjectEffect::Run` in
+`Ui::begin_busy` e `ProjectWorker::submit`; `advance` prende le risposte pronte
+(`take_project_answers`), e ognuna toglie prima lo strato occupato, così una domanda o un errore
+che porta si aprono sopra l'interfaccia. `attach_waker` passa il risvegliatore della finestra al
+thread di lavoro. `Demo::wait_for_project` (test, screenshot) e `Demo::set_project_worker` (solo
+quando nessun lavoro è fuori) servono ai test.
+
+**Test.** `crates/ui/tests/busy.rs` (6): uno strato alla volta, tutto bloccato (scrittura, Tab,
+clic, la scorciatoia, F10), il puntatore di attesa su tutta la finestra e la barra del testo subito
+dopo, l'interfaccia restituita, lo strato sopra una finestra di dialogo, la finestra occupata per
+le tecnologie assistive. `widgets_no_alloc.rs`: l'input mentre è occupata non alloca nulla.
+`crates/app/tests/project_worker.rs` (12): la fotografia scritta e le modifiche successive ancora
+segnate, i comandi ignorati mentre un lavoro è fuori, una chiusura che aspetta un salvataggio e
+un'apertura (che chiude, chiede, o cade dopo un fallimento), una risposta che non è del lavoro, la
+finestra di un lavoro interrotto, l'ordine e il risvegliatore del thread, la strada senza thread,
+il thread di lavoro lasciato cadere che finisce i suoi lavori, e la dimostrazione occupata mentre
+un progetto si apre con la chiusura che aspetta. `project.rs` e `files.rs` eseguono i lavori che
+causano (`settle`, `wait_for_project`).
+
+**Misurato** (`crates/core-model/benches/parts.rs`, `snapshot`): una copia costa circa **0,51 M istruzioni** per la partitura normale e **2,24 M** per quella
+pesante, molto meno di un fotogramma. Costa così poco perché il contenuto delle voci sta in blocchi
+condivisi con copia su scrittura (`Arc`, ADR-0022 §7, pensati proprio per fotografie come questa):
+la copia li condivide e duplica solo gli indici e le strutture piccole, e una modifica fatta dopo
+copia solo il blocco che tocca. ADR-0054 l'aveva stimata da `to_parts`, una copia completa (36 M
+per la partitura pesante); la sua precisione registra la misura.
 
 #### La finestra e il ciclo degli eventi
 

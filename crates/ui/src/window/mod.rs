@@ -102,6 +102,15 @@ pub trait WindowApp {
         let _ = clipboard;
     }
 
+    /// Receives the window's [`WindowWaker`] (ADR-0054 AR1, a precision of ADR-0040 W3 written in
+    /// F2.14a): called once, before the first layout. An app whose work finishes on another
+    /// thread (a project read or written by its worker) keeps it there and calls
+    /// [`WindowWaker::wake`] when an answer is ready; the window then starts a batch, so the app
+    /// finds the answer in its next [`advance`](Self::advance). The default drops it.
+    fn attach_waker(&mut self, waker: WindowWaker) {
+        let _ = waker;
+    }
+
     /// When the app wants to be woken without an event (an [`advance`](Self::advance) at that
     /// time), or `None` to wait for the next event (the default). Asked after every batch of
     /// events; an app built on [`Ui`](crate::Ui) answers [`Ui::next_wakeup`](crate::Ui).
@@ -240,6 +249,10 @@ impl<A: WindowApp + ?Sized> WindowApp for &mut A {
         (**self).attach_clipboard(clipboard);
     }
 
+    fn attach_waker(&mut self, waker: WindowWaker) {
+        (**self).attach_waker(waker);
+    }
+
     fn next_wakeup(&self) -> Option<std::time::Instant> {
         (**self).next_wakeup()
     }
@@ -278,6 +291,53 @@ impl<A: WindowApp + ?Sized> WindowApp for &mut A {
 
     fn title(&self) -> Option<&str> {
         (**self).title()
+    }
+}
+
+/// Wakes the window's event loop from another thread (ADR-0054 AR1, a precision of ADR-0040 W3
+/// written in F2.14a), handed to the app with [`WindowApp::attach_waker`].
+///
+/// # How it works
+/// [`wake`](Self::wake) sends an empty event through the loop's proxy, the same channel the file
+/// chooser's and the system appearance's answers already take. The loop then starts a batch:
+/// [`WindowApp::advance`] runs first (where the app looks at what its threads answered), and
+/// after the event the window takes the app's requests, its pointer shape and its damage, as
+/// after any event of the app. Waking a loop that is already awake costs one more, empty, batch.
+///
+/// # Why an empty event and not the answer itself
+/// The answers belong to the app (a project's document, its errors): carrying them in the window's
+/// own event type would make `orchestra-ui` know the app's types, against the crates' order
+/// (CLAUDE.md §2). The app keeps its own channel; the window only needs to be told to look.
+///
+/// # Threads
+/// `Clone` and `Send`: every thread that may finish work keeps its own copy. Once the loop has
+/// ended, [`wake`](Self::wake) does nothing.
+#[derive(Clone)]
+pub struct WindowWaker {
+    /// The event loop's proxy (ADR-0040 W3).
+    proxy: winit::event_loop::EventLoopProxy<appearance::ShellEvent>,
+}
+
+impl WindowWaker {
+    /// The waker of the loop `proxy` belongs to.
+    pub(crate) const fn new(
+        proxy: winit::event_loop::EventLoopProxy<appearance::ShellEvent>,
+    ) -> Self {
+        Self { proxy }
+    }
+
+    /// Asks the event loop for a batch (see the type's documentation). Never blocks: `winit`
+    /// queues the event and wakes the loop. O(1).
+    pub fn wake(&self) {
+        // An error only says the loop has ended: there is nobody left to wake.
+        let _closed = self.proxy.send_event(appearance::ShellEvent::Wake);
+    }
+}
+
+impl fmt::Debug for WindowWaker {
+    /// The proxy has nothing worth printing.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("WindowWaker")
     }
 }
 

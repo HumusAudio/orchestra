@@ -288,14 +288,21 @@ pub(crate) fn empty_update(focus: Option<WidgetId>, full: bool) -> TreeUpdate {
 
 /// The window node: named after the window, with the root widget as its first child and the
 /// open menus after it (F2.11d2a: a menu is drawn above the window's content, and assistive
-/// technologies find it as the window's own child, as they find a native popup menu).
+/// technologies find it as the window's own child, as they find a native popup menu). `busy`
+/// marks it as working while the interface's busy layer is up (ADR-0054 AR1, F2.14a).
 pub(crate) fn window_node(
     title: &str,
     root: WidgetId,
     menus: impl Iterator<Item = WidgetId>,
+    busy: bool,
 ) -> Node {
     let mut node = Node::new(Role::Window);
     node.set_label(title);
+    // AccessKit's `busy` (ARIA's `aria-busy`): the window is working and takes no input for a
+    // moment (the busy layer of ADR-0054 AR1).
+    if busy {
+        node.set_busy();
+    }
     node.push_child(NodeId(root.get()));
     for menu in menus {
         node.push_child(NodeId(menu.get()));
