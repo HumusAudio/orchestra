@@ -270,7 +270,7 @@ a copy beside the project (AR2); a journal of commands, a description only (AR3)
 - Recorded limits: one recovery copy per process (one window, one project); the undo history does
   not survive a crash; locks on network file systems (AR5).
 
-## Precisions of the implementation (F2.14a, to be approved by the owner)
+## Precisions of the implementation (F2.14a, approved by the owner on 2026-11-27)
 
 - **AP1, the snapshot costs much less than estimated.** Measured (`orchestra-core-model`'s
   `benches/parts.rs`, `snapshot`): `Document::clone` costs **0.51 M instructions** for the normal
