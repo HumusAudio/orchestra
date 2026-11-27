@@ -52,9 +52,9 @@ use orchestra_io::settings::{CustomTheme as FileCustom, Settings, ThemeChoice, T
 use orchestra_io::theme_file;
 use orchestra_ui::FileRequest;
 use orchestra_ui::{
-    Appearance, BuiltInTheme, Button, ButtonRole, Color, ColorToken, DialogKind, DialogSpec,
-    DisplayList, DropDown, FamilyToken, Flex, Grid, Label, LayoutProps, Length, SizeToken, Space,
-    Swatch, TextField, Theme, Track, Ui, UiError, Weight, WidgetId,
+    Appearance, BuiltInTheme, Button, ButtonRole, Color, ColorPicker, ColorToken, DialogKind,
+    DialogSpec, DisplayList, DropDown, FamilyToken, Flex, Label, LayoutProps, Length, SizeToken,
+    Space, SwatchButton, TextField, Theme, Ui, UiError, Weight, WidgetId,
 };
 
 use crate::demo::DemoMessage;
@@ -112,6 +112,14 @@ pub enum ThemeMessage {
     ExportReplace(bool),
     /// A report or an error of a theme file was closed.
     Closed,
+    /// The swatch of the colour token number `.0` was clicked: open its picker under its row,
+    /// or close it if it is the one open (F2.12b3b).
+    OpenPicker(usize),
+    /// The open picker's colour changed.
+    Picked(Color),
+    /// The open picker's *Enter* (`true`: keep the colour) or *Escape* (`false`: back to the
+    /// colour it opened with); it closes.
+    PickerDone(bool),
 }
 
 /// The theme editor's texts in one language (CLAUDE.md §7).
@@ -158,6 +166,11 @@ pub struct ThemeTexts {
     pub(crate) shared: SharedTexts,
     /// The texts of the theme files (F2.12b2b).
     pub(crate) files: files::FileTexts,
+    /// `prefs-theme-choose`, with `$color`: the swatch button's name (F2.12b3b).
+    pub choose: Template,
+    /// `prefs-theme-picker-square`, `-hue`, `-alpha`: the picker's parts for assistive
+    /// technologies.
+    pub picker_parts: [String; 3],
 }
 
 impl ThemeTexts {
@@ -195,14 +208,25 @@ impl ThemeTexts {
             color_names,
             shared: SharedTexts::new(localizer)?,
             files: files::FileTexts::new(localizer)?,
+            choose: template("prefs-theme-choose", &["color"])?,
+            picker_parts: [
+                text("prefs-theme-picker-square")?,
+                text("prefs-theme-picker-hue")?,
+                text("prefs-theme-picker-alpha")?,
+            ],
         })
     }
 
     /// Every text with one value in it, each holding its placeholder once (tests). The
     /// readability sentences are in [`ThemeTexts::issues`].
     #[must_use]
-    pub fn templates(&self) -> [&Template; 3] {
-        [&self.copy_name, &self.value_name, &self.delete_title]
+    pub fn templates(&self) -> [&Template; 4] {
+        [
+            &self.copy_name,
+            &self.value_name,
+            &self.delete_title,
+            &self.choose,
+        ]
     }
 
     /// Every readability sentence's template with how many times each of its two placeholders
@@ -498,6 +522,36 @@ const COLOR_MESSAGES: [fn(&str) -> DemoMessage; 24] = [
     color_message::<23>,
 ];
 
+/// The open colour picker's message (F2.12b3b): one picker is open at a time, so its colour
+/// needs no index.
+fn picked_message(color: Color) -> DemoMessage {
+    DemoMessage::Theme(ThemeMessage::Picked(color))
+}
+
+/// The open colour picker's *Enter* and *Escape*.
+fn picker_done_message(keep: bool) -> DemoMessage {
+    DemoMessage::Theme(ThemeMessage::PickerDone(keep))
+}
+
+/// The width of the warning mark's place in a colour's row, logical pixels: the same in every row,
+/// marked or not, so the names start on one line (an empty label measures nothing).
+const MARK_WIDTH: f32 = 18.0;
+
+/// The colour picker's width, logical pixels (it asks for 240; fixed, so the square keeps its
+/// proportions whatever the section's width).
+const PICKER_WIDTH: f32 = 240.0;
+
+/// The colour picker open under a row (F2.12b3b).
+#[derive(Debug, Clone, Copy)]
+struct OpenPicker {
+    /// The row's colour token number, in `ColorToken::ALL`'s order.
+    index: usize,
+    /// The colour when it opened: what *Escape* gives back.
+    original: Color,
+    /// The picker.
+    widget: WidgetId,
+}
+
 /// The message of the name field.
 fn rename_message(text: &str) -> DemoMessage {
     DemoMessage::Theme(ThemeMessage::Rename(text.to_owned()))
@@ -506,8 +560,12 @@ fn rename_message(text: &str) -> DemoMessage {
 /// One colour's row.
 #[derive(Debug, Clone, Copy)]
 struct Row {
+    /// The row's block: the row, and the colour picker under it while open (F2.12b3b).
+    block: WidgetId,
     /// The warning mark (a "●" in the warning colour, or nothing).
     mark: WidgetId,
+    /// The swatch, a button that opens the picker (F2.12b3b).
+    swatch: WidgetId,
     /// The value field.
     field: WidgetId,
     /// *Restore*.
@@ -571,6 +629,11 @@ pub struct ThemeEditor {
     half: Appearance,
     /// The text, lines and density rows (a custom theme, F2.12b2a).
     shared: Option<SharedRows>,
+    /// The colour picker open under a row, if any (F2.12b3b).
+    picker: Option<OpenPicker>,
+    /// The scroll area the editor is in, if any: the open picker is kept still in it while the
+    /// content above it changes height ([`ThemeEditor::keep_picker_still`]).
+    scroll: Option<WidgetId>,
     /// The colour the user changed last since this theme and half were shown: the readability
     /// warnings name it as the colour to fix (`readability`'s "culprit"). Forgotten when another
     /// theme or half is shown, and when the colour is restored.
@@ -649,6 +712,8 @@ impl ThemeEditor {
             rows: Vec::new(),
             readability: None,
             shared: None,
+            picker: None,
+            scroll: None,
             half,
             last_edited: None,
         };
@@ -761,6 +826,9 @@ impl ThemeEditor {
             message @ (ThemeMessage::Import
             | ThemeMessage::Export
             | ThemeMessage::ExportReplace(_)) => self.handle_files(texts, settings, &message),
+            ThemeMessage::OpenPicker(index) => self.toggle_picker(ui, texts, settings, index, list),
+            ThemeMessage::Picked(color) => self.picked(ui, texts, settings, color, list),
+            ThemeMessage::PickerDone(keep) => self.close_picker(ui, texts, settings, keep, list),
             ThemeMessage::Rename(name) => {
                 if rename_chosen(settings, &name) {
                     self.refresh_themes(ui, pairs, settings);
@@ -784,6 +852,8 @@ impl ThemeEditor {
                 };
                 set_color(settings, self.half, token, Some(color));
                 self.last_edited = Some(token);
+                // The open picker follows a code typed in its row's field (choice 3).
+                self.follow_in_picker(ui, index, color);
                 self.refresh_marks(ui, texts, settings, list);
                 ThemeOutcome::Theme
             }
@@ -796,14 +866,10 @@ impl ThemeEditor {
                 if self.last_edited == Some(token) {
                     self.last_edited = None;
                 }
-                // The field shows the base's value again.
-                let value = color_text(instance(settings, self.half).color(token));
-                if let Some(row) = self.rows.get(index)
-                    && let Some(widget) = ui.widget_mut::<TextField<DemoMessage>>(row.field)
-                {
-                    widget.set_text(&value);
-                    ui.request_layout(row.field);
-                }
+                // The field, and the open picker of this row, show the base's value again.
+                let value = instance(settings, self.half).color(token);
+                self.show_field(ui, index, value);
+                self.follow_in_picker(ui, index, value);
                 self.refresh_marks(ui, texts, settings, list);
                 ThemeOutcome::Theme
             }
@@ -855,6 +921,195 @@ impl ThemeEditor {
             },
             _ => ThemeOutcome::None,
         }
+    }
+
+    /// The swatch of row `index` was clicked (F2.12b3b): the picker opens under it (closing
+    /// another one, keeping its colour), or closes if it is this row's (keeping the colour). The
+    /// picker shows the half on screen, the transparency strip only for a colour transparent in
+    /// the theme's base (choice 4), and takes the focus.
+    fn toggle_picker(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &ThemeTexts,
+        settings: &mut Settings,
+        index: usize,
+        list: &mut DisplayList,
+    ) -> ThemeOutcome {
+        let same = self.picker.is_some_and(|open| open.index == index);
+        let outcome = self.close_picker(ui, texts, settings, true, list);
+        if same {
+            return outcome;
+        }
+        let (Some(&token), Some(row), Some(name)) = (
+            ColorToken::ALL.get(index),
+            self.rows.get(index).copied(),
+            texts.color_names.get(index),
+        ) else {
+            return outcome;
+        };
+        let current = instance(settings, self.half).color(token);
+        let base = chosen_custom(settings)
+            .and_then(|i| settings.theme.custom.get(i))
+            .map_or(current, |custom| {
+                BuiltInTheme::from_id(&custom.base)
+                    .unwrap_or_default()
+                    .pair()
+                    .instance(self.half)
+                    .color(token)
+            });
+        let [square, hue, alpha] = &texts.picker_parts;
+        let picker = ColorPicker::new(current, picked_message)
+            .with_alpha(base.a < u8::MAX)
+            .labelled(name, square, hue, alpha)
+            .on_done(picker_done_message);
+        // Fails only if the interface's own tree is inconsistent: no picker opens then.
+        if let Ok(widget) = ui.add(
+            row.block,
+            picker,
+            LayoutProps::default().width(Length::Fixed(PICKER_WIDTH)),
+        ) {
+            self.picker = Some(OpenPicker {
+                index,
+                original: current,
+                widget,
+            });
+            // Laid out first, then focused: the focus brings the picker into view (WF5), which
+            // needs its rectangle (focused before its layout, it stayed below the visible part
+            // when its row was low in the section, as the screenshot showed).
+            ui.frame(list);
+            let _ = ui.set_focus(Some(widget), list);
+        }
+        ui.frame(list);
+        outcome
+    }
+
+    /// The open picker's colour changed (F2.12b3b): the colour is the theme's at once (the whole
+    /// window is the preview, choice 6), its field shows the code, and the readability follows.
+    fn picked(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &ThemeTexts,
+        settings: &mut Settings,
+        color: Color,
+        list: &mut DisplayList,
+    ) -> ThemeOutcome {
+        let Some(open) = self.picker else {
+            return ThemeOutcome::None;
+        };
+        let Some(&token) = ColorToken::ALL.get(open.index) else {
+            return ThemeOutcome::None;
+        };
+        set_color(settings, self.half, token, Some(color));
+        self.last_edited = Some(token);
+        self.show_field(ui, open.index, color);
+        self.refresh_marks(ui, texts, settings, list);
+        ThemeOutcome::Theme
+    }
+
+    /// Closes the open picker, if any (F2.12b3b): `keep` leaves the colour as it is (Enter, a new
+    /// click on the swatch, another swatch); otherwise the colour goes back to the one it opened
+    /// with (Escape). The focus goes back to the row's swatch.
+    fn close_picker(
+        &mut self,
+        ui: &mut Ui<DemoMessage>,
+        texts: &ThemeTexts,
+        settings: &mut Settings,
+        keep: bool,
+        list: &mut DisplayList,
+    ) -> ThemeOutcome {
+        let Some(open) = self.picker.take() else {
+            return ThemeOutcome::None;
+        };
+        let mut outcome = ThemeOutcome::None;
+        if !keep && let Some(&token) = ColorToken::ALL.get(open.index) {
+            set_color(settings, self.half, token, Some(open.original));
+            self.show_field(ui, open.index, open.original);
+            self.refresh_marks(ui, texts, settings, list);
+            outcome = ThemeOutcome::Theme;
+        }
+        // Fails only if the interface's own tree is inconsistent: the picker then stays drawn.
+        let _ = ui.remove(open.widget, list);
+        if let Some(row) = self.rows.get(open.index) {
+            let _ = ui.set_focus(Some(row.swatch), list);
+        }
+        ui.frame(list);
+        outcome
+    }
+
+    /// Writes `color`'s code in the field of row `index`, as the field shows it.
+    fn show_field(&self, ui: &mut Ui<DemoMessage>, index: usize, color: Color) {
+        if let Some(row) = self.rows.get(index)
+            && let Some(widget) = ui.widget_mut::<TextField<DemoMessage>>(row.field)
+        {
+            let text = color_text(color);
+            if widget.text() != text {
+                widget.set_text(&text);
+                ui.request_layout(row.field);
+            }
+        }
+    }
+
+    /// The open picker follows `color`, set elsewhere (typed in the field, restored), when it is
+    /// row `index`'s (F2.12b3b, choice 3).
+    fn follow_in_picker(&self, ui: &mut Ui<DemoMessage>, index: usize, color: Color) {
+        if let Some(open) = self.picker.filter(|open| open.index == index)
+            && let Some(picker) = ui.widget_mut::<ColorPicker<DemoMessage>>(open.widget)
+        {
+            picker.set_color(color);
+            ui.request_record(open.widget);
+        }
+    }
+
+    /// The scroll area the editor is in (the Appearance section's), so the open colour picker can
+    /// be kept still while the readability warnings above it come and go (F2.12b3b).
+    pub const fn set_scroll_area(&mut self, scroll: Option<WidgetId>) {
+        self.scroll = scroll;
+    }
+
+    /// Keeps the open picker where it was in the window, `before` being its top edge before a
+    /// change was laid out (F2.12b3b, the owner's report of 2026-11-26).
+    ///
+    /// # Why
+    /// The readability warnings sit at the top of the section, above the picker. A colour that
+    /// makes a pair hard to read adds a sentence, one that fixes it removes one: everything below
+    /// moves by a line while the scroll offset stays, so the picker, and the colour under the
+    /// pointer, ran away during a drag. As browsers' scroll anchoring does, the offset moves by
+    /// the same amount, so the picker stays put. Clamped by the area at its next layout, so it
+    /// never scrolls past the content.
+    fn keep_picker_still(
+        &self,
+        ui: &mut Ui<DemoMessage>,
+        before: Option<f32>,
+        list: &mut DisplayList,
+    ) {
+        let (Some(before), Some(open), Some(scroll)) = (before, self.picker, self.scroll) else {
+            return;
+        };
+        let Some(after) = ui.rect(open.widget).map(|rect| rect.y0) else {
+            return;
+        };
+        let moved = after - before;
+        if moved.abs() < 0.01 {
+            return;
+        }
+        if let Some(area) = ui.widget_mut::<orchestra_ui::ScrollArea>(scroll) {
+            let offset = area.offset();
+            area.set_offset(orchestra_ui::Point::new(offset.x, offset.y + moved));
+            ui.request_layout(scroll);
+            ui.frame(list);
+        }
+    }
+
+    /// The colour picker open now, if any (tests).
+    #[must_use]
+    pub fn open_picker(&self) -> Option<WidgetId> {
+        self.picker.map(|open| open.widget)
+    }
+
+    /// The swatch of colour token number `index` (tests).
+    #[must_use]
+    pub fn swatch(&self, index: usize) -> Option<WidgetId> {
+        self.rows.get(index).map(|row| row.swatch)
     }
 
     /// The file chooser answered (F2.12b2b): `path`, or `None` when cancelled. An import reads
@@ -1063,6 +1318,10 @@ impl ThemeEditor {
         }
         self.half = half;
         self.last_edited = None;
+        // A picker showing the other half closes, its colour kept (it was applied as it moved).
+        if let Some(open) = self.picker.take() {
+            let _ = ui.remove(open.widget, list);
+        }
         let theme = instance(settings, half);
         for (row, token) in self.rows.iter().zip(ColorToken::ALL) {
             if let Some(widget) = ui.widget_mut::<TextField<DemoMessage>>(row.field) {
@@ -1116,6 +1375,8 @@ impl ThemeEditor {
         self.rows.clear();
         self.readability = None;
         self.shared = None;
+        // Its block goes with the rows: the picker is removed with them.
+        self.picker = None;
         self.last_edited = None;
         let custom = chosen_custom(settings).and_then(|index| settings.theme.custom.get(index));
         for button in [self.delete, self.export] {
@@ -1203,66 +1464,56 @@ impl ThemeEditor {
         theme: &Theme,
     ) -> Result<(), UiError> {
         let wide = LayoutProps::default().width(Length::Fill(1.0));
-        let count = u16::try_from(ColorToken::ALL.len()).unwrap_or(u16::MAX);
-        let grid = ui.add(
-            self.area,
-            Grid::new(
-                // The names' column shares the room with the fields' column instead of taking
-                // its content's width: long names (French, German, the text at 150%) wrap on two
-                // lines rather than pushing *Restore* out of the window (owner's report of
-                // 2026-11-26, found for the colours by the test of every language).
-                vec![
-                    Track::Content,
-                    Track::Fill(1.0),
-                    Track::Content,
-                    Track::Fill(1.0),
-                    Track::Content,
-                ],
-                vec![Track::Content; usize::from(count)],
-                Space::S,
-                Space::None,
-            ),
-            wide,
-        )?;
-        let center = |row: u16, column: u16| {
-            LayoutProps::default()
-                .cell(row, column)
-                .align(orchestra_ui::Align::Start, orchestra_ui::Align::Center)
+        let centred = |props: LayoutProps| {
+            props.align(orchestra_ui::Align::Start, orchestra_ui::Align::Center)
         };
-        for ((r, token), name) in (0_u16..).zip(ColorToken::ALL).zip(&texts.color_names) {
-            let index = usize::from(r);
+        // One block per colour (F2.12b3b): its row, and below it the colour picker while it is
+        // open (choice B: inside the list, under its row). The rows are not a grid any more, so
+        // that a picker can sit between two of them; they still line up, every row having the
+        // same parts with the same widths (the mark fixed, the name and the field sharing the
+        // rest equally, the swatch and *Restore* the same size in every row).
+        let column = ui.add(self.area, Flex::column(Space::S, Space::None), wide)?;
+        for (index, (token, name)) in ColorToken::ALL.iter().zip(&texts.color_names).enumerate() {
+            let block = ui.add(column, Flex::column(Space::S, Space::None), wide)?;
+            let row = ui.add(block, Flex::row(Space::S, Space::None), wide)?;
             let mark = ui.add(
-                grid,
+                row,
                 Label::new(String::new()).color(ColorToken::Warning),
-                center(r, 0),
+                centred(LayoutProps::default().width(Length::Fixed(MARK_WIDTH))),
             )?;
-            ui.add(
-                grid,
-                Label::new(name.clone()).wrapping(),
-                center(r, 1).width(Length::Fill(1.0)),
+            ui.add(row, Label::new(name.clone()).wrapping(), centred(wide))?;
+            let swatch = ui.add(
+                row,
+                SwatchButton::new(
+                    *token,
+                    DemoMessage::Theme(ThemeMessage::OpenPicker(index)),
+                    texts.choose.fill(&[name]),
+                ),
+                centred(LayoutProps::default()),
             )?;
-            ui.add(grid, Swatch::new(*token), center(r, 2))?;
             let message = COLOR_MESSAGES
                 .get(index)
                 .copied()
                 .unwrap_or(color_message::<0>);
             let field = ui.add(
-                grid,
+                row,
                 TextField::new(&color_text(theme.color(*token)), message)
                     .on_change(message)
                     .labelled(texts.value_name.fill(&[name])),
-                center(r, 3).width(Length::Fill(1.0)),
+                centred(wide),
             )?;
             let restore = ui.add(
-                grid,
+                row,
                 Button::new(
                     texts.restore.clone(),
                     DemoMessage::Theme(ThemeMessage::Restore(index)),
                 ),
-                center(r, 4),
+                centred(LayoutProps::default()),
             )?;
             self.rows.push(Row {
+                block,
                 mark,
+                swatch,
                 field,
                 restore,
             });
@@ -1279,6 +1530,11 @@ impl ThemeEditor {
         settings: &Settings,
         list: &mut DisplayList,
     ) {
+        // Where the open picker is now, to keep it there however the sentences above change.
+        let picker_top = self
+            .picker
+            .and_then(|open| ui.rect(open.widget))
+            .map(|rect| rect.y0);
         let Some(custom) =
             chosen_custom(settings).and_then(|index| settings.theme.custom.get(index))
         else {
@@ -1347,6 +1603,7 @@ impl ThemeEditor {
             }
         }
         ui.frame(list);
+        self.keep_picker_still(ui, picker_top, list);
     }
 }
 

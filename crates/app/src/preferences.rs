@@ -334,7 +334,9 @@ pub fn show_section(
     };
     // Appearance scrolls (F2.12b1: the theme editor's 24 colours do not fit a small window); the
     // others are short.
-    let parent = if section == Section::Appearance {
+    // The column the section's controls go in, and for Appearance the scroll area around it (the
+    // theme editor keeps its open colour picker still in it, F2.12b3b).
+    let (parent, scroll) = if section == Section::Appearance {
         let fill = LayoutProps::default()
             .width(Length::Fill(1.0))
             .height(Length::Fill(1.0));
@@ -344,13 +346,14 @@ pub fn show_section(
         // everything: a ring reaches 1 px + `focus-width` (3 px) beyond its control, and the
         // small gap is 8 px (4 px compact). Without it the ring's left side was cut (owner's
         // report of 2026-11-26; the rule is in `ScrollArea`'s documentation).
-        ui.add(
+        let column = ui.add(
             scroll,
             Flex::column(Space::M, Space::S),
             LayoutProps::default().width(Length::Fill(1.0)),
-        )?
+        )?;
+        (column, Some(scroll))
     } else {
-        view.pane
+        (view.pane, None)
     };
     let grid = ui.add(
         parent,
@@ -370,7 +373,15 @@ pub fn show_section(
     let control = |row: u16| LayoutProps::default().cell(row, 1);
     match section {
         Section::Appearance => {
-            return appearance_section(ui, parent, grid, texts, settings, appearance, list);
+            return appearance_section(
+                ui,
+                (parent, scroll),
+                grid,
+                texts,
+                settings,
+                appearance,
+                list,
+            );
         }
         Section::Language => {
             ui.add(grid, Label::new(texts.language.clone()), label(0))?;
@@ -414,7 +425,7 @@ pub fn show_section(
 /// The interface's, if its own tree is inconsistent (never expected).
 fn appearance_section(
     ui: &mut Ui<DemoMessage>,
-    parent: WidgetId,
+    (parent, scroll): (WidgetId, Option<WidgetId>),
     grid: WidgetId,
     texts: &PreferencesTexts,
     settings: &Settings,
@@ -461,7 +472,7 @@ fn appearance_section(
         control(2),
     )?;
     // The theme editor under the grid (F2.12b1).
-    let editor = ThemeEditor::build(
+    let mut editor = ThemeEditor::build(
         ui,
         parent,
         themes,
@@ -470,6 +481,7 @@ fn appearance_section(
         appearance,
         list,
     )?;
+    editor.set_scroll_area(scroll);
     ui.frame(list);
     Ok(SectionWidgets {
         playback_labels: Vec::new(),

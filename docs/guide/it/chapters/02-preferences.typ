@@ -70,6 +70,19 @@ valore e *Ripristina*. Scrivi il valore come sul web, `#` seguito da sei cifre e
 Appena il valore è un colore, tutta la finestra lo prende: le Preferenze stesse ti mostrano il
 risultato. *Ripristina* ridà al colore il valore del tema da cui era nato.
 
+Non serve conoscere i codici dei colori: fai clic sul campione di un colore e sotto la sua riga si
+apre un selettore. Nel quadrato grande, verso destra il colore è più intenso e verso l'alto più
+luminoso; la striscia sotto sceglie la tinta, dal rosso attraverso il verde e il blu fino di nuovo al
+rosso; per un colore trasparente, come l'ombra, una terza striscia regola la trasparenza. I due
+campioni in fondo mostrano il colore di prima e quello di adesso. La finestra cambia mentre ti muovi.
+Premi Invio, o fai di nuovo clic sul campione, per tenere il colore; Esc ridà il colore da cui eri
+partito. Il codice nella casella segue il selettore, e il selettore segue un codice che scrivi.
+
+#screenshot-placeholder(
+  [Screenshot: il selettore dei colori aperto sotto il colore d'accento (theme-picker.png)],
+  [Il selettore dei colori: il quadrato, la striscia della tinta, e il colore di prima e di adesso.],
+)
+
 #screenshot-placeholder(
   [Screenshot: un tema tuo con il colore d'accento cambiato (theme-editor.png)],
   [Una copia di Studio con l'accento blu: tutta la finestra lo usa già.],

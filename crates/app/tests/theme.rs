@@ -969,3 +969,158 @@ fn imports_report_what_was_not_used_and_refuse_other_files() {
     assert_eq!(demo.ui().dialogs().count(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The swatch opens the picker under its row, with the focus; the arrows change the colour at
+/// once (saved, sent to the window, written in the field); Enter keeps it and closes, the focus
+/// back on the swatch; a second click on the swatch closes too (F2.12b3b).
+#[test]
+fn the_swatch_opens_the_picker_under_its_row() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let index = row(ColorToken::Accent);
+    let editor = demo.theme_editor().unwrap();
+    let (swatch, field) = (editor.swatch(index).unwrap(), editor.field(index).unwrap());
+    let next_field = editor.field(index + 1).unwrap();
+    assert_eq!(editor.open_picker(), None);
+    press(&mut demo, &mut list, swatch);
+    let picker = demo.theme_editor().unwrap().open_picker().unwrap();
+    assert_eq!(demo.ui().focused(), Some(picker));
+    // Brought into view whole, inside the section's visible part.
+    let panel = demo.preferences().unwrap();
+    let (viewport, _) = ring_room(&demo, panel).unwrap();
+    let shown = demo.ui().rect(picker).unwrap();
+    assert!(
+        shown.y0 >= viewport.y0 && shown.y1 <= viewport.y1,
+        "{shown:?} in {viewport:?}"
+    );
+    // Under its row, above the next one.
+    let y = |id| demo.ui().rect(id).unwrap().y0;
+    assert!(y(field) < y(picker) && y(picker) < y(next_field));
+    let _ = sent_theme(&mut demo, Appearance::Light);
+    let before = field_text(&demo, field);
+    // Down: darker by 4%.
+    press_key(&mut demo, &mut list, NamedKey::ArrowDown);
+    let after = field_text(&demo, field);
+    assert_ne!(before, after, "the field follows");
+    let saved = saved(&demo, Appearance::Light, ColorToken::Accent).unwrap();
+    assert_eq!(format!("#{:06x}", saved >> 8), after);
+    let sent = sent_theme(&mut demo, Appearance::Light).unwrap();
+    assert_eq!(
+        hex(sent.color(ColorToken::Accent)),
+        after,
+        "the window shows it"
+    );
+    // Enter keeps it and closes; the Preferences stay open.
+    press_key(&mut demo, &mut list, NamedKey::Enter);
+    assert_eq!(demo.theme_editor().unwrap().open_picker(), None);
+    assert_eq!(demo.ui().focused(), Some(swatch));
+    assert_eq!(demo.ui().dialogs().count(), 1);
+    assert_eq!(field_text(&demo, field), after);
+    // Open and close again with the swatch.
+    press(&mut demo, &mut list, swatch);
+    assert!(demo.theme_editor().unwrap().open_picker().is_some());
+    press(&mut demo, &mut list, swatch);
+    assert_eq!(demo.theme_editor().unwrap().open_picker(), None);
+}
+
+/// Escape gives back the colour the picker opened with and closes it, not the Preferences; a code
+/// typed in the field moves the open picker; opening another row's picker closes the first.
+#[test]
+fn escape_cancels_and_the_field_and_picker_follow_each_other() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let index = row(ColorToken::Accent);
+    let editor = demo.theme_editor().unwrap();
+    let (swatch, field) = (editor.swatch(index).unwrap(), editor.field(index).unwrap());
+    let original = field_text(&demo, field);
+    press(&mut demo, &mut list, swatch);
+    for _ in 0..5 {
+        press_key(&mut demo, &mut list, NamedKey::ArrowLeft);
+    }
+    assert_ne!(field_text(&demo, field), original);
+    press_key(&mut demo, &mut list, NamedKey::Escape);
+    assert_eq!(
+        field_text(&demo, field),
+        original,
+        "back to the opening colour"
+    );
+    assert_eq!(saved(&demo, Appearance::Light, ColorToken::Accent), None);
+    assert_eq!(demo.theme_editor().unwrap().open_picker(), None);
+    assert_eq!(demo.ui().dialogs().count(), 1, "the Preferences stay");
+    // The field moves the open picker.
+    press(&mut demo, &mut list, swatch);
+    let picker = demo.theme_editor().unwrap().open_picker().unwrap();
+    type_into(&mut demo, &mut list, field, "#00ff00");
+    let shown = demo
+        .ui()
+        .widget::<orchestra_ui::ColorPicker<DemoMessage>>(picker)
+        .unwrap()
+        .color();
+    assert_eq!(shown, Color::rgba(0x00ff_00ff));
+    // Another row's swatch: this one closes (its colour kept), that one opens.
+    let other = demo
+        .theme_editor()
+        .unwrap()
+        .swatch(row(ColorToken::Text))
+        .unwrap();
+    press(&mut demo, &mut list, other);
+    let second = demo.theme_editor().unwrap().open_picker().unwrap();
+    assert_ne!(second, picker);
+    assert!(demo.ui().rect(picker).is_none(), "the first is gone");
+    assert_eq!(
+        saved(&demo, Appearance::Light, ColorToken::Accent),
+        Some(0x00ff_00ff)
+    );
+}
+
+/// The transparency strip only for a colour transparent in the theme's base (the shadow).
+#[test]
+fn transparency_only_for_transparent_colours() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let has_alpha = |demo: &mut Demo, list: &mut DisplayList, token: ColorToken| {
+        let swatch = demo.theme_editor().unwrap().swatch(row(token)).unwrap();
+        press(demo, list, swatch);
+        let picker = demo.theme_editor().unwrap().open_picker().unwrap();
+        // Tab twice inside a picker with three parts stays in it.
+        press_key(demo, list, NamedKey::Tab);
+        press_key(demo, list, NamedKey::Tab);
+        let inside = demo.ui().focused() == Some(picker);
+        press_key(demo, list, NamedKey::Escape);
+        inside
+    };
+    assert!(has_alpha(&mut demo, &mut list, ColorToken::Shadow));
+    assert!(!has_alpha(&mut demo, &mut list, ColorToken::Accent));
+}
+
+/// While the picker is used, the readability warnings at the top come and go (a darker accent
+/// makes the text on it hard to read): the picker stays where it is in the window, so the colour
+/// under the pointer does not run away (owner's report of 2026-11-26: the section seemed to scroll
+/// while dragging up and down in the square).
+#[test]
+fn the_picker_stays_still_while_warnings_come_and_go() {
+    let (mut demo, mut list) = appearance_section();
+    duplicate(&mut demo, &mut list);
+    let swatch = demo
+        .theme_editor()
+        .unwrap()
+        .swatch(row(ColorToken::Accent))
+        .unwrap();
+    press(&mut demo, &mut list, swatch);
+    let picker = demo.theme_editor().unwrap().open_picker().unwrap();
+    let readability = demo.theme_editor().unwrap().readability_column().unwrap();
+    let lines = |demo: &Demo| labels_under(demo, readability).len();
+    let before = lines(&demo);
+    let y = demo.ui().rect(picker).unwrap().y0;
+    // Brighter and brighter: sooner or later text on the accent is hard to read.
+    for _ in 0..25 {
+        press_key(&mut demo, &mut list, NamedKey::ArrowUp);
+        press_key(&mut demo, &mut list, NamedKey::ArrowLeft);
+    }
+    assert_ne!(lines(&demo), before, "warnings appeared above the picker");
+    let after = demo.ui().rect(picker).unwrap().y0;
+    assert!(
+        (after - y).abs() < 0.5,
+        "the picker moved from {y} to {after}"
+    );
+}

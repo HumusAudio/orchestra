@@ -42,9 +42,9 @@ New ADRs: `docs/adr/NNNN-short-title.md`, next free number, same structure.
 | [0032](0032-midi-file-export-v0.md) | MIDI file export v0: Standard MIDI File 1.0, written by us | Accepted (E9 amended by ADR-0033) |
 | [0033](0033-midi-half-way-key.md) | One rule for a pitch half way between two MIDI keys: the lower key | Accepted |
 | [0034](0034-public-api-policy.md) | Public API of the library crates: one path per item, exhaustive errors | Accepted |
-| [0035](0035-release-build-profile.md) | Release build profile: one codegen unit per crate | Accepted |
+| [0035](0035-release-build-profile.md) | Release build profile: one codegen unit per crate | Accepted (precision F2.12b3b: the development profile) |
 | [0036](0036-ui-building-blocks.md) | UI building blocks: versions, features, native libraries (amends ADR-0012) | Accepted |
-| [0037](0037-themes-tokens-and-customisation.md) | Themes: tokens, ten built-in pairs, user customisation (amends ADR-0014) | Accepted (precisions F2.12b1, F2.12b2a) |
+| [0037](0037-themes-tokens-and-customisation.md) | Themes: tokens, ten built-in pairs, user customisation (amends ADR-0014) | Accepted (precisions F2.12b1, F2.12b2a, F2.12b3) |
 | [0038](0038-system-theme-detection.md) | Reading the system light/dark preference: our portal code on Linux, winit elsewhere | Accepted |
 | [0039](0039-drawing-abstraction.md) | The drawing abstraction: a segmented display list of themed commands | Accepted (precisions F2.11c, F2.12b3a) |
 | [0040](0040-window-and-event-loop.md) | The window and the event loop: on-demand frames, our own input events | Accepted (precisions F2.09e, F2.10b2, F2.10c1, F2.10c2, F2.11d1, F2.12a4a, F2.12a5b, F2.12b1) |
